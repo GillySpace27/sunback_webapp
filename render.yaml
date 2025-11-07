@@ -1,0 +1,13 @@
+# render.yaml
+services:
+  - type: web
+    name: solar-archive
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn webapp.api.main:app --host 0.0.0.0 --port 10000
+    plan: free
+    envVars:
+      - key: PRINTFUL_API_KEY
+        sync: false
+      - key: SOLAR_ARCHIVE_OUTPUT_DIR
+        value: /tmp/output
