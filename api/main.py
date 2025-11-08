@@ -23,11 +23,22 @@ else:
 
 os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
 os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
-os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
-os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
+# os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
+# os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
 os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
 os.environ["JSOC_BASEURL"] = "https://jsoc.stanford.edu"
 os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
+os.environ["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
+os.environ["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
+
+# Set SOLAR_ARCHIVE_ASSET_BASE_URL if missing, based on environment
+if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
+    if os.getenv("RENDER"):
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com"
+        print("[startup] Using default public asset base URL for Render: https://solar-archive.onrender.com", flush=True)
+    else:
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000"
+        print("[startup] Using local asset base URL: http://127.0.0.1:8000", flush=True)
 
 os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
 
@@ -208,7 +219,7 @@ class GenerateRequest(BaseModel):
     png_dpi: int = 300
     png_size_inches: float = 10.0  # square figure size; 10in at 300dpi → 3000px
     # optional per-product metadata for Printful (kept generic)
-    printful_purpose: Optional[str] = "poster"
+    printful_purpose: Optional[str] = "default"
     title: Optional[str] = None
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -881,19 +892,55 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     start_time = time.time()
     if not PRINTFUL_API_KEY:
         raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
-    headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}"}
-    with open(image_path, "rb") as f:
-        files = {"file": (os.path.basename(image_path), f, "image/png")}
-        data = {}
-        if title:
-            data["filename"] = title
-        if purpose:
-            data["purpose"] = purpose
-        r = requests.post(f"{PRINTFUL_BASE_URL}/files", headers=headers, files=files, data=data, timeout=60)
-    if r.status_code >= 300:
-        raise HTTPException(status_code=r.status_code, detail=f"Printful upload failed: {r.text}")
+    # Normalize purpose to allowed Printful options
+    allowed_purposes = {"default", "preview", "mockup"}
+    normalized_purpose = purpose if purpose in allowed_purposes else "default"
+    file_size = os.path.getsize(image_path)
+    print(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...", flush=True)
+
+    # Compose the file_url for Printful API
+    file_url = f"{ASSET_BASE_URL or 'http://127.0.0.1:8000'}/asset/{os.path.basename(image_path)}"
+    payload = {"file_url": file_url, "purpose": normalized_purpose}
+    headers = {
+        "Authorization": f"Bearer {PRINTFUL_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    print(f"[upload][debug] Uploading via JSON file_url={file_url}", flush=True)
+    print(f"[upload][debug] Full upload URL = {PRINTFUL_BASE_URL}/files", flush=True)
+    print(f"[upload][debug] Using PRINTFUL_BASE_URL={PRINTFUL_BASE_URL}", flush=True)
+    r = requests.post(
+        f"{PRINTFUL_BASE_URL}/files",
+        headers=headers,
+        json=payload,
+        timeout=90
+    )
     end_time = time.time()
     print(f"[upload] Printful upload completed in {end_time - start_time:.2f}s", flush=True)
+    try:
+        result = r.json()
+    except ValueError:
+        result = json.loads(r.text)
+    print(result, flush=True)
+    return result
+
+# Helper to create a Printful product from an uploaded printfile
+def printful_create_product(printfile_id: int, title: str, description: str = ""):
+    if not PRINTFUL_API_KEY:
+        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
+    headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "sync_product": {"name": title, "thumbnail": None},
+        "sync_variants": [{
+            "retail_price": "29.99",
+            "variant_id": 4011,  # 12x18 poster
+            "files": [{"id": printfile_id}],
+            "options": [{"id": "frame", "value": "black"}],
+        }]
+    }
+    r = requests.post(f"{PRINTFUL_BASE_URL}/store/products", headers=headers, json=payload)
+    print(f"{PRINTFUL_BASE_URL}/store/products")
+    if r.status_code >= 300:
+        raise HTTPException(status_code=r.status_code, detail=f"Product creation failed: {r.text}")
     return r.json()
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -967,6 +1014,14 @@ async def generate(req: GenerateRequest):
                 pf_url = pf.get("url") if isinstance(pf, dict) else None
             if pf_url:
                 resp["printful_url"] = pf_url
+            # Create Printful product after upload
+            try:
+                file_id = pf.get("result", {}).get("id")
+                if file_id:
+                    product = printful_create_product(file_id, req.title or f"Sun on {req.date}")
+                    resp["printful_product"] = product
+            except Exception as e:
+                print(f"[upload] Printful product creation failed: {e}", flush=True)
         out_png = paths["path"]
         final_png_to_open = out_png
         return_json = resp
@@ -1042,6 +1097,14 @@ async def generate(req: GenerateRequest):
                 pf_url = pf.get("url") if isinstance(pf, dict) else None
             if pf_url:
                 resp["printful_url"] = pf_url
+            # Create Printful product after upload
+            try:
+                file_id = pf.get("result", {}).get("id")
+                if file_id:
+                    product = printful_create_product(file_id, req.title or f"Sun on {req.date}")
+                    resp["printful_product"] = product
+            except Exception as e:
+                print(f"[upload] Printful product creation failed: {e}", flush=True)
         out_png = new_paths["path"]
         final_png_to_open = out_png
         return_json = resp
@@ -1087,6 +1150,14 @@ async def generate(req: GenerateRequest):
                 pf_url = pf.get("url") if isinstance(pf, dict) else None
             if pf_url:
                 resp["printful_url"] = pf_url
+            # Create Printful product after upload
+            try:
+                file_id = pf.get("result", {}).get("id")
+                if file_id:
+                    product = printful_create_product(file_id, req.title or f"Sun on {req.date}")
+                    resp["printful_product"] = product
+            except Exception as e:
+                print(f"[upload] Printful product creation failed: {e}", flush=True)
 
         final_png_to_open = out_png
         return_json = resp
