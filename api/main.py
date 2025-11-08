@@ -71,7 +71,7 @@ def fetch_sync_safe(query):
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 APP_NAME = "Solar Archive Backend"
-OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", os.path.abspath("/Users/cgilbert/vscode/sunback/webapp/solar_archive_output/fits"))
+OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", os.path.join(base_tmp, "output"))
 ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
