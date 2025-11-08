@@ -134,6 +134,21 @@ JSOC_EMAIL = os.getenv("JSOC_EMAIL", "chris.gilly@colorado.edu")
 # ──────────────────────────────────────────────────────────────────────────────
 app = FastAPI(title=APP_NAME)
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://solar-archive.myshopify.com",
+        "https://admin.shopify.com",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/debug/vso")
 def debug_vso():
