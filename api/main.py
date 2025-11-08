@@ -1,37 +1,4 @@
-@app.post("/shopify/generate")
-async def shopify_generate(req: GenerateRequest):
-    """
-    Shopify-friendly JSON endpoint for custom solar prints.
-    Returns only JSON (no HTML preview).
-    """
-    print(f"[shopify_generate] Received request: {req}", flush=True)
-    try:
-        dt = datetime.strptime(req.date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
 
-    mission = req.mission if req.mission != "auto" else choose_mission(dt)
-    wl = req.wavelength
-    det = req.detector
-    smap = fido_fetch_map(dt, mission, wl, det)
-    if isinstance(smap, list) and len(smap) > 0:
-        smap = smap[0]
-    out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
-    map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
-    new_paths = local_path_and_url(os.path.basename(out_png))
-    resp = {
-        "mission": mission,
-        "date": req.date,
-        "meta": {
-            "instrument": smap.meta.get("instrume") or smap.meta.get("instrument"),
-            "detector": smap.meta.get("detector"),
-            "wavelength": smap.meta.get("wavelnth"),
-        },
-        "png_url": new_paths["url"],
-        "attribution": "Image courtesy of NASA/SDO (AIA) or ESA/NASA SOHO (EIT/LASCO). Not affiliated; no endorsement implied.",
-    }
-    print(f"[shopify_generate] Returning JSON response: {resp}", flush=True)
-    return JSONResponse(content=resp)
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
 
@@ -1481,3 +1448,38 @@ async def generate_stream(req: GenerateRequest):
 
 
     return EventSourceResponse(event_generator())
+
+@app.post("/shopify/generate")
+async def shopify_generate(req: GenerateRequest):
+    """
+    Shopify-friendly JSON endpoint for custom solar prints.
+    Returns only JSON (no HTML preview).
+    """
+    print(f"[shopify_generate] Received request: {req}", flush=True)
+    try:
+        dt = datetime.strptime(req.date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    mission = req.mission if req.mission != "auto" else choose_mission(dt)
+    wl = req.wavelength
+    det = req.detector
+    smap = fido_fetch_map(dt, mission, wl, det)
+    if isinstance(smap, list) and len(smap) > 0:
+        smap = smap[0]
+    out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
+    map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
+    new_paths = local_path_and_url(os.path.basename(out_png))
+    resp = {
+        "mission": mission,
+        "date": req.date,
+        "meta": {
+            "instrument": smap.meta.get("instrume") or smap.meta.get("instrument"),
+            "detector": smap.meta.get("detector"),
+            "wavelength": smap.meta.get("wavelnth"),
+        },
+        "png_url": new_paths["url"],
+        "attribution": "Image courtesy of NASA/SDO (AIA) or ESA/NASA SOHO (EIT/LASCO). Not affiliated; no endorsement implied.",
+    }
+    print(f"[shopify_generate] Returning JSON response: {resp}", flush=True)
+    return JSONResponse(content=resp)
