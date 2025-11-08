@@ -1449,13 +1449,28 @@ async def generate_stream(req: GenerateRequest):
 
     return EventSourceResponse(event_generator())
 
+from fastapi import Request
+
 @app.post("/shopify/generate")
-async def shopify_generate(req: GenerateRequest):
+async def shopify_generate(request: Request):
     """
     Shopify-friendly JSON endpoint for custom solar prints.
-    Returns only JSON (no HTML preview).
+    Accepts Shopify app proxy query params and returns JSON only.
     """
-    print(f"[shopify_generate] Received request: {req}", flush=True)
+    params = dict(request.query_params)
+    if "signature" in params:
+        print(f"[shopify_generate] Proxy signature received for shop={params.get('shop')}", flush=True)
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
+
+    try:
+        req = GenerateRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {e}")
+
     try:
         dt = datetime.strptime(req.date, "%Y-%m-%d")
     except ValueError:
@@ -1464,12 +1479,15 @@ async def shopify_generate(req: GenerateRequest):
     mission = req.mission if req.mission != "auto" else choose_mission(dt)
     wl = req.wavelength
     det = req.detector
+
     smap = fido_fetch_map(dt, mission, wl, det)
     if isinstance(smap, list) and len(smap) > 0:
         smap = smap[0]
+
     out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
     map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
     new_paths = local_path_and_url(os.path.basename(out_png))
+
     resp = {
         "mission": mission,
         "date": req.date,
