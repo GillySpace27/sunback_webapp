@@ -4,8 +4,22 @@
 from __future__ import annotations
 
 
+
 import os
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
+# This should run before any SunPy config or network code.
+import certifi
+if (
+    "SSL_CERT_FILE" not in os.environ
+    or not os.path.exists(os.environ["SSL_CERT_FILE"])
+):
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+    print(f"[startup] Set SSL_CERT_FILE to certifi.where(): {os.environ['SSL_CERT_FILE']}", flush=True)
+# Always force SSL to use certifi's CA bundle globally
+import ssl
+ssl._create_default_https_context = ssl._create_default_https_context
 
 # Ensure output directory exists
 OUTPUT_DIR = os.environ.get("SOLAR_ARCHIVE_OUTPUT_DIR", "/tmp/output")
@@ -28,8 +42,8 @@ os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
 os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
 os.environ["JSOC_BASEURL"] = "https://jsoc.stanford.edu"
 os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
-os.environ["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
-os.environ["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+os.environ["SSL_CERT_FILE"] = certifi.where()
 
 # Set SOLAR_ARCHIVE_ASSET_BASE_URL if missing, based on environment
 if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
@@ -37,8 +51,8 @@ if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
         os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com"
         print("[startup] Using default public asset base URL for Render: https://solar-archive.onrender.com", flush=True)
     else:
-        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000"
-        print("[startup] Using local asset base URL: http://127.0.0.1:8000", flush=True)
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000/asset/"
+        print("[startup] Using local asset base URL: http://127.0.0.1:8000/asset/", flush=True)
 
 os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
 
@@ -97,8 +111,10 @@ ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Printful
-PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", "")
+PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", None)
 PRINTFUL_BASE_URL = os.getenv("PRINTFUL_BASE_URL", "https://api.printful.com")
+print(f"{PRINTFUL_API_KEY = }")
+
 
 # Defaults
 DEFAULT_AIA_WAVELENGTH = 211 * u.angstrom
@@ -890,6 +906,8 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
 def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str]) -> Dict[str, Any]:
     print(f"[upload] Printful: {image_path}, title={title}, purpose={purpose}", flush=True)
     start_time = time.time()
+    # if not PRINTFUL_API_KEY:
+    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
     if not PRINTFUL_API_KEY:
         raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
     # Normalize purpose to allowed Printful options
@@ -899,7 +917,8 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     print(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...", flush=True)
 
     # Compose the file_url for Printful API
-    file_url = f"{ASSET_BASE_URL or 'http://127.0.0.1:8000'}/asset/{os.path.basename(image_path)}"
+    print(ASSET_BASE_URL)
+    file_url = f"{ASSET_BASE_URL or 'http://127.0.0.1:8000/'}{os.path.basename(image_path)}"
     # Use correct JSON keys for Printful upload
     json_data = {
         "url": file_url,
@@ -929,25 +948,58 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     print(result, flush=True)
     return result
 
-# Helper to create a Printful product from an uploaded printfile
-def printful_create_product(printfile_id: int, title: str, description: str = ""):
+# Helper to create a Printful manual order from an uploaded printfile
+def printful_create_order(file_id: int, title: str, recipient_info: Optional[dict] = None):
+    """
+    Create a one-off Printful manual order using the uploaded printfile.
+    recipient_info: dict with keys like name, address1, city, country_code, zip, email.
+    If not provided, uses dummy defaults.
+    """
+
+    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
+    # print("PRINTFUL_API_KEY", flush=True)
     if not PRINTFUL_API_KEY:
         raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
     headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "sync_product": {"name": title, "thumbnail": None},
-        "sync_variants": [{
-            "retail_price": "29.99",
-            "variant_id": 4011,  # 12x18 poster
-            "files": [{"id": printfile_id}],
-            "options": [{"id": "frame", "value": "black"}],
-        }]
+    # Minimal recipient data for Printful orders
+    default_recipient = {
+        "name": "Solar Archive Test",
+        "address1": "123 Example St",
+        "city": "Boulder",
+        "state_code": "CO",
+        "country_code": "US",
+        "zip": "80301",
+        "email": "test@example.com"
     }
-    r = requests.post(f"{PRINTFUL_BASE_URL}/store/products", headers=headers, json=payload)
-    print(f"{PRINTFUL_BASE_URL}/store/products")
+    recipient = recipient_info if recipient_info else default_recipient
+    # 12x18 poster variant (4011); you can adjust this as needed
+    items = [{
+        "variant_id": 4011,
+        "quantity": 1,
+        "files": [{"id": file_id}],
+        "name": title or "Solar Archive Poster"
+    }]
+    # Compose a safe, API-compliant external_id: short, alphanumeric, no dashes, max 32 chars
+    safe_external_id = f"SA{int(time.time())}{file_id}"[:32]
+    payload = {
+        "recipient": recipient,
+        "items": items,
+        "external_id": safe_external_id,
+    }
+    print(f"[printful][order] Using external_id={safe_external_id}", flush=True)
+    print(f"[printful][order] Creating manual order for file_id={file_id}, title={title}", flush=True)
+    r = requests.post(f"{PRINTFUL_BASE_URL}/orders", headers=headers, json=payload)
+    print(f"[printful][order] {PRINTFUL_BASE_URL}/orders")
+    try:
+        result = r.json()
+    except Exception:
+        result = {"error": r.text}
     if r.status_code >= 300:
-        raise HTTPException(status_code=r.status_code, detail=f"Product creation failed: {r.text}")
-    return r.json()
+        print(f"[printful][order][error] Order creation failed: {r.status_code} {r.text}", flush=True)
+        raise HTTPException(status_code=r.status_code, detail=f"Order creation failed: {r.text}")
+    order_id = result.get("result", {}).get("id") or result.get("id")
+    print(f"[printful][order] Order created with ID: {order_id}", flush=True)
+    return result
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Endpoints
@@ -1009,25 +1061,23 @@ async def generate(req: GenerateRequest):
             print(f"[upload] Printful: uploading cached file...", flush=True)
             pf = printful_upload(paths["path"], req.title or f"Sun on {req.date}", req.printful_purpose)
             resp["printful"] = pf
-            # Extract Printful direct image URL if present
             pf_url = None
             try:
                 pf_url = pf.get("result", {}).get("url")
             except Exception:
                 pf_url = None
             if not pf_url:
-                # Try alternate key or structure just in case
                 pf_url = pf.get("url") if isinstance(pf, dict) else None
             if pf_url:
                 resp["printful_url"] = pf_url
-            # Create Printful product after upload
+            # Create Printful order after upload
             try:
                 file_id = pf.get("result", {}).get("id")
                 if file_id:
-                    product = printful_create_product(file_id, req.title or f"Sun on {req.date}")
-                    resp["printful_product"] = product
+                    order = printful_create_order(file_id, req.title or f"Sun on {req.date}", None)
+                    resp["printful_order"] = order
             except Exception as e:
-                print(f"[upload] Printful product creation failed: {e}", flush=True)
+                print(f"[upload] Printful order creation failed: {e}", flush=True)
         out_png = paths["path"]
         final_png_to_open = out_png
         return_json = resp
@@ -1093,7 +1143,6 @@ async def generate(req: GenerateRequest):
             print(f"[upload] Printful: uploading cached file...", flush=True)
             pf = printful_upload(new_paths["path"], req.title or f"Sun on {req.date}", req.printful_purpose)
             resp["printful"] = pf
-            # Extract Printful direct image URL if present
             pf_url = None
             try:
                 pf_url = pf.get("result", {}).get("url")
@@ -1103,14 +1152,14 @@ async def generate(req: GenerateRequest):
                 pf_url = pf.get("url") if isinstance(pf, dict) else None
             if pf_url:
                 resp["printful_url"] = pf_url
-            # Create Printful product after upload
+            # Create Printful order after upload
             try:
                 file_id = pf.get("result", {}).get("id")
                 if file_id:
-                    product = printful_create_product(file_id, req.title or f"Sun on {req.date}")
-                    resp["printful_product"] = product
+                    order = printful_create_order(file_id, req.title or f"Sun on {req.date}", None)
+                    resp["printful_order"] = order
             except Exception as e:
-                print(f"[upload] Printful product creation failed: {e}", flush=True)
+                print(f"[upload] Printful order creation failed: {e}", flush=True)
         out_png = new_paths["path"]
         final_png_to_open = out_png
         return_json = resp
@@ -1146,7 +1195,6 @@ async def generate(req: GenerateRequest):
             upload_end = time.time()
             print(f"[upload] Printful upload took {upload_end - upload_start:.2f}s", flush=True)
             resp["printful"] = pf
-            # Extract Printful direct image URL if present
             pf_url = None
             try:
                 pf_url = pf.get("result", {}).get("url")
@@ -1156,14 +1204,14 @@ async def generate(req: GenerateRequest):
                 pf_url = pf.get("url") if isinstance(pf, dict) else None
             if pf_url:
                 resp["printful_url"] = pf_url
-            # Create Printful product after upload
+            # Create Printful order after upload
             try:
                 file_id = pf.get("result", {}).get("id")
                 if file_id:
-                    product = printful_create_product(file_id, req.title or f"Sun on {req.date}")
-                    resp["printful_product"] = product
+                    order = printful_create_order(file_id, req.title or f"Sun on {req.date}", None)
+                    resp["printful_order"] = order
             except Exception as e:
-                print(f"[upload] Printful product creation failed: {e}", flush=True)
+                print(f"[upload] Printful order creation failed: {e}", flush=True)
 
         final_png_to_open = out_png
         return_json = resp
