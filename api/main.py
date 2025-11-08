@@ -26,6 +26,8 @@ os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
 os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
 os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
 os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+os.environ["JSOC_BASEURL"] = "https://jsoc.stanford.edu"
+os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
 
 os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
 
@@ -418,9 +420,13 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 # Rewrite any JSOC HTTP URLs to HTTPS for secure download
                 files = [f.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu") for f in files]
                 print(f"[fetch] Rewrote JSOC URLs to HTTPS ({len(files)} files).", flush=True)
-                if not files or len(files) == 0:
-                    print(f"[fetch] [AIA] JSOCClient fetch returned no files, falling back to Fido.", flush=True)
-                    raise Exception("No files from JSOCClient fetch")
+            # If some downloads failed, files may be shorter than qr
+            if not files or len(files) == 0:
+                print(f"[fetch] [AIA] JSOCClient fetch returned no files, falling back to Fido.", flush=True)
+                raise Exception("No files from JSOCClient fetch")
+            if len(files) < len(qr):
+                print(f"[fetch] Warning: Only {len(files)} out of {len(qr)} JSOC files were downloaded successfully. Proceeding with available files.", flush=True)
+                print(f"[fetch] Proceeding with {len(files)} successfully downloaded files (skipped failed).", flush=True)
             maps = []
             for f in files:
                 try:
@@ -482,8 +488,12 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             files = existing_files
         else:
             files = Fido.fetch(qr, downloader=dl, path=target_dir)
+        # If some downloads failed, files may be shorter than qr[0]
         if not files or len(files) == 0:
             raise HTTPException(status_code=502, detail="No AIA files could be downloaded via Fido.")
+        if len(files) < len(qr[0]):
+            print(f"[fetch] Warning: Only {len(files)} out of {len(qr[0])} AIA files were downloaded successfully. Proceeding with available files.", flush=True)
+            print(f"[fetch] Proceeding with {len(files)} successfully downloaded files (skipped failed).", flush=True)
         maps = []
         for f in files:
             try:
