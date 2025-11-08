@@ -876,6 +876,17 @@ async def generate(req: GenerateRequest):
             print(f"[upload] Printful: uploading cached file...", flush=True)
             pf = printful_upload(paths["path"], req.title or f"Sun on {req.date}", req.printful_purpose)
             resp["printful"] = pf
+            # Extract Printful direct image URL if present
+            pf_url = None
+            try:
+                pf_url = pf.get("result", {}).get("url")
+            except Exception:
+                pf_url = None
+            if not pf_url:
+                # Try alternate key or structure just in case
+                pf_url = pf.get("url") if isinstance(pf, dict) else None
+            if pf_url:
+                resp["printful_url"] = pf_url
         out_png = paths["path"]
         final_png_to_open = out_png
         return_json = resp
@@ -941,6 +952,16 @@ async def generate(req: GenerateRequest):
             print(f"[upload] Printful: uploading cached file...", flush=True)
             pf = printful_upload(new_paths["path"], req.title or f"Sun on {req.date}", req.printful_purpose)
             resp["printful"] = pf
+            # Extract Printful direct image URL if present
+            pf_url = None
+            try:
+                pf_url = pf.get("result", {}).get("url")
+            except Exception:
+                pf_url = None
+            if not pf_url:
+                pf_url = pf.get("url") if isinstance(pf, dict) else None
+            if pf_url:
+                resp["printful_url"] = pf_url
         out_png = new_paths["path"]
         final_png_to_open = out_png
         return_json = resp
@@ -976,6 +997,16 @@ async def generate(req: GenerateRequest):
             upload_end = time.time()
             print(f"[upload] Printful upload took {upload_end - upload_start:.2f}s", flush=True)
             resp["printful"] = pf
+            # Extract Printful direct image URL if present
+            pf_url = None
+            try:
+                pf_url = pf.get("result", {}).get("url")
+            except Exception:
+                pf_url = None
+            if not pf_url:
+                pf_url = pf.get("url") if isinstance(pf, dict) else None
+            if pf_url:
+                resp["printful_url"] = pf_url
 
         final_png_to_open = out_png
         return_json = resp
