@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-sunpy\[all\]
+sunpy[all]
 matplotlib
 astropy
 parfive
