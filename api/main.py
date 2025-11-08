@@ -357,6 +357,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 print("[fetch] [AIA] Using sunpy.net.attrs (legacy SunPy) for JSOCClient search.", flush=True)
                 attrset = "legacy"
             jsoc = JSOCClient()
+            jsoc._server = "https://jsoc.stanford.edu"
             # Search for AIA data near the given time
             if attrset == "jsoc":
                 qr = jsoc.search(
