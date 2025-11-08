@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import os
 
+
 # Ensure output directory exists
 OUTPUT_DIR = os.environ.get("SOLAR_ARCHIVE_OUTPUT_DIR", "/tmp/output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
 print(f"[startup] Using SOLAR_ARCHIVE_OUTPUT_DIR={OUTPUT_DIR}")
 
 
@@ -545,7 +545,20 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             # Use Downloader with max_conn=10 and explicit path
             from parfive import Downloader
             dl = Downloader(max_conn=10, progress=False, overwrite=False)
-            files = Fido.fetch(qr[0, 0], downloader=dl, path=os.environ["SUNPY_DOWNLOADDIR"])
+            target_dir = os.environ["SUNPY_DOWNLOADDIR"]
+            # Force all JSOC URLs to HTTPS before download (avoid Render port 80 blocks)
+            if mission == "SDO":
+                try:
+                    if hasattr(qr, "response"):
+                        for resp in qr.response:
+                            if hasattr(resp, "url") and isinstance(resp.url, str):
+                                resp.url = resp.url.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu")
+                    elif isinstance(qr, list):
+                        qr = [r.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu") for r in qr]
+                    print(f"[fetch] Rewrote JSOC URLs to HTTPS before download ({len(qr)} entries).", flush=True)
+                except Exception as pre_rewrite_err:
+                    print(f"[fetch] Pre-download HTTPS rewrite failed: {pre_rewrite_err}", flush=True)
+            files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
             if files and len(files) > 0:
                 break
         except Exception as exc:
