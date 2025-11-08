@@ -285,9 +285,6 @@ sunback==0.6.17
 sunkit_image==0.6.1
 sunpy==7.0.1
 sympy==1.14.0
-# Editable Git install (synthesizAR==0.1.dev951+ga5020a75e.d20250822) with either a deleted local remote or invalid URI:
-# '/home/jplowman/Research/Solar_Physics/Nanoflares/SynthesizAR/../../sf_VirtualBox_Shared/dropbox/synthesizAR/'
--e /Users/cgilbert/vscode/Crobar_Project/ebtel_heating_files/synthesizAR
 tblib==3.1.0
 terminado==0.18.1
 text-unidecode==1.3
