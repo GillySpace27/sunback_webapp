@@ -3,14 +3,24 @@
 
 from __future__ import annotations
 
+
 import os
 import sys
-os.environ["SUNPY_CONFIGDIR"] = os.path.expanduser("~/.sunpy")
-os.environ["SUNPY_DOWNLOADDIR"] = os.path.abspath("/Users/cgilbert/vscode/sunback/webapp/solar_archive_output/fits")
-os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
+
+# Detect Render environment and set writable paths
+if os.getenv("RENDER"):
+    base_tmp = "/tmp/sunpy"
+else:
+    base_tmp = os.path.expanduser("~/.sunpy")
+
+os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
+os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
 os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
 os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
 os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+
+os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
+
 print(f"[startup] SunPy config_dir={os.environ['SUNPY_CONFIGDIR']}", flush=True)
 print(f"[startup] SunPy download_dir={os.environ['SUNPY_DOWNLOADDIR']}", flush=True)
 print(f"[startup] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
