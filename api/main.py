@@ -47,7 +47,7 @@ from typing import Optional, Literal, Dict, Any
 import numpy as np
 import requests
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 from pydantic import BaseModel, Field
@@ -1099,7 +1099,91 @@ async def generate(req: GenerateRequest):
         except Exception as e:
             print(f"[generate] Failed to open image: {e}", flush=True)
     if goto_final_open:
-        return JSONResponse(return_json)
+        # Build HTML preview page
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>Solar Archive — {return_json.get("mission", "")} {return_json.get("meta", {}).get("wavelength", "")}Å</title>
+            <style>
+                body {{
+                    background: #181820;
+                    color: #f0f0f0;
+                    min-height: 100vh;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    font-family: 'Segoe UI', 'Arial', sans-serif;
+                    margin: 0;
+                }}
+                .container {{
+                    background: #23232e;
+                    border-radius: 16px;
+                    padding: 32px 24px 24px 24px;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    max-width: 95vw;
+                }}
+                img {{
+                    max-width: 80vw;
+                    max-height: 60vh;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+                    margin-bottom: 1.5em;
+                    background: #000;
+                }}
+                .meta {{
+                    margin-top: 1em;
+                    margin-bottom: 1em;
+                    font-size: 1.1em;
+                    color: #bdbde7;
+                }}
+                .download-btn {{
+                    background: #6a6aff;
+                    color: #fff;
+                    padding: 0.7em 1.4em;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 1.1em;
+                    font-weight: 500;
+                    cursor: pointer;
+                    margin-bottom: 1em;
+                    text-decoration: none;
+                    transition: background 0.2s;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+                }}
+                .download-btn:hover {{
+                    background: #3a3ae7;
+                }}
+                .footer {{
+                    margin-top: 2em;
+                    font-size: 0.95em;
+                    color: #888;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h2>Solar Archive Preview</h2>
+                <img src="{return_json.get("png_url", "")}" alt="Solar image preview">
+                <a class="download-btn" href="{return_json.get("png_url", "")}" download>Download PNG</a>
+                <div class="meta">
+                    <div><b>Mission:</b> {return_json.get("mission", "")}</div>
+                    <div><b>Wavelength:</b> {return_json.get("meta", {}).get("wavelength", "")} Å</div>
+                    <div><b>Date:</b> {return_json.get("date", "")}</div>
+                </div>
+                <div class="footer">
+                    {return_json.get("attribution", "")}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content)
 
 @app.post("/generate-stream")
 async def generate_stream(req: GenerateRequest):
