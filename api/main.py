@@ -900,18 +900,24 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
 
     # Compose the file_url for Printful API
     file_url = f"{ASSET_BASE_URL or 'http://127.0.0.1:8000'}/asset/{os.path.basename(image_path)}"
-    payload = {"file_url": file_url, "purpose": normalized_purpose}
+    # Use correct JSON keys for Printful upload
+    json_data = {
+        "url": file_url,
+        "filename": title,
+        "type": normalized_purpose
+    }
+    print("[upload][debug] Using JSON upload (url/type/filename)", flush=True)
     headers = {
         "Authorization": f"Bearer {PRINTFUL_API_KEY}",
         "Content-Type": "application/json"
     }
-    print(f"[upload][debug] Uploading via JSON file_url={file_url}", flush=True)
+    print(f"[upload][debug] Uploading via JSON url={file_url}", flush=True)
     print(f"[upload][debug] Full upload URL = {PRINTFUL_BASE_URL}/files", flush=True)
     print(f"[upload][debug] Using PRINTFUL_BASE_URL={PRINTFUL_BASE_URL}", flush=True)
     r = requests.post(
         f"{PRINTFUL_BASE_URL}/files",
         headers=headers,
-        json=payload,
+        json=json_data,
         timeout=90
     )
     end_time = time.time()
