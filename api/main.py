@@ -919,7 +919,9 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     print(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...", flush=True)
 
     # Compose the file_url for Printful API
-    if not "asset" in ASSET_BASE_URL:
+    if "ASSET_BASE_URL" not in locals():
+        ASSET_BASE_URL = None
+    elif not "asset" in ASSET_BASE_URL:
         ASSET_BASE_URL += "asset/"
     print(ASSET_BASE_URL)
     file_url = f"{ASSET_BASE_URL or 'http://127.0.0.1:8000/'}{os.path.basename(image_path)}"
