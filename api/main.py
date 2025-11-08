@@ -5,6 +5,14 @@ from __future__ import annotations
 
 
 import os
+
+# Ensure output directory exists
+OUTPUT_DIR = os.environ.get("SOLAR_ARCHIVE_OUTPUT_DIR", "/tmp/output")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+print(f"[startup] Using SOLAR_ARCHIVE_OUTPUT_DIR={OUTPUT_DIR}")
+
+
 import sys
 
 # Detect Render environment and set writable paths
