@@ -456,7 +456,10 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 # del maps, combined_meta
                 import gc
                 gc.collect()
-                print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
+                try:
+                    print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
+                except:
+                    pass
                 return combined_map
             except Exception as combine_err:
                 print(f"[fetch] Failed to combine AIA maps: {combine_err}; returning first map.", flush=True)
