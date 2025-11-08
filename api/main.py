@@ -440,14 +440,22 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             if not maps:
                 raise HTTPException(status_code=502, detail="No AIA maps loaded from JSOCClient files.")
             try:
-                combined_data = np.nansum([m.data for m in maps], axis=0)
+                # In-place accumulation of AIA maps using float32 arrays
+                shape = maps[0].data.shape
+                combined_data = np.zeros(shape, dtype=np.float32)
+                for m in maps:
+                    combined_data += np.nan_to_num(m.data.astype(np.float32))
                 combined_meta = maps[0].meta.copy()
-                combined_meta["history"] = combined_meta.get("history", "") + f" Combined {len(maps)} AIA frames via np.nansum"
+                combined_meta["history"] = combined_meta.get("history", "") + f" Combined {len(maps)} AIA frames via in-place accumulation"
                 combined_map = Map(combined_data, combined_meta)
                 # Save to cache
                 if combined_cache_file is not None:
                     np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
                     print(f"[cache] Saved combined map to {combined_cache_file}", flush=True)
+                # Free memory
+                # del maps, combined_meta
+                import gc
+                gc.collect()
                 print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
                 return combined_map
             except Exception as combine_err:
@@ -507,14 +515,22 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if not maps:
             raise HTTPException(status_code=502, detail="No AIA maps loaded from Fido files.")
         try:
-            combined_data = np.nansum([m.data for m in maps], axis=0)
+            # In-place accumulation of AIA maps using float32 arrays
+            shape = maps[0].data.shape
+            combined_data = np.zeros(shape, dtype=np.float32)
+            for m in maps:
+                combined_data += np.nan_to_num(m.data.astype(np.float32))
             combined_meta = maps[0].meta.copy()
-            combined_meta["history"] = combined_meta.get("history", "") + f" Combined {len(maps)} AIA frames via np.nansum"
+            combined_meta["history"] = combined_meta.get("history", "") + f" Combined {len(maps)} AIA frames via in-place accumulation"
             combined_map = Map(combined_data, combined_meta)
             # Save to cache
             if combined_cache_file is not None:
                 np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
                 print(f"[cache] Saved combined map to {combined_cache_file}", flush=True)
+            # Free memory
+            del maps, combined_meta
+            import gc
+            gc.collect()
             print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
             return combined_map
         except Exception as combine_err:
@@ -609,7 +625,8 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         header['CDELT1'] *= 4
         header['CDELT2'] *= 4
         smap_small = Map(data_small, header)
-        del m, data_small
+        del m
+        import gc
         gc.collect()
         return smap_small
     except Exception as err:
@@ -689,7 +706,7 @@ def default_filter(smap: Map) -> Map:
 
     try:
         with tqdm_stream_adapter():
-            block_size = 2
+            block_size = 4
             from astropy.nddata import block_reduce
             import sunpy
             print("[render] Performing RHE...")
@@ -698,10 +715,10 @@ def default_filter(smap: Map) -> Map:
             header['CRPIX2'] /= block_size
             header['CDELT1'] *= block_size
             header['CDELT2'] *= block_size
-            reduced_data = block_reduce(smap.data, block_size=block_size, func=np.nanmean)
+            reduced_data = block_reduce(smap.data.astype(np.float32), block_size=block_size, func=np.nanmean)
             sunpy_map = sunpy.map.Map(reduced_data, header)
             # filtered_sample = rhef(sunpy_map, progress=True, method=rankdata_ignore_nan)
-            filtered = rhef(sunpy_map, progress=True, vignette=1.51 * u.R_sun)
+            filtered = rhef(sunpy_map, progress=False, vignette=1.51 * u.R_sun)
         return filtered
     except Exception as e:
         import traceback
@@ -829,6 +846,9 @@ def map_to_png(
     print(f"[render] Saving postfilter image to {out_png}", flush=True)
     fig.savefig(out_png, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
+    del data, fig
+    import gc
+    gc.collect()
     end_time = time.time()
     print(f"[render] Finished in {end_time - start_time:.2f}s", flush=True)
     print(f"[render] Image saved to directory: {os.path.dirname(out_png)}", flush=True)
