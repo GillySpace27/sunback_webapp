@@ -531,10 +531,10 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
                 print(f"[cache] Saved combined map to {combined_cache_file}", flush=True)
             # Free memory
+            print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
             del maps, combined_meta
             import gc
             gc.collect()
-            print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
             return combined_map
         except Exception as combine_err:
             print(f"[fetch] Failed to combine AIA maps: {combine_err}; returning first map.", flush=True)
