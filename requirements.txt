@@ -6,3 +6,4 @@ astropy
 parfive
 requests
 pydantic
+sse_starlette
