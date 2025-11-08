@@ -8,3 +8,4 @@ requests
 pydantic
 sse_starlette
 sunkit-image
+aiapy
