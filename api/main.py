@@ -894,7 +894,8 @@ def hashed_name(prefix: str, payload: Dict[str, Any]) -> str:
 def local_path_and_url(filename: str) -> Dict[str, str]:
     path = os.path.join(OUTPUT_DIR, filename)
     if ASSET_BASE_URL:
-        url = ASSET_BASE_URL.rstrip("/") + "/" + filename
+        sep = "/" if "asset" in ASSET_BASE_URL else "/asset/"
+        url = ASSET_BASE_URL.rstrip("/") + sep + filename
     else:
         # no CDN configured; expose a local file endpoint
         url = f"/asset/{filename}"
