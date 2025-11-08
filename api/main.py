@@ -898,6 +898,7 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
     else:
         # no CDN configured; expose a local file endpoint
         url = f"/asset/{filename}"
+    print(f"{url = }")
     return {"path": path, "url": url}
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -917,8 +918,11 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     print(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...", flush=True)
 
     # Compose the file_url for Printful API
+    if not "asset" in ASSET_BASE_URL:
+        ASSET_BASE_URL += "asset/"
     print(ASSET_BASE_URL)
     file_url = f"{ASSET_BASE_URL or 'http://127.0.0.1:8000/'}{os.path.basename(image_path)}"
+    print(file_url)
     # Use correct JSON keys for Printful upload
     json_data = {
         "url": file_url,
