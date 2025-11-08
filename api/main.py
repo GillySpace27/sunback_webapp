@@ -589,7 +589,33 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 detail=f"No files could be downloaded for {mission} on {dt.date()} after {max_attempts} attempts."
             )
     print(f"[fetch] Downloaded file {files[0]} in {fetch_end - fetch_start:.2f}s", flush=True)
-    return Map(files[0])
+
+    import gc
+    from astropy.nddata import block_reduce
+
+    # ✅ Keep only the first successfully downloaded file
+    if isinstance(files, (list, tuple)) and len(files) > 1:
+        print(f"[fetch] Reducing to first file to conserve memory.", flush=True)
+        files = [files[0]]
+
+    # ✅ Load and downsample the image early to reduce memory usage
+    try:
+        m = Map(files[0])
+        print(f"[fetch] Downsampling data to reduce memory footprint...", flush=True)
+        data_small = block_reduce(m.data.astype(np.float32), (4, 4), func=np.nanmean)
+        header = m.fits_header
+        header['CRPIX1'] /= 4
+        header['CRPIX2'] /= 4
+        header['CDELT1'] *= 4
+        header['CDELT2'] *= 4
+        smap_small = Map(data_small, header)
+        del m, data_small
+        gc.collect()
+        return smap_small
+    except Exception as err:
+        print(f"[fetch] Memory-safe downsample failed: {err}, returning raw map.", flush=True)
+        return Map(files[0])
+
 
 # Shared SOHO-EIT fallback for SDO failures
 def soho_eit_fallback(dt: datetime) -> Map:
