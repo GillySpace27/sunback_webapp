@@ -407,8 +407,9 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 files = existing_files
             else:
                 files = jsoc.fetch(qr, path=target_dir, progress=True, downloader=dl)
-                # Normalize any returned HTTP URLs to HTTPS
-                files = [f.replace("http://", "https://") for f in files]
+                # Rewrite any JSOC HTTP URLs to HTTPS for secure download
+                files = [f.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu") for f in files]
+                print(f"[fetch] Rewrote JSOC URLs to HTTPS ({len(files)} files).", flush=True)
                 if not files or len(files) == 0:
                     print(f"[fetch] [AIA] JSOCClient fetch returned no files, falling back to Fido.", flush=True)
                     raise Exception("No files from JSOCClient fetch")
