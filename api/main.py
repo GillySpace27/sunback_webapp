@@ -1087,7 +1087,10 @@ async def shopify_preview(request: Request):
         small_map = smap
 
     # Save small PNG without RHEF filtering
-    out_png = os.path.join(OUTPUT_DIR, f"preview_{mission}_{wavelength}_{date_str}.png")
+    filename = f"preview_{mission}_{wavelength}_{date_str}.png"
+    out_png = os.path.join(OUTPUT_DIR, filename)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f"[preview] Saving preview to {out_png}", flush=True)
     try:
         map_to_png(small_map, out_png, annotate=False, dpi=96, size_inches=3.0)
     except Exception as e:
