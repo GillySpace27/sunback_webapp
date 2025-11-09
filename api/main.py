@@ -358,8 +358,9 @@ def manual_aiaprep(smap):
 @app.get("/debug/list_output")
 async def list_output():
     from pathlib import Path
-    files = sorted(Path(OUTPUT_DIR).glob("*"))
-    return {"output_dir": OUTPUT_DIR, "files": [f.name for f in files]}
+    root = Path(OUTPUT_DIR)
+    files = sorted([str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()])
+    return {"output_dir": OUTPUT_DIR, "files": files}
 
 
 def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
