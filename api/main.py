@@ -1679,12 +1679,16 @@ async def proxy_solar_render(request: Request):
 
 @app.post("/apps/solar-preview")
 async def proxy_solar_preview(request: Request):
+    """
+    Shopify proxy endpoint that invokes the real /shopify/preview handler directly.
+    """
     try:
         body = await request.json()
         print("[proxy] /apps/solar-preview received", body, flush=True)
-        response = await app.router.routes_dict["/shopify/preview"].endpoint(body)
+        response = await shopify_preview(request)
         print("[proxy] /apps/solar-preview completed", flush=True)
         return response
     except Exception as e:
         print("[proxy] Error in /apps/solar-preview:", e, flush=True)
+        import traceback; traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
