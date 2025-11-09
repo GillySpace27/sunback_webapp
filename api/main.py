@@ -132,7 +132,8 @@ app.add_middleware(
         "https://solar-archive.myshopify.com",
         "https://admin.shopify.com",
         "http://127.0.0.1:8000",
-        "http://localhost:8000"
+        "http://localhost:8000",
+        "https://0b1wyw-tz.myshopify.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
