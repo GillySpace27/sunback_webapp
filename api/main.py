@@ -786,6 +786,7 @@ def map_to_png(
     annotate: bool = True,
     dpi: int = 300,
     size_inches: float = 10.0,
+    dolog: bool = False,
 ) -> str:
     print(f"[render] Rendering to {out_png}", flush=True)
     start_time = time.time()
@@ -847,6 +848,8 @@ def map_to_png(
         filtered_map = default_filter(smap)
         # If filtered_map is a Map, extract .data and check for fallback
         data = filtered_map.data if hasattr(filtered_map, "data") else filtered_map
+        if dolog:
+            data = np.log10(data)
         rhef_failed = bool(getattr(filtered_map, "meta", {}).get("rhef_failed", False))
         np.savez_compressed(filtered_cache_file, data=data, rhef_failed=rhef_failed)
         print(f"[cache] Saved filtered data to {filtered_cache_file}", flush=True)
@@ -1040,6 +1043,38 @@ def get_local_asset(filename: str):
     if not os.path.exists(fp):
         raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(fp, media_type="image/png")
+
+
+@app.post("/shopify/preview")
+async def shopify_preview(request: Request):
+    """
+    Fast, low-res thumbnail preview for Shopify.
+    Single frame, no RHEF, no integration — returns small PNG quickly.
+    """
+    body = await request.json()
+    try:
+        date = body.get("date")
+        wl = body.get("wavelength", 171)
+        dt = datetime.strptime(date, "%Y-%m-%d")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {e}")
+
+    mission = body.get("mission", "auto")
+    mission = mission if mission != "auto" else choose_mission(dt)
+
+    # Fetch only one frame, skip filtering
+    smap = fido_fetch_map(dt, mission, wl, body.get("detector"))
+    if isinstance(smap, list) and len(smap) > 0:
+        smap = smap[0]
+
+    # Downsample for speed
+    small = smap.resample((512, 512)*u.pixel)
+    out_png = os.path.join(OUTPUT_DIR, f"preview_{mission}_{wl}_{date}.png")
+    map_to_png(small, out_png, annotate=False, dpi=96, size_inches=3.0, dolog=True)
+
+    new_paths = local_path_and_url(os.path.basename(out_png))
+    return JSONResponse({"preview_url": new_paths["url"]})
+
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
