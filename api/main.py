@@ -32,7 +32,7 @@ import sys
 
 # Detect Render environment and set writable paths
 if os.getenv("RENDER"):
-    base_tmp = "/tmp/sunpy"
+    base_tmp = "/tmp/output"
 else:
     base_tmp = os.path.expanduser("~/.sunpy")
 
