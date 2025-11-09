@@ -1049,7 +1049,17 @@ async def shopify_preview(request: Request):
     Fast, low-res thumbnail preview for Shopify.
     Single frame, no RHEF, no integration — returns small PNG quickly.
     """
-    body = await request.json()
+    import traceback
+    print("=" * 60, flush=True)
+    print("[preview] Received /shopify/preview request", flush=True)
+    try:
+        body = await request.json()
+        print(f"[preview] Raw body: {body}", flush=True)
+    except Exception as e:
+        print(f"[preview][error] Failed to parse JSON body: {e}", flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
     try:
         date = body.get("date")
         wl = body.get("wavelength", 171)
@@ -1057,11 +1067,14 @@ async def shopify_preview(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid date: {e}")
 
+    print(f"[preview] Parsed date={date}, wavelength={wl}", flush=True)
+
     mission = body.get("mission", "auto")
     mission = mission if mission != "auto" else choose_mission(dt)
 
     # Fetch only one frame, skip filtering
     smap = fido_fetch_map(dt, mission, wl, body.get("detector"))
+    print("[preview] fido_fetch_map completed", flush=True)
     if isinstance(smap, list) and len(smap) > 0:
         smap = smap[0]
 
@@ -1071,6 +1084,7 @@ async def shopify_preview(request: Request):
     map_to_png(small, out_png, annotate=False, dpi=96, size_inches=3.0, dolog=True)
 
     new_paths = local_path_and_url(os.path.basename(out_png))
+    print(f"[preview] Returning preview response: {new_paths}", flush=True)
     return JSONResponse({"preview_url": new_paths["url"]})
 
 
@@ -1497,14 +1511,63 @@ async def generate_stream(req: GenerateRequest):
 
     return EventSourceResponse(event_generator())
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Shopify async job infrastructure
+# ──────────────────────────────────────────────────────────────────────────────
+import uuid
+import threading
 from fastapi import Request
+
+# Shared jobs dictionary at module level
+from datetime import datetime
+SHOPIFY_JOBS = {}
+
+def process_shopify_job(job_id, body):
+    """
+    Background worker for Shopify job.
+    """
+    print(f"[shopify_generate:{job_id}] Processing job...", flush=True)
+    try:
+        req = GenerateRequest(**body)
+        try:
+            dt = datetime.strptime(req.date, "%Y-%m-%d")
+        except ValueError:
+            raise Exception("date must be YYYY-MM-DD")
+        mission = req.mission if req.mission != "auto" else choose_mission(dt)
+        wl = req.wavelength
+        det = req.detector
+
+        smap = fido_fetch_map(dt, mission, wl, det)
+        if isinstance(smap, list) and len(smap) > 0:
+            smap = smap[0]
+
+        out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
+        map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
+        new_paths = local_path_and_url(os.path.basename(out_png))
+
+        SHOPIFY_JOBS[job_id].update({
+            "status": "completed",
+            "png_url": new_paths["url"],
+            "message": "Render complete"
+        })
+        print(f"[shopify_generate:{job_id}] Job completed: {new_paths['url']}", flush=True)
+    except Exception as e:
+        SHOPIFY_JOBS[job_id].update({
+            "status": "error",
+            "message": str(e),
+            "png_url": None
+        })
+        print(f"[shopify_generate:{job_id}] Job failed: {e}", flush=True)
+
 
 @app.post("/shopify/generate")
 async def shopify_generate(request: Request):
     """
     Shopify-friendly JSON endpoint for custom solar prints.
-    Accepts Shopify app proxy query params and returns JSON only.
+    Now non-blocking: spawns a background thread for generation and returns job_id.
     """
+    print(f"[shopify_generate] Job accepted", flush=True)
     params = dict(request.query_params)
     if "signature" in params:
         print(f"[shopify_generate] Proxy signature received for shop={params.get('shop')}", flush=True)
@@ -1514,38 +1577,38 @@ async def shopify_generate(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
 
-    try:
-        req = GenerateRequest(**body)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid fields: {e}")
-
-    try:
-        dt = datetime.strptime(req.date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
-
-    mission = req.mission if req.mission != "auto" else choose_mission(dt)
-    wl = req.wavelength
-    det = req.detector
-
-    smap = fido_fetch_map(dt, mission, wl, det)
-    if isinstance(smap, list) and len(smap) > 0:
-        smap = smap[0]
-
-    out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
-    map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
-    new_paths = local_path_and_url(os.path.basename(out_png))
-
-    resp = {
-        "mission": mission,
-        "date": req.date,
-        "meta": {
-            "instrument": smap.meta.get("instrume") or smap.meta.get("instrument"),
-            "detector": smap.meta.get("detector"),
-            "wavelength": smap.meta.get("wavelnth"),
-        },
-        "png_url": new_paths["url"],
-        "attribution": "Image courtesy of NASA/SDO (AIA) or ESA/NASA SOHO (EIT/LASCO). Not affiliated; no endorsement implied.",
+    # Generate a unique short job_id
+    job_id = uuid.uuid4().hex[:8]
+    # Save initial job state
+    SHOPIFY_JOBS[job_id] = {
+        "status": "queued",
+        "started_at": datetime.utcnow().isoformat(),
+        "message": "Generation pending",
+        "png_url": None
     }
-    print(f"[shopify_generate] Returning JSON response: {resp}", flush=True)
-    return JSONResponse(content=resp)
+    # Start background thread for processing
+    thread = threading.Thread(target=process_shopify_job, args=(job_id, body), daemon=True)
+    thread.start()
+    # Immediately return job id and status endpoint
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "queued",
+        "check_url": f"/shopify/status/{job_id}"
+    })
+
+
+# Endpoint to check job status
+@app.get("/shopify/status/{job_id}")
+def shopify_job_status(job_id: str):
+    job = SHOPIFY_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+# Debug endpoint: list registered routes
+@app.get("/debug/routes")
+def debug_routes():
+    routes = [r.path for r in app.routes]
+    print(f"[debug] Registered routes: {routes}", flush=True)
+    return {"routes": routes}
