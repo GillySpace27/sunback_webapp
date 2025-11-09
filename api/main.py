@@ -368,11 +368,8 @@ def manual_aiaprep(smap):
 @app.get("/debug/list_output")
 async def list_output():
     from pathlib import Path
-    import os
-
-    output_dir = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", "/tmp/sunpy/output")
-    files = sorted(Path(output_dir).glob("*"))
-    return {"output_dir": output_dir, "files": [f.name for f in files]}
+    files = sorted(Path(OUTPUT_DIR).glob("*"))
+    return {"output_dir": OUTPUT_DIR, "files": [f.name for f in files]}
 
 
 def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
