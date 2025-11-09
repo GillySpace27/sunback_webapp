@@ -1681,30 +1681,35 @@ async def proxy_solar_render(request: Request):
 async def proxy_solar_preview(request: Request):
     """
     Shopify proxy endpoint that invokes the real /shopify/preview handler directly.
-    Ensures a proper JSON response body is returned.
+    Always returns valid JSON.
     """
     try:
         body = await request.json()
         print("[proxy] /apps/solar-preview received", body, flush=True)
         result = await shopify_preview(request)
 
-        # Handle if handler returned non-JSON content
-        if isinstance(result, dict):
-            response = JSONResponse(content=result)
+        # Handle different response types gracefully
+        if isinstance(result, JSONResponse):
+            print("[proxy] Returning JSONResponse directly", flush=True)
+            return result
+        elif isinstance(result, dict):
+            print("[proxy] Returning dict as JSON", flush=True)
+            return JSONResponse(content=result)
         elif hasattr(result, "body_iterator"):
-            # Convert StreamingResponse to bytes
+            # Convert StreamingResponse body to text safely
             data = b"".join([chunk async for chunk in result.body_iterator])
-            try:
-                json_data = json.loads(data.decode())
-                response = JSONResponse(content=json_data)
-            except Exception:
-                response = JSONResponse(content={"message": "Preview generated", "raw_bytes": len(data)})
+            text = data.decode(errors="ignore").strip()
+            if text.startswith("{") and text.endswith("}"):
+                try:
+                    parsed = json.loads(text)
+                    return JSONResponse(content=parsed)
+                except Exception:
+                    pass
+            print("[proxy] Returning fallback JSON wrapper", flush=True)
+            return JSONResponse(content={"message": "Preview generated", "raw_response": text[:200]})
         else:
-            response = JSONResponse(content={"message": "Preview completed"})
-
-        print("[proxy] /apps/solar-preview completed", flush=True)
-        return response
-
+            print("[proxy] Unknown response type; wrapping", flush=True)
+            return JSONResponse(content={"message": "Preview completed"})
     except Exception as e:
         print("[proxy] Error in /apps/solar-preview:", e, flush=True)
         import traceback; traceback.print_exc()
