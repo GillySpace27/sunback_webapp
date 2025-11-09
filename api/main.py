@@ -62,7 +62,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Literal, Dict, Any
 import numpy as np
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 import asyncio
@@ -1520,45 +1520,64 @@ import threading
 from fastapi import Request
 
 # Shared jobs dictionary at module level
-from datetime import datetime
+from datetime import datetime, timedelta
 SHOPIFY_JOBS = {}
+
+# Helper: append timestamped log to job's logs list and print
+def append_job_log(job_id, message):
+    ts = datetime.utcnow().strftime("%H:%M:%S")
+    line = f"[{ts}] {message}"
+    print(line, flush=True)
+    job = SHOPIFY_JOBS.get(job_id)
+    if job is not None and "logs" in job:
+        job["logs"].append(line)
 
 def process_shopify_job(job_id, body):
     """
     Background worker for Shopify job.
     """
-    print(f"[shopify_generate:{job_id}] Processing job...", flush=True)
+    append_job_log(job_id, f"[shopify_generate:{job_id}] Processing job...")
     try:
         req = GenerateRequest(**body)
         try:
             dt = datetime.strptime(req.date, "%Y-%m-%d")
         except ValueError:
+            append_job_log(job_id, "Invalid date format; expecting YYYY-MM-DD")
             raise Exception("date must be YYYY-MM-DD")
         mission = req.mission if req.mission != "auto" else choose_mission(dt)
         wl = req.wavelength
         det = req.detector
-
-        smap = fido_fetch_map(dt, mission, wl, det)
+        append_job_log(job_id, f"Fetching map for mission={mission}, date={dt.date()}, wavelength={wl}, detector={det}")
+        try:
+            smap = fido_fetch_map(dt, mission, wl, det)
+            append_job_log(job_id, f"Fetched map for {mission} {wl} {dt.date()}")
+        except Exception as e:
+            append_job_log(job_id, f"Error during fetch: {e}")
+            raise
         if isinstance(smap, list) and len(smap) > 0:
             smap = smap[0]
-
         out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
-        map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
+        append_job_log(job_id, f"Rendering PNG to {out_png}")
+        try:
+            map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
+            append_job_log(job_id, f"Rendered PNG to {out_png}")
+        except Exception as e:
+            append_job_log(job_id, f"Error during render: {e}")
+            raise
         new_paths = local_path_and_url(os.path.basename(out_png))
-
         SHOPIFY_JOBS[job_id].update({
             "status": "completed",
             "png_url": new_paths["url"],
             "message": "Render complete"
         })
-        print(f"[shopify_generate:{job_id}] Job completed: {new_paths['url']}", flush=True)
+        append_job_log(job_id, f"Job completed: {new_paths['url']}")
     except Exception as e:
         SHOPIFY_JOBS[job_id].update({
             "status": "error",
             "message": str(e),
             "png_url": None
         })
-        print(f"[shopify_generate:{job_id}] Job failed: {e}", flush=True)
+        append_job_log(job_id, f"Job failed: {e}")
 
 
 @app.post("/shopify/generate")
@@ -1579,13 +1598,15 @@ async def shopify_generate(request: Request):
 
     # Generate a unique short job_id
     job_id = uuid.uuid4().hex[:8]
-    # Save initial job state
+    # Save initial job state with logs
     SHOPIFY_JOBS[job_id] = {
         "status": "queued",
         "started_at": datetime.utcnow().isoformat(),
         "message": "Generation pending",
-        "png_url": None
+        "png_url": None,
+        "logs": []
     }
+    append_job_log(job_id, "Job queued and accepted")
     # Start background thread for processing
     thread = threading.Thread(target=process_shopify_job, args=(job_id, body), daemon=True)
     thread.start()
@@ -1597,13 +1618,38 @@ async def shopify_generate(request: Request):
     })
 
 
-# Endpoint to check job status
 @app.get("/shopify/status/{job_id}")
 def shopify_job_status(job_id: str):
     job = SHOPIFY_JOBS.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    logs = job.get("logs", [])
+    job_status = dict(job)
+    job_status["logs_tail"] = logs[-10:] if len(logs) > 10 else logs
+    return job_status
+
+# Endpoint to get full job logs
+@app.get("/shopify/log/{job_id}")
+def shopify_job_log(job_id: str):
+    job = SHOPIFY_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job_id": job_id, "logs": job.get("logs", [])}
+
+# Endpoint to cleanup jobs older than 24 hours
+@app.post("/shopify/cleanup")
+def shopify_cleanup():
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    removed = []
+    for job_id, job in list(SHOPIFY_JOBS.items()):
+        try:
+            start = datetime.fromisoformat(job.get("started_at"))
+            if start < cutoff:
+                del SHOPIFY_JOBS[job_id]
+                removed.append(job_id)
+        except Exception:
+            continue
+    return {"removed": removed, "remaining": list(SHOPIFY_JOBS.keys())}
 
 
 # Debug endpoint: list registered routes
@@ -1612,3 +1658,33 @@ def debug_routes():
     routes = [r.path for r in app.routes]
     print(f"[debug] Registered routes: {routes}", flush=True)
     return {"routes": routes}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Shopify proxy endpoints for Shopify Embedded App
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.post("/apps/solar-render")
+async def proxy_solar_render(request: Request):
+    try:
+        body = await request.json()
+        print("[proxy] /apps/solar-render received", body, flush=True)
+        # directly call the existing /shopify/generate handler logic
+        response = await app.router.routes_dict["/shopify/generate"].endpoint(body)
+        print("[proxy] /apps/solar-render completed", flush=True)
+        return response
+    except Exception as e:
+        print("[proxy] Error in /apps/solar-render:", e, flush=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/apps/solar-preview")
+async def proxy_solar_preview(request: Request):
+    try:
+        body = await request.json()
+        print("[proxy] /apps/solar-preview received", body, flush=True)
+        response = await app.router.routes_dict["/shopify/preview"].endpoint(body)
+        print("[proxy] /apps/solar-preview completed", flush=True)
+        return response
+    except Exception as e:
+        print("[proxy] Error in /apps/solar-preview:", e, flush=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
