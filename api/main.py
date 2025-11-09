@@ -22,20 +22,10 @@ if (
 import ssl
 ssl._create_default_https_context = ssl._create_default_https_context
 
-# Ensure output directory exists
-OUTPUT_DIR = os.environ.get("SOLAR_ARCHIVE_OUTPUT_DIR", "/tmp/output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-print(f"[startup] Using SOLAR_ARCHIVE_OUTPUT_DIR={OUTPUT_DIR}")
 
 
-import sys
-
-# Detect Render environment and set writable paths
-if os.getenv("RENDER"):
-    base_tmp = "/tmp/output"
-else:
-    base_tmp = os.path.expanduser("~/.sunpy")
-
+# Use /tmp/output as the root for all temp/config/download dirs, regardless of environment
+base_tmp = "/tmp/output"
 os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
 os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
 # os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
@@ -107,7 +97,7 @@ def fetch_sync_safe(query):
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 APP_NAME = "Solar Archive Backend"
-OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", os.path.join(base_tmp, "output"))
+OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
 ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
