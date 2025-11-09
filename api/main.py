@@ -130,10 +130,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://solar-archive.myshopify.com",
-        "https://admin.shopify.com",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
         "https://0b1wyw-tz.myshopify.com",
+        "https://admin.shopify.com",
+        "https://solar-archive.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -1047,46 +1046,59 @@ def get_local_asset(filename: str):
 @app.post("/shopify/preview")
 async def shopify_preview(request: Request):
     """
-    Fast, low-res thumbnail preview for Shopify.
-    Single frame, no RHEF, no integration — returns small PNG quickly.
+    Fast, non-RHEF, single-frame solar thumbnail preview for Shopify.
+    Produces a lightweight PNG almost instantly.
     """
-    import traceback
-    print("=" * 60, flush=True)
-    print("[preview] Received /shopify/preview request", flush=True)
     try:
         body = await request.json()
-        print(f"[preview] Raw body: {body}", flush=True)
     except Exception as e:
-        print(f"[preview][error] Failed to parse JSON body: {e}", flush=True)
-        traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
-    try:
-        date = body.get("date")
-        wl = body.get("wavelength", 171)
-        dt = datetime.strptime(date, "%Y-%m-%d")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid date: {e}")
-
-    print(f"[preview] Parsed date={date}, wavelength={wl}", flush=True)
-
+    date_str = body.get("date")
+    wavelength = body.get("wavelength", 171)
+    detector = body.get("detector", "C2")
     mission = body.get("mission", "auto")
+
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
+
+    # Pick mission automatically if requested
     mission = mission if mission != "auto" else choose_mission(dt)
 
-    # Fetch only one frame, skip filtering
-    smap = fido_fetch_map(dt, mission, wl, body.get("detector"))
-    print("[preview] fido_fetch_map completed", flush=True)
-    if isinstance(smap, list) and len(smap) > 0:
-        smap = smap[0]
+    print(f"[preview] Generating quick preview for {mission} {wavelength}Å on {date_str}", flush=True)
 
-    # Downsample for speed
-    small = smap.resample((512, 512)*u.pixel)
-    out_png = os.path.join(OUTPUT_DIR, f"preview_{mission}_{wl}_{date}.png")
-    map_to_png(small, out_png, annotate=False, dpi=96, size_inches=3.0, dolog=True)
+    # Fetch only ONE AIA frame quickly (skip multi-frame sum)
+    try:
+        smap = fido_fetch_map(dt, mission, wavelength, detector)
+        if isinstance(smap, list) and len(smap) > 0:
+            smap = smap[0]
+    except Exception as e:
+        print(f"[preview] Fetch failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Preview fetch failed: {e}")
 
-    new_paths = local_path_and_url(os.path.basename(out_png))
-    print(f"[preview] Returning preview response: {new_paths}", flush=True)
-    return JSONResponse({"preview_url": new_paths["url"]})
+    # Downsample to small size for instant preview
+    try:
+        import astropy.units as u
+        small_map = smap.resample((512, 512) * u.pixel)
+    except Exception as e:
+        print(f"[preview] Resample failed, using raw map: {e}", flush=True)
+        small_map = smap
+
+    # Save small PNG without RHEF filtering
+    out_png = os.path.join(OUTPUT_DIR, f"preview_{mission}_{wavelength}_{date_str}.png")
+    try:
+        map_to_png(small_map, out_png, annotate=False, dpi=96, size_inches=3.0)
+    except Exception as e:
+        print(f"[preview] map_to_png failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Preview render failed: {e}")
+
+    # Build asset URL for Shopify to load
+    paths = local_path_and_url(os.path.basename(out_png))
+    print(f"[preview] Quick preview ready: {paths['url']}", flush=True)
+
+    return JSONResponse({"preview_url": paths["url"]})
 
 
 @app.post("/generate")
