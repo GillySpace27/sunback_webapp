@@ -1787,9 +1787,69 @@ async def generate_ui():
               body: JSON.stringify({image_url: url})
             });
             const result = await res.json();
-            alert(result.status);
+            alert(result.status || JSON.stringify(result));
           }
         </script>
       </body>
     </html>
     """
+
+# ──────────────────────────────────────────────────────────────────────────────
+# New endpoint: /upload_to_printful
+# ──────────────────────────────────────────────────────────────────────────────
+from fastapi import Body
+from pydantic import BaseModel
+
+class UploadToPrintfulRequest(BaseModel):
+    image_url: str
+
+@app.post("/upload_to_printful")
+async def upload_to_printful(request: UploadToPrintfulRequest):
+    """
+    Upload an image from a given URL to Printful using the /files API.
+    """
+    print("[upload_to_printful] Starting upload", flush=True)
+    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
+    PRINTFUL_BASE_URL = os.environ.get("PRINTFUL_BASE_URL", "https://api.printful.com")
+    if not PRINTFUL_API_KEY:
+        print("[upload_to_printful] PRINTFUL_API_KEY not set", flush=True)
+        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
+    image_url = request.image_url
+    if not image_url or not isinstance(image_url, str):
+        print("[upload_to_printful] image_url missing or invalid", flush=True)
+        raise HTTPException(status_code=400, detail="image_url is required")
+    # Compose Printful upload payload
+    payload = {
+        "url": image_url,
+        # Optionally, filename/type could be set, but we leave them None for generic upload
+    }
+    headers = {
+        "Authorization": f"Bearer {PRINTFUL_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    print(f"[upload_to_printful] Uploading image_url={image_url} to {PRINTFUL_BASE_URL}/files", flush=True)
+    try:
+        r = requests.post(
+            f"{PRINTFUL_BASE_URL}/files",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        print(f"[upload_to_printful] Printful response code: {r.status_code}", flush=True)
+        try:
+            resp_json = r.json()
+        except Exception:
+            resp_json = {"error": r.text}
+        # Extract id and url if available
+        result = resp_json.get("result", {})
+        response = {
+            "printful_response": resp_json,
+            "id": result.get("id"),
+            "url": result.get("url"),
+            "status": "success" if r.status_code < 300 else "error"
+        }
+        print(f"[upload_to_printful] Completed", flush=True)
+        return response
+    except Exception as e:
+        print(f"[upload_to_printful] Exception: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload to Printful: {e}")
