@@ -1,4 +1,3 @@
-from __future__ import annotations
 from urllib.parse import urlencode, quote_plus
 import io
 import json
@@ -281,8 +280,8 @@ async def shopify_launch():
                     } catch {
                         // Not JSON, try to extract image URL from HTML
                         let imgMatch = responseText.match(/<img[^>]+src="([^"]+)"/i);
-                        let dateMatch = responseText.match(/<div><b>Date:<\/b>\s*([^<]+)<\/div>/i);
-                        let wlMatch = responseText.match(/<div><b>Wavelength:<\/b>\s*([^<]+) Å<\/div>/i);
+                        let dateMatch = responseText.match(/<div><b>Date:<\\/b>\\s*([^<]+)<\\/div>/i);
+                        let wlMatch = responseText.match(/<div><b>Wavelength:<\\/b>\\s*([^<]+) Å<\\/div>/i);
                         if (imgMatch) {
                             lastImageUrl = imgMatch[1];
                         }
