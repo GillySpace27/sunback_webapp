@@ -26,9 +26,18 @@ from sunpy.map import Map
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="parfive.downloader")
 import os
+from fastapi import Body
+from pydantic import BaseModel
+
+
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
 
+class PreviewRequest(BaseModel):
+    date: str
+    wavelength: int
+    mission: str | None = "SDO"
+    annotate: bool | None = False
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
@@ -2008,65 +2017,79 @@ async def generate_ui():
 # ──────────────────────────────────────────────────────────────────────────────
 # New endpoint: /upload_to_printful
 # ──────────────────────────────────────────────────────────────────────────────
-from fastapi import Body
-from pydantic import BaseModel
 
-class PreviewRequest(BaseModel):
-    date: str
-    wavelength: int
-    mission: str | None = "SDO"
-    annotate: bool | None = False
+
 
 class UploadToPrintfulRequest(BaseModel):
     image_url: str
 
 @app.post("/upload_to_printful")
-async def upload_to_printful(request: UploadToPrintfulRequest):
+async def upload_to_printful(request: Request):
     """
-    Upload an image from a given URL to Printful using the /files API.
+    Upload a local image to Printful and return its file_id + URL.
     """
-    print("[upload_to_printful] Starting upload", flush=True)
-    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
-    PRINTFUL_BASE_URL = os.environ.get("PRINTFUL_BASE_URL", "https://api.printful.com")
-    if not PRINTFUL_API_KEY:
-        print("[upload_to_printful] PRINTFUL_API_KEY not set", flush=True)
-        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
-    image_url = request.image_url
-    if not image_url or not isinstance(image_url, str):
-        print("[upload_to_printful] image_url missing or invalid", flush=True)
-        raise HTTPException(status_code=400, detail="image_url is required")
-    # Compose Printful upload payload
-    payload = {
-        "url": image_url,
-        # Optionally, filename/type could be set, but we leave them None for generic upload
+    body = await request.json()
+    image_path = body.get("image_path")
+    title = body.get("title", "Solar Archive Image")
+    purpose = body.get("purpose", "default")
+
+    if not image_path or not os.path.exists(image_path):
+        raise HTTPException(status_code=400, detail="Valid image_path required.")
+
+    result = printful_upload(image_path, title, purpose)
+
+    file_id = result.get("result", {}).get("id")
+    file_url = result.get("result", {}).get("url")
+
+    if not file_id:
+        raise HTTPException(status_code=500, detail="Upload succeeded but no file_id returned.")
+
+    print(f"[printful/upload] Uploaded {image_path} → file_id={file_id}", flush=True)
+    return {
+        "file_id": file_id,
+        "file_url": file_url,
+        "printful_response": result
     }
+
+@app.post("/printful/mockup")
+async def printful_mockup(request: Request):
+    """
+    Request a Printful mockup generation task for one or more variants.
+    """
+    body = await request.json()
+    file_id = body.get("file_id")
+    variant_ids = body.get("variant_id") or body.get("variant_ids")
+
+    if not file_id or not variant_ids:
+        raise HTTPException(status_code=400, detail="file_id and variant_id(s) required")
+
+    if isinstance(variant_ids, int):
+        variant_ids = [variant_ids]
+
+    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY")
+    if not PRINTFUL_API_KEY:
+        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured")
+
+    payload = {
+        "variant_ids": variant_ids,
+        "files": [{"id": file_id, "type": "front"}]
+    }
+
     headers = {
         "Authorization": f"Bearer {PRINTFUL_API_KEY}",
         "Content-Type": "application/json"
     }
-    print(f"[upload_to_printful] Uploading image_url={image_url} to {PRINTFUL_BASE_URL}/files", flush=True)
+
+    print(f"[printful/mockup] Requesting mockup for file {file_id} → variants {variant_ids}", flush=True)
+    r = requests.post("https://api.printful.com/mockup-generator/create-task", json=payload, headers=headers)
     try:
-        r = requests.post(
-            f"{PRINTFUL_BASE_URL}/files",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-        print(f"[upload_to_printful] Printful response code: {r.status_code}", flush=True)
-        try:
-            resp_json = r.json()
-        except Exception:
-            resp_json = {"error": r.text}
-        # Extract id and url if available
-        result = resp_json.get("result", {})
-        response = {
-            "printful_response": resp_json,
-            "id": result.get("id"),
-            "url": result.get("url"),
-            "status": "success" if r.status_code < 300 else "error"
-        }
-        print(f"[upload_to_printful] Completed", flush=True)
-        return response
-    except Exception as e:
-        print(f"[upload_to_printful] Exception: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Failed to upload to Printful: {e}")
+        result = r.json()
+    except Exception:
+        result = {"error": r.text}
+
+    if r.status_code >= 300:
+        print(f"[printful/mockup][error] {r.status_code}: {r.text}", flush=True)
+        raise HTTPException(status_code=r.status_code, detail=f"Mockup creation failed: {r.text}")
+
+    print(f"[printful/mockup] Created mockup for variant(s) {variant_ids} using file {file_id}", flush=True)
+    return result
