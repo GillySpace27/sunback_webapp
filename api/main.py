@@ -1,4 +1,141 @@
 from urllib.parse import urlencode, quote_plus
+import io
+import json
+import hashlib
+import time
+import subprocess
+from datetime import datetime, timedelta
+from typing import Optional, Literal, Dict, Any
+import numpy as np
+import requests
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from sse_starlette.sse import EventSourceResponse
+import asyncio
+from pydantic import BaseModel, Field
+from sunpy.visualization import colormaps  # registers all SunPy maps like sdoaia171, sohoeit195, etc.
+import matplotlib
+matplotlib.use("Agg")
+from astropy import units as u
+import matplotlib.pyplot as plt
+from sunkit_image import radial
+rhef = radial.rhef
+from sunpy.net import Fido, attrs as a
+from sunpy.net import vso
+from sunpy.map import Map
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="parfive.downloader")
+import os
+# sunback/webapp/api/main.py
+# FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
+
+from __future__ import annotations
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
+# This should run before any SunPy config or network code.
+import certifi
+if (
+    "SSL_CERT_FILE" not in os.environ
+    or not os.path.exists(os.environ["SSL_CERT_FILE"])
+):
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+    print(f"[startup] Set SSL_CERT_FILE to certifi.where(): {os.environ['SSL_CERT_FILE']}", flush=True)
+# Always force SSL to use certifi's CA bundle globally
+import ssl
+ssl._create_default_https_context = ssl._create_default_https_context
+
+
+
+# Use /tmp/output as the root for all temp/config/download dirs, regardless of environment
+base_tmp = "/tmp/output"
+os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
+os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
+# os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
+# os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
+os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+os.environ["JSOC_BASEURL"] = "https://jsoc.stanford.edu"
+os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+os.environ["SSL_CERT_FILE"] = certifi.where()
+
+# Set SOLAR_ARCHIVE_ASSET_BASE_URL if missing, based on environment
+if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
+    if os.getenv("RENDER"):
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com"
+        print("[startup] Using default public asset base URL for Render: https://solar-archive.onrender.com", flush=True)
+    else:
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000/asset/"
+        print("[startup] Using local asset base URL: http://127.0.0.1:8000/asset/", flush=True)
+
+os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
+
+print(f"[startup] SunPy config_dir={os.environ['SUNPY_CONFIGDIR']}", flush=True)
+print(f"[startup] SunPy download_dir={os.environ['SUNPY_DOWNLOADDIR']}", flush=True)
+print(f"[startup] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
+print(f"[startup] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
+
+
+
+# Synchronous fetch helper with clear log
+def fetch_sync_safe(query):
+    print("[fetch] Fido.fetch (sync, max_conn=10, no progress)", flush=True)
+    from parfive import Downloader
+    dl = Downloader(
+        max_conn=10,
+        progress=False,
+        overwrite=False
+    )
+    return Fido.fetch(query, downloader=dl)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration
+# ──────────────────────────────────────────────────────────────────────────────
+APP_NAME = "Solar Archive Backend"
+OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
+ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Printful
+PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", None)
+PRINTFUL_BASE_URL = os.getenv("PRINTFUL_BASE_URL", "https://api.printful.com")
+print(f"{PRINTFUL_API_KEY = }")
+
+
+# Defaults
+DEFAULT_AIA_WAVELENGTH = 211 * u.angstrom
+DEFAULT_EIT_WAVELENGTH = 195 * u.angstrom
+DEFAULT_DETECTOR_LASCO = "C2"  # or "C3"
+
+# Mission thresholds (rough, practical)
+SDO_EPOCH = datetime(2010, 5, 15)    # after which AIA is widely available
+SOHO_EPOCH = datetime(1996, 1, 1)    # after which EIT/LASCO is available
+
+# JSOC Email placeholder for JSOCClient (used for SDO/AIA direct fetches)
+JSOC_EMAIL = os.getenv("JSOC_EMAIL", "chris.gilly@colorado.edu")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FastAPI app
+# ──────────────────────────────────────────────────────────────────────────────
+app = FastAPI(title=APP_NAME)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://solar-archive.myshopify.com",
+        "https://0b1wyw-tz.myshopify.com",
+        "https://admin.shopify.com",
+        "https://solar-archive.onrender.com",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Shopify Launch & Redirect Endpoints
 # ──────────────────────────────────────────────────────────────────────────────
@@ -204,145 +341,11 @@ async def redirect_to_shopify(request: Request):
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=shopify_url, status_code=302)
 
-# sunback/webapp/api/main.py
-# FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
-
-from __future__ import annotations
 
 
 
-import os
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
-# This should run before any SunPy config or network code.
-import certifi
-if (
-    "SSL_CERT_FILE" not in os.environ
-    or not os.path.exists(os.environ["SSL_CERT_FILE"])
-):
-    os.environ["SSL_CERT_FILE"] = certifi.where()
-    print(f"[startup] Set SSL_CERT_FILE to certifi.where(): {os.environ['SSL_CERT_FILE']}", flush=True)
-# Always force SSL to use certifi's CA bundle globally
-import ssl
-ssl._create_default_https_context = ssl._create_default_https_context
 
 
-
-# Use /tmp/output as the root for all temp/config/download dirs, regardless of environment
-base_tmp = "/tmp/output"
-os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
-os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
-# os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
-# os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
-os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
-os.environ["JSOC_BASEURL"] = "https://jsoc.stanford.edu"
-os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
-os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
-os.environ["SSL_CERT_FILE"] = certifi.where()
-
-# Set SOLAR_ARCHIVE_ASSET_BASE_URL if missing, based on environment
-if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
-    if os.getenv("RENDER"):
-        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com"
-        print("[startup] Using default public asset base URL for Render: https://solar-archive.onrender.com", flush=True)
-    else:
-        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000/asset/"
-        print("[startup] Using local asset base URL: http://127.0.0.1:8000/asset/", flush=True)
-
-os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
-
-print(f"[startup] SunPy config_dir={os.environ['SUNPY_CONFIGDIR']}", flush=True)
-print(f"[startup] SunPy download_dir={os.environ['SUNPY_DOWNLOADDIR']}", flush=True)
-print(f"[startup] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
-print(f"[startup] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
-
-
-import io
-import json
-import hashlib
-import time
-import subprocess
-from datetime import datetime, timedelta
-from typing import Optional, Literal, Dict, Any
-import numpy as np
-import requests
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
-from sse_starlette.sse import EventSourceResponse
-import asyncio
-from pydantic import BaseModel, Field
-from sunpy.visualization import colormaps  # registers all SunPy maps like sdoaia171, sohoeit195, etc.
-import matplotlib
-matplotlib.use("Agg")
-from astropy import units as u
-import matplotlib.pyplot as plt
-from sunkit_image import radial
-rhef = radial.rhef
-from sunpy.net import Fido, attrs as a
-from sunpy.net import vso
-from sunpy.map import Map
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="parfive.downloader")
-
-# Synchronous fetch helper with clear log
-def fetch_sync_safe(query):
-    print("[fetch] Fido.fetch (sync, max_conn=10, no progress)", flush=True)
-    from parfive import Downloader
-    dl = Downloader(
-        max_conn=10,
-        progress=False,
-        overwrite=False
-    )
-    return Fido.fetch(query, downloader=dl)
-
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Configuration
-# ──────────────────────────────────────────────────────────────────────────────
-APP_NAME = "Solar Archive Backend"
-OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
-ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# Printful
-PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", None)
-PRINTFUL_BASE_URL = os.getenv("PRINTFUL_BASE_URL", "https://api.printful.com")
-print(f"{PRINTFUL_API_KEY = }")
-
-
-# Defaults
-DEFAULT_AIA_WAVELENGTH = 211 * u.angstrom
-DEFAULT_EIT_WAVELENGTH = 195 * u.angstrom
-DEFAULT_DETECTOR_LASCO = "C2"  # or "C3"
-
-# Mission thresholds (rough, practical)
-SDO_EPOCH = datetime(2010, 5, 15)    # after which AIA is widely available
-SOHO_EPOCH = datetime(1996, 1, 1)    # after which EIT/LASCO is available
-
-# JSOC Email placeholder for JSOCClient (used for SDO/AIA direct fetches)
-JSOC_EMAIL = os.getenv("JSOC_EMAIL", "chris.gilly@colorado.edu")
-
-# ──────────────────────────────────────────────────────────────────────────────
-# FastAPI app
-# ──────────────────────────────────────────────────────────────────────────────
-app = FastAPI(title=APP_NAME)
-
-from fastapi.middleware.cors import CORSMiddleware
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://solar-archive.myshopify.com",
-        "https://0b1wyw-tz.myshopify.com",
-        "https://admin.shopify.com",
-        "https://solar-archive.onrender.com",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
