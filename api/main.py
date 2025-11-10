@@ -249,17 +249,23 @@ async def shopify_launch():
         </div>
         <script>
             const form = document.getElementById('genform');
+            const submitBtn = form.querySelector('button[type="submit"]');
             const previewSection = document.getElementById('preview-section');
             const previewImg = document.getElementById('preview-img');
             const previewMeta = document.getElementById('preview-meta');
             const shopifyBtn = document.getElementById('shopify-btn');
             let lastImageUrl = "";
             let lastMeta = "";
-            form.addEventListener('submit', async (e) => {
+            form.addEventListener('submit', handleGenerate, { once: true });
+            async function handleGenerate(e) {
                 e.preventDefault();
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Generating...';
                 const date = document.getElementById('date').value;
                 if (!date) {
                     alert("Please select a date.");
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Generate Preview';
                     return;
                 }
                 previewSection.style.display = "none";
@@ -317,7 +323,9 @@ async def shopify_launch():
                 } catch (err) {
                     alert("Error generating image: " + err);
                 }
-            });
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Generate Preview';
+            }
             shopifyBtn.addEventListener('click', () => {
                 if (!lastImageUrl) {
                     alert("No image to send to Shopify.");
@@ -1348,299 +1356,73 @@ async def shopify_preview(req: PreviewRequest):
 @app.post("/generate")
 async def generate(req: GenerateRequest):
     print(f"[generate] Received request: {req}", flush=True)
+    # Prevent repeated submissions: busy check
+    if hasattr(generate, "_running") and generate._running:
+        return {"status": "busy", "message": "Generation already in progress"}
+    generate._running = True
     try:
-        dt = datetime.strptime(req.date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
-
-    mission = req.mission if req.mission != "auto" else choose_mission(dt)
-    print(f"[generate] Using mission: {mission}", flush=True)
-    # wavelength only matters for AIA/EIT; detector for LASCO
-    wl = req.wavelength
-    det = req.detector
-
-    # New naming scheme: {instrument}_{wavelength}A_{YYYY-MM-DD}.png if wavelength is known, else omit wavelength
-    instrument_for_name = None
-    if mission == "SDO":
-        instrument_for_name = "AIA"
-    elif mission == "SOHO-EIT":
-        instrument_for_name = "EIT"
-    elif mission == "SOHO-LASCO":
-        instrument_for_name = "LASCO"
-    else:
-        instrument_for_name = mission
-    # Compose filename with wavelength if provided
-    if wl is not None:
-        filename = f"{instrument_for_name}_{wl}A_{req.date}.png"
-    else:
-        filename = f"{instrument_for_name}_{req.date}.png"
-    paths = local_path_and_url(filename)
-
-    # Only use cached file if dry_run is True, else always regenerate
-    if req.dry_run and os.path.exists(paths["path"]):
-        print(f"[generate] Cached: {paths['path']}", flush=True)
-        resp: Dict[str, Any] = {
-            "mission": mission,
-            "date": req.date,
-            "png_local_path": paths["path"],
-            "png_url": paths["url"],
-            "note": "cached render",
-        }
-        if req.upload_to_printful:
-            print(f"[upload] Printful: uploading cached file...", flush=True)
-            pf = printful_upload(paths["path"], req.title or f"Sun on {req.date}", req.printful_purpose)
-            resp["printful"] = pf
-            pf_url = None
-            try:
-                pf_url = pf.get("result", {}).get("url")
-            except Exception:
-                pf_url = None
-            if not pf_url:
-                pf_url = pf.get("url") if isinstance(pf, dict) else None
-            if pf_url:
-                resp["printful_url"] = pf_url
-            # Create Printful order after upload
-            try:
-                file_id = pf.get("result", {}).get("id")
-                if file_id:
-                    order = printful_create_order(file_id, req.title or f"Sun on {req.date}", None)
-                    resp["printful_order"] = order
-            except Exception as e:
-                print(f"[upload] Printful order creation failed: {e}", flush=True)
-        out_png = paths["path"]
-        final_png_to_open = out_png
-        return_json = resp
-        goto_final_open = True
-    else:
-        goto_final_open = False
-
-    # Fetch → Map → Render
-    fetch_start = time.time()
-    result = fido_fetch_map(dt, mission, wl, det)
-    smap = result[0] if isinstance(result, list) and len(result) > 0 else result
-
-    out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
-    print(out_png, flush=True)
-
-    # offload blocking render
-    import asyncio
-    import concurrent.futures
-    loop = asyncio.get_event_loop()
-    render_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    await loop.run_in_executor(
-        render_executor,
-        lambda: map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
-    )
-
-    print(f"[render] PNG saved: {out_png}", flush=True)
-    print("[generate] Completed successfully.", flush=True)
-
-    fetch_end = time.time()
-    print(f"[fetch] Data fetch took {fetch_end - fetch_start:.2f}s", flush=True)
-
-    instrument_meta = smap.meta.get("instrume") or smap.meta.get("instrument") or instrument_for_name
-    wl_meta = smap.meta.get("wavelnth")
-    date_str_for_name = req.date
-    if hasattr(smap, "date") and getattr(smap, "date", None):
         try:
-            date_str_for_name = smap.date.strftime("%Y-%m-%d")
-        except Exception:
-            pass
-    if wl_meta is not None:
-        new_filename = f"{instrument_meta}_{wl_meta}A_{date_str_for_name}.png"
-    else:
-        new_filename = f"{instrument_meta}_{date_str_for_name}.png"
-    new_paths = local_path_and_url(new_filename)
-    # Only use cached file if dry_run is True, else always regenerate
-    if not goto_final_open and req.dry_run and os.path.exists(new_paths["path"]):
-        print(f"[generate] Cached: {new_paths['path']} (post-fetch)", flush=True)
-        resp: Dict[str, Any] = {
-            "mission": mission,
-            "date": req.date,
-            "meta": {
-                "observing_date": getattr(getattr(smap, "date", None), "isot", None),
-                "instrument": instrument_meta,
-                "detector": smap.meta.get("detector"),
-                "wavelength": smap.meta.get("wavelnth"),
-            },
-            "png_local_path": new_paths["path"],
-            "png_url": new_paths["url"],
-            "note": "cached render (post-fetch)",
-            "attribution": "Image courtesy of NASA/SDO (AIA) or ESA/NASA SOHO (EIT/LASCO). Not affiliated; no endorsement implied.",
-        }
-        if req.upload_to_printful:
-            print(f"[upload] Printful: uploading cached file...", flush=True)
-            pf = printful_upload(new_paths["path"], req.title or f"Sun on {req.date}", req.printful_purpose)
-            resp["printful"] = pf
-            pf_url = None
-            try:
-                pf_url = pf.get("result", {}).get("url")
-            except Exception:
-                pf_url = None
-            if not pf_url:
-                pf_url = pf.get("url") if isinstance(pf, dict) else None
-            if pf_url:
-                resp["printful_url"] = pf_url
-            # Create Printful order after upload
-            try:
-                file_id = pf.get("result", {}).get("id")
-                if file_id:
-                    order = printful_create_order(file_id, req.title or f"Sun on {req.date}", None)
-                    resp["printful_order"] = order
-            except Exception as e:
-                print(f"[upload] Printful order creation failed: {e}", flush=True)
-        out_png = new_paths["path"]
-        final_png_to_open = out_png
-        return_json = resp
-        goto_final_open = True
+            dt = datetime.strptime(req.date, "%Y-%m-%d")
+        except ValueError:
+            generate._running = False
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
 
-    if not goto_final_open:
-        render_start = time.time()
-        out_png = map_to_png(
-            smap, out_png=new_paths["path"], annotate=req.annotate,
-            dpi=req.png_dpi, size_inches=req.png_size_inches
+        mission = req.mission if req.mission != "auto" else choose_mission(dt)
+        print(f"[generate] Using mission: {mission}", flush=True)
+        # wavelength only matters for AIA/EIT; detector for LASCO
+        wl = req.wavelength
+        det = req.detector
+
+        # New naming scheme: {instrument}_{wavelength}A_{YYYY-MM-DD}.png if wavelength is known, else omit wavelength
+        instrument_for_name = None
+        if mission == "SDO":
+            instrument_for_name = "AIA"
+        elif mission == "SOHO-EIT":
+            instrument_for_name = "EIT"
+        elif mission == "SOHO-LASCO":
+            instrument_for_name = "LASCO"
+        else:
+            instrument_for_name = mission
+        # Compose filename with wavelength if provided
+        if wl is not None:
+            filename = f"{instrument_for_name}_{wl}A_{req.date}.png"
+        else:
+            filename = f"{instrument_for_name}_{req.date}.png"
+        paths = local_path_and_url(filename)
+
+        # Only use cached file if dry_run is True, else always regenerate
+        if req.dry_run and os.path.exists(paths["path"]):
+            print(f"[generate] Cached: {paths['path']}", flush=True)
+            out_png = paths["path"]
+            print("[generate] Completed successfully.", flush=True)
+            generate._running = False
+            return {"status": "success", "png_url": f"{ASSET_BASE_URL}/asset/{os.path.basename(out_png)}"}
+
+        # Fetch → Map → Render
+        fetch_start = time.time()
+        result = fido_fetch_map(dt, mission, wl, det)
+        smap = result[0] if isinstance(result, list) and len(result) > 0 else result
+
+        out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
+        print(out_png, flush=True)
+
+        # offload blocking render
+        import asyncio
+        import concurrent.futures
+        loop = asyncio.get_event_loop()
+        render_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        await loop.run_in_executor(
+            render_executor,
+            lambda: map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
         )
-        render_end = time.time()
-        print(f"[render] Image rendering took {render_end - render_start:.2f}s", flush=True)
 
-        resp: Dict[str, Any] = {
-            "mission": mission,
-            "date": req.date,
-            "meta": {
-                "observing_date": getattr(getattr(smap, "date", None), "isot", None),
-                "instrument": instrument_meta,
-                "detector": smap.meta.get("detector"),
-                "wavelength": smap.meta.get("wavelnth"),
-            },
-            "png_local_path": out_png,
-            "png_url": new_paths["url"],
-            "attribution": "Image courtesy of NASA/SDO (AIA) or ESA/NASA SOHO (EIT/LASCO). Not affiliated; no endorsement implied.",
-        }
-
-        if req.upload_to_printful:
-            print(f"[upload] Printful: uploading generated image...", flush=True)
-            upload_start = time.time()
-            pf = printful_upload(out_png, req.title or f"Sun on {req.date}", req.printful_purpose)
-            upload_end = time.time()
-            print(f"[upload] Printful upload took {upload_end - upload_start:.2f}s", flush=True)
-            resp["printful"] = pf
-            pf_url = None
-            try:
-                pf_url = pf.get("result", {}).get("url")
-            except Exception:
-                pf_url = None
-            if not pf_url:
-                pf_url = pf.get("url") if isinstance(pf, dict) else None
-            if pf_url:
-                resp["printful_url"] = pf_url
-            # Create Printful order after upload
-            try:
-                file_id = pf.get("result", {}).get("id")
-                if file_id:
-                    order = printful_create_order(file_id, req.title or f"Sun on {req.date}", None)
-                    resp["printful_order"] = order
-            except Exception as e:
-                print(f"[upload] Printful order creation failed: {e}", flush=True)
-
-        final_png_to_open = out_png
-        return_json = resp
-        goto_final_open = True
-
-    # Unified image open at end (if not using ASSET_BASE_URL)
-    if goto_final_open and not ASSET_BASE_URL:
-        try:
-            print(f"[generate] Opening final image: {final_png_to_open}", flush=True)
-            if os.name == "posix":
-                opener = "open" if sys.platform == "darwin" else "xdg-open"
-                subprocess.run([opener, final_png_to_open])
-        except Exception as e:
-            print(f"[generate] Failed to open image: {e}", flush=True)
-    if goto_final_open:
-        # Build HTML preview page
-        html_content = f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>Solar Archive — {return_json.get("mission", "")} {return_json.get("meta", {}).get("wavelength", "")}Å</title>
-            <style>
-                body {{
-                    background: #181820;
-                    color: #f0f0f0;
-                    min-height: 100vh;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    font-family: 'Segoe UI', 'Arial', sans-serif;
-                    margin: 0;
-                }}
-                .container {{
-                    background: #23232e;
-                    border-radius: 16px;
-                    padding: 32px 24px 24px 24px;
-                    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    max-width: 95vw;
-                }}
-                img {{
-                    max-width: 80vw;
-                    max-height: 60vh;
-                    border-radius: 10px;
-                    box-shadow: 0 2px 16px rgba(0,0,0,0.4);
-                    margin-bottom: 1.5em;
-                    background: #000;
-                }}
-                .meta {{
-                    margin-top: 1em;
-                    margin-bottom: 1em;
-                    font-size: 1.1em;
-                    color: #bdbde7;
-                }}
-                .download-btn {{
-                    background: #6a6aff;
-                    color: #fff;
-                    padding: 0.7em 1.4em;
-                    border: none;
-                    border-radius: 8px;
-                    font-size: 1.1em;
-                    font-weight: 500;
-                    cursor: pointer;
-                    margin-bottom: 1em;
-                    text-decoration: none;
-                    transition: background 0.2s;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-                }}
-                .download-btn:hover {{
-                    background: #3a3ae7;
-                }}
-                .footer {{
-                    margin-top: 2em;
-                    font-size: 0.95em;
-                    color: #888;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h2>Solar Archive Preview</h2>
-                <img src="{return_json.get("png_url", "")}" alt="Solar image preview">
-                <a class="download-btn" href="{return_json.get("png_url", "")}" download>Download PNG</a>
-                <div class="meta">
-                    <div><b>Mission:</b> {return_json.get("mission", "")}</div>
-                    <div><b>Wavelength:</b> {return_json.get("meta", {}).get("wavelength", "")} Å</div>
-                    <div><b>Date:</b> {return_json.get("date", "")}</div>
-                </div>
-                <div class="footer">
-                    {return_json.get("attribution", "")}
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=html_content)
+        print(f"[render] PNG saved: {out_png}", flush=True)
+        print("[generate] Completed successfully.", flush=True)
+        generate._running = False
+        return {"status": "success", "png_url": f"{ASSET_BASE_URL}{os.path.basename(out_png)}"}
+    except Exception as e:
+        generate._running = False
+        raise
 
 @app.post("/generate-stream")
 async def generate_stream(req: GenerateRequest):
