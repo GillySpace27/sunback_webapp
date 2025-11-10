@@ -2011,6 +2011,12 @@ async def generate_ui():
 from fastapi import Body
 from pydantic import BaseModel
 
+class PreviewRequest(BaseModel):
+    date: str
+    wavelength: int
+    mission: str | None = "SDO"
+    annotate: bool | None = False
+
 class UploadToPrintfulRequest(BaseModel):
     image_url: str
 
