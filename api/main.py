@@ -1323,10 +1323,9 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
 
 @app.post("/shopify/preview")
 async def shopify_preview(req: PreviewRequest):
-    params = await req.json()
-    date_str = params.get("date")
-    wavelength = params.get("wavelength", 171)
-    mission = params.get("mission", "SDO")
+    date_str = req.date
+    wavelength = req.wavelength or 171
+    mission = req.mission or "SDO"
 
     from sunpy.map import Map
     import matplotlib.pyplot as plt
