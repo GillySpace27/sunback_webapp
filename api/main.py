@@ -95,6 +95,8 @@ def fetch_sync_safe(query):
 APP_NAME = "Solar Archive Backend"
 OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
 ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
+print(f"{ASSET_BASE_URL = }")
+print(f"{OUTPUT_DIR = }")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Printful
