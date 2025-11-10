@@ -126,12 +126,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://solar-archive.myshopify.com",
-        "https://0b1wyw-tz.myshopify.com",
-        "https://admin.shopify.com",
-        "https://solar-archive.onrender.com",
-    ],
+    # allow_origins=[
+    #     "https://solar-archive.myshopify.com",
+    #     "https://0b1wyw-tz.myshopify.com",
+    #     "https://admin.shopify.com",
+    #     "https://solar-archive.onrender.com",
+    # ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1304,7 +1305,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
 
 
 @app.post("/shopify/preview")
-async def shopify_preview(req: Request):
+async def shopify_preview(req: PreviewRequest):
     params = await req.json()
     date_str = params.get("date")
     wavelength = params.get("wavelength", 171)
@@ -1331,6 +1332,7 @@ async def shopify_preview(req: Request):
     plt.close()
 
     preview_url = f"{ASSET_BASE_URL}preview_{mission}_{wavelength}_{date_str}.png"
+    print(f"{preview_url = }")
     return {"preview_url": preview_url}
 
 
