@@ -139,6 +139,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <html>
+        <head><title>Solar Archive</title></head>
+        <body style="font-family:sans-serif; text-align:center; margin-top:5em;">
+            <h1>☀️ Solar Archive is running!</h1>
+            <p>Visit the <a href="/docs">API documentation</a> for available endpoints.</p>
+        </body>
+    </html>
+    """
 
 @app.get("/debug/vso")
 def debug_vso():
