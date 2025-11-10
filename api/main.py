@@ -1,3 +1,4 @@
+from __future__ import annotations
 from urllib.parse import urlencode, quote_plus
 import io
 import json
@@ -29,7 +30,6 @@ import os
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
 
-from __future__ import annotations
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
