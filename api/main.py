@@ -1,3 +1,208 @@
+from urllib.parse import urlencode, quote_plus
+# ──────────────────────────────────────────────────────────────────────────────
+# Shopify Launch & Redirect Endpoints
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/shopify/launch", response_class=HTMLResponse)
+async def shopify_launch():
+    """
+    Serve a dynamic HTML page for Shopify users to choose a date, generate a solar image,
+    preview it, and open it in the Shopify store.
+    """
+    html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Solar Archive — Shopify Launch</title>
+        <style>
+            body {
+                background: #181820;
+                color: #f0f0f0;
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                margin: 0;
+            }
+            .container {
+                background: #23232e;
+                border-radius: 16px;
+                padding: 32px 24px 24px 24px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                max-width: 95vw;
+            }
+            img {
+                max-width: 80vw;
+                max-height: 60vh;
+                border-radius: 10px;
+                box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+                margin-bottom: 1.5em;
+                background: #000;
+            }
+            .meta {
+                margin-top: 1em;
+                margin-bottom: 1em;
+                font-size: 1.1em;
+                color: #bdbde7;
+            }
+            .action-btn {
+                background: #6a6aff;
+                color: #fff;
+                padding: 0.7em 1.4em;
+                border: none;
+                border-radius: 8px;
+                font-size: 1.1em;
+                font-weight: 500;
+                cursor: pointer;
+                margin-bottom: 1em;
+                text-decoration: none;
+                transition: background 0.2s;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            }
+            .action-btn:hover {
+                background: #3a3ae7;
+            }
+            .footer {
+                margin-top: 2em;
+                font-size: 0.95em;
+                color: #888;
+            }
+            #preview-section {
+                display: none;
+                flex-direction: column;
+                align-items: center;
+                margin-top: 2em;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Solar Archive for Shopify</h2>
+            <form id="genform">
+                <label for="date">Choose a date:</label>
+                <input type="date" id="date" name="date" required>
+                <button type="submit" class="action-btn">Generate Solar Image</button>
+            </form>
+            <div id="preview-section">
+                <h3>Image Preview</h3>
+                <img id="preview-img" src="" alt="Solar image preview">
+                <div class="meta" id="preview-meta"></div>
+                <button id="shopify-btn" class="action-btn">Open in Shopify Store</button>
+            </div>
+            <div class="footer">
+                Images courtesy of NASA/SDO or ESA/NASA SOHO. Not affiliated; no endorsement implied.
+            </div>
+        </div>
+        <script>
+            const form = document.getElementById('genform');
+            const previewSection = document.getElementById('preview-section');
+            const previewImg = document.getElementById('preview-img');
+            const previewMeta = document.getElementById('preview-meta');
+            const shopifyBtn = document.getElementById('shopify-btn');
+            let lastImageUrl = "";
+            let lastMeta = "";
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const date = document.getElementById('date').value;
+                if (!date) {
+                    alert("Please select a date.");
+                    return;
+                }
+                previewSection.style.display = "none";
+                previewImg.src = "";
+                previewMeta.textContent = "";
+                lastImageUrl = "";
+                lastMeta = "";
+                shopifyBtn.disabled = true;
+                shopifyBtn.textContent = "Open in Shopify Store";
+                // Call /generate endpoint (POST for more reliable parsing)
+                try {
+                    const payload = {
+                        date: date,
+                        mission: "auto",
+                        dry_run: true,
+                        annotate: true
+                    };
+                    const res = await fetch('/generate', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                    let responseText = await res.text();
+                    // Try to parse JSON, fallback to HTML
+                    let data = null;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch {
+                        // Not JSON, try to extract image URL from HTML
+                        let imgMatch = responseText.match(/<img[^>]+src="([^"]+)"/i);
+                        let dateMatch = responseText.match(/<div><b>Date:<\/b>\s*([^<]+)<\/div>/i);
+                        let wlMatch = responseText.match(/<div><b>Wavelength:<\/b>\s*([^<]+) Å<\/div>/i);
+                        if (imgMatch) {
+                            lastImageUrl = imgMatch[1];
+                        }
+                        if (dateMatch || wlMatch) {
+                            lastMeta = "";
+                            if (dateMatch) lastMeta += "Date: " + dateMatch[1] + " ";
+                            if (wlMatch) lastMeta += "Wavelength: " + wlMatch[1] + " Å";
+                        }
+                        data = null;
+                    }
+                    if (data && data.png_url) {
+                        lastImageUrl = data.png_url;
+                        lastMeta = `Date: ${data.date || date} Wavelength: ${data.meta && data.meta.wavelength ? data.meta.wavelength : ""} Å`;
+                    }
+                    if (lastImageUrl) {
+                        previewImg.src = lastImageUrl;
+                        previewMeta.textContent = lastMeta;
+                        previewSection.style.display = "flex";
+                        shopifyBtn.disabled = false;
+                    } else {
+                        alert("Could not generate image. Please try again.");
+                    }
+                } catch (err) {
+                    alert("Error generating image: " + err);
+                }
+            });
+            shopifyBtn.addEventListener('click', () => {
+                if (!lastImageUrl) {
+                    alert("No image to send to Shopify.");
+                    return;
+                }
+                // Redirect to /redirect_to_shopify with image_url param
+                const params = new URLSearchParams({ image_url: lastImageUrl });
+                window.location.href = "/redirect_to_shopify?" + params.toString();
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+
+@app.get("/redirect_to_shopify")
+async def redirect_to_shopify(request: Request):
+    """
+    Redirects the user to the Shopify store app page with the image_url as a query parameter.
+    """
+    image_url = request.query_params.get("image_url")
+    if not image_url:
+        raise HTTPException(status_code=400, detail="image_url parameter is required")
+    # Construct Shopify app URL
+    base_url = "https://solar-archive.myshopify.com"
+    # Use /apps/solar-render?image_url={encoded_image_url}
+    encoded_image_url = quote_plus(image_url)
+    shopify_url = f"{base_url}/apps/solar-render?image_url={encoded_image_url}"
+    print(f"[shopify][redirect] Constructed Shopify URL: {shopify_url}", flush=True)
+    print(f"[shopify][redirect] Redirecting user to Shopify store...", flush=True)
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=shopify_url, status_code=302)
 
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
