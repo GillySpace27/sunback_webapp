@@ -1042,7 +1042,7 @@ def get_local_asset(filename: str):
         raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(fp, media_type="image/png")
 
-def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int=171):
+def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     """
     Quickly fetch a single FITS file for a mission/date/wavelength without preprocessing or filtering.
     Used for instant Shopify preview thumbnails.
@@ -1054,14 +1054,13 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int=171):
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     t0 = dt
-    t1 = dt + timedelta(minutes=0.5)
+    t1 = dt + timedelta(seconds=12)
 
     # Use a very narrow search window for speed
     if mission.upper() == "SDO":
         wl = wavelength * u.angstrom
         print(f"[preview] Quicklook fetch for SDO/AIA {wl}", flush=True)
         qr = Fido.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl))
-        # print(qr)
     elif mission.upper() == "SOHO-EIT":
         wl = wavelength * u.angstrom
         print(f"[preview] Quicklook fetch for SOHO/EIT {wl}", flush=True)
