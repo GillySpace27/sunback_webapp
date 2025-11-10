@@ -1751,3 +1751,45 @@ async def proxy_solar_preview(request: Request):
         print("[proxy] Error in /apps/solar-preview:", e, flush=True)
         import traceback; traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/generate-ui", response_class=HTMLResponse)
+async def generate_ui():
+    return """
+    <html>
+      <head><title>Solar Archive Generator</title></head>
+      <body style="font-family:sans-serif; text-align:center; margin-top:5em;">
+        <h2>Generate a Solar Image</h2>
+        <form id="genform">
+          <label>Date:</label>
+          <input type="date" id="date" required>
+          <button type="submit">Generate</button>
+        </form>
+        <div id="output"></div>
+
+        <script>
+          const form = document.getElementById('genform');
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = document.getElementById('date').value;
+            const res = await fetch(`/generate?date=${date}`);
+            const data = await res.json();
+            document.getElementById('output').innerHTML = `
+              <h3>Result:</h3>
+              <img src="${data.image_url}" width="400"><br>
+              <button onclick="sendToPrintful('${data.image_url}')">Use in Printful</button>`;
+          });
+
+          async function sendToPrintful(url) {
+            const res = await fetch('/upload_to_printful', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({image_url: url})
+            });
+            const result = await res.json();
+            alert(result.status);
+          }
+        </script>
+      </body>
+    </html>
+    """
