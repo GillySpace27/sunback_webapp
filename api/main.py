@@ -1042,66 +1042,76 @@ def get_local_asset(filename: str):
         raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(fp, media_type="image/png")
 
+def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
+    """
+    Quickly fetch a single FITS file for a mission/date/wavelength without preprocessing or filtering.
+    Used for instant Shopify preview thumbnails.
+    """
+    from sunpy.net import Fido, attrs as a
+    from astropy import units as u
+    from sunpy.map import Map
+    from datetime import datetime, timedelta
+
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    t0 = dt
+    t1 = dt + timedelta(minutes=2)
+
+    # Use a very narrow search window for speed
+    if mission.upper() == "SDO":
+        wl = wavelength * u.angstrom
+        print(f"[preview] Quicklook fetch for SDO/AIA {wl}", flush=True)
+        qr = Fido.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl))
+    elif mission.upper() == "SOHO-EIT":
+        wl = wavelength * u.angstrom
+        print(f"[preview] Quicklook fetch for SOHO/EIT {wl}", flush=True)
+        qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
+    elif mission.upper() == "SOHO-LASCO":
+        print(f"[preview] Quicklook fetch for SOHO/LASCO", flush=True)
+        qr = Fido.search(a.Time(t0, t1), a.Instrument("LASCO"))
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown mission: {mission}")
+
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        raise HTTPException(status_code=404, detail=f"No quicklook data found for {mission} {date_str}")
+
+    # Fetch only one file for speed
+    files = Fido.fetch(qr[0, 0], progress=False)
+    if not files or len(files) == 0:
+        raise HTTPException(status_code=502, detail="Quicklook fetch failed")
+
+    print(f"[preview] Quicklook file: {files[0]}", flush=True)
+    return files[0]
+
 
 @app.post("/shopify/preview")
-async def shopify_preview(request: Request):
-    """
-    Fast, non-RHEF, single-frame solar thumbnail preview for Shopify.
-    Produces a lightweight PNG almost instantly.
-    """
-    try:
-        body = await request.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+async def shopify_preview(req: Request):
+    params = await req.json()
+    date_str = params.get("date")
+    wavelength = params.get("wavelength")
+    mission = params.get("mission", "SDO")
 
-    date_str = body.get("date")
-    wavelength = body.get("wavelength", 171)
-    detector = body.get("detector", "C2")
-    mission = body.get("mission", "auto")
+    from sunpy.map import Map
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
 
-    try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
+    fits_path = fetch_quicklook_fits(mission, date_str, wavelength)
+    smap = Map(fits_path)
 
-    # Pick mission automatically if requested
-    mission = mission if mission != "auto" else choose_mission(dt)
-
-    print(f"[preview] Generating quick preview for {mission} {wavelength}Å on {date_str}", flush=True)
-
-    # Fetch only ONE AIA frame quickly (skip multi-frame sum)
-    try:
-        smap = fido_fetch_map(dt, mission, wavelength, detector)
-        if isinstance(smap, list) and len(smap) > 0:
-            smap = smap[0]
-    except Exception as e:
-        print(f"[preview] Fetch failed: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Preview fetch failed: {e}")
-
-    # Downsample to small size for instant preview
-    try:
-        import astropy.units as u
-        small_map = smap.resample((512, 512) * u.pixel)
-    except Exception as e:
-        print(f"[preview] Resample failed, using raw map: {e}", flush=True)
-        small_map = smap
-
-    # Save small PNG without RHEF filtering
-    filename = f"preview_{mission}_{wavelength}_{date_str}.png"
-    out_png = os.path.join(OUTPUT_DIR, filename)
+    # Apply simple log10 scaling only
+    data = np.log10(np.clip(smap.data, 1, None))
+    out_png = os.path.join(OUTPUT_DIR, f"preview_{mission}_{wavelength}_{date_str}.png")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    print(f"[preview] Saving preview to {out_png}", flush=True)
-    try:
-        map_to_png(small_map, out_png, annotate=False, dpi=96, size_inches=3.0)
-    except Exception as e:
-        print(f"[preview] map_to_png failed: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Preview render failed: {e}")
 
-    # Build asset URL for Shopify to load
-    paths = local_path_and_url(os.path.basename(out_png))
-    print(f"[preview] Quick preview ready: {paths['url']}", flush=True)
+    plt.figure(figsize=(6, 6))
+    plt.imshow(data, origin="lower", cmap="sdoaia{}".format(wavelength))
+    plt.axis("off")
+    plt.tight_layout(pad=0)
+    plt.savefig(out_png, dpi=150, bbox_inches="tight", pad_inches=0)
+    plt.close()
 
-    return JSONResponse({"preview_url": paths["url"]})
+    preview_url = f"{ASSET_BASE_URL}/preview_{mission}_{wavelength}_{date_str}.png"
+    return {"preview_url": preview_url}
 
 
 @app.post("/generate")
