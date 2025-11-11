@@ -1,3 +1,7 @@
+import uuid
+
+# Registry to track background tasks for /generate
+task_registry: dict = {}
 from urllib.parse import urlencode, quote_plus
 import os, sys
 os.environ["PYTHONUNBUFFERED"] = "1"
@@ -931,7 +935,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             maps = []
             for i, f in enumerate(files):
                 m = Map(f)
-                log_to_queue(f"[fetch][progress] Aligning {i+1}/{len(files)}")
+                log_to_queue(f"[fetch][progress] Prepping {i+1}/{len(files)}")
                 try:
                     m_prep = None
                     try:
@@ -1578,58 +1582,77 @@ async def shopify_preview(req: PreviewRequest):
 # HQ PNG Generation Endpoint
 # ──────────────────────────────────────────────────────────────────────────────
 
-@app.post("/generate")
-async def generate(req: GenerateRequest):
+
+# Background HQ render function for /generate
+async def run_hq_render(task_id, req: GenerateRequest):
     date_str = req.date
     wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
-    mission = (req.mission or choose_mission(dt)).upper()
-    log_to_queue(f"[generate] Starting HQ render for {mission} {wavelength}Å on {date_str}")
-
     try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        mission = (req.mission or choose_mission(dt)).upper()
+        log_to_queue(f"[generate][task:{task_id}] Starting HQ render for {mission} {wavelength}Å on {date_str}")
+        task_registry[task_id] = {"status": "fetching", "progress": "Fetching FITS data", "result": None}
         # Fetch full-resolution FITS from JSOC/Fido
-        smap = fido_fetch_map(dt, mission, wavelength, req.detector)
-
+        smap = await asyncio.to_thread(fido_fetch_map, dt, mission, wavelength, req.detector)
+        task_registry[task_id] = {"status": "filtering", "progress": "Applying filter", "result": None}
         # Apply the full-quality RHEF filter (no downsampling)
-        filtered = default_filter(smap)
-        log_to_queue(f"[generate] Using native resolution: {filtered.data.shape}")
-
+        filtered = await asyncio.to_thread(default_filter, smap)
+        log_to_queue(f"[generate][task:{task_id}] Using native resolution: {filtered.data.shape}")
         # Output file path
         fname = f"hq_{mission}_{wavelength}_{dt.strftime('%Y-%m-%d')}.png".replace(' ', '_').replace('/', '-')
         out_png = os.path.join(OUTPUT_DIR, fname)
-
-        # Save HQ PNG at full 4K equivalent resolution
-        # 13.6 inches * 300 dpi ≈ 4080 px (4K)
-        map_to_png(
+        task_registry[task_id] = {"status": "rendering", "progress": "Rendering PNG", "result": None}
+        # Save HQ PNG at full 4K equivalent resolution (13.6 inches * 300 dpi ≈ 4080 px)
+        await asyncio.to_thread(
+            map_to_png,
             filtered,
             out_png,
-            annotate=req.annotate,
-            dpi=300,
-            size_inches=13.6,
-            dolog=False
+            req.annotate,
+            300,
+            13.6,
+            False
         )
-
         base = ASSET_BASE_URL.rstrip('/')
         if not base.endswith('asset'):
             png_url = f"{base}/asset/{os.path.basename(out_png)}"
         else:
             png_url = f"{base}/{os.path.basename(out_png)}"
-
-        log_to_queue(f"[generate] HQ proof generated at full resolution: {out_png}")
-        log_to_queue(f"[generate] HQ proof generated at full resolution: {png_url}")
-        response = JSONResponse(
-            content={"png_url": png_url},
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
-        return response
-
+        log_to_queue(f"[generate][task:{task_id}] HQ proof generated at full resolution: {out_png}")
+        log_to_queue(f"[generate][task:{task_id}] HQ proof generated at full resolution: {png_url}")
+        task_registry[task_id] = {
+            "status": "done",
+            "progress": "Completed",
+            "result": {"png_url": png_url},
+        }
     except Exception as e:
-        log_to_queue(f"[generate] Error: {e}")
-        raise HTTPException(status_code=500, detail=f"HQ render failed: {e}")
+        import traceback
+        log_to_queue(f"[generate][task:{task_id}] Error: {e}")
+        traceback.print_exc()
+        task_registry[task_id] = {
+            "status": "error",
+            "progress": "Failed",
+            "result": {"error": str(e)},
+        }
+
+
+@app.post("/generate")
+async def generate(req: GenerateRequest):
+    # Generate a unique task ID
+    task_id = str(uuid.uuid4())
+    # Set initial status
+    task_registry[task_id] = {"status": "pending", "progress": "Queued", "result": None}
+    # Spawn background task
+    asyncio.create_task(run_hq_render(task_id, req))
+    return {"task_id": task_id}
+
+
+# Endpoint to check task status/result
+@app.get("/task/{task_id}")
+async def get_task_status(task_id: str):
+    if task_id not in task_registry:
+        raise HTTPException(status_code=404, detail="Task not found")
+    # Return the full status dict
+    return task_registry[task_id]
 
 # @app.head("/")
 # async def head_root():
