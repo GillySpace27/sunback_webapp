@@ -158,7 +158,12 @@ import sys
 import threading
 
 # Serve /api/test_frontend.html and other frontend assets
-app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
+# app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
+
+from pathlib import Path
+app_dir = Path(__file__).parent
+app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
