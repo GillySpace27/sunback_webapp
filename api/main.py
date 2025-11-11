@@ -37,11 +37,8 @@ from sunpy.net import vso
 from sunpy.map import Map
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="parfive.downloader")
-import os
 from fastapi import Body
-from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
-import asyncio
 
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
@@ -55,6 +52,19 @@ class PreviewRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────────────────────
 # Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
 # This should run before any SunPy config or network code.
+# ──────────────────────────────────────────────────────────────────────────────
+# Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
+# This should run before any SunPy config or network code.
+
+# CORS headers for all responses
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Allow-Credentials": "true",
+}
+
+# SSL/certifi setup (single block)
 import certifi
 if (
     "SSL_CERT_FILE" not in os.environ
@@ -65,6 +75,8 @@ if (
 # Always force SSL to use certifi's CA bundle globally
 import ssl
 ssl._create_default_https_context = ssl._create_default_https_context
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+os.environ["SSL_CERT_FILE"] = certifi.where()
 
 
 
@@ -72,13 +84,7 @@ ssl._create_default_https_context = ssl._create_default_https_context
 base_tmp = "/tmp/output"
 os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
 os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
-# os.environ["REQUESTS_CA_BUNDLE"] = os.environ.get("REQUESTS_CA_BUNDLE", "/etc/ssl/cert.pem")
-# os.environ["SSL_CERT_FILE"] = os.environ.get("SSL_CERT_FILE", "/etc/ssl/cert.pem")
 os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
-os.environ["JSOC_BASEURL"] = "https://jsoc.stanford.edu"
-os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
-os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
-os.environ["SSL_CERT_FILE"] = certifi.where()
 
 #
 # Set SOLAR_ARCHIVE_ASSET_BASE_URL based on environment, removing trailing slashes for consistency.
@@ -146,8 +152,6 @@ DEFAULT_DETECTOR_LASCO = "C2"  # or "C3"
 SDO_EPOCH = datetime(2010, 5, 15)    # after which AIA is widely available
 SOHO_EPOCH = datetime(1996, 1, 1)    # after which EIT/LASCO is available
 
-# JSOC Email placeholder for JSOCClient (used for SDO/AIA direct fetches)
-JSOC_EMAIL = os.getenv("JSOC_EMAIL", "chris.gilly@colorado.edu")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -854,7 +858,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     """
     Retrieve a SunPy Map near the given date for the chosen mission.
     We search a small window around the date to find at least one file.
-    For SDO/AIA, try JSOC first (with email), fallback to Fido if needed.
+    For SDO/AIA, use VSO only.
     """
     log_to_queue(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wavelength}, detector={detector}")
     # Normalize wavelength and detector for cache keys
@@ -874,7 +878,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     t1 = dt + timedelta(minutes=2)
 
     # Caching for combined (summed) AIA data
-    # import numpy as _np
     import numpy as np
     combined_cache_file = None
     date_str = dt.strftime("%Y%m%d")
@@ -894,7 +897,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             return combined_map
 
     if mission == "SDO":
-        # Always fetch full-res 4K AIA data from JSOC, never fall back to synoptic or low-res products
         from sunpy.net import Fido, attrs as a
         import astropy.units as u
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
@@ -906,7 +908,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             a.Wavelength(wl * u.angstrom)
         )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            log_to_queue(f"[fetch] [AIA] No JSOC aia.lev1_euv_12s results in ±1min, retrying ±10min...")
+            log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
             qr = Fido.search(
                 a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
                 a.Instrument("AIA"),
@@ -914,24 +916,21 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 a.Wavelength(wl * u.angstrom)
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            log_to_queue(f"[fetch] [AIA] No JSOC aia.lev1_euv_12s results in ±10min. No fallback available.")
-            raise HTTPException(status_code=502, detail="No JSOC aia.lev1_euv_12s data available for this date.")
-        log_to_queue(f"[fetch] [AIA] JSOC aia.lev1_euv_12s: {len(qr[0])} results...")
+            log_to_queue(f"[fetch] [AIA] No VSO results found in ±10min. No fallback available.")
+            raise HTTPException(status_code=502, detail="No VSO data available for this date.")
+        log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
         from parfive import Downloader
         dl = Downloader(max_conn=15, progress=True)
         target_dir = os.environ["SUNPY_DOWNLOADDIR"]
-        # Always call Fido.fetch; downloader will skip already-downloaded files but return the full list
         files = Fido.fetch(qr, downloader=dl, path=target_dir)
         try:
             files = list(map(str, files))
         except Exception:
             files = list(files) if isinstance(files, (list, tuple)) else [str(files)]
-        log_to_queue(f"[fetch] Retrieved {len(files)} AIA frames from JSOC (existing files were skipped by the downloader if present).")
+        log_to_queue(f"[fetch] Retrieved {len(files)} AIA frames from VSO (existing files were skipped by the downloader if present).")
         if not files or len(files) == 0:
-            log_to_queue(f"[fetch] [AIA] JSOC fetch returned no files.")
-            raise HTTPException(status_code=502, detail="No files from JSOC aia.lev1_euv_12s fetch.")
-        # Improved: Combine all AIA frames into a single time-integrated, exposure-weighted mean intensity map,
-        # ensuring co-alignment in time and WCS, with detailed progress logging and SNR diagnostics.
+            log_to_queue(f"[fetch] [AIA] VSO fetch returned no files.")
+            raise HTTPException(status_code=502, detail="No files from VSO AIA fetch.")
         if isinstance(files, (list, tuple)) and len(files) > 1:
             import numpy as np
             maps = []
@@ -949,7 +948,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 except Exception as e:
                     log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
                     maps.append(m)
-            # Optionally: check WCS alignment (simple check)
             ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
             for i, m in enumerate(maps):
                 if ref_wcs is not None and hasattr(m, "wcs"):
@@ -961,8 +959,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             weighted_sum = np.nansum(data_stack * exptimes[:, None, None], axis=0)
             sum_exp = np.nansum(exptimes)
             combined_data = weighted_sum / sum_exp
-
-            # SNR diagnostics on a central patch
             try:
                 h, w = maps[0].data.shape
                 x0, x1 = int(w // 2 - 128), int(w // 2 + 128)
@@ -973,7 +969,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 log_to_queue(f"[fetch][snr] Central patch σ_single/σ_combined = {sigma_single:.3g}/{sigma_comb:.3g} → gain ≈ {snr_gain:.2f}× (expected ~{np.sqrt(len(maps)):.2f}×)")
             except Exception as snr_err:
                 log_to_queue(f"[fetch][snr][warn] Unable to compute SNR diagnostics: {snr_err}")
-
             combined_meta = maps[0].meta.copy()
             combined_meta["n_frames"] = len(maps)
             combined_meta["t_start"] = str(maps[0].date)
@@ -981,9 +976,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             combined_map = Map(combined_data, combined_meta)
             log_to_queue(f"[fetch] Combined {len(maps)} frames with exposure weighting over {combined_meta['t_start']} → {combined_meta['t_end']}")
             log_to_queue("[fetch][progress] Integration complete")
-
             date_str = dt.strftime("%Y%m%d")
-            # Use a wavelength key that matches the cache-read key
             try:
                 from astropy import units as _u
                 wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
@@ -1468,13 +1461,7 @@ def get_local_asset(filename: str):
     fp = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(fp):
         raise HTTPException(status_code=404, detail="File not found.")
-    headers = {
-        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Credentials": "true",
-    }
-    return FileResponse(fp, media_type="image/png", headers=headers)
+    return FileResponse(fp, media_type="image/png", headers=CORS_HEADERS)
 
 def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     """
@@ -1493,11 +1480,13 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     t0 = dt
     t1 = dt + timedelta(seconds=12)
 
-    # Use a very narrow search window for speed
     if mission.upper() == "SDO":
         wl = wavelength * u.angstrom
-        log_to_queue(f"[preview] Quicklook fetch for SDO/AIA {wl}")
-        qr = Fido.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl))
+        log_to_queue(f"[preview] Using VSO quicklook fetch for SDO/AIA {wl}")
+        qr = Fido.search(a.Time(t0, t1), a.Instrument("AIA"), a.Source("SDO"), a.Wavelength(wl))
+        if len(qr) == 0:
+            log_to_queue(f"[preview] No VSO results for {mission} {date_str}, skipping.")
+            raise HTTPException(status_code=404, detail="No VSO data found.")
     elif mission.upper() == "SOHO-EIT":
         wl = wavelength * u.angstrom
         log_to_queue(f"[preview] Quicklook fetch for SOHO/EIT {wl}")
@@ -1511,14 +1500,12 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
         raise HTTPException(status_code=404, detail=f"No quicklook data found for {mission} {date_str}")
 
-    # Fetch only one file for speed
     files = Fido.fetch(qr[0, 0], progress=True)
     if not files or len(files) == 0:
         raise HTTPException(status_code=502, detail="Quicklook fetch failed")
 
     log_to_queue(f"[preview] Quicklook file: {files[0]}")
 
-    # Downsample the FITS for preview (halve resolution in each axis, i.e., factor 8)
     try:
         m = Map(files[0])
         log_to_queue(f"[preview] Reducing FITS preview resolution by 4x for speed...")
@@ -1529,7 +1516,6 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
         header['CDELT1'] = header.get('CDELT1', 1) * 4
         header['CDELT2'] = header.get('CDELT2', 1) * 4
         smap_small = Map(reduced_data, header)
-        # Save to temp file for preview pipeline
         out_dir = "/tmp/output"
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(
@@ -1553,13 +1539,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
 @app.options("/shopify/preview")
 async def shopify_preview_options():
     # CORS preflight for Shopify preview endpoint
-    headers = {
-        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Credentials": "true",
-    }
-    return JSONResponse({}, headers=headers)
+    return JSONResponse({}, headers=CORS_HEADERS)
 
 @app.post("/shopify/preview")
 async def shopify_preview(req: PreviewRequest):
@@ -1573,7 +1553,7 @@ async def shopify_preview(req: PreviewRequest):
         wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         mission = (req.mission or choose_mission(dt)).upper()
-        # 1) Fetch a quicklook FITS via Fido/JSOC
+        # 1) Fetch a quicklook FITS via VSO
         fits_path = fetch_quicklook_fits(mission, date_str, wavelength)
         # 2) Build a SunPy Map, with light prep for AIA
         smap = Map(fits_path)
@@ -1592,24 +1572,12 @@ async def shopify_preview(req: PreviewRequest):
             preview_url = f"{base}/asset/{os.path.basename(out_png)}"
         else:
             preview_url = f"{base}/{os.path.basename(out_png)}"
-        log_to_queue(f"[preview] Using JSOC/Fido preview path: {out_png}")
-        headers = {
-            "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true",
-        }
-        return JSONResponse({"preview_url": preview_url}, headers=headers)
+        log_to_queue(f"[preview] Using VSO quicklook fetch: {out_png}")
+        return JSONResponse({"preview_url": preview_url}, headers=CORS_HEADERS)
     except HTTPException:
         raise
     except Exception as e:
         log_to_queue(f"[preview] Error creating preview: {e}")
-        headers = {
-            "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true",
-        }
         raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1678,24 +1646,12 @@ async def generate(req: GenerateRequest):
     task_registry[task_id] = {"state": "queued", "progress": "Queued for processing", "result": None}
     # Launch background render
     asyncio.create_task(run_hq_render(task_id, req))
-    headers = {
-        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Credentials": "true",
-    }
-    return JSONResponse({"task_id": task_id, "state": "queued"}, headers=headers)
+    return JSONResponse({"task_id": task_id, "state": "queued"}, headers=CORS_HEADERS)
 
 # Polling endpoint for task status/result
 @app.options("/status/{task_id}")
 async def status_options(task_id: str):
-    headers = {
-        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Credentials": "true",
-    }
-    return JSONResponse({}, headers=headers)
+    return JSONResponse({}, headers=CORS_HEADERS)
 
 @app.get("/status/{task_id}")
 async def get_task_status(task_id: str):
@@ -1710,12 +1666,6 @@ async def get_task_status(task_id: str):
     png_url = None
     if isinstance(result, dict):
         png_url = result.get("png_url")
-    headers = {
-        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Credentials": "true",
-    }
     return JSONResponse(
         {
             "task_id": task_id,
@@ -1723,7 +1673,7 @@ async def get_task_status(task_id: str):
             "progress": progress,
             "png_url": png_url
         },
-        headers=headers
+        headers=CORS_HEADERS
     )
 
 # @app.head("/")
