@@ -57,7 +57,7 @@
   </div>
   <img id="solar-image"
        alt="Solar preview"
-       style="display:none; max-width:100%; border-radius:8px; box-shadow:0 0 25px rgba(0,0,0,0.15); margin:1em auto;">
+       style="display:none; width:800px; max-width:90%; border-radius:8px; box-shadow:0 0 25px rgba(0,0,0,0.15); margin:1em auto;">
   <div id="solar-cart" style="margin-top:1em;"></div>
 </div>
 
@@ -231,14 +231,14 @@ function ensureHQButton() {
     hqBtn.textContent = "Render HQ Proof";
     hqBtn.className = "action-btn";
     hqBtn.style.marginLeft = "1em";
-    // place next to Generate button area (inside solar-cart for layout consistency)
-    solarCart.prepend(hqBtn);
+    // Insert HQ button immediately after Generate Preview button
+    generateBtn.insertAdjacentElement("afterend", hqBtn);
 
     // Use the new generateHQProof function for click event
     hqBtn.onclick = generateHQProof;
 }
 
-// New generateHQProof function with correct JSON body and headers
+// New generateHQProof function with HQ image safety fallback and load confirmation
 async function generateHQProof() {
     const dateInput = document.getElementById("solar-date");
     const wavelengthInput = document.getElementById("solar-wavelength");
@@ -274,12 +274,31 @@ async function generateHQProof() {
 
         const data = await response.json();
         const proofUrl = data.png_url;
+        // HQ safety fallback: check for missing or empty URL
+        if (!proofUrl || proofUrl.trim() === "") {
+            console.error("No proofUrl returned, keeping preview visible");
+            setStatus("HQ render complete, but no image URL returned.");
+            return;
+        }
+        // Always use explicit localhost:8000 asset path for HQ proof
+        const filename = proofUrl ? proofUrl.split("/").pop() : "";
+        const resolvedUrl = `http://127.0.0.1:8000/asset/${filename}`;
+        console.log("[frontend] Forced HQ proof URL:", resolvedUrl);
         lastHQUrl = proofUrl;
         // swap to HQ without hiding image first (avoid flicker)
-        previewImg.src = proofUrl;
+        previewImg.src = resolvedUrl;
+        // Image load confirmation handler
+        previewImg.onload = () => {
+            console.log("[frontend] HQ image loaded successfully");
+            setStatus(`HQ proof ready · ${wavelength} Å — ${date}`);
+            previewImg.style.display = "block";
+        };
+        previewImg.onerror = () => {
+            console.error("[frontend] HQ image failed to load:", resolvedUrl);
+            setStatus("HQ render complete, but failed to load image.");
+        };
         previewImg.style.display = "block";
         previewImg.setAttribute("data-hq", "1");
-        setStatus(`HQ proof ready · ${wavelength} Å — ${date}`);
         // enable Upload to Printful only after HQ exists
         shopifyBtn.disabled = false;
         // Mark preview as inactive because now HQ proof is displayed
