@@ -104,8 +104,8 @@ def fetch_sync_safe(query):
     log_to_queue("[fetch] Fido.fetch (sync, max_conn=10, no progress)")
     from parfive import Downloader
     dl = Downloader(
-        max_conn=10,
-        progress=False,
+        max_conn=12,
+        progress=True,
         overwrite=False
     )
     return Fido.fetch(query, downloader=dl)
@@ -167,10 +167,9 @@ app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
         "http://127.0.0.1:8000",
-        "http://localhost:8000"
+        "http://localhost:8000",
+        "https://solar-archive.onrender.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -1452,7 +1451,7 @@ async def generate(req: GenerateRequest):
             annotate=req.annotate,
             dpi=300,
             size_inches=13.6,
-            dolog=True
+            dolog=False
         )
 
         base = ASSET_BASE_URL.rstrip('/')
