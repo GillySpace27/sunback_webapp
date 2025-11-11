@@ -1566,19 +1566,22 @@ async def shopify_preview_options():
 
 @app.post("/shopify/preview")
 async def shopify_preview(req: PreviewRequest):
-    date_str = req.date
-    wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
-    # choose mission automatically if not provided
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
-    mission = (req.mission or choose_mission(dt)).upper()
-    log_to_queue(f"[preview] Using JSOC/Fido quicklook for {mission} {wavelength}Å on {date_str}")
+    """
+    Shopify preview endpoint: calls the same logic as /preview for consistent results.
+    Returns JSON: {"preview_url": ...} and correct CORS headers.
+    """
     try:
+        # Parse request
+        date_str = req.date
+        wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        mission = (req.mission or choose_mission(dt)).upper()
         # 1) Fetch a quicklook FITS via Fido/JSOC
         fits_path = fetch_quicklook_fits(mission, date_str, wavelength)
         # 2) Build a SunPy Map, with light prep for AIA
         smap = Map(fits_path)
         try:
-            if "AIA" in (smap.meta.get("instrume","") + smap.meta.get("instrument","")).upper():
+            if "AIA" in (smap.meta.get("instrume", "") + smap.meta.get("instrument", "")).upper():
                 smap = manual_aiaprep(smap)
         except Exception as e:
             log_to_queue(f"[preview] manual_aiaprep failed: {e}; proceeding without.")
@@ -1593,11 +1596,23 @@ async def shopify_preview(req: PreviewRequest):
         else:
             preview_url = f"{base}/{os.path.basename(out_png)}"
         log_to_queue(f"[preview] Using JSOC/Fido preview path: {out_png}")
-        return {"preview_url": preview_url}
+        headers = {
+            "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
+        }
+        return JSONResponse({"preview_url": preview_url}, headers=headers)
     except HTTPException:
         raise
     except Exception as e:
         log_to_queue(f"[preview] Error creating preview: {e}")
+        headers = {
+            "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
+        }
         raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
 
 # ──────────────────────────────────────────────────────────────────────────────
