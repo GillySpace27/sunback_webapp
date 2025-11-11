@@ -898,23 +898,20 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         from sunpy.net import Fido, attrs as a
         import astropy.units as u
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
-        notify = "chris.gilly@colorado.edu"
-        log_to_queue(f"[fetch] Requested JSOC series: aia.lev1_euv_12s ({wl}Å)")
+        log_to_queue(f"[fetch] Using VSO for AIA data ({wl}Å)")
         qr = Fido.search(
             a.Time(dt - timedelta(minutes=1), dt + timedelta(minutes=1)),
-            a.jsoc.Series("aia.lev1_euv_12s"),
-            a.jsoc.Segment("image"),
-            a.jsoc.Wavelength(wl * u.angstrom),
-            a.jsoc.Notify(notify)
+            a.Instrument("AIA"),
+            a.Source("SDO"),
+            a.Wavelength(wl * u.angstrom)
         )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No JSOC aia.lev1_euv_12s results in ±1min, retrying ±10min...")
             qr = Fido.search(
                 a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
-                a.jsoc.Series("aia.lev1_euv_12s"),
-                a.jsoc.Segment("image"),
-                a.jsoc.Wavelength(wl * u.angstrom),
-                a.jsoc.Notify(notify)
+                a.Instrument("AIA"),
+                a.Source("SDO"),
+                a.Wavelength(wl * u.angstrom)
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No JSOC aia.lev1_euv_12s results in ±10min. No fallback available.")
