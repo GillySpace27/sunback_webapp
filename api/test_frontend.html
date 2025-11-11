@@ -3,7 +3,7 @@
   <h2 style="margin-bottom:1em;">Solar Archive — Custom Print Generator</h2>
 
   <form id="solar-archive-form" style="margin-bottom:1.5em;">
-    <button id="clearCacheBtn">Clear Cache</button>
+    <button id="clearCacheBtn" class="action-btn">Clear Cache</button>
   <style>
     #clearCacheBtn {
       background-color: #e05d44;
@@ -18,6 +18,54 @@
       background-color: #c2442e;
     }
   </style>
+
+  <style>
+  .action-btn {
+    background-color: #4a9fff;
+    color: white;
+    border: none;
+    padding: 0.6em 1.2em;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    margin: 0.3em;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  }
+
+  .action-btn:hover {
+    background-color: #2f7ed8;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+    transform: translateY(-1px);
+  }
+
+  .action-btn:active {
+    background-color: #256bb3;
+    transform: translateY(1px);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .action-btn:disabled {
+    background-color: #bbb;
+    color: #eee;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+
+  /* Distinct red variant for Clear Cache */
+  #clearCacheBtn.action-btn {
+    background-color: #e05d44;
+  }
+  #clearCacheBtn.action-btn:hover {
+    background-color: #c2442e;
+  }
+  #clearCacheBtn.action-btn:active {
+    background-color: #a5301b;
+  }
+</style>
+
+
     <label>Date:
       <input type="date" id="solar-date" required style="margin:0.5em;">
     </label>
@@ -39,8 +87,7 @@
     </optgroup>
   </select>
 </label>
-    <button type="button" id="generate-btn"
-            style="padding:0.6em 1.2em; background:#4a9fff; color:#fff; border:none; border-radius:6px; cursor:pointer;">
+    <button type="button" id="generate-btn" class="action-btn">
       Generate Preview
     </button>
   </form>
@@ -49,7 +96,7 @@
   <div id="progress-container" style="display:none;width:80%;margin:1em auto;background:#eee;border-radius:8px;overflow:hidden;">
     <div id="progress-bar" style="height:16px;width:0%;background:#4a9fff;border-radius:8px;transition:width 0.3s;"></div>
   </div>
-  <div id="log-toggle-container" style="margin: 1em auto; text-align: center;">
+  <!-- <div id="log-toggle-container" style="margin: 1em auto; text-align: center;">
     <label style="cursor:pointer;">
       <input type="checkbox" id="toggle-log" style="margin-right: 0.3em;">
       Show Live Log
@@ -57,7 +104,7 @@
   </div>
   <div id="console-box" style="display:none;width:90%;max-height:180px;overflow-y:auto;background:#111;color:#0f0;font-family:monospace;padding:0.5em;margin:1em auto;border-radius:6px;text-align:left;font-size:0.9em;">
     🛰️ Live Log
-  </div>
+  </div> -->
   <img id="solar-image"
        alt="Solar preview"
        style="display:none; width:800px; max-width:90%; border-radius:8px; box-shadow:0 0 25px rgba(0,0,0,0.15); margin:1em auto;">
@@ -73,21 +120,21 @@ const observer = new MutationObserver(() => {
 observer.observe(img, { attributes: true, attributeFilter: ['src', 'style'] });
 
 // DOM instrumentation: detect if preview image is removed, hidden, or replaced externally
-const parentObserver = new MutationObserver(mutations => {
-  for (const mutation of mutations) {
-    mutation.removedNodes.forEach(node => {
-      if (node === img) {
-        console.warn('[observer] solar-image element REMOVED from DOM!');
-      }
-    });
-    mutation.addedNodes.forEach(node => {
-      if (node.id === 'solar-image') {
-        console.warn('[observer] solar-image element ADDED to DOM!');
-      }
-    });
-  }
-});
-parentObserver.observe(document.body, { childList: true, subtree: true });
+// const parentObserver = new MutationObserver(mutations => {
+//   for (const mutation of mutations) {
+//     mutation.removedNodes.forEach(node => {
+//       if (node === img) {
+//         console.warn('[observer] solar-image element REMOVED from DOM!');
+//       }
+//     });
+//     mutation.addedNodes.forEach(node => {
+//       if (node.id === 'solar-image') {
+//         console.warn('[observer] solar-image element ADDED to DOM!');
+//       }
+//     });
+//   }
+// });
+// parentObserver.observe(document.body, { childList: true, subtree: true });
 
 
 const API_BASE = 'https://solar-archive.onrender.com';
@@ -368,7 +415,8 @@ function ensureHQButton() {
     hqBtn.id = 'hq-btn';
     hqBtn.type = 'button';  // <-- THIS prevents the form from submitting!
     hqBtn.textContent = "Render HQ Proof";
-    hqBtn.style = "padding:0.6em 1.2em; background:#4a9fff; color:#fff; border:none; border-radius:6px; cursor:pointer; margin-top:0.5em;";
+    hqBtn.className = 'action-btn';
+    hqBtn.style.marginTop = "0.5em";
     // Insert HQ button immediately after Generate Preview button, with a <br> before and after
     generateBtn.insertAdjacentElement("afterend", document.createElement("br"));
     generateBtn.insertAdjacentElement("afterend", hqBtn);
@@ -384,6 +432,22 @@ function ensureHQButton() {
     const uploadLineBreak = document.createElement("br");
     const uploadContainer = document.createElement("div");
     uploadContainer.style.marginTop = "0.5em";
+    shopifyBtn.className = 'action-btn';
+    shopifyBtn.style.display = "inline-block";
+    shopifyBtn.style.marginRight = "10px";
+    // Remove any background/color/border styles for shopifyBtn (already set by class)
+    if ('backgroundColor' in shopifyBtn.style) shopifyBtn.style.backgroundColor = '';
+    if ('color' in shopifyBtn.style) shopifyBtn.style.color = '';
+    if ('border' in shopifyBtn.style) shopifyBtn.style.border = '';
+
+    resetBtn.className = 'action-btn';
+    resetBtn.style.display = 'inline-block';
+    resetBtn.style.marginLeft = '0';
+    // Remove any background/color/border styles for resetBtn (already set by class)
+    if ('backgroundColor' in resetBtn.style) resetBtn.style.backgroundColor = '';
+    if ('color' in resetBtn.style) resetBtn.style.color = '';
+    if ('border' in resetBtn.style) resetBtn.style.border = '';
+
     uploadContainer.appendChild(shopifyBtn);
     uploadContainer.appendChild(resetBtn);
     hqBtn.insertAdjacentElement("afterend", uploadLineBreak);
