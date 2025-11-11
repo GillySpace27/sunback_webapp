@@ -597,7 +597,8 @@ def debug_vso():
             a.Time("2019-06-01", "2019-06-02"),
             a.Instrument("AIA"),
             a.Wavelength(171 * u.angstrom),
-            a.Source("SDO")
+            a.Source("SDO"),
+            a.Provider("VSO")
         )
         n_results = len(qr) if hasattr(qr, "__len__") else 0
         print(f"[status] VSO search: {n_results} results.", flush=True)
@@ -905,7 +906,8 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             a.Time(dt - timedelta(minutes=1), dt + timedelta(minutes=1)),
             a.Instrument("AIA"),
             a.Source("SDO"),
-            a.Wavelength(wl * u.angstrom)
+            a.Wavelength(wl * u.angstrom),
+            a.Provider("VSO")
         )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
@@ -913,7 +915,8 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
                 a.Instrument("AIA"),
                 a.Source("SDO"),
-                a.Wavelength(wl * u.angstrom)
+                a.Wavelength(wl * u.angstrom),
+                a.Provider("VSO")
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±10min. No fallback available.")
@@ -1465,10 +1468,12 @@ def get_local_asset(filename: str):
 
 def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     """
-    Quickly fetch a single FITS file for a mission/date/wavelength, downsampled for preview.
-    Used for instant Shopify preview thumbnails.
+    Quickly fetch a single FITS file for a mission/date/wavelength using VSO only.
+    This avoids JSOC timeouts on hosted servers like Render.
+    Falls back to SOHO-EIT 195Å if SDO data is unavailable.
     """
-    from sunpy.net import Fido, attrs as a
+    from sunpy.net.vso import VSOClient
+    from sunpy.net import attrs as a
     from astropy import units as u
     from sunpy.map import Map
     from astropy.nddata import block_reduce
@@ -1478,56 +1483,68 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     t0 = dt
-    t1 = dt + timedelta(seconds=12)
+    t1 = dt + timedelta(minutes=2)
+    client = VSOClient()
 
-    if mission.upper() == "SDO":
-        wl = wavelength * u.angstrom
-        log_to_queue(f"[preview] Using VSO quicklook fetch for SDO/AIA {wl}")
-        qr = Fido.search(a.Time(t0, t1), a.Instrument("AIA"), a.Source("SDO"), a.Wavelength(wl))
-        if len(qr) == 0:
-            log_to_queue(f"[preview] No VSO results for {mission} {date_str}, skipping.")
-            raise HTTPException(status_code=404, detail="No VSO data found.")
-    elif mission.upper() == "SOHO-EIT":
-        wl = wavelength * u.angstrom
-        log_to_queue(f"[preview] Quicklook fetch for SOHO/EIT {wl}")
-        qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
-    elif mission.upper() == "SOHO-LASCO":
-        log_to_queue(f"[preview] Quicklook fetch for SOHO/LASCO")
-        qr = Fido.search(a.Time(t0, t1), a.Instrument("LASCO"))
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown mission: {mission}")
-
-    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-        raise HTTPException(status_code=404, detail=f"No quicklook data found for {mission} {date_str}")
-
-    files = Fido.fetch(qr[0, 0], progress=True)
-    if not files or len(files) == 0:
-        raise HTTPException(status_code=502, detail="Quicklook fetch failed")
-
-    log_to_queue(f"[preview] Quicklook file: {files[0]}")
+    def reduce_and_save(file_path):
+        """Reduce FITS file resolution and save to /tmp/output"""
+        try:
+            m = Map(file_path)
+            log_to_queue(f"[preview] Reducing FITS preview resolution by 4x for speed...")
+            reduced_data = block_reduce(m.data.astype(np.float32), (4, 4), func=np.nanmean)
+            header = m.fits_header.copy()
+            header['CRPIX1'] = header.get('CRPIX1', 0) / 4
+            header['CRPIX2'] = header.get('CRPIX2', 0) / 4
+            header['CDELT1'] = header.get('CDELT1', 1) * 4
+            header['CDELT2'] = header.get('CDELT2', 1) * 4
+            smap_small = Map(reduced_data, header)
+            out_dir = "/tmp/output"
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, f"preview_reduced_{mission}_{wavelength}_{date_str}.fits")
+            smap_small.save(out_path, filetype="fits", overwrite=True)
+            log_to_queue(f"[preview] Reduced FITS saved to {out_path}")
+            return out_path
+        except Exception as e:
+            log_to_queue(f"[preview] FITS reduction failed: {e}, returning original file")
+            return file_path
 
     try:
-        m = Map(files[0])
-        log_to_queue(f"[preview] Reducing FITS preview resolution by 4x for speed...")
-        reduced_data = block_reduce(m.data.astype(np.float32), (4,4), func=np.nanmean)
-        header = m.fits_header.copy()
-        header['CRPIX1'] = header.get('CRPIX1', 0) / 4
-        header['CRPIX2'] = header.get('CRPIX2', 0) / 4
-        header['CDELT1'] = header.get('CDELT1', 1) * 4
-        header['CDELT2'] = header.get('CDELT2', 1) * 4
-        smap_small = Map(reduced_data, header)
-        out_dir = "/tmp/output"
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(
-            out_dir,
-            f"preview_reduced_{mission}_{wavelength}_{date_str}.fits"
-        )
-        smap_small.save(out_path, filetype='fits', overwrite=True)
-        log_to_queue(f"[preview] Reduced FITS saved to {out_path}")
-        return out_path
+        if mission.upper() == "SDO":
+            wl = wavelength * u.angstrom
+            log_to_queue(f"[preview] Using VSO quicklook fetch for SDO/AIA {wl}")
+            qr = client.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl), a.Provider("VSO"))
+            if len(qr) == 0:
+                raise ValueError("No VSO AIA results found.")
+        elif mission.upper() == "SOHO-EIT":
+            wl = wavelength * u.angstrom
+            log_to_queue(f"[preview] Using VSO quicklook fetch for SOHO/EIT {wl}")
+            qr = client.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
+            if len(qr) == 0:
+                raise ValueError("No VSO EIT results found.")
+        else:
+            raise ValueError(f"Unsupported mission: {mission}")
+
+        log_to_queue(f"[preview] Found {len(qr)} records, fetching first file...")
+        files = client.fetch(qr, path="/tmp/output")
+        if not files or len(files) == 0:
+            raise ValueError("VSO fetch returned no files.")
+        log_to_queue(f"[preview] Quicklook file fetched: {files[0]}")
+        return reduce_and_save(files[0])
     except Exception as e:
-        log_to_queue(f"[preview] FITS reduction failed: {e}, returning original file")
-        return files[0]
+        log_to_queue(f"[preview][warn] VSO fetch failed: {e}; attempting SOHO-EIT fallback...")
+        try:
+            wl = 195 * u.angstrom
+            qr = client.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
+            if len(qr) == 0:
+                raise ValueError("No fallback SOHO-EIT results found.")
+            files = client.fetch(qr, path="/tmp/output")
+            if not files or len(files) == 0:
+                raise ValueError("SOHO-EIT fetch returned no files.")
+            log_to_queue(f"[preview] Fallback SOHO-EIT file fetched: {files[0]}")
+            return reduce_and_save(files[0])
+        except Exception as fb_err:
+            log_to_queue(f"[preview][error] SOHO-EIT fallback failed: {fb_err}")
+            raise HTTPException(status_code=502, detail=f"Quicklook fetch failed: {e}; fallback failed: {fb_err}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

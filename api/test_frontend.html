@@ -134,9 +134,12 @@ generateBtn.onclick = async () => {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!data.preview_url) throw new Error("No preview_url returned");
+    const previewUrl = data.preview_url || data.url || data.path || data.png_url;
+    if (!previewUrl) throw new Error("No preview URL returned from server");
 
-    previewImg.src = data.preview_url;
+    previewImg.src = previewUrl.startsWith("/asset")
+      ? `${API_BASE}${previewUrl}`
+      : previewUrl;
     previewImg.style.display = "block";
     statusBox.textContent = "✅ Preview ready";
 
