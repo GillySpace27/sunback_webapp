@@ -153,13 +153,34 @@ JSOC_EMAIL = os.getenv("JSOC_EMAIL", "chris.gilly@colorado.edu")
 # ──────────────────────────────────────────────────────────────────────────────
 # FastAPI app
 # ──────────────────────────────────────────────────────────────────────────────
-app = FastAPI(title=APP_NAME)
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import sys
 import threading
+
+app = FastAPI(title=APP_NAME)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "*",
+        "https://solar-archive.myshopify.com",
+        "https://*.myshopify.com",
+        "https://shop.app",
+        "https://solar-archive.onrender.com",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+    ],
+    allow_origin_regex=r"https://[a-zA-Z0-9-]+\.myshopify\.com",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
 
 # Serve /api/test_frontend.html and other frontend assets
 # app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
@@ -169,22 +190,6 @@ app_dir = Path(__file__).parent
 app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
 
 
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "*",
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-        "https://solar-archive.onrender.com",
-        "https://solar-archive.myshopify.com"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 import logging
 log_queue: asyncio.Queue[str] = asyncio.Queue()
