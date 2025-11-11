@@ -1158,7 +1158,7 @@ def default_filter(smap: Map) -> Map:
 
     try:
         with tqdm_stream_adapter():
-            block_size = 1
+            block_size = 2
             from astropy.nddata import block_reduce
             import sunpy
             log_to_queue("[render] Performing RHE...")
