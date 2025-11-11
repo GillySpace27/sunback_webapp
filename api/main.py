@@ -1471,7 +1471,13 @@ def get_local_asset(filename: str):
     fp = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(fp):
         raise HTTPException(status_code=404, detail="File not found.")
-    return FileResponse(fp, media_type="image/png")
+    headers = {
+        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "true",
+    }
+    return FileResponse(fp, media_type="image/png", headers=headers)
 
 def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     """
@@ -1546,6 +1552,17 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+
+@app.options("/shopify/preview")
+async def shopify_preview_options():
+    # CORS preflight for Shopify preview endpoint
+    headers = {
+        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "true",
+    }
+    return JSONResponse({}, headers=headers)
 
 @app.post("/shopify/preview")
 async def shopify_preview(req: PreviewRequest):
@@ -1649,9 +1666,25 @@ async def generate(req: GenerateRequest):
     task_registry[task_id] = {"state": "queued", "progress": "Queued for processing", "result": None}
     # Launch background render
     asyncio.create_task(run_hq_render(task_id, req))
-    return {"task_id": task_id, "state": "queued"}
+    headers = {
+        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "true",
+    }
+    return JSONResponse({"task_id": task_id, "state": "queued"}, headers=headers)
 
 # Polling endpoint for task status/result
+@app.options("/status/{task_id}")
+async def status_options(task_id: str):
+    headers = {
+        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "true",
+    }
+    return JSONResponse({}, headers=headers)
+
 @app.get("/status/{task_id}")
 async def get_task_status(task_id: str):
     """Return the current state of a given HQ render task."""
@@ -1665,12 +1698,21 @@ async def get_task_status(task_id: str):
     png_url = None
     if isinstance(result, dict):
         png_url = result.get("png_url")
-    return {
-        "task_id": task_id,
-        "state": state,
-        "progress": progress,
-        "png_url": png_url
+    headers = {
+        "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "true",
     }
+    return JSONResponse(
+        {
+            "task_id": task_id,
+            "state": state,
+            "progress": progress,
+            "png_url": png_url
+        },
+        headers=headers
+    )
 
 # @app.head("/")
 # async def head_root():
