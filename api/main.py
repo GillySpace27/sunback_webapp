@@ -1345,7 +1345,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
         raise HTTPException(status_code=404, detail=f"No quicklook data found for {mission} {date_str}")
 
     # Fetch only one file for speed
-    files = Fido.fetch(qr[0, 0], progress=False)
+    files = Fido.fetch(qr[0, 0], progress=True)
     if not files or len(files) == 0:
         raise HTTPException(status_code=502, detail="Quicklook fetch failed")
 
@@ -1354,7 +1354,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     # Downsample the FITS for preview (halve resolution in each axis, i.e., factor 8)
     try:
         m = Map(files[0])
-        log_to_queue(f"[preview] Reducing FITS preview resolution by 8x for speed...")
+        log_to_queue(f"[preview] Reducing FITS preview resolution by 4x for speed...")
         reduced_data = block_reduce(m.data.astype(np.float32), (4,4), func=np.nanmean)
         header = m.fits_header.copy()
         header['CRPIX1'] = header.get('CRPIX1', 0) / 4
@@ -1461,7 +1461,16 @@ async def generate(req: GenerateRequest):
             png_url = f"{base}/{os.path.basename(out_png)}"
 
         log_to_queue(f"[generate] HQ proof generated at full resolution: {out_png}")
-        return {"png_url": png_url}
+        log_to_queue(f"[generate] HQ proof generated at full resolution: {png_url}")
+        response = JSONResponse(
+            content={"png_url": png_url},
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+        return response
 
     except Exception as e:
         log_to_queue(f"[generate] Error: {e}")

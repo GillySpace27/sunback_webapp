@@ -1,6 +1,6 @@
 <div id="solar-archive-section"
      style="text-align:center; padding:2em; background:#fff; color:#111;">
-  <h2 style="margin-bottom:1em;">Solar Archive — Custom Print Generatorr</h2>
+  <h2 style="margin-bottom:1em;">Solar Archive — Custom Print Generator</h2>
 
   <form id="solar-archive-form" style="margin-bottom:1.5em;">
     <button id="clearCacheBtn">Clear Cache</button>
@@ -167,7 +167,15 @@ document.getElementById("toggle-log").addEventListener("change", e => {
   consoleBox.style.display = e.target.checked ? "block" : "none";
 });
 
+// Preview cache: store preview images by date and wavelength
+const previewCache = {};
+
 generateBtn.addEventListener('click', async () => {
+    // Guard: if HQ render in progress, do not allow preview generation
+    if (isRenderingHQ) {
+        console.log("[frontend] HQ render in progress; ignoring preview generation");
+        return;
+    }
     const date = document.getElementById('solar-date').value;
     const wavelength = document.getElementById('solar-wavelength').value;
     if (!date) {
@@ -180,6 +188,24 @@ generateBtn.addEventListener('click', async () => {
     lastHQUrl = "";
     shopifyBtn.disabled = true;
     shopifyBtn.textContent = "Upload to Printful";
+
+    // Cache key for preview
+    const cacheKey = date + '_' + wavelength;
+    // Check preview cache
+    if (previewCache[cacheKey]) {
+        const cached = previewCache[cacheKey];
+        lastPreviewUrl = cached.url;
+        lastPreviewMeta = cached.meta;
+        // Only update src if preview is not already active or URL changed
+        if (!isPreviewActive || previewImg.src !== lastPreviewUrl) {
+            previewImg.src = lastPreviewUrl;
+            previewImg.style.display = "block";
+            isPreviewActive = true;
+        }
+        setStatus(`Preview loaded from cache · ${lastPreviewMeta}`);
+        ensureHQButton();
+        return;
+    }
 
     // Immediately show a spinner-like status while we fetch the PREVIEW
     setStatus("Fetching instant preview…");
@@ -203,6 +229,8 @@ generateBtn.addEventListener('click', async () => {
 
         lastPreviewUrl = data.preview_url;
         lastPreviewMeta = `${wavelength} Å — ${date}`;
+        // Store in previewCache
+        previewCache[cacheKey] = { url: lastPreviewUrl, meta: lastPreviewMeta };
         // Only update src if preview is not already active or URL changed
         if (!isPreviewActive || previewImg.src !== lastPreviewUrl) {
             previewImg.src = lastPreviewUrl;           // this is a PNG (or proxied) URL
@@ -228,9 +256,8 @@ function ensureHQButton() {
     if (document.getElementById('hq-btn')) return;
     const hqBtn = document.createElement('button');
     hqBtn.id = 'hq-btn';
+    hqBtn.type = 'button';  // <-- THIS prevents the form from submitting!
     hqBtn.textContent = "Render HQ Proof";
-    hqBtn.className = "action-btn";
-    hqBtn.style.marginLeft = "1em";
     // Insert HQ button immediately after Generate Preview button
     generateBtn.insertAdjacentElement("afterend", hqBtn);
 
@@ -274,31 +301,54 @@ async function generateHQProof() {
 
         const data = await response.json();
         const proofUrl = data.png_url;
-        // HQ safety fallback: check for missing or empty URL
-        if (!proofUrl || proofUrl.trim() === "") {
+        if (!proofUrl) {
             console.error("No proofUrl returned, keeping preview visible");
             setStatus("HQ render complete, but no image URL returned.");
             return;
         }
-        // Always use explicit localhost:8000 asset path for HQ proof
-        const filename = proofUrl ? proofUrl.split("/").pop() : "";
-        const resolvedUrl = `http://127.0.0.1:8000/asset/${filename}`;
-        console.log("[frontend] Forced HQ proof URL:", resolvedUrl);
-        lastHQUrl = proofUrl;
-        // swap to HQ without hiding image first (avoid flicker)
-        previewImg.src = resolvedUrl;
+        // Use returned URL directly if it's already an /asset/ path
+        const resolvedUrl = proofUrl.startsWith("/asset")
+            ? `http://127.0.0.1:8000${proofUrl}`
+            : proofUrl;
+        console.log("[frontend] Using HQ proof URL:", resolvedUrl);
+        lastHQUrl = resolvedUrl;
+
+        // Confirm previewImg is still in DOM; if not, re-query and re-append
+        let currentPreviewImg = previewImg;
+        if (!document.body.contains(previewImg)) {
+            // Try to get a new reference
+            currentPreviewImg = document.getElementById('solar-image');
+            // Re-append if not in previewSection
+            if (currentPreviewImg && !previewSection.contains(currentPreviewImg)) {
+                previewSection.appendChild(currentPreviewImg);
+            }
+        }
+        // Add logging to compare URLs and ensure an actual fetch happens
+        console.log("[frontend] Setting image src to:", resolvedUrl, "Current src:", currentPreviewImg.src);
+        if (
+          currentPreviewImg.src === resolvedUrl ||
+          currentPreviewImg.src === `${resolvedUrl}?t=${Date.now()}`
+        ) {
+            console.warn("[frontend] Same HQ URL as current, forcing reload with cache-buster");
+            currentPreviewImg.src = `${resolvedUrl}?t=${Date.now()}`;
+        } else {
+            currentPreviewImg.src = resolvedUrl;
+        }
+        // Ensure image is always displayed and visible
+        currentPreviewImg.style.display = "block";
+        currentPreviewImg.scrollIntoView({ behavior: "smooth", block: "center" });
+        currentPreviewImg.setAttribute("data-hq", "1");
         // Image load confirmation handler
-        previewImg.onload = () => {
+        currentPreviewImg.onload = () => {
             console.log("[frontend] HQ image loaded successfully");
-            setStatus(`HQ proof ready · ${wavelength} Å — ${date}`);
-            previewImg.style.display = "block";
+            setStatus(`✅ HQ proof displayed · ${wavelength} Å — ${date}`);
+            currentPreviewImg.style.display = "block";
+            currentPreviewImg.scrollIntoView({ behavior: "smooth", block: "center" });
         };
-        previewImg.onerror = () => {
+        currentPreviewImg.onerror = () => {
             console.error("[frontend] HQ image failed to load:", resolvedUrl);
             setStatus("HQ render complete, but failed to load image.");
         };
-        previewImg.style.display = "block";
-        previewImg.setAttribute("data-hq", "1");
         // enable Upload to Printful only after HQ exists
         shopifyBtn.disabled = false;
         // Mark preview as inactive because now HQ proof is displayed
