@@ -1635,24 +1635,37 @@ async def run_hq_render(task_id, req: GenerateRequest):
         }
 
 
+# Robust /generate endpoint for polling tasks
 @app.post("/generate")
 async def generate(req: GenerateRequest):
     # Generate a unique task ID
     task_id = str(uuid.uuid4())
-    # Set initial status
-    task_registry[task_id] = {"status": "pending", "progress": "Queued", "result": None}
-    # Spawn background task
+    # Register initial state
+    task_registry[task_id] = {"state": "queued", "progress": "Queued for processing", "result": None}
+    # Launch background render
     asyncio.create_task(run_hq_render(task_id, req))
-    return {"task_id": task_id}
+    return {"task_id": task_id, "state": "queued"}
 
-
-# Endpoint to check task status/result
-@app.get("/task/{task_id}")
+# Polling endpoint for task status/result
+@app.get("/status/{task_id}")
 async def get_task_status(task_id: str):
-    if task_id not in task_registry:
-        raise HTTPException(status_code=404, detail="Task not found")
-    # Return the full status dict
-    return task_registry[task_id]
+    """Return the current state of a given HQ render task."""
+    task = task_registry.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Not Found")
+    # Normalize output fields for frontend consistency
+    state = task.get("status") or task.get("state", "unknown")
+    progress = task.get("progress", "")
+    result = task.get("result", {})
+    png_url = None
+    if isinstance(result, dict):
+        png_url = result.get("png_url")
+    return {
+        "task_id": task_id,
+        "state": state,
+        "progress": progress,
+        "png_url": png_url
+    }
 
 # @app.head("/")
 # async def head_root():

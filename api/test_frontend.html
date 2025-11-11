@@ -112,658 +112,107 @@
 </div>
 
 <script>
+const API_BASE = "https://solar-archive.onrender.com";
+const previewImg = document.getElementById("solar-image");
+const statusBox = document.getElementById("solar-status");
+const generateBtn = document.getElementById("generate-btn");
 
-const img = document.getElementById('solar-image');
-const observer = new MutationObserver(() => {
-  console.log('[debug] image mutated:', img.style.display, img.src);
-});
-observer.observe(img, { attributes: true, attributeFilter: ['src', 'style'] });
+generateBtn.onclick = async () => {
+  const date = document.getElementById("solar-date").value;
+  const wavelength = document.getElementById("solar-wavelength").value;
+  if (!date) return alert("Select a date first.");
 
-// DOM instrumentation: detect if preview image is removed, hidden, or replaced externally
-// const parentObserver = new MutationObserver(mutations => {
-//   for (const mutation of mutations) {
-//     mutation.removedNodes.forEach(node => {
-//       if (node === img) {
-//         console.warn('[observer] solar-image element REMOVED from DOM!');
-//       }
-//     });
-//     mutation.addedNodes.forEach(node => {
-//       if (node.id === 'solar-image') {
-//         console.warn('[observer] solar-image element ADDED to DOM!');
-//       }
-//     });
-//   }
-// });
-// parentObserver.observe(document.body, { childList: true, subtree: true });
+  statusBox.textContent = "Fetching preview...";
+  generateBtn.disabled = true;
 
-
-const API_BASE = 'https://solar-archive.onrender.com';
-
-let lastPreviewUrl = "";
-let lastPreviewMeta = "";
-let lastHQUrl = "";
-let isRenderingHQ = false;
-let isPreviewActive = false;  // safeguard variable to keep preview visible until HQ proof
-
-function setStatus(msg) {
-    previewStatus.textContent = msg;
-}
-
-const form = document.getElementById('solar-archive-form');
-const generateBtn = document.getElementById('generate-btn');
-const previewSection = document.getElementById('solar-archive-section');
-const previewImg = document.getElementById('solar-image');
-const previewStatus = document.getElementById('solar-status');
-let solarCart = document.getElementById('solar-cart');
-
-// Create Shopify button and reset button if they don't exist
-let shopifyBtn = document.getElementById('uploadBtn');
-let resetBtn = document.getElementById('reset-btn');
-if (!shopifyBtn) {
-    shopifyBtn = document.createElement('button');
-    shopifyBtn.id = 'uploadBtn';
-    shopifyBtn.textContent = "Upload to Printful";
-    shopifyBtn.className = "action-btn";
-    shopifyBtn.style.display = "inline-block";
-    shopifyBtn.style.marginRight = "10px";
-}
-if (!resetBtn) {
-    resetBtn = document.createElement('button');
-    resetBtn.id = 'reset-btn';
-    resetBtn.textContent = 'Start Over';
-    resetBtn.className = shopifyBtn.className;
-    resetBtn.style.display = 'inline-block';
-    resetBtn.style.marginLeft = '0';
-}
-
-const dateInput = document.getElementById("solar-date");
-// Limit selectable dates to today or earlier
-const today = new Date().toISOString().split("T")[0];
-dateInput.setAttribute("max", today);
-
-// Restore saved date if available
-const savedDate = localStorage.getItem("selectedDate");
-if (savedDate) dateInput.value = savedDate;
-
-// Save new date whenever changed
-dateInput.addEventListener("change", () => {
-  localStorage.setItem("selectedDate", dateInput.value);
-});
-
-// if (!dateInput) console.error("⚠️ dateInput element not found (expected id='solar-date')");
-
-
-let printfulFileId = null;
-
-// Console box and monkey-patch console methods
-const consoleBox = document.getElementById('console-box');
-function appendConsoleLine(text, type="log") {
-  const line = document.createElement('div');
-  line.textContent = text;
-  if (type === 'warn') line.style.color = '#ffb300';
-  if (type === 'error') line.style.color = '#ff5555';
-  consoleBox.appendChild(line);
-  consoleBox.scrollTop = consoleBox.scrollHeight;
-}
-['log', 'warn', 'error'].forEach(method => {
-  const orig = console[method];
-  console[method] = (...args) => {
-    appendConsoleLine(args.join(' '), method);
-    orig.apply(console, args);
-  };
-});
-
-// Live log streaming from backend with smooth real-time progress bar
-const evtSource = new EventSource(`${API_BASE}/logs/stream`);
-const progressContainer = document.getElementById('progress-container');
-const progressBar = document.getElementById('progress-bar');
-let currentProgress = 0;
-let idleTimeout = null;
-
-// Multi-stage progress bar: preview, HQ, upload
-function setStageProgress(stage) {
-  let percent = currentProgress;
-  switch (stage) {
-    case "init": percent = 10; break;
-    case "preview-start": percent = 20; break;
-    case "preview-done": percent = 50; break;
-    case "hq-start": percent = 60; break;
-    case "hq-done": percent = 85; break;
-    case "upload-done": percent = 100; break;
-    default: percent = Math.min(currentProgress + 0.5, 99);
-  }
-  currentProgress = percent;
-  progressBar.style.width = percent + "%";
-  progressContainer.style.display = "block";
-  startHeartbeat(); // Ensure heartbeat restarts for each new workflow
-  if (idleTimeout) clearTimeout(idleTimeout);
-  if (percent >= 100) {
-    idleTimeout = setTimeout(() => {
-      progressContainer.style.display = "none";
-      currentProgress = 0;
-    }, 2500);
-  }
-}
-
-function updateProgress(stage) {
-  // Live backend streaming feedback; fills within a stage
-  const text = stage.toLowerCase();
-  let delta = 0;
-  if (text.includes("downloading")) delta = 1;
-  else if (text.includes("aligning")) delta = 2;
-  else if (text.includes("normalizing")) delta = 2;
-  else if (text.includes("combining")) delta = 2;
-  else if (text.includes("integration complete")) delta = 4;
-  else if (text.includes("render")) delta = 1;
-  else if (text.includes("finished") || text.includes("done")) delta = 5;
-  else delta = 0.2;
-
-  currentProgress = Math.min(currentProgress + delta, 99);
-  progressBar.style.width = currentProgress + "%";
-  progressContainer.style.display = "block";
-}
-
-// Heartbeat: ensures the progress bar keeps moving slightly even if no new log messages arrive
-function startHeartbeat() {
-  if (window.progressHeartbeatInterval) clearInterval(window.progressHeartbeatInterval);
-  window.progressHeartbeatInterval = setInterval(() => {
-    if (progressContainer.style.display === "block" && currentProgress < 99) {
-      currentProgress = Math.min(currentProgress + 0.3, 99);
-      progressBar.style.width = currentProgress + "%";
-    }
-  }, 5000);
-}
-startHeartbeat();
-
-evtSource.onmessage = (event) => {
-  appendConsoleLine(event.data);
-  updateProgress(event.data);
-  const match = event.data.match(/(\d{1,3})%/);
-  if (match) {
-    const p = Math.min(parseInt(match[1]), 100);
-    currentProgress = p;
-    progressBar.style.width = p + "%";
-    progressContainer.style.display = "block";
-  }
-};
-evtSource.onerror = () => {
-  appendConsoleLine("⚠️ Log stream disconnected", "warn");
-};
-
-// Toggle live log visibility
-document.getElementById("toggle-log").addEventListener("change", e => {
-  consoleBox.style.display = e.target.checked ? "block" : "none";
-});
-
-// Preview cache: store preview images by date and wavelength
-const previewCache = {};
-// HQ proof cache: store HQ image URLs by date and wavelength
-const hqCache = {};
-
-generateBtn.addEventListener('click', async () => {
-    // Visual state: disable and gray out the button
-    generateBtn.disabled = true;
-    generateBtn.style.backgroundColor = "#bbb";
-    generateBtn.style.cursor = "not-allowed";
-    // Guard: if HQ render in progress, do not allow preview generation
-    if (isRenderingHQ) {
-        console.log("[frontend] HQ render in progress; ignoring preview generation");
-        return;
-    }
-    const date = document.getElementById('solar-date').value;
-    const wavelength = document.getElementById('solar-wavelength').value;
-    if (!date) {
-        alert("Please select a date.");
-        // Restore button state
-        generateBtn.disabled = false;
-        generateBtn.style.backgroundColor = "#4a9fff";
-        generateBtn.style.cursor = "pointer";
-        return;
-    }
-
-    // Reset state for a new flow
-    isRenderingHQ = false;
-    lastHQUrl = "";
-    shopifyBtn.disabled = true;
-    shopifyBtn.textContent = "Upload to Printful";
-    shopifyBtn.style.backgroundColor = "#4a9fff";
-    shopifyBtn.style.cursor = "pointer";
-
-    // Multi-stage progress: starting preview
-    setStageProgress("preview-start");
-
-    // Cache key for preview
-    const cacheKey = date + '_' + wavelength;
-    // Check preview cache
-    if (previewCache[cacheKey]) {
-        const cached = previewCache[cacheKey];
-        lastPreviewUrl = cached.url;
-        lastPreviewMeta = cached.meta;
-        // Only update src if preview is not already active or URL changed
-        if (!isPreviewActive || previewImg.src !== lastPreviewUrl) {
-            previewImg.src = lastPreviewUrl;
-            previewImg.style.display = "block";
-            isPreviewActive = true;
-        }
-        setStatus(`Preview loaded from cache · ${lastPreviewMeta}`);
-        ensureHQButton();
-        // Progress for cached preview
-        setStageProgress("preview-done");
-        // Enable HQ button and restore color
-        const hqBtn = document.getElementById('hq-btn');
-        if (hqBtn) {
-            hqBtn.disabled = false;
-            hqBtn.style.backgroundColor = "#4a9fff";
-            hqBtn.style.cursor = "pointer";
-        }
-        return;
-    }
-
-    // Immediately show a spinner-like status while we fetch the PREVIEW
-    setStatus("Fetching instant preview…");
-    previewImg.removeAttribute("data-hq");  // mark as not HQ yet
-    isPreviewActive = false;
-
-    try {
-        const payload = { date, wavelength: parseInt(wavelength), mission: "SDO", annotate: false };
-        const res = await fetch(`${API_BASE}/shopify/preview`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error(`Preview failed (${res.status})`);
-        const data = await res.json();
-        if (!data.preview_url) throw new Error("No preview_url returned");
-
-        lastPreviewUrl = data.preview_url;
-        lastPreviewMeta = `${wavelength} Å — ${date}`;
-        // Store in previewCache
-        previewCache[cacheKey] = { url: lastPreviewUrl, meta: lastPreviewMeta };
-        // Only update src if preview is not already active or URL changed
-        if (!isPreviewActive || previewImg.src !== lastPreviewUrl) {
-            previewImg.src = lastPreviewUrl;           // this is a PNG (or proxied) URL
-            previewImg.style.display = "block";
-            isPreviewActive = true;
-        }
-        setStatus(`Preview ready · ${lastPreviewMeta}`);
-        // Multi-stage progress: preview done
-        setStageProgress("preview-done");
-        // Enable HQ button and restore color
-        ensureHQButton();
-        const hqBtn = document.getElementById('hq-btn');
-        if (hqBtn) {
-            hqBtn.disabled = false;
-            hqBtn.style.backgroundColor = "#4a9fff";
-            hqBtn.style.cursor = "pointer";
-        }
-        // Do NOT reset the status or image after preview is ready -- keep them visible until next user action
-    } catch (err) {
-        console.error(err);
-        setStatus("Preview error.");
-        alert("Error fetching preview: " + err.message);
-    } finally {
-        // Re-enable Generate Preview button after operation
-        generateBtn.disabled = false;
-        generateBtn.style.backgroundColor = "#4a9fff";
-        generateBtn.style.cursor = "pointer";
-    }
-});
-
-function ensureHQButton() {
-    if (document.getElementById('hq-btn')) return;
-    const hqBtn = document.createElement('button');
-    hqBtn.id = 'hq-btn';
-    hqBtn.type = 'button';  // <-- THIS prevents the form from submitting!
-    hqBtn.textContent = "Render HQ Proof";
-    hqBtn.className = 'action-btn';
-    hqBtn.style.marginTop = "0.5em";
-    // Insert HQ button immediately after Generate Preview button, with a <br> before and after
-    generateBtn.insertAdjacentElement("afterend", document.createElement("br"));
-    generateBtn.insertAdjacentElement("afterend", hqBtn);
-    generateBtn.insertAdjacentElement("afterend", document.createElement("br"));
-    // Use the new generateHQProof function for click event
-    hqBtn.onclick = generateHQProof;
-    // Set HQ button enabled and blue by default
-    hqBtn.disabled = false;
-    hqBtn.style.backgroundColor = "#4a9fff";
-    hqBtn.style.cursor = "pointer";
-
-    // Move Upload and Start Over buttons right below HQ button
-    const uploadLineBreak = document.createElement("br");
-    const uploadContainer = document.createElement("div");
-    uploadContainer.style.marginTop = "0.5em";
-    shopifyBtn.className = 'action-btn';
-    shopifyBtn.style.display = "inline-block";
-    shopifyBtn.style.marginRight = "10px";
-    // Remove any background/color/border styles for shopifyBtn (already set by class)
-    if ('backgroundColor' in shopifyBtn.style) shopifyBtn.style.backgroundColor = '';
-    if ('color' in shopifyBtn.style) shopifyBtn.style.color = '';
-    if ('border' in shopifyBtn.style) shopifyBtn.style.border = '';
-
-    resetBtn.className = 'action-btn';
-    resetBtn.style.display = 'inline-block';
-    resetBtn.style.marginLeft = '0';
-    // Remove any background/color/border styles for resetBtn (already set by class)
-    if ('backgroundColor' in resetBtn.style) resetBtn.style.backgroundColor = '';
-    if ('color' in resetBtn.style) resetBtn.style.color = '';
-    if ('border' in resetBtn.style) resetBtn.style.border = '';
-
-    uploadContainer.appendChild(shopifyBtn);
-    uploadContainer.appendChild(resetBtn);
-    hqBtn.insertAdjacentElement("afterend", uploadLineBreak);
-    hqBtn.insertAdjacentElement("afterend", uploadContainer);
-}
-
-// New generateHQProof function with HQ image safety fallback, load confirmation, caching, and progress nudges
-async function generateHQProof() {
-    const dateInput = document.getElementById("solar-date");
-    const wavelengthInput = document.getElementById("solar-wavelength");
-    const date = dateInput ? dateInput.value : null;
-    const wavelength = wavelengthInput ? parseInt(wavelengthInput.value) : 171;
-
-    // Multi-stage progress: HQ render start
-    setStageProgress("hq-start");
-
-    // Visual state: disable and gray out HQ button
-    const hqBtn = document.getElementById('hq-btn');
-    if (hqBtn) {
-        hqBtn.disabled = true;
-        hqBtn.style.backgroundColor = "#bbb";
-        hqBtn.style.cursor = "not-allowed";
-    }
-
-    // Check HQ cache first to avoid rerendering
-    const cacheKey = `${date}_${wavelength}`;
-    if (hqCache[cacheKey]) {
-        console.log("[frontend] HQ proof already cached, loading from cache...");
-        const cachedUrl = hqCache[cacheKey];
-        previewImg.src = cachedUrl;
-        previewImg.style.display = "block";
-        previewImg.scrollIntoView({ behavior: "smooth", block: "center" });
-        setStatus(`✅ HQ proof loaded from cache · ${wavelength} Å — ${date}`);
-        // Ensure progress bar is hidden (render already complete)
-        setStageProgress("hq-done");
-        // Enable Upload to Printful and restore color
-        shopifyBtn.disabled = false;
-        shopifyBtn.style.backgroundColor = "#4a9fff";
-        shopifyBtn.style.cursor = "pointer";
-        shopifyBtn.style.display = "inline-block";
-        lastHQUrl = cachedUrl;
-        return;
-    }
-
-    // Prevent duplicate HQ render
-    if (isRenderingHQ) return;
-    isRenderingHQ = true;
-    setStatus("Rendering high‑quality proof…");
-    // REMOVED progressBar.style.width = "0%";
-    // REMOVED progressContainer.style.display = "block";
-    try {
-        const body = {
-            date: date || new Date().toISOString().split("T")[0],
-            mission: "SDO",
-            wavelength: wavelength,
-            detector: "AIA",
-            annotate: true,
-            png_dpi: 300,
-            png_size_inches: 10.0
-        };
-
-        const response = await fetch(`${API_BASE}/generate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
-
-        if (!response.ok) {
-            alert(`Error generating HQ proof: ${response.statusText} (${response.status})`);
-            setStatus("HQ render error.");
-            return;
-        }
-
-        const data = await response.json();
-        const proofUrl = data.png_url;
-        if (!proofUrl) {
-            console.error("No proofUrl returned, keeping preview visible");
-            setStatus("HQ render complete, but no image URL returned.");
-            return;
-        }
-        // Use returned URL directly if it's already an /asset/ path
-        const resolvedUrl = proofUrl.startsWith("/asset")
-            ? `${API_BASE}${proofUrl}`
-            : proofUrl;
-        console.log("[frontend] Using HQ proof URL:", resolvedUrl);
-        lastHQUrl = resolvedUrl;
-        // Store in HQ cache for instant reuse on same date+wavelength
-        hqCache[cacheKey] = resolvedUrl;
-        // Advance progress to 'render' before swapping the image
-        setStageProgress("hq-start");
-
-        // Confirm previewImg is still in DOM; if not, re-query and re-append
-        let currentPreviewImg = previewImg;
-        if (!document.body.contains(previewImg)) {
-            // Try to get a new reference
-            currentPreviewImg = document.getElementById('solar-image');
-            // Re-append if not in previewSection
-            if (currentPreviewImg && !previewSection.contains(currentPreviewImg)) {
-                previewSection.appendChild(currentPreviewImg);
-            }
-        }
-        // Add logging to compare URLs and ensure an actual fetch happens
-        console.log("[frontend] Setting image src to:", resolvedUrl, "Current src:", currentPreviewImg.src);
-        if (
-          currentPreviewImg.src === resolvedUrl ||
-          currentPreviewImg.src === `${resolvedUrl}?t=${Date.now()}`
-        ) {
-            console.warn("[frontend] Same HQ URL as current, forcing reload with cache-buster");
-            currentPreviewImg.src = `${resolvedUrl}?t=${Date.now()}`;
-        } else {
-            currentPreviewImg.src = resolvedUrl;
-        }
-        // Ensure image is always displayed and visible
-        currentPreviewImg.style.display = "block";
-        currentPreviewImg.scrollIntoView({ behavior: "smooth", block: "center" });
-        currentPreviewImg.setAttribute("data-hq", "1");
-        // Image load confirmation handler
-        currentPreviewImg.onload = () => {
-            console.log("[frontend] HQ image loaded successfully");
-            setStatus(`✅ HQ proof displayed · ${wavelength} Å — ${date}`);
-            currentPreviewImg.style.display = "block";
-            currentPreviewImg.scrollIntoView({ behavior: "smooth", block: "center" });
-            // Mark progress done once the image is visible
-            setStageProgress("hq-done");
-            // Enable Upload to Printful and restore color
-            shopifyBtn.disabled = false;
-            shopifyBtn.style.backgroundColor = "#4a9fff";
-            shopifyBtn.style.cursor = "pointer";
-            shopifyBtn.style.display = "inline-block";
-        };
-        currentPreviewImg.onerror = () => {
-            console.error("[frontend] HQ image failed to load:", resolvedUrl);
-            setStatus("HQ render complete, but failed to load image.");
-        };
-        // Mark preview as inactive because now HQ proof is displayed
-        isPreviewActive = false;
-        // Show the upload button when HQ proof is ready
-        const uploadBtn = document.getElementById("uploadBtn");
-        if (uploadBtn) {
-          uploadBtn.style.display = "inline-block";
-          uploadBtn.style.opacity = 0;
-          setTimeout(() => uploadBtn.style.transition = "opacity 0.5s", 10);
-          setTimeout(() => uploadBtn.style.opacity = 1, 50);
-        }
-    } catch (err) {
-        console.error(err);
-        setStatus("HQ render error.");
-        alert("Error generating HQ proof: " + err.message);
-    } finally {
-        isRenderingHQ = false;
-    }
-}
-
-// ─────────────────────────────────────────────
-// 🛰️ Upload to Printful after preview
-// ─────────────────────────────────────────────
-async function uploadToPrintful() {
-    const assetUrl = lastHQUrl || "";
-    if (!assetUrl) {
-        alert("Please render the HQ proof first.");
-        return;
-    }
-
-    const filename = assetUrl.split('/').pop();
-    const payload = { image_path: `/tmp/output/${filename}`, title: `Solar Archive ${filename}` };
-    try {
-        const res = await fetch(`${API_BASE}/upload_to_printful`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        console.log("Upload response:", data);
-        if (data.file_id) {
-            printfulFileId = data.file_id;
-            // Multi-stage progress: upload done
-            setStageProgress("upload-done");
-            alert(`✅ Uploaded to Printful (file_id ${printfulFileId})`);
-            showProductSelector();
-            // Disable and gray out the upload button after success
-            shopifyBtn.disabled = true;
-            shopifyBtn.style.backgroundColor = "#bbb";
-            shopifyBtn.style.cursor = "not-allowed";
-        } else {
-            console.error(data);
-            alert("❌ Upload failed.");
-        }
-    } catch (err) {
-        alert("Upload error: " + err);
-    }
-}
-
-// ─────────────────────────────────────────────
-// 🧾 Product selection & mockup generation
-// ─────────────────────────────────────────────
-function showProductSelector() {
-    // Remove existing selector if present
-    const existingSelector = document.getElementById('product-selector-container');
-    if (existingSelector) {
-        existingSelector.remove();
-    }
-
-    const selector = document.createElement('div');
-    selector.id = 'product-selector-container';
-    selector.innerHTML = `
-        <h4>Select a product to preview</h4>
-        <select id="product-selector">
-            <option value="4011">Poster 12x18</option>
-            <option value="4012">Poster 18x24</option>
-            <option value="4001">Mug 11oz</option>
-            <option value="4002">Mug 15oz</option>
-            <option value="1234">T-shirt (example)</option>
-        </select>
-        <button id="mockup-btn" class="action-btn" style="margin-left:1em;">Generate Mockup</button>
-        <div id="mockup-result" style="margin-top:1em;"></div>
-    `;
-    solarCart.appendChild(selector);
-
-    document.getElementById('mockup-btn').addEventListener('click', async () => {
-        const variant_id = parseInt(document.getElementById('product-selector').value);
-        try {
-            const res = await fetch(`${API_BASE}/printful/mockup`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ file_id: printfulFileId, variant_id })
-            });
-            const data = await res.json();
-            console.log("Mockup response:", data);
-            const resultDiv = document.getElementById('mockup-result');
-
-            if (data?.result?.task_key) {
-                resultDiv.innerHTML = `<p>✅ Mockup task created! Task key: ${data.result.task_key}</p>`;
-            } else {
-                resultDiv.innerHTML = `<p>❌ Mockup failed: ${JSON.stringify(data)}</p>`;
-            }
-        } catch (err) {
-            alert("Mockup generation error: " + err);
-        }
+  try {
+    // Step 1: fetch preview
+    const payload = { date, wavelength: parseInt(wavelength), mission: "SDO", annotate: false };
+    const res = await fetch(`${API_BASE}/shopify/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
+    const data = await res.json();
+    if (!data.preview_url) throw new Error("No preview_url returned");
+
+    previewImg.src = data.preview_url;
+    previewImg.style.display = "block";
+    statusBox.textContent = "✅ Preview ready";
+
+    // Step 2: generate HQ image
+statusBox.textContent = "Rendering HQ proof... (this may take a minute)";
+const hqRes = await fetch(`${API_BASE}/generate`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    date,
+    mission: "SDO",
+    wavelength: parseInt(wavelength),
+    detector: "AIA",
+    annotate: true,
+  }),
+});
+
+const hqData = await hqRes.json();
+
+// Case 1: backend returned the PNG immediately
+if (hqData.png_url) {
+  showHQImage(hqData.png_url);
+}
+// Case 2: backend returned a task_id (asynchronous job)
+else if (hqData.task_id) {
+  statusBox.textContent = "HQ render queued, waiting for completion...";
+  const taskId = hqData.task_id;
+
+  // Poll every 5 seconds until image is ready
+  for (let i = 0; i < 40; i++) { // up to ~3 minutes max
+    await new Promise(r => setTimeout(r, 5000));
+    const check = await fetch(`${API_BASE}/status/${taskId}`);
+    const statusData = await check.json();
+    console.log("[poll]", statusData);
+    if (statusData.png_url) {
+      showHQImage(statusData.png_url);
+      break;
+    }
+    if (i % 4 === 0) statusBox.textContent = `Still rendering... (${i*5}s)`;
+  }
+}
+else {
+  throw new Error("HQ render response missing both png_url and task_id");
 }
 
-// Replace “Open in Shopify” button behavior
-shopifyBtn.textContent = "Upload to Printful";
-shopifyBtn.disabled = true;
-shopifyBtn.style.backgroundColor = "#4a9fff";
-shopifyBtn.style.cursor = "pointer";
-shopifyBtn.onclick = uploadToPrintful;
+function showHQImage(url) {
+  const resolved = url.startsWith("/asset") ? `${API_BASE}${url}` : url;
+  previewImg.src = resolved;
+  previewImg.style.display = "block";
+  statusBox.textContent = "✅ HQ image ready — uploading to Printful...";
+}
 
-// Start Over button logic
-resetBtn.onclick = () => {
-    if (!confirm("Are you sure you want to start over? All progress will be cleared.")) return;
+    // Step 3: upload to Printful
+    const upload = await fetch(`${API_BASE}/upload_to_printful`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_path: `/tmp/output/${hqData.png_url.split("/").pop()}`,
+        title: `Sun on ${date}`,
+      }),
+    });
 
-    // Reset progress bar
-    currentProgress = 0;
-    progressBar.style.width = "0%";
-    progressContainer.style.display = "none";
-
-    // Reset preview and HQ images
-    previewImg.src = "";
-    previewImg.style.display = "none";
-    isPreviewActive = false;
-    lastPreviewUrl = "";
-    lastHQUrl = "";
-
-    // Reset button states
-    generateBtn.disabled = false;
-    generateBtn.style.backgroundColor = "#4a9fff";
-    generateBtn.style.cursor = "pointer";
-
-    const hqBtn = document.getElementById("hq-btn");
-    if (hqBtn) {
-      hqBtn.disabled = true;
-      hqBtn.style.backgroundColor = "#bbb";
-      hqBtn.style.cursor = "not-allowed";
+    const uploadData = await upload.json();
+    if (uploadData.file_id) {
+      alert(`✅ Uploaded to Printful! File ID: ${uploadData.file_id}`);
+      statusBox.textContent = "✅ Uploaded to Printful!";
+    } else {
+      alert("❌ Upload failed.");
+      statusBox.textContent = "Upload failed.";
     }
-
-    shopifyBtn.disabled = true;
-    shopifyBtn.style.backgroundColor = "#bbb";
-    shopifyBtn.style.cursor = "not-allowed";
-
-    // Clear caches and stop heartbeat
-    if (typeof previewCache !== "undefined") previewCache = {};
-    if (typeof hqCache !== "undefined") hqCache = {};
-    if (typeof disableHeartbeat === "function") disableHeartbeat();
-
-    setStatus("Reset complete. Ready to start over.");
-};
-
-// Remove or comment out any code that hides the preview image or resets status after a timeout.
-// (No such code present here, but if you add a timeout or auto-hide elsewhere, ensure it does not hide the image.)
-
-// Remove any insertAdjacentElement of resetBtn elsewhere so it isn’t appended again below the image.
-
-// Re-enable and blue the Generate Preview button when date or wavelength changes
-document.getElementById("solar-date").addEventListener("change", () => {
+  } catch (err) {
+    console.error(err);
+    statusBox.textContent = "Error during process.";
+    alert(err.message);
+  } finally {
     generateBtn.disabled = false;
-    generateBtn.style.backgroundColor = "#4a9fff";
-    generateBtn.style.cursor = "pointer";
-});
-document.getElementById("solar-wavelength").addEventListener("change", () => {
-    generateBtn.disabled = false;
-    generateBtn.style.backgroundColor = "#4a9fff";
-    generateBtn.style.cursor = "pointer";
-});
-</script>
-</script>
-<script>
-document.getElementById("clearCacheBtn").addEventListener("click", async () => {
-  if (!confirm("Are you sure you want to clear the cache?")) return;
-  const response = await fetch("/clear_cache", { method: "POST" });
-  if (response.ok) {
-    const data = await response.json();
-    console.log(data.message);
-    alert("Cache cleared successfully!");
-  } else {
-    alert("Failed to clear cache.");
   }
-});
+};
 </script>
