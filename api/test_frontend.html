@@ -90,7 +90,9 @@ const parentObserver = new MutationObserver(mutations => {
 parentObserver.observe(document.body, { childList: true, subtree: true });
 
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = window.location.hostname.includes('onrender.com')
+  ? 'https://solar-archive.onrender.com'
+  : 'http://127.0.0.1:8000';
 
 let lastPreviewUrl = "";
 let lastPreviewMeta = "";
@@ -445,7 +447,7 @@ async function generateHQProof() {
             png_size_inches: 10.0
         };
 
-        const response = await fetch("/generate", {
+        const response = await fetch(`${API_BASE}/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
