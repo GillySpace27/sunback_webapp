@@ -181,7 +181,7 @@ app.add_middleware(
 # app = FastAPI()
 
 # Serve /api/test_frontend.html and other frontend assets
-app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
+# app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
 
 # app.add_middleware(
 #     CORSMiddleware,
