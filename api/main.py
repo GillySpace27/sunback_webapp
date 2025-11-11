@@ -287,6 +287,51 @@ async def clear_cache():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Upload to Printful endpoint
+# ──────────────────────────────────────────────────────────────────────────────
+@app.post("/upload_to_printful")
+async def upload_to_printful(request: Request):
+    """
+    Upload a generated image to Printful's file library.
+    Receives JSON body with keys 'image_path' and optional 'title'.
+    """
+    try:
+        payload = await request.json()
+        image_path = payload.get("image_path")
+        title = payload.get("title", os.path.basename(image_path) if image_path else "Solar Archive Image")
+        # Accept relative paths under /tmp/output for safety
+        if not image_path:
+            log_to_queue(f"[upload] No image_path provided in request.")
+            raise HTTPException(status_code=400, detail="image_path is required")
+        # If image_path is not absolute, prepend /tmp/output
+        if not os.path.isabs(image_path):
+            image_path = os.path.join("/tmp/output", image_path)
+        if not os.path.exists(image_path):
+            log_to_queue(f"[upload] File not found: {image_path}")
+            raise HTTPException(status_code=400, detail=f"File not found: {image_path}")
+        if not PRINTFUL_API_KEY:
+            log_to_queue("[upload] PRINTFUL_API_KEY is missing.")
+            raise HTTPException(status_code=500, detail="Missing PRINTFUL_API_KEY in environment")
+        log_to_queue(f"[upload] Uploading {image_path} to Printful...")
+        with open(image_path, "rb") as f:
+            files = {"file": (os.path.basename(image_path), f, "image/png")}
+            data = {"purpose": "default", "filename": title}
+            headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}"}
+            response = requests.post(f"{PRINTFUL_BASE_URL}/files", headers=headers, files=files, data=data)
+        if response.status_code >= 400:
+            log_to_queue(f"[upload] Printful upload failed: {response.status_code} {response.text}")
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+        result = response.json()
+        file_id = result.get("result", {}).get("id")
+        file_url = result.get("result", {}).get("url")
+        log_to_queue(f"[upload] Printful upload successful: file_id={file_id}, url={file_url}")
+        return JSONResponse({"status": "success", "file_id": file_id, "file_url": file_url, "raw": result})
+    except Exception as e:
+        log_to_queue(f"[upload] Exception during upload_to_printful: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Shopify Launch & Redirect Endpoints
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -740,6 +785,62 @@ async def list_output():
     return {"output_dir": OUTPUT_DIR, "files": files}
 
 
+def aiaprep_new(smap):
+    """
+    Equivalent to aia_prep via aiapy: updates pointing, aligns to common plate scale,
+    and north-up registers the map.
+
+    Parameters
+    ----------
+    smap : sunpy.map.Map
+        Input level-1 (or earlier) AIA map.
+
+    Returns
+    -------
+    sunpy.map.Map
+        Calibrated/registered map (level-1.5 equivalent).
+    """
+    from aiapy.calibrate.utils import get_pointing_table
+    from aiapy.calibrate import update_pointing, register
+    import astropy.units as u
+
+    # Determine a time window to fetch pointing table: ±12h around observation time (as per docs example)
+    obs_time = smap.date
+    t0 = obs_time - 12 * u.hour
+    t1 = obs_time + 12 * u.hour
+
+    # Fetch pointing table
+    pointing_table = get_pointing_table("JSOC", time_range=(t0, t1))
+
+    # Update pointing metadata
+    try:
+        smap_updated = update_pointing(smap, pointing_table=pointing_table)
+    except Exception as e:
+        # Fallback: if update_pointing fails, log and use original map
+        log_to_queue(f"[fetch][warn] update_pointing failed: {e}")
+        smap_updated = smap
+
+    # Register (rescale, derotate, north-up) to common grid
+    try:
+        smap_registered = register(smap_updated)
+    except Exception as e:
+        log_to_queue(f"[fetch][warn] register failed: {e}; returning unregistered map")
+        smap_registered = smap_updated
+
+    # Normalize exposure time if available
+    try:
+        exptime = smap_registered.meta.get("exptime")
+        if exptime is not None:
+            norm_data = smap_registered.data.astype(float) / float(exptime)
+            from sunpy.map import Map as SunpyMap
+            smap_registered = SunpyMap(norm_data, smap_registered.meta)
+    except Exception as e:
+        log_to_queue(f"[fetch][warn] exposure normalization failed: {e}")
+
+    return smap_registered
+
+
+
 def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
     """
     Retrieve a SunPy Map near the given date for the chosen mission.
@@ -826,17 +927,18 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         # Improved: Combine all AIA frames into a single time-integrated, exposure-weighted mean intensity map,
         # ensuring co-alignment in time and WCS, with detailed progress logging and SNR diagnostics.
         if isinstance(files, (list, tuple)) and len(files) > 1:
-            try:
-                from sunpy.instr.aia import aiaprep
-            except ImportError:
-                from api.main import manual_aiaprep as aiaprep
             import numpy as np
             maps = []
             for i, f in enumerate(files):
                 m = Map(f)
                 log_to_queue(f"[fetch][progress] Aligning {i+1}/{len(files)}")
                 try:
-                    m_prep = aiaprep(m)
+                    m_prep = None
+                    try:
+                        m_prep = aiaprep_new(m)
+                    except Exception as e:
+                        log_to_queue(f"[fetch][warn] aiapy prep failed for {os.path.basename(f)}: {e}")
+                        m_prep = m
                     maps.append(m_prep)
                 except Exception as e:
                     log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")

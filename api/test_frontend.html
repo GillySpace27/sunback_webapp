@@ -90,9 +90,7 @@ const parentObserver = new MutationObserver(mutations => {
 parentObserver.observe(document.body, { childList: true, subtree: true });
 
 
-const API_BASE = window.location.hostname.includes('onrender.com')
-  ? 'https://solar-archive.onrender.com'
-  : 'http://127.0.0.1:8000';
+const API_BASE = 'https://solar-archive.onrender.com';
 
 let lastPreviewUrl = "";
 let lastPreviewMeta = "";
@@ -468,7 +466,7 @@ async function generateHQProof() {
         }
         // Use returned URL directly if it's already an /asset/ path
         const resolvedUrl = proofUrl.startsWith("/asset")
-            ? `http://127.0.0.1:8000${proofUrl}`
+            ? `${API_BASE}${proofUrl}`
             : proofUrl;
         console.log("[frontend] Using HQ proof URL:", resolvedUrl);
         lastHQUrl = resolvedUrl;
