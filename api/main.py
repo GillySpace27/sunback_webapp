@@ -164,36 +164,23 @@ from pathlib import Path
 app_dir = Path(__file__).parent
 app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
 
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "*",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
         "http://127.0.0.1:8000",
         "http://localhost:8000",
-        "https://solar-archive.onrender.com"
+        "https://solar-archive.onrender.com",
+        "https://solar-archive.myshopify.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# from fastapi import FastAPI
-# from fastapi.staticfiles import StaticFiles
-
-# app = FastAPI()
-
-# Serve /api/test_frontend.html and other frontend assets
-# app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=[
-#         "http://127.0.0.1:3000",
-#         "http://localhost:3000",
-#         "http://127.0.0.1:8000",
-#         "http://localhost:8000"
-#     ],
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
 
 import logging
 log_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -247,6 +234,8 @@ def start_stream_mirroring():
     threading.Thread(target=stream_stdout_to_queue, args=(sys.stderr, "[stderr]"), daemon=True).start()
 
 start_stream_mirroring()
+
+
 
 
 @app.get("/logs/stream")
@@ -1539,3 +1528,7 @@ async def generate(req: GenerateRequest):
     except Exception as e:
         log_to_queue(f"[generate] Error: {e}")
         raise HTTPException(status_code=500, detail=f"HQ render failed: {e}")
+
+# @app.head("/")
+# async def head_root():
+#     return Response(status_code=200)
