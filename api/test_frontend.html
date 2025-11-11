@@ -46,6 +46,9 @@
   </form>
 
   <div id="solar-status" style="color:#444; margin-bottom:0.5em;">Waiting for input...</div>
+  <div id="progress-container" style="display:none;width:80%;margin:1em auto;background:#eee;border-radius:8px;overflow:hidden;">
+    <div id="progress-bar" style="height:16px;width:0%;background:#4a9fff;border-radius:8px;transition:width 0.3s;"></div>
+  </div>
   <div id="log-toggle-container" style="margin: 1em auto; text-align: center;">
     <label style="cursor:pointer;">
       <input type="checkbox" id="toggle-log" style="margin-right: 0.3em;">
@@ -106,14 +109,24 @@ const previewImg = document.getElementById('solar-image');
 const previewStatus = document.getElementById('solar-status');
 let solarCart = document.getElementById('solar-cart');
 
-// Create Shopify button if it doesn't exist
+// Create Shopify button and reset button if they don't exist
 let shopifyBtn = document.getElementById('uploadBtn');
+let resetBtn = document.getElementById('reset-btn');
 if (!shopifyBtn) {
     shopifyBtn = document.createElement('button');
     shopifyBtn.id = 'uploadBtn';
     shopifyBtn.textContent = "Upload to Printful";
-    shopifyBtn.style = "padding:0.6em 1.2em; background:#4a9fff; color:#fff; border:none; border-radius:6px; cursor:pointer; margin-top:1em; display:none;";
-    solarCart.appendChild(shopifyBtn);
+    shopifyBtn.className = "action-btn";
+    shopifyBtn.style.display = "inline-block";
+    shopifyBtn.style.marginRight = "10px";
+}
+if (!resetBtn) {
+    resetBtn = document.createElement('button');
+    resetBtn.id = 'reset-btn';
+    resetBtn.textContent = 'Start Over';
+    resetBtn.className = shopifyBtn.className;
+    resetBtn.style.display = 'inline-block';
+    resetBtn.style.marginLeft = '0';
 }
 
 const dateInput = document.getElementById("solar-date");
@@ -153,10 +166,78 @@ function appendConsoleLine(text, type="log") {
   };
 });
 
-// Live log streaming from backend
+// Live log streaming from backend with smooth real-time progress bar
 const evtSource = new EventSource(`${API_BASE}/logs/stream`);
+const progressContainer = document.getElementById('progress-container');
+const progressBar = document.getElementById('progress-bar');
+let currentProgress = 0;
+let idleTimeout = null;
+
+// Multi-stage progress bar: preview, HQ, upload
+function setStageProgress(stage) {
+  let percent = currentProgress;
+  switch (stage) {
+    case "init": percent = 10; break;
+    case "preview-start": percent = 20; break;
+    case "preview-done": percent = 50; break;
+    case "hq-start": percent = 60; break;
+    case "hq-done": percent = 85; break;
+    case "upload-done": percent = 100; break;
+    default: percent = Math.min(currentProgress + 0.5, 99);
+  }
+  currentProgress = percent;
+  progressBar.style.width = percent + "%";
+  progressContainer.style.display = "block";
+  startHeartbeat(); // Ensure heartbeat restarts for each new workflow
+  if (idleTimeout) clearTimeout(idleTimeout);
+  if (percent >= 100) {
+    idleTimeout = setTimeout(() => {
+      progressContainer.style.display = "none";
+      currentProgress = 0;
+    }, 2500);
+  }
+}
+
+function updateProgress(stage) {
+  // Live backend streaming feedback; fills within a stage
+  const text = stage.toLowerCase();
+  let delta = 0;
+  if (text.includes("downloading")) delta = 1;
+  else if (text.includes("aligning")) delta = 2;
+  else if (text.includes("normalizing")) delta = 2;
+  else if (text.includes("combining")) delta = 2;
+  else if (text.includes("integration complete")) delta = 4;
+  else if (text.includes("render")) delta = 1;
+  else if (text.includes("finished") || text.includes("done")) delta = 5;
+  else delta = 0.2;
+
+  currentProgress = Math.min(currentProgress + delta, 99);
+  progressBar.style.width = currentProgress + "%";
+  progressContainer.style.display = "block";
+}
+
+// Heartbeat: ensures the progress bar keeps moving slightly even if no new log messages arrive
+function startHeartbeat() {
+  if (window.progressHeartbeatInterval) clearInterval(window.progressHeartbeatInterval);
+  window.progressHeartbeatInterval = setInterval(() => {
+    if (progressContainer.style.display === "block" && currentProgress < 99) {
+      currentProgress = Math.min(currentProgress + 0.3, 99);
+      progressBar.style.width = currentProgress + "%";
+    }
+  }, 5000);
+}
+startHeartbeat();
+
 evtSource.onmessage = (event) => {
   appendConsoleLine(event.data);
+  updateProgress(event.data);
+  const match = event.data.match(/(\d{1,3})%/);
+  if (match) {
+    const p = Math.min(parseInt(match[1]), 100);
+    currentProgress = p;
+    progressBar.style.width = p + "%";
+    progressContainer.style.display = "block";
+  }
 };
 evtSource.onerror = () => {
   appendConsoleLine("⚠️ Log stream disconnected", "warn");
@@ -169,8 +250,14 @@ document.getElementById("toggle-log").addEventListener("change", e => {
 
 // Preview cache: store preview images by date and wavelength
 const previewCache = {};
+// HQ proof cache: store HQ image URLs by date and wavelength
+const hqCache = {};
 
 generateBtn.addEventListener('click', async () => {
+    // Visual state: disable and gray out the button
+    generateBtn.disabled = true;
+    generateBtn.style.backgroundColor = "#bbb";
+    generateBtn.style.cursor = "not-allowed";
     // Guard: if HQ render in progress, do not allow preview generation
     if (isRenderingHQ) {
         console.log("[frontend] HQ render in progress; ignoring preview generation");
@@ -180,6 +267,10 @@ generateBtn.addEventListener('click', async () => {
     const wavelength = document.getElementById('solar-wavelength').value;
     if (!date) {
         alert("Please select a date.");
+        // Restore button state
+        generateBtn.disabled = false;
+        generateBtn.style.backgroundColor = "#4a9fff";
+        generateBtn.style.cursor = "pointer";
         return;
     }
 
@@ -188,6 +279,11 @@ generateBtn.addEventListener('click', async () => {
     lastHQUrl = "";
     shopifyBtn.disabled = true;
     shopifyBtn.textContent = "Upload to Printful";
+    shopifyBtn.style.backgroundColor = "#4a9fff";
+    shopifyBtn.style.cursor = "pointer";
+
+    // Multi-stage progress: starting preview
+    setStageProgress("preview-start");
 
     // Cache key for preview
     const cacheKey = date + '_' + wavelength;
@@ -204,16 +300,21 @@ generateBtn.addEventListener('click', async () => {
         }
         setStatus(`Preview loaded from cache · ${lastPreviewMeta}`);
         ensureHQButton();
+        // Progress for cached preview
+        setStageProgress("preview-done");
+        // Enable HQ button and restore color
+        const hqBtn = document.getElementById('hq-btn');
+        if (hqBtn) {
+            hqBtn.disabled = false;
+            hqBtn.style.backgroundColor = "#4a9fff";
+            hqBtn.style.cursor = "pointer";
+        }
         return;
     }
 
     // Immediately show a spinner-like status while we fetch the PREVIEW
     setStatus("Fetching instant preview…");
-    // Do NOT hide the preview image here; keep it on screen until replaced
-    // previewImg.style.display = "none";
-    // previewImg.src = ""; // removed to keep preview visible
     previewImg.removeAttribute("data-hq");  // mark as not HQ yet
-    // Mark preview as inactive until successful fetch
     isPreviewActive = false;
 
     try {
@@ -238,17 +339,26 @@ generateBtn.addEventListener('click', async () => {
             isPreviewActive = true;
         }
         setStatus(`Preview ready · ${lastPreviewMeta}`);
-        // Persistent display: do not hide image or reset status after timeout
-        // console log for confirmation
-        console.log("[frontend] Persistent preview loaded:", data.preview_url);
-
-        // After a preview exists, enable the "Render HQ Proof" button (we will add it below if not present)
+        // Multi-stage progress: preview done
+        setStageProgress("preview-done");
+        // Enable HQ button and restore color
         ensureHQButton();
+        const hqBtn = document.getElementById('hq-btn');
+        if (hqBtn) {
+            hqBtn.disabled = false;
+            hqBtn.style.backgroundColor = "#4a9fff";
+            hqBtn.style.cursor = "pointer";
+        }
         // Do NOT reset the status or image after preview is ready -- keep them visible until next user action
     } catch (err) {
         console.error(err);
         setStatus("Preview error.");
         alert("Error fetching preview: " + err.message);
+    } finally {
+        // Re-enable Generate Preview button after operation
+        generateBtn.disabled = false;
+        generateBtn.style.backgroundColor = "#4a9fff";
+        generateBtn.style.cursor = "pointer";
     }
 });
 
@@ -258,24 +368,72 @@ function ensureHQButton() {
     hqBtn.id = 'hq-btn';
     hqBtn.type = 'button';  // <-- THIS prevents the form from submitting!
     hqBtn.textContent = "Render HQ Proof";
-    // Insert HQ button immediately after Generate Preview button
+    hqBtn.style = "padding:0.6em 1.2em; background:#4a9fff; color:#fff; border:none; border-radius:6px; cursor:pointer; margin-top:0.5em;";
+    // Insert HQ button immediately after Generate Preview button, with a <br> before and after
+    generateBtn.insertAdjacentElement("afterend", document.createElement("br"));
     generateBtn.insertAdjacentElement("afterend", hqBtn);
-
+    generateBtn.insertAdjacentElement("afterend", document.createElement("br"));
     // Use the new generateHQProof function for click event
     hqBtn.onclick = generateHQProof;
+    // Set HQ button enabled and blue by default
+    hqBtn.disabled = false;
+    hqBtn.style.backgroundColor = "#4a9fff";
+    hqBtn.style.cursor = "pointer";
+
+    // Move Upload and Start Over buttons right below HQ button
+    const uploadLineBreak = document.createElement("br");
+    const uploadContainer = document.createElement("div");
+    uploadContainer.style.marginTop = "0.5em";
+    uploadContainer.appendChild(shopifyBtn);
+    uploadContainer.appendChild(resetBtn);
+    hqBtn.insertAdjacentElement("afterend", uploadLineBreak);
+    hqBtn.insertAdjacentElement("afterend", uploadContainer);
 }
 
-// New generateHQProof function with HQ image safety fallback and load confirmation
+// New generateHQProof function with HQ image safety fallback, load confirmation, caching, and progress nudges
 async function generateHQProof() {
     const dateInput = document.getElementById("solar-date");
     const wavelengthInput = document.getElementById("solar-wavelength");
     const date = dateInput ? dateInput.value : null;
     const wavelength = wavelengthInput ? parseInt(wavelengthInput.value) : 171;
 
+    // Multi-stage progress: HQ render start
+    setStageProgress("hq-start");
+
+    // Visual state: disable and gray out HQ button
+    const hqBtn = document.getElementById('hq-btn');
+    if (hqBtn) {
+        hqBtn.disabled = true;
+        hqBtn.style.backgroundColor = "#bbb";
+        hqBtn.style.cursor = "not-allowed";
+    }
+
+    // Check HQ cache first to avoid rerendering
+    const cacheKey = `${date}_${wavelength}`;
+    if (hqCache[cacheKey]) {
+        console.log("[frontend] HQ proof already cached, loading from cache...");
+        const cachedUrl = hqCache[cacheKey];
+        previewImg.src = cachedUrl;
+        previewImg.style.display = "block";
+        previewImg.scrollIntoView({ behavior: "smooth", block: "center" });
+        setStatus(`✅ HQ proof loaded from cache · ${wavelength} Å — ${date}`);
+        // Ensure progress bar is hidden (render already complete)
+        setStageProgress("hq-done");
+        // Enable Upload to Printful and restore color
+        shopifyBtn.disabled = false;
+        shopifyBtn.style.backgroundColor = "#4a9fff";
+        shopifyBtn.style.cursor = "pointer";
+        shopifyBtn.style.display = "inline-block";
+        lastHQUrl = cachedUrl;
+        return;
+    }
+
     // Prevent duplicate HQ render
     if (isRenderingHQ) return;
     isRenderingHQ = true;
     setStatus("Rendering high‑quality proof…");
+    // REMOVED progressBar.style.width = "0%";
+    // REMOVED progressContainer.style.display = "block";
     try {
         const body = {
             date: date || new Date().toISOString().split("T")[0],
@@ -312,6 +470,10 @@ async function generateHQProof() {
             : proofUrl;
         console.log("[frontend] Using HQ proof URL:", resolvedUrl);
         lastHQUrl = resolvedUrl;
+        // Store in HQ cache for instant reuse on same date+wavelength
+        hqCache[cacheKey] = resolvedUrl;
+        // Advance progress to 'render' before swapping the image
+        setStageProgress("hq-start");
 
         // Confirm previewImg is still in DOM; if not, re-query and re-append
         let currentPreviewImg = previewImg;
@@ -344,13 +506,18 @@ async function generateHQProof() {
             setStatus(`✅ HQ proof displayed · ${wavelength} Å — ${date}`);
             currentPreviewImg.style.display = "block";
             currentPreviewImg.scrollIntoView({ behavior: "smooth", block: "center" });
+            // Mark progress done once the image is visible
+            setStageProgress("hq-done");
+            // Enable Upload to Printful and restore color
+            shopifyBtn.disabled = false;
+            shopifyBtn.style.backgroundColor = "#4a9fff";
+            shopifyBtn.style.cursor = "pointer";
+            shopifyBtn.style.display = "inline-block";
         };
         currentPreviewImg.onerror = () => {
             console.error("[frontend] HQ image failed to load:", resolvedUrl);
             setStatus("HQ render complete, but failed to load image.");
         };
-        // enable Upload to Printful only after HQ exists
-        shopifyBtn.disabled = false;
         // Mark preview as inactive because now HQ proof is displayed
         isPreviewActive = false;
         // Show the upload button when HQ proof is ready
@@ -392,8 +559,14 @@ async function uploadToPrintful() {
         console.log("Upload response:", data);
         if (data.file_id) {
             printfulFileId = data.file_id;
+            // Multi-stage progress: upload done
+            setStageProgress("upload-done");
             alert(`✅ Uploaded to Printful (file_id ${printfulFileId})`);
             showProductSelector();
+            // Disable and gray out the upload button after success
+            shopifyBtn.disabled = true;
+            shopifyBtn.style.backgroundColor = "#bbb";
+            shopifyBtn.style.cursor = "not-allowed";
         } else {
             console.error(data);
             alert("❌ Upload failed.");
@@ -455,10 +628,66 @@ function showProductSelector() {
 // Replace “Open in Shopify” button behavior
 shopifyBtn.textContent = "Upload to Printful";
 shopifyBtn.disabled = true;
-shopifyBtn.addEventListener('click', uploadToPrintful);
+shopifyBtn.style.backgroundColor = "#4a9fff";
+shopifyBtn.style.cursor = "pointer";
+shopifyBtn.onclick = uploadToPrintful;
+
+// Start Over button logic
+resetBtn.onclick = () => {
+    if (!confirm("Are you sure you want to start over? All progress will be cleared.")) return;
+
+    // Reset progress bar
+    currentProgress = 0;
+    progressBar.style.width = "0%";
+    progressContainer.style.display = "none";
+
+    // Reset preview and HQ images
+    previewImg.src = "";
+    previewImg.style.display = "none";
+    isPreviewActive = false;
+    lastPreviewUrl = "";
+    lastHQUrl = "";
+
+    // Reset button states
+    generateBtn.disabled = false;
+    generateBtn.style.backgroundColor = "#4a9fff";
+    generateBtn.style.cursor = "pointer";
+
+    const hqBtn = document.getElementById("hq-btn");
+    if (hqBtn) {
+      hqBtn.disabled = true;
+      hqBtn.style.backgroundColor = "#bbb";
+      hqBtn.style.cursor = "not-allowed";
+    }
+
+    shopifyBtn.disabled = true;
+    shopifyBtn.style.backgroundColor = "#bbb";
+    shopifyBtn.style.cursor = "not-allowed";
+
+    // Clear caches and stop heartbeat
+    if (typeof previewCache !== "undefined") previewCache = {};
+    if (typeof hqCache !== "undefined") hqCache = {};
+    if (typeof disableHeartbeat === "function") disableHeartbeat();
+
+    setStatus("Reset complete. Ready to start over.");
+};
 
 // Remove or comment out any code that hides the preview image or resets status after a timeout.
 // (No such code present here, but if you add a timeout or auto-hide elsewhere, ensure it does not hide the image.)
+
+// Remove any insertAdjacentElement of resetBtn elsewhere so it isn’t appended again below the image.
+
+// Re-enable and blue the Generate Preview button when date or wavelength changes
+document.getElementById("solar-date").addEventListener("change", () => {
+    generateBtn.disabled = false;
+    generateBtn.style.backgroundColor = "#4a9fff";
+    generateBtn.style.cursor = "pointer";
+});
+document.getElementById("solar-wavelength").addEventListener("change", () => {
+    generateBtn.disabled = false;
+    generateBtn.style.backgroundColor = "#4a9fff";
+    generateBtn.style.cursor = "pointer";
+});
 </script>
 </script>
 <script>
