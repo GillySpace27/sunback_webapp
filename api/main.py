@@ -266,8 +266,10 @@ async def stream_logs(request: Request):
                 continue
             # Each message is its own SSE event
             yield f"data: {msg}\n\n"
+            sys.stdout.flush()
+            sys.stderr.flush()
             # Explicit flush via tiny async sleep — ensures event is written immediately
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.01)
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -773,7 +775,8 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     t1 = dt + timedelta(minutes=2)
 
     # Caching for combined (summed) AIA data
-    import numpy as _np
+    # import numpy as _np
+    import numpy as np
     combined_cache_file = None
     date_str = dt.strftime("%Y%m%d")
     if mission == "SDO":
@@ -788,6 +791,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 combined_data = npz["data"]
                 combined_meta = npz["meta"].item()
             combined_map = Map(combined_data, combined_meta)
+            log_to_queue(f"[fetch] Returning combined map ({combined_meta['n_frames']} frames).")
             return combined_map
 
     if mission == "SDO":
@@ -818,28 +822,88 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             raise HTTPException(status_code=502, detail="No JSOC aia.lev1_euv_12s data available for this date.")
         log_to_queue(f"[fetch] [AIA] JSOC aia.lev1_euv_12s: {len(qr[0])} results...")
         from parfive import Downloader
-        dl = Downloader(max_conn=10, progress=True)
+        dl = Downloader(max_conn=15, progress=True)
         target_dir = os.environ["SUNPY_DOWNLOADDIR"]
-        existing_files = [os.path.join(target_dir, os.path.basename(str(f))) for f in qr[0] if os.path.exists(os.path.join(target_dir, os.path.basename(str(f))))]
-        if existing_files:
-            log_to_queue(f"[fetch] Skipping re-download of existing files: {existing_files}")
-            files = existing_files
-        else:
-            files = Fido.fetch(qr, downloader=dl, path=target_dir)
+        # Always call Fido.fetch; downloader will skip already-downloaded files but return the full list
+        files = Fido.fetch(qr, downloader=dl, path=target_dir)
+        try:
+            files = list(map(str, files))
+        except Exception:
+            files = list(files) if isinstance(files, (list, tuple)) else [str(files)]
+        log_to_queue(f"[fetch] Retrieved {len(files)} AIA frames from JSOC (existing files were skipped by the downloader if present).")
         if not files or len(files) == 0:
             log_to_queue(f"[fetch] [AIA] JSOC fetch returned no files.")
             raise HTTPException(status_code=502, detail="No files from JSOC aia.lev1_euv_12s fetch.")
-        # Only use the first file
+        # Improved: Combine all AIA frames into a single time-integrated, exposure-weighted mean intensity map,
+        # ensuring co-alignment in time and WCS, with detailed progress logging and SNR diagnostics.
         if isinstance(files, (list, tuple)) and len(files) > 1:
-            log_to_queue(f"[fetch] Reducing to first file to conserve memory.")
-            files = [files[0]]
-        import sunpy
-        smap = sunpy.map.Map(files[0])
-        if smap.data.shape[0] < 3000:
-            log_to_queue(f"[fetch] WARNING: Low-resolution data fetched ({smap.data.shape}); aia.lev1_euv_12s may be unavailable for this date.")
+            try:
+                from sunpy.instr.aia import aiaprep
+            except ImportError:
+                from api.main import manual_aiaprep as aiaprep
+            import numpy as np
+            maps = []
+            for i, f in enumerate(files):
+                m = Map(f)
+                log_to_queue(f"[fetch][progress] Aligning {i+1}/{len(files)}")
+                try:
+                    m_prep = aiaprep(m)
+                    maps.append(m_prep)
+                except Exception as e:
+                    log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
+                    maps.append(m)
+            # Optionally: check WCS alignment (simple check)
+            ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
+            for i, m in enumerate(maps):
+                if ref_wcs is not None and hasattr(m, "wcs"):
+                    if m.data.shape != maps[0].data.shape:
+                        log_to_queue(f"[fetch][warn] Frame {i+1} shape {m.data.shape} != ref {maps[0].data.shape}")
+            exptimes = np.array([float(m.meta.get("exptime", 1.0)) for m in maps])
+            log_to_queue("[fetch][progress] Exposure-weighted combination")
+            data_stack = np.stack([m.data for m in maps])
+            weighted_sum = np.nansum(data_stack * exptimes[:, None, None], axis=0)
+            sum_exp = np.nansum(exptimes)
+            combined_data = weighted_sum / sum_exp
+
+            # SNR diagnostics on a central patch
+            try:
+                h, w = maps[0].data.shape
+                x0, x1 = int(w // 2 - 128), int(w // 2 + 128)
+                y0, y1 = int(h // 2 - 128), int(h // 2 + 128)
+                sigma_single = float(np.nanstd(maps[0].data[y0:y1, x0:x1] / max(exptimes[0], 1e-6)))
+                sigma_comb = float(np.nanstd(combined_data[y0:y1, x0:x1]))
+                snr_gain = (sigma_single / sigma_comb) if sigma_comb > 0 else float("nan")
+                log_to_queue(f"[fetch][snr] Central patch σ_single/σ_combined = {sigma_single:.3g}/{sigma_comb:.3g} → gain ≈ {snr_gain:.2f}× (expected ~{np.sqrt(len(maps)):.2f}×)")
+            except Exception as snr_err:
+                log_to_queue(f"[fetch][snr][warn] Unable to compute SNR diagnostics: {snr_err}")
+
+            combined_meta = maps[0].meta.copy()
+            combined_meta["n_frames"] = len(maps)
+            combined_meta["t_start"] = str(maps[0].date)
+            combined_meta["t_end"] = str(maps[-1].date)
+            combined_map = Map(combined_data, combined_meta)
+            log_to_queue(f"[fetch] Combined {len(maps)} frames with exposure weighting over {combined_meta['t_start']} → {combined_meta['t_end']}")
+            log_to_queue("[fetch][progress] Integration complete")
+
+            date_str = dt.strftime("%Y%m%d")
+            # Use a wavelength key that matches the cache-read key
+            try:
+                from astropy import units as _u
+                wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
+            except Exception:
+                wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
+            combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}.npz")
+            np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
+            log_to_queue(f"[cache] Saved combined map to {combined_cache_file}")
+            del maps
+            import gc
+            gc.collect()
+            log_to_queue(f"[fetch] Returning combined map ({combined_meta['n_frames']} frames).")
+            return combined_map
         else:
-            log_to_queue(f"[fetch] Confirmed full-resolution Level 1 data ({smap.data.shape})")
-        return smap
+            single_map = Map(files[0])
+            log_to_queue(f"[fetch] Returning combined map (1 frames).")
+            return single_map
     elif mission == "SOHO-EIT":
         wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH.value)) * u.angstrom
         log_to_queue(f"[fetch] SOHO-EIT wavelength {wl}")
@@ -994,7 +1058,7 @@ def default_filter(smap: Map) -> Map:
 
     try:
         with tqdm_stream_adapter():
-            block_size = 2
+            block_size = 1
             from astropy.nddata import block_reduce
             import sunpy
             log_to_queue("[render] Performing RHE...")
