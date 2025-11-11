@@ -1,0 +1,407 @@
+<div id="solar-archive-section"
+     style="text-align:center; padding:2em; background:#fff; color:#111;">
+  <h2 style="margin-bottom:1em;">Solar Archive — Custom Print Generatorr</h2>
+
+  <form id="solar-archive-form" style="margin-bottom:1.5em;">
+    <button id="clearCacheBtn">Clear Cache</button>
+  <style>
+    #clearCacheBtn {
+      background-color: #e05d44;
+      color: white;
+      border: none;
+      padding: 0.6em 1.2em;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-left: 0.5em;
+    }
+    #clearCacheBtn:hover {
+      background-color: #c2442e;
+    }
+  </style>
+    <label>Date:
+      <input type="date" id="solar-date" required style="margin:0.5em;">
+    </label>
+    <label>Wavelength (Å):
+  <select id="solar-wavelength" required style="margin:0.5em; padding:0.3em;">
+    <optgroup label="EUV Channels">
+      <option value="94" style="color:#00c3ff;">94 Å — Fe XVIII (hot flare plasma, teal)</option>
+      <option value="131" style="color:#8c52ff;">131 Å — Fe VIII / XXI (flare footpoints, violet)</option>
+      <option value="171" style="color:#ffd700;" selected>171 Å — Fe IX (quiet corona loops, golden)</option>
+      <option value="193" style="color:#ff9f00;">193 Å — Fe XII / XXIV (corona + flares, amber)</option>
+      <option value="211" style="color:#a020f0;">211 Å — Fe XIV (active region corona, purple)</option>
+      <option value="304" style="color:#ff3030;">304 Å — He II (chromosphere & prominences, red)</option>
+      <option value="335" style="color:#5b5bff;">335 Å — Fe XVI (hot active regions, blue-violet)</option>
+    </optgroup>
+    <optgroup label="UV / Visible Channels">
+      <option value="1600" style="color:#ff80ff;">1600 Å — C IV + continuum (transition region, pink)</option>
+      <option value="1700" style="color:#ffb3b3;">1700 Å — Continuum (photosphere, light peach)</option>
+      <option value="4500" style="color:#999;">4500 Å — Visible continuum (white light / HMI, gray-white)</option>
+    </optgroup>
+  </select>
+</label>
+    <button type="button" id="generate-btn"
+            style="padding:0.6em 1.2em; background:#4a9fff; color:#fff; border:none; border-radius:6px; cursor:pointer;">
+      Generate Preview
+    </button>
+  </form>
+
+  <div id="solar-status" style="color:#444; margin-bottom:0.5em;">Waiting for input...</div>
+  <div id="log-toggle-container" style="margin: 1em auto; text-align: center;">
+    <label style="cursor:pointer;">
+      <input type="checkbox" id="toggle-log" style="margin-right: 0.3em;">
+      Show Live Log
+    </label>
+  </div>
+  <div id="console-box" style="display:none;width:90%;max-height:180px;overflow-y:auto;background:#111;color:#0f0;font-family:monospace;padding:0.5em;margin:1em auto;border-radius:6px;text-align:left;font-size:0.9em;">
+    🛰️ Live Log
+  </div>
+  <img id="solar-image"
+       alt="Solar preview"
+       style="display:none; max-width:100%; border-radius:8px; box-shadow:0 0 25px rgba(0,0,0,0.15); margin:1em auto;">
+  <div id="solar-cart" style="margin-top:1em;"></div>
+</div>
+
+<script>
+
+const img = document.getElementById('solar-image');
+const observer = new MutationObserver(() => {
+  console.log('[debug] image mutated:', img.style.display, img.src);
+});
+observer.observe(img, { attributes: true, attributeFilter: ['src', 'style'] });
+
+// DOM instrumentation: detect if preview image is removed, hidden, or replaced externally
+const parentObserver = new MutationObserver(mutations => {
+  for (const mutation of mutations) {
+    mutation.removedNodes.forEach(node => {
+      if (node === img) {
+        console.warn('[observer] solar-image element REMOVED from DOM!');
+      }
+    });
+    mutation.addedNodes.forEach(node => {
+      if (node.id === 'solar-image') {
+        console.warn('[observer] solar-image element ADDED to DOM!');
+      }
+    });
+  }
+});
+parentObserver.observe(document.body, { childList: true, subtree: true });
+
+
+const API_BASE = 'http://127.0.0.1:8000';
+
+let lastPreviewUrl = "";
+let lastPreviewMeta = "";
+let lastHQUrl = "";
+let isRenderingHQ = false;
+let isPreviewActive = false;  // safeguard variable to keep preview visible until HQ proof
+
+function setStatus(msg) {
+    previewStatus.textContent = msg;
+}
+
+const form = document.getElementById('solar-archive-form');
+const generateBtn = document.getElementById('generate-btn');
+const previewSection = document.getElementById('solar-archive-section');
+const previewImg = document.getElementById('solar-image');
+const previewStatus = document.getElementById('solar-status');
+let solarCart = document.getElementById('solar-cart');
+
+// Create Shopify button if it doesn't exist
+let shopifyBtn = document.getElementById('uploadBtn');
+if (!shopifyBtn) {
+    shopifyBtn = document.createElement('button');
+    shopifyBtn.id = 'uploadBtn';
+    shopifyBtn.textContent = "Upload to Printful";
+    shopifyBtn.style = "padding:0.6em 1.2em; background:#4a9fff; color:#fff; border:none; border-radius:6px; cursor:pointer; margin-top:1em; display:none;";
+    solarCart.appendChild(shopifyBtn);
+}
+
+const dateInput = document.getElementById("solar-date");
+// Limit selectable dates to today or earlier
+const today = new Date().toISOString().split("T")[0];
+dateInput.setAttribute("max", today);
+
+// Restore saved date if available
+const savedDate = localStorage.getItem("selectedDate");
+if (savedDate) dateInput.value = savedDate;
+
+// Save new date whenever changed
+dateInput.addEventListener("change", () => {
+  localStorage.setItem("selectedDate", dateInput.value);
+});
+
+// if (!dateInput) console.error("⚠️ dateInput element not found (expected id='solar-date')");
+
+
+let printfulFileId = null;
+
+// Console box and monkey-patch console methods
+const consoleBox = document.getElementById('console-box');
+function appendConsoleLine(text, type="log") {
+  const line = document.createElement('div');
+  line.textContent = text;
+  if (type === 'warn') line.style.color = '#ffb300';
+  if (type === 'error') line.style.color = '#ff5555';
+  consoleBox.appendChild(line);
+  consoleBox.scrollTop = consoleBox.scrollHeight;
+}
+['log', 'warn', 'error'].forEach(method => {
+  const orig = console[method];
+  console[method] = (...args) => {
+    appendConsoleLine(args.join(' '), method);
+    orig.apply(console, args);
+  };
+});
+
+// Live log streaming from backend
+const evtSource = new EventSource(`${API_BASE}/logs/stream`);
+evtSource.onmessage = (event) => {
+  appendConsoleLine(event.data);
+};
+evtSource.onerror = () => {
+  appendConsoleLine("⚠️ Log stream disconnected", "warn");
+};
+
+// Toggle live log visibility
+document.getElementById("toggle-log").addEventListener("change", e => {
+  consoleBox.style.display = e.target.checked ? "block" : "none";
+});
+
+generateBtn.addEventListener('click', async () => {
+    const date = document.getElementById('solar-date').value;
+    const wavelength = document.getElementById('solar-wavelength').value;
+    if (!date) {
+        alert("Please select a date.");
+        return;
+    }
+
+    // Reset state for a new flow
+    isRenderingHQ = false;
+    lastHQUrl = "";
+    shopifyBtn.disabled = true;
+    shopifyBtn.textContent = "Upload to Printful";
+
+    // Immediately show a spinner-like status while we fetch the PREVIEW
+    setStatus("Fetching instant preview…");
+    // Do NOT hide the preview image here; keep it on screen until replaced
+    // previewImg.style.display = "none";
+    // previewImg.src = ""; // removed to keep preview visible
+    previewImg.removeAttribute("data-hq");  // mark as not HQ yet
+    // Mark preview as inactive until successful fetch
+    isPreviewActive = false;
+
+    try {
+        const payload = { date, wavelength: parseInt(wavelength), mission: "SDO", annotate: false };
+        const res = await fetch(`${API_BASE}/shopify/preview`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Preview failed (${res.status})`);
+        const data = await res.json();
+        if (!data.preview_url) throw new Error("No preview_url returned");
+
+        lastPreviewUrl = data.preview_url;
+        lastPreviewMeta = `${wavelength} Å — ${date}`;
+        // Only update src if preview is not already active or URL changed
+        if (!isPreviewActive || previewImg.src !== lastPreviewUrl) {
+            previewImg.src = lastPreviewUrl;           // this is a PNG (or proxied) URL
+            previewImg.style.display = "block";
+            isPreviewActive = true;
+        }
+        setStatus(`Preview ready · ${lastPreviewMeta}`);
+        // Persistent display: do not hide image or reset status after timeout
+        // console log for confirmation
+        console.log("[frontend] Persistent preview loaded:", data.preview_url);
+
+        // After a preview exists, enable the "Render HQ Proof" button (we will add it below if not present)
+        ensureHQButton();
+        // Do NOT reset the status or image after preview is ready -- keep them visible until next user action
+    } catch (err) {
+        console.error(err);
+        setStatus("Preview error.");
+        alert("Error fetching preview: " + err.message);
+    }
+});
+
+function ensureHQButton() {
+    if (document.getElementById('hq-btn')) return;
+    const hqBtn = document.createElement('button');
+    hqBtn.id = 'hq-btn';
+    hqBtn.textContent = "Render HQ Proof";
+    hqBtn.className = "action-btn";
+    hqBtn.style.marginLeft = "1em";
+    // place next to Generate button area (inside solar-cart for layout consistency)
+    solarCart.prepend(hqBtn);
+
+    // Use the new generateHQProof function for click event
+    hqBtn.onclick = generateHQProof;
+}
+
+// New generateHQProof function with correct JSON body and headers
+async function generateHQProof() {
+    const dateInput = document.getElementById("solar-date");
+    const wavelengthInput = document.getElementById("solar-wavelength");
+    const date = dateInput ? dateInput.value : null;
+    const wavelength = wavelengthInput ? parseInt(wavelengthInput.value) : 171;
+
+    // Prevent duplicate HQ render
+    if (isRenderingHQ) return;
+    isRenderingHQ = true;
+    setStatus("Rendering high‑quality proof…");
+    try {
+        const body = {
+            date: date || new Date().toISOString().split("T")[0],
+            mission: "SDO",
+            wavelength: wavelength,
+            detector: "AIA",
+            annotate: true,
+            png_dpi: 300,
+            png_size_inches: 10.0
+        };
+
+        const response = await fetch("/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            alert(`Error generating HQ proof: ${response.statusText} (${response.status})`);
+            setStatus("HQ render error.");
+            return;
+        }
+
+        const data = await response.json();
+        const proofUrl = data.png_url;
+        lastHQUrl = proofUrl;
+        // swap to HQ without hiding image first (avoid flicker)
+        previewImg.src = proofUrl;
+        previewImg.style.display = "block";
+        previewImg.setAttribute("data-hq", "1");
+        setStatus(`HQ proof ready · ${wavelength} Å — ${date}`);
+        // enable Upload to Printful only after HQ exists
+        shopifyBtn.disabled = false;
+        // Mark preview as inactive because now HQ proof is displayed
+        isPreviewActive = false;
+        // Show the upload button when HQ proof is ready
+        const uploadBtn = document.getElementById("uploadBtn");
+        if (uploadBtn) {
+          uploadBtn.style.display = "inline-block";
+          uploadBtn.style.opacity = 0;
+          setTimeout(() => uploadBtn.style.transition = "opacity 0.5s", 10);
+          setTimeout(() => uploadBtn.style.opacity = 1, 50);
+        }
+    } catch (err) {
+        console.error(err);
+        setStatus("HQ render error.");
+        alert("Error generating HQ proof: " + err.message);
+    } finally {
+        isRenderingHQ = false;
+    }
+}
+
+// ─────────────────────────────────────────────
+// 🛰️ Upload to Printful after preview
+// ─────────────────────────────────────────────
+async function uploadToPrintful() {
+    const assetUrl = lastHQUrl || "";
+    if (!assetUrl) {
+        alert("Please render the HQ proof first.");
+        return;
+    }
+
+    const filename = assetUrl.split('/').pop();
+    const payload = { image_path: `/tmp/output/${filename}`, title: `Solar Archive ${filename}` };
+    try {
+        const res = await fetch(`${API_BASE}/upload_to_printful`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        console.log("Upload response:", data);
+        if (data.file_id) {
+            printfulFileId = data.file_id;
+            alert(`✅ Uploaded to Printful (file_id ${printfulFileId})`);
+            showProductSelector();
+        } else {
+            console.error(data);
+            alert("❌ Upload failed.");
+        }
+    } catch (err) {
+        alert("Upload error: " + err);
+    }
+}
+
+// ─────────────────────────────────────────────
+// 🧾 Product selection & mockup generation
+// ─────────────────────────────────────────────
+function showProductSelector() {
+    // Remove existing selector if present
+    const existingSelector = document.getElementById('product-selector-container');
+    if (existingSelector) {
+        existingSelector.remove();
+    }
+
+    const selector = document.createElement('div');
+    selector.id = 'product-selector-container';
+    selector.innerHTML = `
+        <h4>Select a product to preview</h4>
+        <select id="product-selector">
+            <option value="4011">Poster 12x18</option>
+            <option value="4012">Poster 18x24</option>
+            <option value="4001">Mug 11oz</option>
+            <option value="4002">Mug 15oz</option>
+            <option value="1234">T-shirt (example)</option>
+        </select>
+        <button id="mockup-btn" class="action-btn" style="margin-left:1em;">Generate Mockup</button>
+        <div id="mockup-result" style="margin-top:1em;"></div>
+    `;
+    solarCart.appendChild(selector);
+
+    document.getElementById('mockup-btn').addEventListener('click', async () => {
+        const variant_id = parseInt(document.getElementById('product-selector').value);
+        try {
+            const res = await fetch(`${API_BASE}/printful/mockup`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ file_id: printfulFileId, variant_id })
+            });
+            const data = await res.json();
+            console.log("Mockup response:", data);
+            const resultDiv = document.getElementById('mockup-result');
+
+            if (data?.result?.task_key) {
+                resultDiv.innerHTML = `<p>✅ Mockup task created! Task key: ${data.result.task_key}</p>`;
+            } else {
+                resultDiv.innerHTML = `<p>❌ Mockup failed: ${JSON.stringify(data)}</p>`;
+            }
+        } catch (err) {
+            alert("Mockup generation error: " + err);
+        }
+    });
+}
+
+// Replace “Open in Shopify” button behavior
+shopifyBtn.textContent = "Upload to Printful";
+shopifyBtn.disabled = true;
+shopifyBtn.addEventListener('click', uploadToPrintful);
+
+// Remove or comment out any code that hides the preview image or resets status after a timeout.
+// (No such code present here, but if you add a timeout or auto-hide elsewhere, ensure it does not hide the image.)
+</script>
+</script>
+<script>
+document.getElementById("clearCacheBtn").addEventListener("click", async () => {
+  if (!confirm("Are you sure you want to clear the cache?")) return;
+  const response = await fetch("/clear_cache", { method: "POST" });
+  if (response.ok) {
+    const data = await response.json();
+    console.log(data.message);
+    alert("Cache cleared successfully!");
+  } else {
+    alert("Failed to clear cache.");
+  }
+});
+</script>

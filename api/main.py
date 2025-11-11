@@ -1,5 +1,13 @@
 from urllib.parse import urlencode, quote_plus
+import os, sys
+os.environ["PYTHONUNBUFFERED"] = "1"
+try:
+    sys.stdout.reconfigure(write_through=True)
+    sys.stderr.reconfigure(write_through=True)
+except Exception:
+    pass
 import io
+import os
 import json
 import hashlib
 import time
@@ -28,7 +36,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="parfive.download
 import os
 from fastapi import Body
 from pydantic import BaseModel
-
+from fastapi.responses import StreamingResponse
+import asyncio
 
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
@@ -67,14 +76,19 @@ os.environ["JSOC_URL"] = "https://jsoc.stanford.edu"
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 os.environ["SSL_CERT_FILE"] = certifi.where()
 
-# Set SOLAR_ARCHIVE_ASSET_BASE_URL if missing, based on environment
+#
+# Set SOLAR_ARCHIVE_ASSET_BASE_URL based on environment, removing trailing slashes for consistency.
 if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
     if os.getenv("RENDER"):
-        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com"
-        print("[startup] Using default public asset base URL for Render: https://solar-archive.onrender.com", flush=True)
+        url = "https://solar-archive.onrender.com/asset"
+        url = url.rstrip("/")
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = url
+        print(f"[startup] Using default public asset base URL for Render: {url}", flush=True)
     else:
-        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000/asset/"
-        print("[startup] Using local asset base URL: http://127.0.0.1:8000/asset/", flush=True)
+        url = "http://127.0.0.1:8000/asset"
+        url = url.rstrip("/")
+        os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = url
+        print(f"[startup] Using local asset base URL: {url}", flush=True)
 
 os.makedirs(os.environ["SUNPY_DOWNLOADDIR"], exist_ok=True)
 
@@ -87,7 +101,7 @@ print(f"[startup] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
 
 # Synchronous fetch helper with clear log
 def fetch_sync_safe(query):
-    print("[fetch] Fido.fetch (sync, max_conn=10, no progress)", flush=True)
+    log_to_queue("[fetch] Fido.fetch (sync, max_conn=10, no progress)")
     from parfive import Downloader
     dl = Downloader(
         max_conn=10,
@@ -102,6 +116,12 @@ def fetch_sync_safe(query):
 # ──────────────────────────────────────────────────────────────────────────────
 APP_NAME = "Solar Archive Backend"
 OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
+
+if os.getenv("RENDER"):
+    os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com/"
+else:
+    os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000/asset/"
+
 ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
 print(f"{ASSET_BASE_URL = }")
 print(f"{OUTPUT_DIR = }")
@@ -132,20 +152,144 @@ JSOC_EMAIL = os.getenv("JSOC_EMAIL", "chris.gilly@colorado.edu")
 app = FastAPI(title=APP_NAME)
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import sys
+import threading
 
+# Serve /api/test_frontend.html and other frontend assets
+app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=[
-    #     "https://solar-archive.myshopify.com",
-    #     "https://0b1wyw-tz.myshopify.com",
-    #     "https://admin.shopify.com",
-    #     "https://solar-archive.onrender.com",
-    # ],
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# from fastapi import FastAPI
+# from fastapi.staticfiles import StaticFiles
+
+# app = FastAPI()
+
+# Serve /api/test_frontend.html and other frontend assets
+app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[
+#         "http://127.0.0.1:3000",
+#         "http://localhost:3000",
+#         "http://127.0.0.1:8000",
+#         "http://localhost:8000"
+#     ],
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+import logging
+log_queue: asyncio.Queue[str] = asyncio.Queue()
+
+def log_to_queue(msg: str):
+    """Add message to both the console and the live streaming log."""
+    try:
+        log_queue.put_nowait(msg)
+    except Exception:
+        pass
+    print(msg, flush=True)
+    sys.stdout.flush()
+
+
+# ⬇️ Add this block immediately after log_to_queue()
+class QueueLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            log_to_queue(msg)
+        except Exception:
+            pass
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(QueueLogHandler())
+# Mirror log messages to stdout and propagate to parent handlers
+root_logger.propagate = True
+stream_handler = logging.StreamHandler()
+root_logger.addHandler(stream_handler)
+
+# --- Live mirroring of stdout/stderr to SSE log queue ---
+def stream_stdout_to_queue(stream, prefix="[stdout]"):
+    while True:
+        try:
+            line = stream.readline()
+            if not line:
+                break
+            if line.strip():
+                log_to_queue(f"{prefix} {line.strip()}")
+        except Exception:
+            break
+
+def start_stream_mirroring():
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+    threading.Thread(target=stream_stdout_to_queue, args=(sys.stdout, "[stdout]"), daemon=True).start()
+    threading.Thread(target=stream_stdout_to_queue, args=(sys.stderr, "[stderr]"), daemon=True).start()
+
+start_stream_mirroring()
+
+
+@app.get("/logs/stream")
+async def stream_logs(request: Request):
+    import asyncio
+    async def event_generator():
+        # Disable buffering where possible
+        yield ":\n\n"  # send a comment frame to start connection immediately
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                msg = log_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                yield ": keep-alive\n\n"
+                await asyncio.sleep(1)
+                continue
+            # Each message is its own SSE event
+            yield f"data: {msg}\n\n"
+            # Explicit flush via tiny async sleep — ensures event is written immediately
+            await asyncio.sleep(0)
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disables nginx/gunicorn buffering if present
+            "Connection": "keep-alive"
+        }
+    )
+
+
+import shutil
+@app.post("/clear_cache")
+async def clear_cache():
+    try:
+        shutil.rmtree("/tmp/output", ignore_errors=True)
+        os.makedirs("/tmp/output", exist_ok=True)
+        sunpy_cache = os.path.expanduser("~/.sunpy/data")
+        shutil.rmtree(sunpy_cache, ignore_errors=True)
+        os.makedirs(sunpy_cache, exist_ok=True)
+        log_to_queue("[cache] Cleared /tmp/output and ~/.sunpy/data caches.")
+        return {"status": "success", "message": "Cache cleared successfully."}
+    except Exception as e:
+        log_to_queue(f"[cache] Error clearing cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {e}")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Shopify Launch & Redirect Endpoints
@@ -279,7 +423,7 @@ async def shopify_launch():
                 try {
                     const payload = {
                         date: date,
-                        mission: "auto",
+                        mission: "SDO",
                         dry_run: true,
                         annotate: true
                     };
@@ -470,9 +614,9 @@ def debug_env():
 # ──────────────────────────────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     date: str = Field(..., description="YYYY-MM-DD (UTC) to render")
-    mission: Optional[Literal["auto", "SDO", "SOHO-EIT", "SOHO-LASCO"]] = "auto"
+    mission: Optional[Literal["SDO", "SOHO-EIT", "SOHO-LASCO"]] = "SDO"
     wavelength: Optional[int] = Field(None, description="Angstroms for AIA/EIT (e.g., 211 or 195)")
-    detector: Optional[Literal["C2", "C3"]] = DEFAULT_DETECTOR_LASCO
+    detector: Optional[Literal["AIA", "C2", "C3"]] = "AIA"
     upload_to_printful: bool = False
     dry_run: bool = False
     annotate: bool = True
@@ -514,7 +658,7 @@ def manual_aiaprep(smap):
         except Exception:
             get_pointing = None
     except Exception as e:
-        print(f"[fetch] [AIA] aiapy.calibrate unavailable ({e}); skipping manual prep.", flush=True)
+        log_to_queue(f"[fetch] [AIA] aiapy.calibrate unavailable ({e}); skipping manual prep.")
         return smap
     # Try to obtain a pointing table in a version-agnostic way
     pointing_table = None
@@ -541,7 +685,7 @@ def manual_aiaprep(smap):
                         t1 = t + timedelta(minutes=10)
                         pointing_table = get_pointing(t0, t1)
                 except Exception as pt_err:
-                    print(f"[fetch] [AIA] get_pointing fallback failed: {pt_err}", flush=True)
+                    log_to_queue(f"[fetch] [AIA] get_pointing fallback failed: {pt_err}")
         else:
             # Manual pointing alignment fallback if get_pointing is unavailable
             try:
@@ -567,7 +711,7 @@ def manual_aiaprep(smap):
                     smap = Map(shifted_data, meta)
                     # print("[fetch] [AIA] Performed rough manual recentering due to missing get_pointing().", flush=True)
             except Exception as manual_err:
-                print(f"[fetch] [AIA] Manual recentering failed: {manual_err}", flush=True)
+                log_to_queue(f"[fetch] [AIA] Manual recentering failed: {manual_err}")
     # Apply pointing update if we obtained a table
     m = smap
     try:
@@ -576,21 +720,21 @@ def manual_aiaprep(smap):
         else:
             m = smap
     except TypeError as te:
-        print(f"[fetch] [AIA] update_pointing requires pointing_table on this aiapy version ({te}); skipping.", flush=True)
+        log_to_queue(f"[fetch] [AIA] update_pointing requires pointing_table on this aiapy version ({te}); skipping.")
     except Exception as e:
-        print(f"[fetch] [AIA] update_pointing failed: {e}; proceeding without.", flush=True)
+        log_to_queue(f"[fetch] [AIA] update_pointing failed: {e}; proceeding without.")
     # Register (rotate to north-up, scale to 0.6 arcsec/pix, recenter)
     try:
         m = register(m)
     except Exception as reg_err:
-        print(f"[fetch] [AIA] register failed: {reg_err}; continuing with unregistered map.", flush=True)
+        log_to_queue(f"[fetch] [AIA] register failed: {reg_err}; continuing with unregistered map.")
     # Exposure normalization
     try:
         if hasattr(m, "exposure_time") and m.exposure_time is not None:
             data_norm = m.data / m.exposure_time.to(u.s).value
             m = Map(data_norm, m.meta)
     except Exception as norm_err:
-        print(f"[fetch] [AIA] Exposure normalization failed: {norm_err}", flush=True)
+        log_to_queue(f"[fetch] [AIA] Exposure normalization failed: {norm_err}")
     return Map(m.data, m.meta)
 
 @app.get("/debug/list_output")
@@ -607,7 +751,14 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     We search a small window around the date to find at least one file.
     For SDO/AIA, try JSOC first (with email), fallback to Fido if needed.
     """
-    print(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wavelength}, detector={detector}", flush=True)
+    log_to_queue(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wavelength}, detector={detector}")
+    # Normalize wavelength and detector for cache keys
+    wl_used = None
+    det_used = (detector or DEFAULT_DETECTOR_LASCO)
+    if mission == "SDO":
+        wl_used = int(wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+    elif mission == "SOHO-EIT":
+        wl_used = int(wavelength or int(DEFAULT_EIT_WAVELENGTH.value))
     if mission == "SDO" and dt < SDO_EPOCH:
         print(f"[fetch] Date {dt.date()} before SDO; switching to SOHO-EIT.", flush=True)
         mission = "SOHO-EIT"
@@ -622,9 +773,13 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     combined_cache_file = None
     date_str = dt.strftime("%Y%m%d")
     if mission == "SDO":
-        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{date_str}.npz")
+        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_used}_{date_str}.npz")
+        # Optional: warn if legacy cache exists but new cache does not
+        legacy_ccf = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{date_str}.npz")
+        if os.path.exists(legacy_ccf) and not os.path.exists(combined_cache_file):
+            log_to_queue(f"[cache][warn] Found legacy combined cache without wavelength: {legacy_ccf}. It will be ignored.")
         if os.path.exists(combined_cache_file):
-            print(f"[cache] Using cached combined map from {combined_cache_file}...", flush=True)
+            log_to_queue(f"[cache] Loaded combined cache for {mission} {wl_used}Å on {date_str}")
             with np.load(combined_cache_file, allow_pickle=True) as npz:
                 combined_data = npz["data"]
                 combined_meta = npz["meta"].item()
@@ -632,205 +787,68 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             return combined_map
 
     if mission == "SDO":
-        # Try JSOCClient first, with SunPy-version-agnostic attrs import
-        try:
-            from sunpy.net.jsoc.jsoc import JSOCClient
-            from astropy import units as u
-            wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
-            try:
-                from sunpy.net.jsoc import attrs as jsoc_attrs
-                print("[fetch] [AIA] Using sunpy.net.jsoc.attrs (new SunPy) for JSOCClient search.", flush=True)
-                attrset = "jsoc"
-            except ImportError:
-                from sunpy.net import attrs as a
-                print("[fetch] [AIA] Using sunpy.net.attrs (legacy SunPy) for JSOCClient search.", flush=True)
-                attrset = "legacy"
-            jsoc = JSOCClient()
-            jsoc._server = "https://jsoc.stanford.edu"
-            # Search for AIA data near the given time
-            if attrset == "jsoc":
-                qr = jsoc.search(
-                    jsoc_attrs.Time(t0, t0 + timedelta(minutes=2)),
-                    jsoc_attrs.Series("aia.lev1_euv_12s"),
-                    jsoc_attrs.Wavelength(wl * u.angstrom),
-                    jsoc_attrs.Segment("image"),
-                    jsoc_attrs.Notify(JSOC_EMAIL)
-                )
-            else:
-                qr = jsoc.search(
-                    a.Time(t0, t0 + timedelta(minutes=2)),
-                    a.Instrument("AIA"),
-                    a.Wavelength(wl * u.angstrom),
-                    a.Series("lev1_euv_12s"),
-                    a.Notify(JSOC_EMAIL)
-                )
-            if len(qr) == 0:
-                print(f"[fetch] [AIA] No JSOC results in ±1min, retrying ±10min...", flush=True)
-                if attrset == "jsoc":
-                    qr = jsoc.search(
-                        jsoc_attrs.Time(t0, t0 + timedelta(minutes=10)),
-                        jsoc_attrs.Series("aia.lev1_euv_12s"),
-                        jsoc_attrs.Wavelength(wl * u.angstrom),
-                        jsoc_attrs.Segment("image"),
-                        jsoc_attrs.Notify(JSOC_EMAIL)
-                    )
-                else:
-                    qr = jsoc.search(
-                        a.Time(t0, t0 + timedelta(minutes=10)),
-                        a.Instrument("AIA"),
-                        a.Wavelength(wl * u.angstrom),
-                        a.Series("lev1_euv_12s"),
-                        a.Notify(JSOC_EMAIL)
-                    )
-            if len(qr) == 0:
-                print(f"[fetch] [AIA] No JSOC results in ±10min, falling back to Fido.", flush=True)
-                raise Exception("No JSOC results")
-            # Download (first up to 5)
-            print(f"[fetch] [AIA] JSOCClient: {len(qr)} results...", flush=True)
-            from parfive import Downloader
-            dl = Downloader(max_conn=10, progress=True)
-            target_dir = os.environ["SUNPY_DOWNLOADDIR"]
-            existing_files = [os.path.join(target_dir, os.path.basename(str(r))) for r in qr if os.path.exists(os.path.join(target_dir, os.path.basename(str(r))))]
-            if existing_files:
-                print(f"[fetch] Skipping re-download of existing files: {existing_files}", flush=True)
-                files = existing_files
-            else:
-                files = jsoc.fetch(qr, path=target_dir, progress=True, downloader=dl)
-                # Rewrite any JSOC HTTP URLs to HTTPS for secure download
-                files = [f.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu") for f in files]
-                print(f"[fetch] Rewrote JSOC URLs to HTTPS ({len(files)} files).", flush=True)
-            # If some downloads failed, files may be shorter than qr
-            if not files or len(files) == 0:
-                print(f"[fetch] [AIA] JSOCClient fetch returned no files, falling back to Fido.", flush=True)
-                raise Exception("No files from JSOCClient fetch")
-            if len(files) < len(qr):
-                print(f"[fetch] Warning: Only {len(files)} out of {len(qr)} JSOC files were downloaded successfully. Proceeding with available files.", flush=True)
-                print(f"[fetch] Proceeding with {len(files)} successfully downloaded files (skipped failed).", flush=True)
-            maps = []
-            for f in files:
-                try:
-                    m = Map(f)
-                    m_prep = manual_aiaprep(m)
-                    maps.append(m_prep)
-                except Exception as e:
-                    print(f"[fetch] [AIA] manual_aiaprep failed for {f}: {e}, using raw map.", flush=True)
-                    maps.append(Map(f))
-            print(f"[fetch] Loaded {len(maps)} AIA frames via JSOCClient", flush=True)
-            if not maps:
-                raise HTTPException(status_code=502, detail="No AIA maps loaded from JSOCClient files.")
-            try:
-                # In-place accumulation of AIA maps using float32 arrays
-                shape = maps[0].data.shape
-                combined_data = np.zeros(shape, dtype=np.float32)
-                for m in maps:
-                    combined_data += np.nan_to_num(m.data.astype(np.float32))
-                combined_meta = maps[0].meta.copy()
-                combined_meta["history"] = combined_meta.get("history", "") + f" Combined {len(maps)} AIA frames via in-place accumulation"
-                combined_map = Map(combined_data, combined_meta)
-                # Save to cache
-                if combined_cache_file is not None:
-                    np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
-                    print(f"[cache] Saved combined map to {combined_cache_file}", flush=True)
-                # Free memory
-                # del maps, combined_meta
-                import gc
-                gc.collect()
-                try:
-                    print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
-                except:
-                    pass
-                return combined_map
-            except Exception as combine_err:
-                print(f"[fetch] Failed to combine AIA maps: {combine_err}; returning first map.", flush=True)
-                return maps[0]
-        except Exception as jsoc_exc:
-            print(f"[fetch] [AIA] JSOCClient fetch failed: {jsoc_exc}; falling back to Fido.", flush=True)
-        # Fido fallback for AIA
+        # Always fetch full-res 4K AIA data from JSOC, never fall back to synoptic or low-res products
         from sunpy.net import Fido, attrs as a
-        from astropy import units as u
+        import astropy.units as u
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
-        print(f"[fetch] [AIA] SDO/AIA Fido fallback wavelength {wl}", flush=True)
-        # Query for AIA data ±5 minutes
+        notify = "chris.gilly@colorado.edu"
+        log_to_queue(f"[fetch] Requested JSOC series: aia.lev1_euv_12s ({wl}Å)")
         qr = Fido.search(
-            a.Time(t0, dt + timedelta(minutes=2)),
-            a.Instrument("AIA"),
-            a.Wavelength(wl * u.angstrom)
+            a.Time(dt - timedelta(minutes=1), dt + timedelta(minutes=1)),
+            a.jsoc.Series("aia.lev1_euv_12s"),
+            a.jsoc.Segment("image"),
+            a.jsoc.Wavelength(wl * u.angstrom),
+            a.jsoc.Notify(notify)
         )
-        # If no results, widen window to ±1 hour and retry
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            print(f"[fetch] [AIA] No Fido results in ±5min, retrying with ±1hr...", flush=True)
+            log_to_queue(f"[fetch] [AIA] No JSOC aia.lev1_euv_12s results in ±1min, retrying ±10min...")
             qr = Fido.search(
-                a.Time(dt, dt + timedelta(minutes=4)),
-                a.Instrument("AIA"),
-                a.Wavelength(wl * u.angstrom)
+                a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
+                a.jsoc.Series("aia.lev1_euv_12s"),
+                a.jsoc.Segment("image"),
+                a.jsoc.Wavelength(wl * u.angstrom),
+                a.jsoc.Notify(notify)
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            print(f"[fetch] [AIA] No AIA data found in ±1hr, falling back to SOHO-EIT.", flush=True)
-            return soho_eit_fallback(dt)
-        # Fetch only the first 5 results
-        print(f"[fetch] [AIA] {len(qr[0])} results found, fetching all...", flush=True)
+            log_to_queue(f"[fetch] [AIA] No JSOC aia.lev1_euv_12s results in ±10min. No fallback available.")
+            raise HTTPException(status_code=502, detail="No JSOC aia.lev1_euv_12s data available for this date.")
+        log_to_queue(f"[fetch] [AIA] JSOC aia.lev1_euv_12s: {len(qr[0])} results...")
         from parfive import Downloader
         dl = Downloader(max_conn=10, progress=True)
         target_dir = os.environ["SUNPY_DOWNLOADDIR"]
         existing_files = [os.path.join(target_dir, os.path.basename(str(f))) for f in qr[0] if os.path.exists(os.path.join(target_dir, os.path.basename(str(f))))]
         if existing_files:
-            print(f"[fetch] Skipping re-download of existing files: {existing_files}", flush=True)
+            log_to_queue(f"[fetch] Skipping re-download of existing files: {existing_files}")
             files = existing_files
         else:
             files = Fido.fetch(qr, downloader=dl, path=target_dir)
-        # If some downloads failed, files may be shorter than qr[0]
         if not files or len(files) == 0:
-            raise HTTPException(status_code=502, detail="No AIA files could be downloaded via Fido.")
-        if len(files) < len(qr[0]):
-            print(f"[fetch] Warning: Only {len(files)} out of {len(qr[0])} AIA files were downloaded successfully. Proceeding with available files.", flush=True)
-            print(f"[fetch] Proceeding with {len(files)} successfully downloaded files (skipped failed).", flush=True)
-        maps = []
-        for f in files:
-            try:
-                m = Map(f)
-                m_prep = manual_aiaprep(m)
-                maps.append(m_prep)
-            except Exception as e:
-                print(f"[fetch] [AIA] manual_aiaprep failed for {f}: {e}, using raw map.", flush=True)
-                maps.append(Map(f))
-        print(f"[fetch] Loaded {len(maps)} AIA frames via Fido", flush=True)
-        if not maps:
-            raise HTTPException(status_code=502, detail="No AIA maps loaded from Fido files.")
-        try:
-            # In-place accumulation of AIA maps using float32 arrays
-            shape = maps[0].data.shape
-            combined_data = np.zeros(shape, dtype=np.float32)
-            for m in maps:
-                combined_data += np.nan_to_num(m.data.astype(np.float32))
-            combined_meta = maps[0].meta.copy()
-            combined_meta["history"] = combined_meta.get("history", "") + f" Combined {len(maps)} AIA frames via in-place accumulation"
-            combined_map = Map(combined_data, combined_meta)
-            # Save to cache
-            if combined_cache_file is not None:
-                np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
-                print(f"[cache] Saved combined map to {combined_cache_file}", flush=True)
-            # Free memory
-            print(f"[fetch] Combined {len(maps)} AIA frames into a single summed map.", flush=True)
-            del maps, combined_meta
-            import gc
-            gc.collect()
-            return combined_map
-        except Exception as combine_err:
-            print(f"[fetch] Failed to combine AIA maps: {combine_err}; returning first map.", flush=True)
-            return maps[0]
+            log_to_queue(f"[fetch] [AIA] JSOC fetch returned no files.")
+            raise HTTPException(status_code=502, detail="No files from JSOC aia.lev1_euv_12s fetch.")
+        # Only use the first file
+        if isinstance(files, (list, tuple)) and len(files) > 1:
+            log_to_queue(f"[fetch] Reducing to first file to conserve memory.")
+            files = [files[0]]
+        import sunpy
+        smap = sunpy.map.Map(files[0])
+        if smap.data.shape[0] < 3000:
+            log_to_queue(f"[fetch] WARNING: Low-resolution data fetched ({smap.data.shape}); aia.lev1_euv_12s may be unavailable for this date.")
+        else:
+            log_to_queue(f"[fetch] Confirmed full-resolution Level 1 data ({smap.data.shape})")
+        return smap
     elif mission == "SOHO-EIT":
         wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH.value)) * u.angstrom
-        print(f"[fetch] SOHO-EIT wavelength {wl}", flush=True)
+        log_to_queue(f"[fetch] SOHO-EIT wavelength {wl}")
         qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
     elif mission == "SOHO-LASCO":
         det = detector or DEFAULT_DETECTOR_LASCO
-        print(f"[fetch] SOHO-LASCO detector {det}", flush=True)
+        log_to_queue(f"[fetch] SOHO-LASCO detector {det}")
         qr = Fido.search(a.Time(t0, t1), a.Instrument("LASCO"), a.Detector(det))
     else:
         raise HTTPException(status_code=400, detail=f"Unknown mission {mission}")
 
     if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-        print(f"[fetch] No data in initial window, widening search...", flush=True)
+        log_to_queue(f"[fetch] No data in initial window, widening search...")
         t0b = dt - timedelta(days=1)
         t1b = dt + timedelta(days=2)
         if mission == "SOHO-EIT":
@@ -842,64 +860,48 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             raise HTTPException(status_code=404, detail=f"No data found for {mission} near {dt.date()}.")
 
-    print(f"[fetch] {len(qr[0])} results, fetching first file...", flush=True)
+    log_to_queue(f"[fetch] {len(qr[0])} results, fetching first file...")
     fetch_start = time.time()
     files = None
     max_attempts = 3
     last_exception = None
     for attempt in range(1, max_attempts + 1):
         try:
-            print(f"[fetch] Attempt {attempt} to fetch...", flush=True)
-            # Use Downloader with max_conn=10 and explicit path
+            log_to_queue(f"[fetch] Attempt {attempt} to fetch...")
             from parfive import Downloader
             dl = Downloader(max_conn=10, progress=False, overwrite=False)
             target_dir = os.environ["SUNPY_DOWNLOADDIR"]
-            # Force all JSOC URLs to HTTPS before download (avoid Render port 80 blocks)
-            if mission == "SDO":
-                try:
-                    if hasattr(qr, "response"):
-                        for resp in qr.response:
-                            if hasattr(resp, "url") and isinstance(resp.url, str):
-                                resp.url = resp.url.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu")
-                    elif isinstance(qr, list):
-                        qr = [r.replace("http://jsoc.stanford.edu", "https://jsoc.stanford.edu") for r in qr]
-                    print(f"[fetch] Rewrote JSOC URLs to HTTPS before download ({len(qr)} entries).", flush=True)
-                except Exception as pre_rewrite_err:
-                    print(f"[fetch] Pre-download HTTPS rewrite failed: {pre_rewrite_err}", flush=True)
             files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
             if files and len(files) > 0:
                 break
         except Exception as exc:
             last_exception = exc
-            print(f"[fetch] Exception in fetch attempt {attempt}: {exc}", flush=True)
+            log_to_queue(f"[fetch] Exception in fetch attempt {attempt}: {exc}")
             if attempt < max_attempts:
-                print(f"[fetch] Sleeping 5 seconds before retry...", flush=True)
+                log_to_queue(f"[fetch] Sleeping 5 seconds before retry...")
                 time.sleep(5)
     fetch_end = time.time()
 
     if not files or len(files) == 0:
         print(f"[fetch] No files after {max_attempts} attempts!", flush=True)
-        if mission == "SDO":
-            return soho_eit_fallback(dt)
-        else:
-            raise HTTPException(
-                status_code=502,
-                detail=f"No files could be downloaded for {mission} on {dt.date()} after {max_attempts} attempts."
-            )
-    print(f"[fetch] Downloaded file {files[0]} in {fetch_end - fetch_start:.2f}s", flush=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"No files could be downloaded for {mission} on {dt.date()} after {max_attempts} attempts."
+        )
+    log_to_queue(f"[fetch] Downloaded file {files[0]} in {fetch_end - fetch_start:.2f}s")
 
     import gc
     from astropy.nddata import block_reduce
 
     # ✅ Keep only the first successfully downloaded file
     if isinstance(files, (list, tuple)) and len(files) > 1:
-        print(f"[fetch] Reducing to first file to conserve memory.", flush=True)
+        log_to_queue(f"[fetch] Reducing to first file to conserve memory.")
         files = [files[0]]
 
     # ✅ Load and downsample the image early to reduce memory usage
     try:
         m = Map(files[0])
-        print(f"[fetch] Downsampling data to reduce memory footprint...", flush=True)
+        log_to_queue(f"[fetch] Downsampling data to reduce memory footprint...")
         data_small = block_reduce(m.data.astype(np.float32), (4, 4), func=np.nanmean)
         header = m.fits_header
         header['CRPIX1'] /= 4
@@ -912,19 +914,19 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         gc.collect()
         return smap_small
     except Exception as err:
-        print(f"[fetch] Memory-safe downsample failed: {err}, returning raw map.", flush=True)
+        log_to_queue(f"[fetch] Memory-safe downsample failed: {err}, returning raw map.")
         return Map(files[0])
 
 
 # Shared SOHO-EIT fallback for SDO failures
 def soho_eit_fallback(dt: datetime) -> Map:
-    print(f"[fetch] Fallback to SOHO-EIT 195Å", flush=True)
+    log_to_queue(f"[fetch] Fallback to SOHO-EIT 195Å")
     fallback_wl = int(DEFAULT_EIT_WAVELENGTH.value)
     t0 = dt
     t1 = dt + timedelta(days=1)
     fallback_qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(fallback_wl * u.angstrom))
     if len(fallback_qr) == 0 or all(len(resp) == 0 for resp in fallback_qr):
-        print(f"[fetch] No fallback SOHO-EIT data in window, widening...", flush=True)
+        log_to_queue(f"[fetch] No fallback SOHO-EIT data in window, widening...")
         t0b = dt - timedelta(days=1)
         t1b = dt + timedelta(days=2)
         fallback_qr = Fido.search(a.Time(t0b, t1b), a.Instrument("EIT"), a.Wavelength(fallback_wl * u.angstrom))
@@ -932,22 +934,22 @@ def soho_eit_fallback(dt: datetime) -> Map:
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
-            print(f"[fetch] Fallback attempt {attempt}...", flush=True)
+            log_to_queue(f"[fetch] Fallback attempt {attempt}...")
             from parfive import Downloader
             dl = Downloader(max_conn=10, progress=False, overwrite=False)
             fallback_files = Fido.fetch(fallback_qr[0, 0], downloader=dl, path=os.environ["SUNPY_DOWNLOADDIR"])
             if fallback_files and len(fallback_files) > 0:
                 break
         except Exception as exc:
-            print(f"[fetch] Exception in fallback attempt {attempt}: {exc}", flush=True)
+            log_to_queue(f"[fetch] Exception in fallback attempt {attempt}: {exc}")
             if attempt < max_attempts:
-                print(f"[fetch] Sleeping 5 seconds before retry...", flush=True)
+                log_to_queue(f"[fetch] Sleeping 5 seconds before retry...")
                 time.sleep(5)
     if fallback_files and len(fallback_files) > 0:
-        print(f"[fetch] Fallback downloaded file {fallback_files[0]}", flush=True)
+        log_to_queue(f"[fetch] Fallback downloaded file {fallback_files[0]}")
         return Map(fallback_files[0])
     else:
-        print(f"[fetch] Fallback failed, no files.", flush=True)
+        log_to_queue(f"[fetch] Fallback failed, no files.")
         raise HTTPException(
             status_code=502,
             detail=f"No files could be downloaded for SDO on {dt.date()} (fallback to SOHO-EIT also failed)."
@@ -988,10 +990,10 @@ def default_filter(smap: Map) -> Map:
 
     try:
         with tqdm_stream_adapter():
-            block_size = 4
+            block_size = 2
             from astropy.nddata import block_reduce
             import sunpy
-            print("[render] Performing RHE...")
+            log_to_queue("[render] Performing RHE...")
             header = smap.meta
             header['CRPIX1'] /= block_size
             header['CRPIX2'] /= block_size
@@ -1004,9 +1006,9 @@ def default_filter(smap: Map) -> Map:
         return filtered
     except Exception as e:
         import traceback
-        print("[render] RHEF filter failed with exception:", flush=True)
+        log_to_queue("[render] RHEF filter failed with exception:")
         traceback.print_exc()
-        print(f"[render] RHEF filter failed: {e}. Using asinh stretch.", flush=True)
+        log_to_queue(f"[render] RHEF filter failed: {e}. Using asinh stretch.")
         arr = smap.data.astype(float)
         arr[~np.isfinite(arr)] = np.nan
         # Return a Map object for consistency
@@ -1024,26 +1026,35 @@ def map_to_png(
     size_inches: float = 10.0,
     dolog: bool = False,
 ) -> str:
-    print(f"[render] Rendering to {out_png}", flush=True)
+    log_to_queue(f"[render] Rendering to {out_png}")
     start_time = time.time()
     # Determine colormap and meta info for both renders
     from sunpy.visualization.colormaps import color_tables as ct
     wl_meta = smap.meta.get('wavelnth') or smap.meta.get('WAVELNTH')
     inst = smap.meta.get("instrume") or smap.meta.get("instrument") or ""
-    if "AIA" in inst.upper() and wl_meta in [94, 131, 171, 193, 211, 304, 335, 1600, 1700, 4500]:
-        cmap = ct.aia_color_table(wl_meta * u.angstrom)
-        cmap_name = f"aia_color_table({wl_meta})"
+    # Dynamically determine wavelength value for colormap
+    wl_value = wl_meta
+    if wl_value is None:
+        wl_value = 211
+    try:
+        wl_value_int = int(wl_value)
+    except Exception:
+        wl_value_int = 211
+    if "AIA" in inst.upper() and wl_value_int in [94, 131, 171, 193, 211, 304, 335, 1600, 1700, 4500]:
+        cmap = ct.aia_color_table(wl_value_int * u.angstrom)
+        cmap_name = f"aia_color_table({wl_value_int})"
+        log_to_queue(f"[render] Using dynamic wavelength colormap: {cmap_name}")
     elif "EIT" in inst.upper():
-        cmap = plt.get_cmap("sohoeit195") if wl_meta == 195 else plt.get_cmap("gray")
-        cmap_name = f"sohoeit{wl_meta}" if wl_meta else "gray"
+        cmap = plt.get_cmap("sohoeit195") if wl_value_int == 195 else plt.get_cmap("gray")
+        cmap_name = f"sohoeit{wl_value_int}" if wl_value_int else "gray"
+        log_to_queue(f"[render] Using dynamic wavelength colormap: {cmap_name}")
     else:
         cmap = smap.plot_settings.get("cmap", plt.get_cmap("gray"))
         cmap_name = str(getattr(cmap, "name", "gray"))
-    print(f"[render] Using colormap: {cmap_name}", flush=True)
+        log_to_queue(f"[render] Using colormap: {cmap_name}")
 
 
     # Caching for filtered data
-    filtered_cache_file = None
     # Try to determine instrument and date for cache name
     inst = smap.meta.get("instrume") or smap.meta.get("instrument") or ""
     wl_meta = smap.meta.get('wavelnth') or smap.meta.get('WAVELNTH')
@@ -1064,22 +1075,36 @@ def map_to_png(
                 date_for_cache = "unknown"
         else:
             date_for_cache = "unknown"
-    filtered_cache_file = os.path.join(OUTPUT_DIR, f"temp_filtered_{inst}_{date_for_cache}.npz")
+    # Also normalize wavelength and detector for cache key
+    try:
+        wl_value_int = int(wl_meta) if wl_meta else None
+    except Exception:
+        wl_value_int = None
+    det_meta = (smap.meta.get('detector') or smap.meta.get('DETECTOR') or '').strip()
+    # Cache key includes instrument + wavelength (and detector if available) + date
+    cache_key_parts = [str(inst).upper()]
+    if wl_value_int:
+        cache_key_parts.append(str(wl_value_int))
+    if det_meta:
+        cache_key_parts.append(det_meta.upper())
+    cache_key = "_".join(cache_key_parts)
+    filtered_cache_file = os.path.join(OUTPUT_DIR, f"temp_filtered_{cache_key}_{date_for_cache}.npz")
+    log_to_queue(f"[cache] Filter cache file: {filtered_cache_file}")
     rhef_failed = False
     # Try to load from cache, but rerun filter if previous run failed (rhef_failed marker)
     if os.path.exists(filtered_cache_file):
-        print(f"[cache] Using cached filtered data from {filtered_cache_file}...", flush=True)
+        log_to_queue(f"[cache] Using cached filtered data from {filtered_cache_file}...")
         with np.load(filtered_cache_file, allow_pickle=True) as npz:
             data = npz["data"]
             rhef_failed = bool(npz.get("rhef_failed", False))
         if rhef_failed:
-            print("[cache] Previous filter run failed (rhef_failed=True); rerunning filter...", flush=True)
+            log_to_queue("[cache] Previous filter run failed (rhef_failed=True); rerunning filter...")
             filtered_map = default_filter(smap)
             # If filtered_map is a Map, extract .data and check for fallback
             data = filtered_map.data if hasattr(filtered_map, "data") else filtered_map
             rhef_failed = bool(getattr(filtered_map, "meta", {}).get("rhef_failed", False))
             np.savez_compressed(filtered_cache_file, data=data, rhef_failed=rhef_failed)
-            print(f"[cache] Saved filtered data to {filtered_cache_file}", flush=True)
+            log_to_queue(f"[cache] Saved filtered data to {filtered_cache_file}")
     else:
         filtered_map = default_filter(smap)
         # If filtered_map is a Map, extract .data and check for fallback
@@ -1088,7 +1113,7 @@ def map_to_png(
             data = np.log10(data)
         rhef_failed = bool(getattr(filtered_map, "meta", {}).get("rhef_failed", False))
         np.savez_compressed(filtered_cache_file, data=data, rhef_failed=rhef_failed)
-        print(f"[cache] Saved filtered data to {filtered_cache_file}", flush=True)
+        log_to_queue(f"[cache] Saved filtered data to {filtered_cache_file}")
     lo, hi = np.nanmin(data), np.nanmax(data)
     if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
         lo, hi = 0.0, 1.0
@@ -1128,15 +1153,15 @@ def map_to_png(
         #     ha="left", va="top", fontsize=11, color="white", alpha=0.95, fontweight="bold",
         #     bbox=dict(facecolor="black", alpha=0.4, pad=2, edgecolor="none")
         # )
-    print(f"[render] Saving postfilter image to {out_png}", flush=True)
+    log_to_queue(f"[render] Saving postfilter image to {out_png}")
     fig.savefig(out_png, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     del data, fig
     import gc
     gc.collect()
     end_time = time.time()
-    print(f"[render] Finished in {end_time - start_time:.2f}s", flush=True)
-    print(f"[render] Image saved to directory: {os.path.dirname(out_png)}", flush=True)
+    log_to_queue(f"[render] Finished in {end_time - start_time:.2f}s")
+    log_to_queue(f"[render] Image saved to directory: {os.path.dirname(out_png)}")
     return out_png
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1161,7 +1186,7 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
 # Printful API (upload only; you can add mockups/orders later)
 # ──────────────────────────────────────────────────────────────────────────────
 def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str]) -> Dict[str, Any]:
-    print(f"[upload] Printful: {image_path}, title={title}, purpose={purpose}", flush=True)
+    log_to_queue(f"[upload] Printful: {image_path}, title={title}, purpose={purpose}")
     start_time = time.time()
     # if not PRINTFUL_API_KEY:
     PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
@@ -1171,7 +1196,7 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     allowed_purposes = {"default", "preview", "mockup"}
     normalized_purpose = purpose if purpose in allowed_purposes else "default"
     file_size = os.path.getsize(image_path)
-    print(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...", flush=True)
+    log_to_queue(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...")
 
     # Compose the file_url for Printful API
     asset_base = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "http://127.0.0.1:8000")
@@ -1181,22 +1206,22 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
     else:
         asset_base = asset_base.rstrip("/") + "/"
     file_url = f"{asset_base}{os.path.basename(image_path)}"
-    print(f"[upload][debug] Using asset_base={asset_base}")
-    print(f"[upload][debug] Final file_url={file_url}")
+    log_to_queue(f"[upload][debug] Using asset_base={asset_base}")
+    log_to_queue(f"[upload][debug] Final file_url={file_url}")
     # Use correct JSON keys for Printful upload
     json_data = {
         "url": file_url,
         "filename": title,
         "type": normalized_purpose
     }
-    print("[upload][debug] Using JSON upload (url/type/filename)", flush=True)
+    log_to_queue("[upload][debug] Using JSON upload (url/type/filename)")
     headers = {
         "Authorization": f"Bearer {PRINTFUL_API_KEY}",
         "Content-Type": "application/json"
     }
-    print(f"[upload][debug] Uploading via JSON url={file_url}", flush=True)
-    print(f"[upload][debug] Full upload URL = {PRINTFUL_BASE_URL}/files", flush=True)
-    print(f"[upload][debug] Using PRINTFUL_BASE_URL={PRINTFUL_BASE_URL}", flush=True)
+    log_to_queue(f"[upload][debug] Uploading via JSON url={file_url}")
+    log_to_queue(f"[upload][debug] Full upload URL = {PRINTFUL_BASE_URL}/files")
+    log_to_queue(f"[upload][debug] Using PRINTFUL_BASE_URL={PRINTFUL_BASE_URL}")
     r = requests.post(
         f"{PRINTFUL_BASE_URL}/files",
         headers=headers,
@@ -1204,12 +1229,12 @@ def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str
         timeout=90
     )
     end_time = time.time()
-    print(f"[upload] Printful upload completed in {end_time - start_time:.2f}s", flush=True)
+    log_to_queue(f"[upload] Printful upload completed in {end_time - start_time:.2f}s")
     try:
         result = r.json()
     except ValueError:
         result = json.loads(r.text)
-    print(result, flush=True)
+    log_to_queue(str(result))
     return result
 
 # Helper to create a Printful manual order from an uploaded printfile
@@ -1250,19 +1275,19 @@ def printful_create_order(file_id: int, title: str, recipient_info: Optional[dic
         "items": items,
         "external_id": safe_external_id,
     }
-    print(f"[printful][order] Using external_id={safe_external_id}", flush=True)
-    print(f"[printful][order] Creating manual order for file_id={file_id}, title={title}", flush=True)
+    log_to_queue(f"[printful][order] Using external_id={safe_external_id}")
+    log_to_queue(f"[printful][order] Creating manual order for file_id={file_id}, title={title}")
     r = requests.post(f"{PRINTFUL_BASE_URL}/orders", headers=headers, json=payload)
-    print(f"[printful][order] {PRINTFUL_BASE_URL}/orders")
+    log_to_queue(f"[printful][order] {PRINTFUL_BASE_URL}/orders")
     try:
         result = r.json()
     except Exception:
         result = {"error": r.text}
     if r.status_code >= 300:
-        print(f"[printful][order][error] Order creation failed: {r.status_code} {r.text}", flush=True)
+        log_to_queue(f"[printful][order][error] Order creation failed: {r.status_code} {r.text}")
         raise HTTPException(status_code=r.status_code, detail=f"Order creation failed: {r.text}")
     order_id = result.get("result", {}).get("id") or result.get("id")
-    print(f"[printful][order] Order created with ID: {order_id}", flush=True)
+    log_to_queue(f"[printful][order] Order created with ID: {order_id}")
     return result
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1282,13 +1307,16 @@ def get_local_asset(filename: str):
 
 def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     """
-    Quickly fetch a single FITS file for a mission/date/wavelength without preprocessing or filtering.
+    Quickly fetch a single FITS file for a mission/date/wavelength, downsampled for preview.
     Used for instant Shopify preview thumbnails.
     """
     from sunpy.net import Fido, attrs as a
     from astropy import units as u
     from sunpy.map import Map
+    from astropy.nddata import block_reduce
     from datetime import datetime, timedelta
+    import numpy as np
+    import os
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     t0 = dt
@@ -1297,14 +1325,14 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     # Use a very narrow search window for speed
     if mission.upper() == "SDO":
         wl = wavelength * u.angstrom
-        print(f"[preview] Quicklook fetch for SDO/AIA {wl}", flush=True)
+        log_to_queue(f"[preview] Quicklook fetch for SDO/AIA {wl}")
         qr = Fido.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl))
     elif mission.upper() == "SOHO-EIT":
         wl = wavelength * u.angstrom
-        print(f"[preview] Quicklook fetch for SOHO/EIT {wl}", flush=True)
+        log_to_queue(f"[preview] Quicklook fetch for SOHO/EIT {wl}")
         qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
     elif mission.upper() == "SOHO-LASCO":
-        print(f"[preview] Quicklook fetch for SOHO/LASCO", flush=True)
+        log_to_queue(f"[preview] Quicklook fetch for SOHO/LASCO")
         qr = Fido.search(a.Time(t0, t1), a.Instrument("LASCO"))
     else:
         raise HTTPException(status_code=400, detail=f"Unknown mission: {mission}")
@@ -1317,560 +1345,120 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     if not files or len(files) == 0:
         raise HTTPException(status_code=502, detail="Quicklook fetch failed")
 
-    print(f"[preview] Quicklook file: {files[0]}", flush=True)
-    return files[0]
+    log_to_queue(f"[preview] Quicklook file: {files[0]}")
+
+    # Downsample the FITS for preview (halve resolution in each axis, i.e., factor 8)
+    try:
+        m = Map(files[0])
+        log_to_queue(f"[preview] Reducing FITS preview resolution by 8x for speed...")
+        reduced_data = block_reduce(m.data.astype(np.float32), (4,4), func=np.nanmean)
+        header = m.fits_header.copy()
+        header['CRPIX1'] = header.get('CRPIX1', 0) / 4
+        header['CRPIX2'] = header.get('CRPIX2', 0) / 4
+        header['CDELT1'] = header.get('CDELT1', 1) * 4
+        header['CDELT2'] = header.get('CDELT2', 1) * 4
+        smap_small = Map(reduced_data, header)
+        # Save to temp file for preview pipeline
+        out_dir = "/tmp/output"
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(
+            out_dir,
+            f"preview_reduced_{mission}_{wavelength}_{date_str}.fits"
+        )
+        smap_small.save(out_path, filetype='fits', overwrite=True)
+        log_to_queue(f"[preview] Reduced FITS saved to {out_path}")
+        return out_path
+    except Exception as e:
+        log_to_queue(f"[preview] FITS reduction failed: {e}, returning original file")
+        return files[0]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helioviewer JPEG2000 Preview Helper
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 
 @app.post("/shopify/preview")
 async def shopify_preview(req: PreviewRequest):
     date_str = req.date
-    wavelength = req.wavelength or 171
-    mission = req.mission or "SDO"
+    wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+    # choose mission automatically if not provided
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    mission = (req.mission or choose_mission(dt)).upper()
+    log_to_queue(f"[preview] Using JSOC/Fido quicklook for {mission} {wavelength}Å on {date_str}")
+    try:
+        # 1) Fetch a quicklook FITS via Fido/JSOC
+        fits_path = fetch_quicklook_fits(mission, date_str, wavelength)
+        # 2) Build a SunPy Map, with light prep for AIA
+        smap = Map(fits_path)
+        try:
+            if "AIA" in (smap.meta.get("instrume","") + smap.meta.get("instrument","")).upper():
+                smap = manual_aiaprep(smap)
+        except Exception as e:
+            log_to_queue(f"[preview] manual_aiaprep failed: {e}; proceeding without.")
+        # 3) Render a small preview PNG
+        fname = f"preview_{mission}_{wavelength}_{dt.strftime('%Y-%m-%d')}.png".replace(' ', '_').replace('/', '-')
+        out_png = os.path.join(OUTPUT_DIR, fname)
+        map_to_png(smap, out_png, annotate=False, dpi=150, size_inches=6.0, dolog=False)
+        # 4) Build asset URL
+        base = ASSET_BASE_URL.rstrip('/')
+        if not base.endswith('asset'):
+            preview_url = f"{base}/asset/{os.path.basename(out_png)}"
+        else:
+            preview_url = f"{base}/{os.path.basename(out_png)}"
+        log_to_queue(f"[preview] Using JSOC/Fido preview path: {out_png}")
+        return {"preview_url": preview_url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_to_queue(f"[preview] Error creating preview: {e}")
+        raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
 
-    from sunpy.map import Map
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
-
-    fits_path = fetch_quicklook_fits(mission, date_str, wavelength)
-    smap = Map(fits_path)
-
-    # Apply simple log10 scaling only
-    data = np.log10(np.clip(smap.data, 1, None))
-    out_png = os.path.join(OUTPUT_DIR, f"preview_{mission}_{wavelength}_{date_str}.png")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    plt.figure(figsize=(6, 6))
-    plt.imshow(data, origin="lower", cmap="sdoaia{}".format(wavelength))
-    plt.axis("off")
-    plt.tight_layout(pad=0)
-    plt.savefig(out_png, dpi=150, bbox_inches="tight", pad_inches=0)
-    plt.close()
-
-    preview_url = f"{ASSET_BASE_URL}preview_{mission}_{wavelength}_{date_str}.png"
-    print(f"{preview_url = }")
-    return {"preview_url": preview_url}
-
+# ──────────────────────────────────────────────────────────────────────────────
+# HQ PNG Generation Endpoint
+# ──────────────────────────────────────────────────────────────────────────────
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
-    print(f"[generate] Received request: {req}", flush=True)
-    # Prevent repeated submissions: busy check
-    if hasattr(generate, "_running") and generate._running:
-        return {"status": "busy", "message": "Generation already in progress"}
-    generate._running = True
+    date_str = req.date
+    wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    mission = (req.mission or choose_mission(dt)).upper()
+    log_to_queue(f"[generate] Starting HQ render for {mission} {wavelength}Å on {date_str}")
+
     try:
-        try:
-            dt = datetime.strptime(req.date, "%Y-%m-%d")
-        except ValueError:
-            generate._running = False
-            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+        # Fetch full-resolution FITS from JSOC/Fido
+        smap = fido_fetch_map(dt, mission, wavelength, req.detector)
 
-        mission = req.mission if req.mission != "auto" else choose_mission(dt)
-        print(f"[generate] Using mission: {mission}", flush=True)
-        # wavelength only matters for AIA/EIT; detector for LASCO
-        wl = req.wavelength
-        det = req.detector
+        # Apply the full-quality RHEF filter (no downsampling)
+        filtered = default_filter(smap)
+        log_to_queue(f"[generate] Using native resolution: {filtered.data.shape}")
 
-        # New naming scheme: {instrument}_{wavelength}A_{YYYY-MM-DD}.png if wavelength is known, else omit wavelength
-        instrument_for_name = None
-        if mission == "SDO":
-            instrument_for_name = "AIA"
-        elif mission == "SOHO-EIT":
-            instrument_for_name = "EIT"
-        elif mission == "SOHO-LASCO":
-            instrument_for_name = "LASCO"
-        else:
-            instrument_for_name = mission
-        # Compose filename with wavelength if provided
-        if wl is not None:
-            filename = f"{instrument_for_name}_{wl}A_{req.date}.png"
-        else:
-            filename = f"{instrument_for_name}_{req.date}.png"
-        paths = local_path_and_url(filename)
+        # Output file path
+        fname = f"hq_{mission}_{wavelength}_{dt.strftime('%Y-%m-%d')}.png".replace(' ', '_').replace('/', '-')
+        out_png = os.path.join(OUTPUT_DIR, fname)
 
-        # Only use cached file if dry_run is True, else always regenerate
-        if req.dry_run and os.path.exists(paths["path"]):
-            print(f"[generate] Cached: {paths['path']}", flush=True)
-            out_png = paths["path"]
-            print("[generate] Completed successfully.", flush=True)
-            generate._running = False
-            return {"status": "success", "png_url": f"{ASSET_BASE_URL}/asset/{os.path.basename(out_png)}"}
-
-        # Fetch → Map → Render
-        fetch_start = time.time()
-        result = fido_fetch_map(dt, mission, wl, det)
-        smap = result[0] if isinstance(result, list) and len(result) > 0 else result
-
-        out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
-        print(out_png, flush=True)
-
-        # offload blocking render
-        import asyncio
-        import concurrent.futures
-        loop = asyncio.get_event_loop()
-        render_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        await loop.run_in_executor(
-            render_executor,
-            lambda: map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
+        # Save HQ PNG at full 4K equivalent resolution
+        # 13.6 inches * 300 dpi ≈ 4080 px (4K)
+        map_to_png(
+            filtered,
+            out_png,
+            annotate=req.annotate,
+            dpi=300,
+            size_inches=13.6,
+            dolog=True
         )
 
-        print(f"[render] PNG saved: {out_png}", flush=True)
-        print("[generate] Completed successfully.", flush=True)
-        generate._running = False
-        return {"status": "success", "png_url": f"{ASSET_BASE_URL}{os.path.basename(out_png)}"}
-    except Exception as e:
-        generate._running = False
-        raise
-
-@app.post("/generate-stream")
-async def generate_stream(req: GenerateRequest):
-    import sys
-    import asyncio
-    import threading
-
-    class StreamToClient:
-        """
-        File-like object to capture sys.stdout and send to an asyncio.Queue.
-        """
-        def __init__(self, queue: asyncio.Queue, loop):
-            self.queue = queue
-            self.loop = loop
-            self._buffer = ""
-            self._lock = threading.Lock()
-
-        def write(self, data):
-            # Buffer lines until newline
-            with self._lock:
-                self._buffer += data
-                while "\n" in self._buffer:
-                    line, self._buffer = self._buffer.split("\n", 1)
-                    # Schedule put in the event loop thread-safely
-                    asyncio.run_coroutine_threadsafe(self.queue.put(line), self.loop)
-
-        def flush(self):
-            # On flush, send any remaining buffer as a line
-            with self._lock:
-                if self._buffer:
-                    asyncio.run_coroutine_threadsafe(self.queue.put(self._buffer), self.loop)
-                    self._buffer = ""
-
-    async def event_generator():
-        queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
-        orig_stdout = sys.stdout
-        sys_stdout_redirected = StreamToClient(queue, loop)
-        sys.stdout = sys_stdout_redirected
-        drain_task = None
-        try:
-            # Coroutine to drain queue and yield SSE messages as soon as they are available
-            async def drain_queue():
-                while True:
-                    msg = await queue.get()
-                    # SSE format: {msg}
-                    yield f"{msg}"
-                    queue.task_done()
-
-            # Start background draining of the queue
-            drain_iter = drain_queue()
-            # Print initial message (will go to queue)
-            print(f"[generate] Received request: {req}", flush=True)
-
-            try:
-                dt = datetime.strptime(req.date, "%Y-%m-%d")
-            except ValueError:
-                print("Error: date must be YYYY-MM-DD", flush=True)
-                # Drain the queue and yield as SSE
-                async for sse_msg in drain_iter:
-                    yield sse_msg
-                # End event
-                yield f"File saved"
-                return
-
-            mission = req.mission if req.mission != "auto" else choose_mission(dt)
-            print(f"[generate] Using mission: {mission}", flush=True)
-            wl = req.wavelength
-            det = req.detector
-            print(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wl}, detector={det}", flush=True)
-
-            import concurrent.futures
-            print("[fetch] Starting data fetch...", flush=True)
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            fut = loop.run_in_executor(executor, lambda: fido_fetch_map(dt, mission, wl, det))
-
-            # Start draining the queue in the background while waiting for the blocking fetch
-            async def sse_drain_while_future(fut):
-                # Continue yielding lines from the queue as soon as they are printed
-                while not fut.done():
-                    try:
-                        msg = await asyncio.wait_for(queue.get(), timeout=0.2)
-                        yield f"{msg}"
-                        queue.task_done()
-                    except asyncio.TimeoutError:
-                        await asyncio.sleep(0.1)
-                # Drain any remaining messages after completion
-                while not queue.empty():
-                    msg = await queue.get()
-                    yield f"{msg}"
-                    queue.task_done()
-
-            # Stream all print output during fetch
-            async for sse_msg in sse_drain_while_future(fut):
-                yield sse_msg
-
-            try:
-                result = await fut
-            except Exception as err:
-                print(f"[error] {str(err)}", flush=True)
-                # Drain the queue and yield as SSE
-                async for sse_msg in drain_queue():
-                    yield sse_msg
-                yield "event: end\ndone"
-                return
-            print("[fetch] Data fetch complete", flush=True)
-            smap = result[0] if isinstance(result, list) and len(result) > 0 else result
-            out_png = os.path.join(os.path.dirname(OUTPUT_DIR), f"{mission}_{wl or ''}_{req.date}.png")
-            map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
-            print(f"[render] PNG saved: {out_png}", flush=True)
-            print("[generate] Completed successfully.", flush=True)
-        except Exception as e:
-            print(f"[error] {str(e)}", flush=True)
-        finally:
-            # Restore sys.stdout
-            sys.stdout = orig_stdout
-        # Drain any remaining messages and send final event
-        while not queue.empty():
-            msg = await queue.get()
-            yield f"{msg}"
-            queue.task_done()
-        # yield ""
-        yield f"File saved to {out_png}"
-
-
-    return EventSourceResponse(event_generator())
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Shopify async job infrastructure
-# ──────────────────────────────────────────────────────────────────────────────
-import uuid
-import threading
-from fastapi import Request
-
-# Shared jobs dictionary at module level
-from datetime import datetime, timedelta
-SHOPIFY_JOBS = {}
-
-# Helper: append timestamped log to job's logs list and print
-def append_job_log(job_id, message):
-    ts = datetime.utcnow().strftime("%H:%M:%S")
-    line = f"[{ts}] {message}"
-    print(line, flush=True)
-    job = SHOPIFY_JOBS.get(job_id)
-    if job is not None and "logs" in job:
-        job["logs"].append(line)
-
-def process_shopify_job(job_id, body):
-    """
-    Background worker for Shopify job.
-    """
-    append_job_log(job_id, f"[shopify_generate:{job_id}] Processing job...")
-    try:
-        req = GenerateRequest(**body)
-        try:
-            dt = datetime.strptime(req.date, "%Y-%m-%d")
-        except ValueError:
-            append_job_log(job_id, "Invalid date format; expecting YYYY-MM-DD")
-            raise Exception("date must be YYYY-MM-DD")
-        mission = req.mission if req.mission != "auto" else choose_mission(dt)
-        wl = req.wavelength
-        det = req.detector
-        append_job_log(job_id, f"Fetching map for mission={mission}, date={dt.date()}, wavelength={wl}, detector={det}")
-        try:
-            smap = fido_fetch_map(dt, mission, wl, det)
-            append_job_log(job_id, f"Fetched map for {mission} {wl} {dt.date()}")
-        except Exception as e:
-            append_job_log(job_id, f"Error during fetch: {e}")
-            raise
-        if isinstance(smap, list) and len(smap) > 0:
-            smap = smap[0]
-        out_png = os.path.join(OUTPUT_DIR, f"{mission}_{wl or ''}_{req.date}.png")
-        append_job_log(job_id, f"Rendering PNG to {out_png}")
-        try:
-            map_to_png(smap, out_png, annotate=req.annotate, dpi=req.png_dpi, size_inches=req.png_size_inches)
-            append_job_log(job_id, f"Rendered PNG to {out_png}")
-        except Exception as e:
-            append_job_log(job_id, f"Error during render: {e}")
-            raise
-        new_paths = local_path_and_url(os.path.basename(out_png))
-        SHOPIFY_JOBS[job_id].update({
-            "status": "completed",
-            "png_url": new_paths["url"],
-            "message": "Render complete"
-        })
-        append_job_log(job_id, f"Job completed: {new_paths['url']}")
-    except Exception as e:
-        SHOPIFY_JOBS[job_id].update({
-            "status": "error",
-            "message": str(e),
-            "png_url": None
-        })
-        append_job_log(job_id, f"Job failed: {e}")
-
-
-@app.post("/shopify/generate")
-async def shopify_generate(request: Request):
-    """
-    Shopify-friendly JSON endpoint for custom solar prints.
-    Now non-blocking: spawns a background thread for generation and returns job_id.
-    """
-    print(f"[shopify_generate] Job accepted", flush=True)
-    params = dict(request.query_params)
-    if "signature" in params:
-        print(f"[shopify_generate] Proxy signature received for shop={params.get('shop')}", flush=True)
-
-    try:
-        body = await request.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
-
-    # Generate a unique short job_id
-    job_id = uuid.uuid4().hex[:8]
-    # Save initial job state with logs
-    SHOPIFY_JOBS[job_id] = {
-        "status": "queued",
-        "started_at": datetime.utcnow().isoformat(),
-        "message": "Generation pending",
-        "png_url": None,
-        "logs": []
-    }
-    append_job_log(job_id, "Job queued and accepted")
-    # Start background thread for processing
-    thread = threading.Thread(target=process_shopify_job, args=(job_id, body), daemon=True)
-    thread.start()
-    # Immediately return job id and status endpoint
-    return JSONResponse({
-        "job_id": job_id,
-        "status": "queued",
-        "check_url": f"/shopify/status/{job_id}"
-    })
-
-
-@app.get("/shopify/status/{job_id}")
-def shopify_job_status(job_id: str):
-    job = SHOPIFY_JOBS.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    logs = job.get("logs", [])
-    job_status = dict(job)
-    job_status["logs_tail"] = logs[-10:] if len(logs) > 10 else logs
-    return job_status
-
-# Endpoint to get full job logs
-@app.get("/shopify/log/{job_id}")
-def shopify_job_log(job_id: str):
-    job = SHOPIFY_JOBS.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, "logs": job.get("logs", [])}
-
-# Endpoint to cleanup jobs older than 24 hours
-@app.post("/shopify/cleanup")
-def shopify_cleanup():
-    cutoff = datetime.utcnow() - timedelta(hours=24)
-    removed = []
-    for job_id, job in list(SHOPIFY_JOBS.items()):
-        try:
-            start = datetime.fromisoformat(job.get("started_at"))
-            if start < cutoff:
-                del SHOPIFY_JOBS[job_id]
-                removed.append(job_id)
-        except Exception:
-            continue
-    return {"removed": removed, "remaining": list(SHOPIFY_JOBS.keys())}
-
-
-# Debug endpoint: list registered routes
-@app.get("/debug/routes")
-def debug_routes():
-    routes = [r.path for r in app.routes]
-    print(f"[debug] Registered routes: {routes}", flush=True)
-    return {"routes": routes}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Shopify proxy endpoints for Shopify Embedded App
-# ──────────────────────────────────────────────────────────────────────────────
-
-@app.post("/apps/solar-render")
-async def proxy_solar_render(request: Request):
-    try:
-        body = await request.json()
-        print("[proxy] /apps/solar-render received", body, flush=True)
-        # directly call the existing /shopify/generate handler logic
-        response = await app.router.routes_dict["/shopify/generate"].endpoint(body)
-        print("[proxy] /apps/solar-render completed", flush=True)
-        return response
-    except Exception as e:
-        print("[proxy] Error in /apps/solar-render:", e, flush=True)
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-@app.post("/apps/solar-preview")
-async def proxy_solar_preview(request: Request):
-    """
-    Shopify proxy endpoint that invokes the real /shopify/preview handler directly.
-    Always returns valid JSON.
-    """
-    try:
-        body = await request.json()
-        print("[proxy] /apps/solar-preview received", body, flush=True)
-        result = await shopify_preview(request)
-
-        # Handle different response types gracefully
-        if isinstance(result, JSONResponse):
-            print("[proxy] Returning JSONResponse directly", flush=True)
-            return result
-        elif isinstance(result, dict):
-            print("[proxy] Returning dict as JSON", flush=True)
-            return JSONResponse(content=result)
-        elif hasattr(result, "body_iterator"):
-            # Convert StreamingResponse body to text safely
-            data = b"".join([chunk async for chunk in result.body_iterator])
-            text = data.decode(errors="ignore").strip()
-            if text.startswith("{") and text.endswith("}"):
-                try:
-                    parsed = json.loads(text)
-                    return JSONResponse(content=parsed)
-                except Exception:
-                    pass
-            print("[proxy] Returning fallback JSON wrapper", flush=True)
-            return JSONResponse(content={"message": "Preview generated", "raw_response": text[:200]})
+        base = ASSET_BASE_URL.rstrip('/')
+        if not base.endswith('asset'):
+            png_url = f"{base}/asset/{os.path.basename(out_png)}"
         else:
-            print("[proxy] Unknown response type; wrapping", flush=True)
-            return JSONResponse(content={"message": "Preview completed"})
+            png_url = f"{base}/{os.path.basename(out_png)}"
+
+        log_to_queue(f"[generate] HQ proof generated at full resolution: {out_png}")
+        return {"png_url": png_url}
+
     except Exception as e:
-        print("[proxy] Error in /apps/solar-preview:", e, flush=True)
-        import traceback; traceback.print_exc()
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-@app.get("/generate-ui", response_class=HTMLResponse)
-async def generate_ui():
-    return """
-    <html>
-      <head><title>Solar Archive Generator</title></head>
-      <body style="font-family:sans-serif; text-align:center; margin-top:5em;">
-        <h2>Generate a Solar Image</h2>
-        <form id="genform">
-          <label>Date:</label>
-          <input type="date" id="date" required>
-          <button type="submit">Generate</button>
-        </form>
-        <div id="output"></div>
-
-        <script>
-          const form = document.getElementById('genform');
-          form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const date = document.getElementById('date').value;
-            const res = await fetch(`/generate?date=${date}`);
-            const data = await res.json();
-            document.getElementById('output').innerHTML = `
-              <h3>Result:</h3>
-              <img src="${data.image_url}" width="400"><br>
-              <button onclick="sendToPrintful('${data.image_url}')">Use in Printful</button>`;
-          });
-
-          async function sendToPrintful(url) {
-            const res = await fetch('/upload_to_printful', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({image_url: url})
-            });
-            const result = await res.json();
-            alert(result.status || JSON.stringify(result));
-          }
-        </script>
-      </body>
-    </html>
-    """
-
-# ──────────────────────────────────────────────────────────────────────────────
-# New endpoint: /upload_to_printful
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-
-class UploadToPrintfulRequest(BaseModel):
-    image_url: str
-
-@app.post("/upload_to_printful")
-async def upload_to_printful(request: Request):
-    """
-    Upload a local image to Printful and return its file_id + URL.
-    """
-    body = await request.json()
-    image_path = body.get("image_path")
-    title = body.get("title", "Solar Archive Image")
-    purpose = body.get("purpose", "default")
-
-    if not image_path or not os.path.exists(image_path):
-        raise HTTPException(status_code=400, detail="Valid image_path required.")
-
-    result = printful_upload(image_path, title, purpose)
-
-    file_id = result.get("result", {}).get("id")
-    file_url = result.get("result", {}).get("url")
-
-    if not file_id:
-        raise HTTPException(status_code=500, detail="Upload succeeded but no file_id returned.")
-
-    print(f"[printful/upload] Uploaded {image_path} → file_id={file_id}", flush=True)
-    return {
-        "file_id": file_id,
-        "file_url": file_url,
-        "printful_response": result
-    }
-
-@app.post("/printful/mockup")
-async def printful_mockup(request: Request):
-    """
-    Request a Printful mockup generation task for one or more variants.
-    """
-    body = await request.json()
-    file_id = body.get("file_id")
-    variant_ids = body.get("variant_id") or body.get("variant_ids")
-
-    if not file_id or not variant_ids:
-        raise HTTPException(status_code=400, detail="file_id and variant_id(s) required")
-
-    if isinstance(variant_ids, int):
-        variant_ids = [variant_ids]
-
-    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY")
-    if not PRINTFUL_API_KEY:
-        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured")
-
-    payload = {
-        "variant_ids": variant_ids,
-        "files": [{"id": file_id, "type": "front"}]
-    }
-
-    headers = {
-        "Authorization": f"Bearer {PRINTFUL_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    print(f"[printful/mockup] Requesting mockup for file {file_id} → variants {variant_ids}", flush=True)
-    r = requests.post("https://api.printful.com/mockup-generator/create-task", json=payload, headers=headers)
-    try:
-        result = r.json()
-    except Exception:
-        result = {"error": r.text}
-
-    if r.status_code >= 300:
-        print(f"[printful/mockup][error] {r.status_code}: {r.text}", flush=True)
-        raise HTTPException(status_code=r.status_code, detail=f"Mockup creation failed: {r.text}")
-
-    print(f"[printful/mockup] Created mockup for variant(s) {variant_ids} using file {file_id}", flush=True)
-    return result
+        log_to_queue(f"[generate] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"HQ render failed: {e}")
