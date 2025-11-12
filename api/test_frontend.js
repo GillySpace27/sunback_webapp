@@ -1,8 +1,20 @@
-// Helper: Get the API base URL, using current window location
-function getApiBase() {
-  const origin = window.location.origin;
-  // Always use /api for both Render and local development, since FastAPI mounts routes under /api
-  return `${origin}/api`;
+const P = window.SolarArchivePrintful;
+
+function getApiBase(){ return P.getApiBase(); }
+
+// Helper: Normalize preview and asset URLs for frontend use
+function normalizeUrl(url) {
+  if (!url) return url;
+  // Absolute asset paths should not be prefixed by /api
+  if (url.startsWith("/asset/")) {
+    return `${window.location.origin}${url}`;
+  }
+  // Other API endpoints still use /api
+  if (url.startsWith("/api/")) {
+    return `${window.location.origin}${url}`;
+  }
+  // Fallback for relative paths
+  return `${window.location.origin}/api/${url.replace(/^\/+/, "")}`;
 }
 
 // Helper: Set status message to user
@@ -50,14 +62,6 @@ async function pollStatus(statusUrl, onUpdate) {
   }
 }
 
-// Helper: Upload image to Printful via API
-async function uploadToPrintful(imageUrl) {
-  // This is a placeholder; you would need to implement Printful API integration
-  setStatus("Uploading to Printful...", "blue");
-  // Example: await postJSON(getApiBase() + "/printful_upload", {image_url: imageUrl});
-  await new Promise(r => setTimeout(r, 1000));
-  setStatus("Uploaded to Printful!", "green");
-}
 
 // Main orchestration: Generate preview image
 async function generatePreview(prompt) {
@@ -85,6 +89,44 @@ async function generatePreview(prompt) {
   }
 }
 
+// Additional: product picker helpers and order form bind
+async function loadProductPicker(){
+  const picker = document.getElementById("productPicker");
+  if (!picker) return;
+  picker.innerHTML = "";
+  try{
+    const products = await P.listProducts();
+    products.slice(0, 12).forEach(p=>{
+      const card = document.createElement("div");
+      card.style.cssText = `
+        width:180px; padding:1em; border-radius:12px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.1);
+        background:#fff; cursor:pointer; text-align:center;
+        transition:transform 0.2s ease;
+      `;
+      card.onmouseenter = ()=> card.style.transform = "scale(1.03)";
+      card.onmouseleave = ()=> card.style.transform = "scale(1)";
+      card.innerHTML = `
+        <img src="${p.thumbnail}" style="width:100%; border-radius:8px; margin-bottom:0.5em;">
+        <div style="font-weight:600;">${p.name}</div>
+        <div style="font-size:0.85em; color:#666;">${p.type||''}</div>
+      `;
+      card.addEventListener("click", ()=>{
+        const latest = document.getElementById("solar-image")?.src;
+        if (!latest){ alert("No preview image yet — generate one first."); return; }
+        // Temporary: use product id for both product and variant until variant UI is added
+        P.handleUploadAndMockup(latest, p.id, p.id).catch(err=>alert(err.message));
+      });
+      picker.appendChild(card);
+    });
+  }catch(e){
+    const p = document.createElement("p");
+    p.style.color = "#b00";
+    p.textContent = "Failed to load products: " + e.message;
+    picker.appendChild(p);
+  }
+}
+
 // Initialization: wire up UI
 function initApp() {
   const generateBtn = document.getElementById("generate-btn");
@@ -100,126 +142,41 @@ function initApp() {
     wavelengthInput.value = 171;
   }
 
-  // New: get the three new buttons
-  const previewBtn = document.getElementById("previewBtn");
-  const hqBtn = document.getElementById("hqBtn");
-  const printfulBtn = document.getElementById("printfulBtn");
-
-  // Helper to show preview image in #solar-image (not #preview-img)
-  function showPreview(url) {
-    const img = document.getElementById("solar-image");
-    if (img) {
-      img.src = url;
-      img.style.display = "block";
-    }
-  }
-
-  // Wire up Preview button
-  if (previewBtn) {
-    previewBtn.addEventListener("click", async () => {
-      const date = document.getElementById("solar-date").value;
-      const wavelength = document.getElementById("solar-wavelength").value;
-      const apiBase = getApiBase();
-      console.log("Using API base:", apiBase);
-      try {
-        const resp = await postJSON(`${apiBase}/generate`, {
-          date, wavelength, preview: true
-        });
-        if (resp.status_url) {
-          await pollStatus(resp.status_url, data => {
-            if (data.status === "processing") setStatus("Processing preview...", "blue");
-            if (data.status === "error") setStatus(`Error: ${data.error}`, "red");
-            if (data.image_url) showPreview(data.image_url);
-          });
-        } else if (resp.asset_url) {
-          showPreview(resp.asset_url);
-        } else {
-          alert("No preview returned!");
-        }
-      } catch (err) {
-        console.error("Preview generation failed:", err);
-      }
-    });
-  }
-
-  // Wire up HQ Proof button
-  if (hqBtn) {
-    hqBtn.addEventListener("click", async () => {
-      const date = document.getElementById("solar-date").value;
-      const wavelength = document.getElementById("solar-wavelength").value;
-      const apiBase = getApiBase();
-      console.log("Using API base:", apiBase);
-      try {
-        const resp = await postJSON(`${apiBase}/generate`, {
-          date, wavelength, preview: false, upload_to_printful: false
-        });
-        if (resp.status_url) {
-          await pollStatus(resp.status_url, data => {
-            if (data.status === "processing") setStatus("Processing HQ proof...", "blue");
-            if (data.status === "error") setStatus(`Error: ${data.error}`, "red");
-            if (data.image_url) showPreview(data.image_url);
-          });
-        } else {
-          alert("HQ render request failed.");
-        }
-      } catch (err) {
-        console.error("HQ render failed:", err);
-      }
-    });
-  }
-
-  // Wire up Printful Upload button
-  if (printfulBtn) {
-    printfulBtn.addEventListener("click", async () => {
-      const date = document.getElementById("solar-date").value;
-      const wavelength = document.getElementById("solar-wavelength").value;
-      const apiBase = getApiBase();
-      console.log("Using API base:", apiBase);
-      try {
-        const resp = await postJSON(`${apiBase}/generate`, {
-          date, wavelength, preview: false, upload_to_printful: true
-        });
-        if (resp.status_url) {
-          await pollStatus(resp.status_url, data => {
-            if (data.status === "processing") setStatus("Uploading to Printful...", "blue");
-            if (data.status === "error") setStatus(`Error: ${data.error}`, "red");
-            if (data.image_url) showPreview(data.image_url);
-          });
-        } else {
-          alert("Printful upload failed to start.");
-        }
-      } catch (err) {
-        console.error("Printful upload failed:", err);
-      }
-    });
-  }
 
   if (generateBtn && dateInput && wavelengthInput) {
     generateBtn.addEventListener("click", async () => {
       generateBtn.disabled = true;
-      setStatus("Generating image...", "blue");
+      setStatus("Generating preview...", "blue");
       try {
         const date = dateInput.value;
         const wavelength = wavelengthInput.value;
         const apiBase = getApiBase();
-        console.log("Using API base:", apiBase);
-        const resp = await postJSON(`${apiBase}/generate`, { date, wavelength, preview: true });
-        console.log("Generate response:", resp);
-        if (!resp.status_url) throw new Error("No status_url returned from generate");
-
-        const statusData = await pollStatus(resp.status_url, data => {
-          if (data.status === "processing") setStatus("Processing...", "blue");
-          if (data.status === "error") setStatus(`Error: ${data.error}`, "red");
-          if (data.image_url) showImage(data.image_url);
-        });
-
-        if (statusData.status === "error") throw new Error(statusData.error);
-        if (!statusData.image_url) throw new Error("No image_url in status response");
-        showImage(statusData.image_url);
-        setStatus("Image ready!", "green");
+        const res = await postJSON(`${apiBase}/generate_preview`, { date, wavelength, mission: "SDO" });
+        const previewUrl = res.preview_url || res.png_url;
+        if (!previewUrl) throw new Error("No preview URL from backend");
+        const imgEl = document.getElementById("solar-image");
+        const fullUrl = normalizeUrl(previewUrl);
+        imgEl.src = fullUrl;
+        imgEl.style.display = "block";
+        imgEl.onload = async () => {
+          setStatus("✅ Preview ready → Rendering HQ...", "green");
+          try {
+            const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
+            if (hqRes.png_url) {
+              const resolved = normalizeUrl(hqRes.png_url);
+              imgEl.src = resolved;
+              setStatus("✅ HQ image ready!", "green");
+            } else {
+              setStatus("⚠️ HQ image generation did not return a PNG.", "orange");
+            }
+          } catch (e) {
+            setStatus("❌ HQ generation failed: " + e.message, "red");
+          }
+        };
+        imgEl.onerror = () => setStatus("❌ Failed to load preview image.", "red");
       } catch (err) {
-        console.error("Generate failed:", err);
-        setStatus(`Failed: ${err.message}`, "red");
+        console.error(err);
+        setStatus(`Error: ${err.message}`, "red");
       } finally {
         generateBtn.disabled = false;
       }
@@ -246,3 +203,10 @@ function initApp() {
 
 // Run on page load
 window.addEventListener("DOMContentLoaded", initApp);
+  // Bind order form submit
+  const orderForm = document.getElementById("orderForm");
+  if (orderForm){
+    orderForm.addEventListener("submit", P.handleOrderSubmit);
+  }
+  // Load products on DOM ready
+  loadProductPicker();
