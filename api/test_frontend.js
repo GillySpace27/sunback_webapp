@@ -159,6 +159,11 @@ function initApp() {
       if (currentAbortController) currentAbortController.abort();
       currentAbortController = null;
       generateBtn.disabled = true;
+      // Disable HQ and clear cache during preview generation
+      const hqBtn = document.getElementById("hq-btn");
+      const clearCacheBtn = document.getElementById("clearCacheBtn");
+      if (hqBtn) hqBtn.disabled = true;   // disable HQ during preview generation
+      if (clearCacheBtn) clearCacheBtn.disabled = true;
       setStatus("Generating preview...", "blue");
       try {
         const date = dateInput.value;
@@ -171,38 +176,18 @@ function initApp() {
         const fullUrl = normalizeUrl(previewUrl);
         imgEl.src = fullUrl;
         imgEl.style.display = "block";
-        // Only run HQ generation once — guard with a dedicated flag
-        let hqStarted = false;
-
-        imgEl.onload = async () => {
-          if (hqStarted) return;     // prevent loops
-          hqStarted = true;          // lock
-          imgEl.onload = null;       // detach handler immediately
-
-          setStatus("✅ Preview ready → Rendering HQ...", "green");
-          try {
-            const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
-            if (hqRes.png_url) {
-              const resolved = normalizeUrl(hqRes.png_url);
-
-              // Disable onload again BEFORE setting src (race‑free)
-              imgEl.onload = null;
-              imgEl.src = resolved;
-
-              setStatus("✅ HQ image ready!", "green");
-            } else {
-              setStatus("⚠️ HQ image generation did not return a PNG.", "orange");
-            }
-          } catch (e) {
-            setStatus("❌ HQ generation failed: " + e.message, "red");
-          }
-        };
+        imgEl.onload = null;
         imgEl.onerror = () => setStatus("❌ Failed to load preview image.", "red");
+        setStatus("Preview loaded! Click the button to generate the HQ image next!", "green");
       } catch (err) {
         console.error(err);
         setStatus(`Error: ${err.message}`, "red");
       } finally {
         generateBtn.disabled = false;
+        const clearCacheBtn = document.getElementById("clearCacheBtn");
+        const hqBtn = document.getElementById("hq-btn");
+        if (clearCacheBtn) clearCacheBtn.disabled = false;
+        if (hqBtn) hqBtn.disabled = false;   // HQ becomes available only after preview success
       }
     });
   }
@@ -214,6 +199,11 @@ function initApp() {
         currentAbortController = null;
       }
       clearCacheBtn.disabled = true;
+      // Also disable preview and HQ buttons
+      const generateBtn = document.getElementById("generate-btn");
+      const hqBtn = document.getElementById("hq-btn");
+      if (generateBtn) generateBtn.disabled = true;
+      if (hqBtn) hqBtn.disabled = true;
       setStatus("Clearing cache...", "blue");
       try {
         const apiBase = getApiBase();
@@ -230,6 +220,49 @@ function initApp() {
         setStatus(`Failed to clear cache: ${err.message}`, "red");
       } finally {
         clearCacheBtn.disabled = false;
+        const generateBtn = document.getElementById("generate-btn");
+        const hqBtn = document.getElementById("hq-btn");
+        if (generateBtn) generateBtn.disabled = false;
+        if (hqBtn) hqBtn.disabled = true;   // HQ must stay disabled until a new preview exists
+      }
+    });
+  }
+
+  // HQ Button logic
+  const hqBtn = document.getElementById("hq-btn");
+  if (hqBtn && dateInput && wavelengthInput) {
+    hqBtn.disabled = true;   // HQ starts disabled
+    hqBtn.addEventListener("click", async () => {
+      const generateBtn = document.getElementById("generate-btn");
+      const clearCacheBtn = document.getElementById("clearCacheBtn");
+      if (generateBtn) generateBtn.disabled = true;
+      if (clearCacheBtn) clearCacheBtn.disabled = true;
+      if (currentAbortController) currentAbortController.abort();
+      currentAbortController = null;
+      hqBtn.disabled = true;
+      setStatus("Generating HQ image...", "blue");
+      try {
+        const date = dateInput.value;
+        const wavelength = wavelengthInput.value;
+        const apiBase = getApiBase();
+        const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
+        if (hqRes.png_url) {
+          const resolved = normalizeUrl(hqRes.png_url);
+          const imgEl = document.getElementById("solar-image");
+          imgEl.src = resolved;
+          imgEl.style.display = "block";
+          setStatus("HQ image loaded!", "green");
+        } else {
+          setStatus("HQ generation returned no PNG.", "orange");
+        }
+      } catch (e) {
+        setStatus("HQ generation failed: " + e.message, "red");
+      } finally {
+        hqBtn.disabled = false;
+        const generateBtn = document.getElementById("generate-btn");
+        const clearCacheBtn = document.getElementById("clearCacheBtn");
+        if (generateBtn) generateBtn.disabled = false;
+        if (clearCacheBtn) clearCacheBtn.disabled = false;
       }
     });
   }

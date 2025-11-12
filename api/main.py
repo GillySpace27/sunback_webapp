@@ -111,10 +111,10 @@ print(f"[startup] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
 
 # Synchronous fetch helper with clear log
 def fetch_sync_safe(query):
-    log_to_queue("[fetch] Fido.fetch (sync, max_conn=10, no progress)")
+    log_to_queue("[fetch] Fido.fetch (sync, max_conn=15, no progress)")
     from parfive import Downloader
     dl = Downloader(
-        max_conn=12,
+        max_conn=15,
         progress=True,
         overwrite=False
     )
@@ -266,7 +266,7 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             raise HTTPException(status_code=404, detail="No AIA data for this date/wavelength")
         from parfive import Downloader
-        dl = Downloader(max_conn=12, progress=False, overwrite=False)
+        dl = Downloader(max_conn=15, progress=False, overwrite=False)
         target_dir = os.environ["SUNPY_DOWNLOADDIR"]
         files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
         if not files or len(files) == 0:
@@ -963,7 +963,7 @@ def do_generate_sync(data):
         # Apply RHEF with fallback
         from sunkit_image import radial
         try:
-            rhef_data = radial.rhef(smap_reduced).data
+            rhef_data = radial.rhef(smap_reduced, vignette=1.51 * u.R_sun).data
         except Exception:
             log_to_queue("[rhef][warn] HQ RHEF failed on Map — using array fallback.")
             rhef_data = radial.rhef(smap_reduced.data).data
@@ -1214,40 +1214,44 @@ def manual_aiaprep(m, logger=print):
                 try:
                     t0 = m.date - 12 * u.hour
                     t1 = m.date + 12 * u.hour
-                    logger(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
+                    # logger(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
                     pointing_table = get_pointing_table("JSOC", m.date)
-                    logger(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
+                    # logger(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
                     try:
                         m = update_pointing(m, pointing_table=pointing_table)
-                        logger("[fetch][AIA] Pointing metadata updated.")
+                        # logger("[fetch][AIA] Pointing metadata updated.")
                     except Exception as e:
-                        logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
+                        # logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
+                        pass
                 except Exception as e:
-                    logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
+                    pass
+                    # logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
         except Exception as e:
-            logger(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
+            # logger(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
             return m
 
     else:
-        logger("[fetch][warn] AIA pointing correction skipped")
+        # logger("[fetch][warn] AIA pointing correction skipped")
+        pass
 
     # Continue with registration and degradation correction regardless of pointing success
     try:
         m = register(m)
-        logger("[fetch][AIA] Image registered to common scale and orientation.")
+        # logger("[fetch][AIA] Image registered to common scale and orientation.")
     except Exception as reg_err:
-        logger(f"[fetch][warn] aiapy register failed: {reg_err}")
-
+        # logger(f"[fetch][warn] aiapy register failed: {reg_err}")
+        pass
     try:
         from aiapy.calibrate import get_correction_table
         corr_table = get_correction_table("aia", m.date)
         m = correct_degradation(m, correction_table=corr_table)
-        logger("[fetch][AIA] Degradation correction applied.")
+        # logger("[fetch][AIA] Degradation correction applied.")
     except Exception as corr_err:
-        logger(f"[fetch][warn] aiapy degradation correction failed: {corr_err}")
+        # logger(f"[fetch][warn] aiapy degradation correction failed: {corr_err}")
+        pass
 
     m = normalize_exposure(m)
-    logger("[fetch][AIA] Exposure normalized successfully.")
+    # logger("[fetch][AIA] Exposure normalized successfully.")
     return m
 
 
@@ -1488,7 +1492,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         try:
             log_to_queue(f"[fetch] Attempt {attempt} to fetch...")
             from parfive import Downloader
-            dl = Downloader(max_conn=10, progress=False, overwrite=False)
+            dl = Downloader(max_conn=15, progress=False, overwrite=False)
             target_dir = os.environ["SUNPY_DOWNLOADDIR"]
             files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
             if files and len(files) > 0:
@@ -1555,7 +1559,7 @@ def soho_eit_fallback(dt: datetime) -> Map:
         try:
             log_to_queue(f"[fetch] Fallback attempt {attempt}...")
             from parfive import Downloader
-            dl = Downloader(max_conn=10, progress=False, overwrite=False)
+            dl = Downloader(max_conn=15, progress=False, overwrite=False)
             fallback_files = Fido.fetch(fallback_qr[0, 0], downloader=dl, path=os.environ["SUNPY_DOWNLOADDIR"])
             if fallback_files and len(fallback_files) > 0:
                 break
