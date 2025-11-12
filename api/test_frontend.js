@@ -1,5 +1,8 @@
 const P = window.SolarArchivePrintful;
 
+// Global AbortController for fetch cancellation
+let currentAbortController = null;
+
 function getApiBase(){ return P.getApiBase(); }
 
 // Helper: Normalize preview and asset URLs for frontend use
@@ -28,10 +31,14 @@ function setStatus(msg, color = "black") {
 
 // Helper: POST JSON to an endpoint, returns parsed response
 async function postJSON(url, data) {
+  if (currentAbortController) currentAbortController.abort();
+  currentAbortController = new AbortController();
+  const { signal } = currentAbortController;
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data)
+    body: JSON.stringify(data),
+    signal
   });
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
@@ -50,8 +57,11 @@ function showImage(imgUrl) {
 
 // Helper: Poll status endpoint until ready or error
 async function pollStatus(statusUrl, onUpdate) {
+  // Use currentAbortController if exists, else create one
+  if (!currentAbortController) currentAbortController = new AbortController();
+  const { signal } = currentAbortController;
   while (true) {
-    const resp = await fetch(statusUrl);
+    const resp = await fetch(statusUrl, { signal });
     if (!resp.ok) throw new Error("Failed to poll status");
     const data = await resp.json();
     if (onUpdate) onUpdate(data);
@@ -145,6 +155,9 @@ function initApp() {
 
   if (generateBtn && dateInput && wavelengthInput) {
     generateBtn.addEventListener("click", async () => {
+      // Cancel any ongoing fetches before starting new work
+      if (currentAbortController) currentAbortController.abort();
+      currentAbortController = null;
       generateBtn.disabled = true;
       setStatus("Generating preview...", "blue");
       try {
@@ -158,13 +171,24 @@ function initApp() {
         const fullUrl = normalizeUrl(previewUrl);
         imgEl.src = fullUrl;
         imgEl.style.display = "block";
+        // Only run HQ generation once — guard with a dedicated flag
+        let hqStarted = false;
+
         imgEl.onload = async () => {
+          if (hqStarted) return;     // prevent loops
+          hqStarted = true;          // lock
+          imgEl.onload = null;       // detach handler immediately
+
           setStatus("✅ Preview ready → Rendering HQ...", "green");
           try {
             const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
             if (hqRes.png_url) {
               const resolved = normalizeUrl(hqRes.png_url);
+
+              // Disable onload again BEFORE setting src (race‑free)
+              imgEl.onload = null;
               imgEl.src = resolved;
+
               setStatus("✅ HQ image ready!", "green");
             } else {
               setStatus("⚠️ HQ image generation did not return a PNG.", "orange");
@@ -185,12 +209,22 @@ function initApp() {
 
   if (clearCacheBtn) {
     clearCacheBtn.addEventListener("click", async () => {
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
       clearCacheBtn.disabled = true;
       setStatus("Clearing cache...", "blue");
       try {
         const apiBase = getApiBase();
         console.log("Using API base:", apiBase);
         await postJSON(`${apiBase}/clear_cache`, {});
+        // Hide current preview image
+        const imgEl = document.getElementById("solar-image");
+        if (imgEl) {
+          imgEl.src = "";
+          imgEl.style.display = "none";
+        }
         setStatus("Cache cleared!", "green");
       } catch (err) {
         setStatus(`Failed to clear cache: ${err.message}`, "red");

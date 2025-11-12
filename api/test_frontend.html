@@ -1,205 +1,72 @@
-<div id="solar-archive-section"
-     style="text-align:center; padding:2em; background:#fff; color:#111;">
-  <h2 style="margin-bottom:1em;">Solar Archive — Custom Print Generator</h2>
-
-  <form id="solar-archive-form" style="margin-bottom:1.5em;">
-    <button id="clearCacheBtn" class="action-btn">Clear Cache</button>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Solar Archive — Test Frontend</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    #clearCacheBtn {
-      background-color: #e05d44;
-      color: white;
-      border: none;
-      padding: 0.6em 1.2em;
-      border-radius: 6px;
-      cursor: pointer;
-      margin-left: 0.5em;
-    }
-    #clearCacheBtn:hover {
-      background-color: #c2442e;
-    }
+    body { font-family: system-ui, -apple-system, Arial, sans-serif; background:#f6f7fb; color:#111; margin:0; }
+    .wrap { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+    .controls { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:1rem; }
+    input, select, button { padding:.6rem .8rem; border-radius:8px; border:1px solid #ccc; }
+    #generate-btn { background:#111; color:#fff; border:none; cursor:pointer; }
+    #clearCacheBtn { background:#e05d44; color:#fff; border:none; cursor:pointer; }
+    #solar-status { margin:.5rem 0 1rem; color:#444; }
+    #solar-image { max-width:100%; display:none; background:#000; border-radius:8px; }
+    #productPicker { display:flex; flex-wrap:wrap; gap:12px; margin-top: 16px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items:start; }
+    @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
   </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Solar Archive — Test Frontend</h1>
+    <div class="controls">
+      <label>Date: <input type="date" id="solar-date" required></label>
+      <label>Wavelength (Å):
+        <select id="solar-wavelength">
+          <option value="94">94 Å — Fe XVIII (≈6.3 MK, flaring corona)</option>
+          <option value="131">131 Å — Fe VIII/XXI (0.4–10 MK, flares & loops)</option>
+          <option value="171">171 Å — Fe IX (≈0.7 MK, quiet corona & loops)</option>
+          <option value="193">193 Å — Fe XII/XXIV (1.5–20 MK, corona & flares)</option>
+          <option value="211">211 Å — Fe XIV (≈2.0 MK, active regions)</option>
+          <option value="304">304 Å — He II (≈0.05 MK, chromosphere)</option>
+          <option value="335">335 Å — Fe XVI (≈2.5 MK, active regions)</option>
+        </select>
+      </label>
+      <button id="generate-btn">Generate Preview</button>
+      <button id="clearCacheBtn">Clear Cache</button>
+    </div>
+    <div id="solar-status">Waiting for input…</div>
 
-  <style>
-  .action-btn {
-    background-color: #4a9fff;
-    color: white;
-    border: none;
-    padding: 0.6em 1.2em;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 500;
-    margin: 0.3em;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-    transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
-  }
+    <div class="grid">
+      <div>
+        <img id="solar-image" alt="Solar preview" />
+      </div>
+      <div>
+        <h3>Products</h3>
+        <div id="productPicker"></div>
 
-  .action-btn:hover {
-    background-color: #2f7ed8;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
-    transform: translateY(-1px);
-  }
-
-  .action-btn:active {
-    background-color: #256bb3;
-    transform: translateY(1px);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  }
-
-  .action-btn:disabled {
-    background-color: #bbb;
-    color: #eee;
-    cursor: not-allowed;
-    box-shadow: none;
-    transform: none;
-  }
-
-  /* Distinct red variant for Clear Cache */
-  #clearCacheBtn.action-btn {
-    background-color: #e05d44;
-  }
-  #clearCacheBtn.action-btn:hover {
-    background-color: #c2442e;
-  }
-  #clearCacheBtn.action-btn:active {
-    background-color: #a5301b;
-  }
-</style>
-
-
-    <label>Date:
-      <input type="date" id="solar-date" required style="margin:0.5em;">
-    </label>
-    <label>Wavelength (Å):
-  <select id="solar-wavelength" required style="margin:0.5em; padding:0.3em;">
-    <optgroup label="EUV Channels">
-      <option value="94" style="color:#00c3ff;">94 Å — Fe XVIII (hot flare plasma, teal)</option>
-      <option value="131" style="color:#8c52ff;">131 Å — Fe VIII / XXI (flare footpoints, violet)</option>
-      <option value="171" style="color:#ffd700;" selected>171 Å — Fe IX (quiet corona loops, golden)</option>
-      <option value="193" style="color:#ff9f00;">193 Å — Fe XII / XXIV (corona + flares, amber)</option>
-      <option value="211" style="color:#a020f0;">211 Å — Fe XIV (active region corona, purple)</option>
-      <option value="304" style="color:#ff3030;">304 Å — He II (chromosphere & prominences, red)</option>
-      <option value="335" style="color:#5b5bff;">335 Å — Fe XVI (hot active regions, blue-violet)</option>
-    </optgroup>
-    <optgroup label="UV / Visible Channels">
-      <option value="1600" style="color:#ff80ff;">1600 Å — C IV + continuum (transition region, pink)</option>
-      <option value="1700" style="color:#ffb3b3;">1700 Å — Continuum (photosphere, light peach)</option>
-      <option value="4500" style="color:#999;">4500 Å — Visible continuum (white light / HMI, gray-white)</option>
-    </optgroup>
-  </select>
-</label>
-    <button type="button" id="generate-btn" class="action-btn">
-      Generate Preview
-    </button>
-  </form>
-
-  <div id="solar-status" style="color:#444; margin-bottom:0.5em;">Waiting for input...</div>
-  <div id="progress-container" style="display:none;width:80%;margin:1em auto;background:#eee;border-radius:8px;overflow:hidden;">
-    <div id="progress-bar" style="height:16px;width:0%;background:#4a9fff;border-radius:8px;transition:width 0.3s;"></div>
+        <h3 style="margin-top:1.5rem;">Manual Order (demo)</h3>
+        <form id="orderForm">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.5rem;">
+            <input name="variant_id" type="number" placeholder="Variant ID" required />
+            <input name="name" placeholder="Full name" required />
+            <input name="address1" placeholder="Address" required />
+            <input name="city" placeholder="City" required />
+            <input name="state_code" placeholder="State code" required />
+            <input name="country_code" placeholder="Country code" required />
+            <input name="zip" placeholder="ZIP" required />
+            <input name="email" type="email" placeholder="Email" required />
+          </div>
+          <button type="submit" style="margin-top:.75rem;">Place Order</button>
+        </form>
+      </div>
+    </div>
   </div>
-  <!-- <div id="log-toggle-container" style="margin: 1em auto; text-align: center;">
-    <label style="cursor:pointer;">
-      <input type="checkbox" id="toggle-log" style="margin-right: 0.3em;">
-      Show Live Log
-    </label>
-  </div>
-  <div id="console-box" style="display:none;width:90%;max-height:180px;overflow-y:auto;background:#111;color:#0f0;font-family:monospace;padding:0.5em;margin:1em auto;border-radius:6px;text-align:left;font-size:0.9em;">
-    🛰️ Live Log
-  </div> -->
-  <img id="solar-image"
-       alt="Solar preview"
-       style="display:none; width:800px; max-width:90%; border-radius:8px; box-shadow:0 0 25px rgba(0,0,0,0.15); margin:1em auto;">
-  <div id="solar-cart" style="margin-top:1em;"></div>
-</div>
 
-<script>
-const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
-  ? "http://127.0.0.1:8000"
-  : window.location.origin;
-const previewImg = document.getElementById("solar-image");
-const statusBox = document.getElementById("solar-status");
-const generateBtn = document.getElementById("generate-btn");
-
-generateBtn.onclick = async () => {
-  const date = document.getElementById("solar-date").value;
-  const wavelength = document.getElementById("solar-wavelength").value;
-  if (!date) return alert("Select a date first.");
-
-  statusBox.textContent = "Fetching preview...";
-  generateBtn.disabled = true;
-
-  try {
-    const payload = { date, wavelength: parseInt(wavelength), mission: "SDO", annotate: false };
-    const res = await fetch(`${API_BASE}/api/generate_preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.error || "Preview request failed");
-
-    const previewUrl = data.preview_url || data.image_url || data.url || data.path || data.png_url;
-    if (!previewUrl) throw new Error("No preview URL returned from server");
-
-    const fullUrl = previewUrl.startsWith("/asset")
-      ? `${API_BASE}${previewUrl}`
-      : previewUrl;
-
-    previewImg.src = fullUrl;
-    previewImg.style.display = "block";
-    statusBox.textContent = "✅ Preview ready";
-  } catch (err) {
-    console.error(err);
-    statusBox.textContent = "Error during preview generation.";
-    alert(err.message);
-  } finally {
-    generateBtn.disabled = false;
-  }
-};
-</script>
-
-<!-- Removed earlier duplicate mockupContainer and mockupImage -->
-
-<!-- PRINTFUL INTEGRATION SECTION -->
-<div id="printful-section"
-     style="text-align:center; background:#fff; padding:2em; margin-top:2em;
-            border-radius:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-
-  <h2 style="margin-bottom:0.5em;">Create Your Custom Print</h2>
-  <p style="color:#555; margin-bottom:1.5em;">
-    Turn your generated Sun image into a real product — paddle, canvas, hoodie, mug, and more!
-  </p>
-
-
-  <div id="mockupContainer" style="display:none; margin-top:2em;">
-    <h3 style="margin-bottom:1em;">Live Mockup Preview</h3>
-    <img id="mockupImage"
-         style="max-width:90%; border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.15);">
-    <form id="orderForm"
-          style="margin-top:2em; display:inline-block; text-align:left;">
-      <h4 style="text-align:center;">Shipping Details</h4>
-      <input name="name" placeholder="Full name" required><br>
-      <input name="address1" placeholder="Address" required><br>
-      <input name="city" placeholder="City" required><br>
-      <input name="state_code" placeholder="State" required><br>
-      <input name="country_code" placeholder="Country (e.g. US)" required><br>
-      <input name="zip" placeholder="ZIP" required><br>
-      <input name="email" type="email" placeholder="Email" required><br>
-      <button type="submit"
-              style="background:#27ae60; color:#fff; border:none; padding:0.6em 1.2em;
-                     border-radius:8px; cursor:pointer; margin-top:0.8em;">
-        Place Order
-      </button>
-    </form>
-  </div>
-</div>
-
-
-
-<div id="productPicker"
-     style="margin:2em auto; max-width:900px; display:flex; flex-wrap:wrap;
-            justify-content:center; gap:1em;">
-  <p id="productLoading" style="color:#777;">Loading products…</p>
-</div>
-
-<script src="/api/static/printful.js"></script>
-<script src="/api/static/test_frontend.js"></script>
+  <!-- Load helpers and app logic -->
+  <script src="/api/static/printful.js"></script>
+  <script src="/api/static/test_frontend.js"></script>
+</body>
+</html>
