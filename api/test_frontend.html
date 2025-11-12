@@ -24,16 +24,17 @@
     <div class="controls">
       <label>Date: <input type="date" id="solar-date" required></label>
       <label>Wavelength (Å):
-        <select id="solar-wavelength">
-          <option value="94">94 Å — Fe XVIII (≈6.3 MK, flaring corona)</option>
-          <option value="131">131 Å — Fe VIII/XXI (0.4–10 MK, flares & loops)</option>
-          <option value="171">171 Å — Fe IX (≈0.7 MK, quiet corona & loops)</option>
-          <option value="193">193 Å — Fe XII/XXIV (1.5–20 MK, corona & flares)</option>
-          <option value="211">211 Å — Fe XIV (≈2.0 MK, active regions)</option>
-          <option value="304">304 Å — He II (≈0.05 MK, chromosphere)</option>
-          <option value="335">335 Å — Fe XVI (≈2.5 MK, active regions)</option>
+        <select id="solar-wavelength" required style="margin:0.5em;">
+          <option value="94">94 Å — Green — ~6.3 MK (hot flaring plasma)</option>
+          <option value="131">131 Å — Teal — ~10 MK (flares) / ~0.4 MK (transition region)</option>
+          <option value="171">171 Å — Yellow — ~0.8 MK (quiet corona, loops)</option>
+          <option value="193">193 Å — Orange — ~1.5 MK (corona) / 20 MK (flares)</option>
+          <option value="211">211 Å — Purple — ~2.0 MK (active regions)</option>
+          <option value="304">304 Å — Red — ~0.05 MK (chromosphere, prominences)</option>
+          <option value="335">335 Å — Indigo — ~2.5 MK (active regions)</option>
         </select>
       </label>
+      <br><br>
       <div style="display:flex; flex-direction:column; gap:0.5rem;">
 
         <button id="generate-btn" style="width:200px;">Generate Preview</button>
@@ -43,6 +44,9 @@
         <button id="clearCacheBtn" style="width:200px;">Clear / Reset</button>
 
       </div>
+    </div>
+    <div id="progress-container" style="width:100%; background:#eee; height:12px; border-radius:6px; margin-top:1em;">
+      <div id="progress-bar" style="width:0%; height:100%; background:#4a90e2; border-radius:6px;"></div>
     </div>
     <div id="solar-status">Waiting for input…</div>
 

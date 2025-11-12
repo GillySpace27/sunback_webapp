@@ -971,11 +971,26 @@ def do_generate_sync(data):
         vmin = np.nanpercentile(rhef_data, 1)
         vmax = np.nanpercentile(rhef_data, 99.7)
         cmap = plt.get_cmap(f"sdoaia{wl}")
-        plt.figure(figsize=(10,10), dpi=300)
+        # Create figure object so we can make background fully transparent
+        fig = plt.figure(figsize=(10,10), dpi=300)
+        fig.patch.set_alpha(0)
+        ax = fig.gca()
+        ax.set_facecolor((0,0,0,0))
         plt.axis("off")
-        plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        # Construct per-pixel alpha mask for transparency (opaque for valid data, transparent for NaN)
+        alpha_mask = (~np.isnan(rhef_data)).astype(float)
+
+        plt.imshow(
+            rhef_data,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="none",
+            origin="lower",
+            alpha=alpha_mask
+        )
         plt.tight_layout(pad=0)
-        plt.savefig(hq_png, bbox_inches="tight", pad_inches=0)
+        plt.savefig(hq_png, bbox_inches="tight", pad_inches=0, transparent=True)
         plt.close()
         return {"png_url": png_url}
     except Exception as e:
