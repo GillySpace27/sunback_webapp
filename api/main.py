@@ -476,6 +476,7 @@ async def shopify_launch():
                 <img id="preview-img" src="" alt="Solar image preview">
                 <div class="meta" id="preview-meta"></div>
                 <button id="shopify-btn" class="action-btn">Open in Shopify Store</button>
+                <button id="printful-btn" class="action-btn">Upload to Printful</button>
             </div>
             <div class="footer">
                 Images courtesy of NASA/SDO or ESA/NASA SOHO. Not affiliated; no endorsement implied.
@@ -488,6 +489,8 @@ async def shopify_launch():
             const previewImg = document.getElementById('preview-img');
             const previewMeta = document.getElementById('preview-meta');
             const shopifyBtn = document.getElementById('shopify-btn');
+            const printfulBtn = document.getElementById('printful-btn');
+            printfulBtn.style.display = "none";
             let lastImageUrl = "";
             let lastMeta = "";
             form.addEventListener('submit', handleGenerate, { once: true });
@@ -509,6 +512,7 @@ async def shopify_launch():
                 lastMeta = "";
                 shopifyBtn.disabled = true;
                 shopifyBtn.textContent = "Open in Shopify Store";
+                printfulBtn.style.display = "none";
                 // Call /generate endpoint (POST for more reliable parsing)
                 try {
                     const payload = {
@@ -551,6 +555,7 @@ async def shopify_launch():
                         previewMeta.textContent = lastMeta;
                         previewSection.style.display = "flex";
                         shopifyBtn.disabled = false;
+                        printfulBtn.style.display = "inline-block";
                     } else {
                         alert("Could not generate image. Please try again.");
                     }
@@ -568,6 +573,32 @@ async def shopify_launch():
                 // Redirect to /redirect_to_shopify with image_url param
                 const params = new URLSearchParams({ image_url: lastImageUrl });
                 window.location.href = "/redirect_to_shopify?" + params.toString();
+            });
+            printfulBtn.addEventListener('click', async () => {
+              if (!lastImageUrl) {
+                alert("No image to upload.");
+                return;
+              }
+              printfulBtn.disabled = true;
+              printfulBtn.textContent = "Uploading...";
+              try {
+                const payload = { image_path: lastImageUrl.split('/').pop(), title: "Solar Archive Image" };
+                const res = await fetch('/upload_to_printful', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify(payload)
+                });
+                const result = await res.json();
+                if (res.ok) {
+                  alert("Upload successful! File ID: " + (result.file_id || "unknown"));
+                } else {
+                  alert("Upload failed: " + result.detail);
+                }
+              } catch (err) {
+                alert("Error uploading to Printful: " + err);
+              }
+              printfulBtn.disabled = false;
+              printfulBtn.textContent = "Upload to Printful";
             });
         </script>
     </body>
