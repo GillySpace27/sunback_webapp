@@ -936,9 +936,6 @@ def do_generate_sync(data):
         else:
             smap = fido_fetch_map(dt, "SDO", wl, "AIA")
 
-        smap.peek()
-        plt.show()
-
         # After obtaining smap, downsample to ~2048x2048 using block_reduce (nanmean)
         # Import block_reduce here
         from sunpy.map.sources.sdo import AIAMap
