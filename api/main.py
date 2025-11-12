@@ -165,25 +165,61 @@ import sys
 import threading
 
 app = FastAPI(title=APP_NAME)
+
+# ---------------------------------------------------------
+# CORS CONFIGURATION — fixes Shopify ↔ Render cross-origin
+# ---------------------------------------------------------
+from fastapi.middleware.cors import CORSMiddleware
+
+# Define allowed origins explicitly
+allowed_origins = [
+    # Public Shopify store
+    "https://solar-archive.myshopify.com",
+    # Render deployment domain
+    "https://solar-archive.onrender.com",
+    # Local testing
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+]
+
+# Remove any old middleware before re-adding
+# (avoids duplicate middleware layers if app reloads)
+for i, middleware in enumerate(app.user_middleware):
+    if middleware.cls.__name__ == "CORSMiddleware":
+        app.user_middleware.pop(i)
+        break
+
+# Add updated CORS policy
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*",
-        "https://solar-archive.myshopify.com",
-        "https://*.myshopify.com",
-        "https://shop.app",
-        "https://solar-archive.onrender.com",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-    ],
-    allow_origin_regex=r"https://[a-zA-Z0-9-]+\.myshopify\.com",
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
+
+print("[startup] CORS configured for:", allowed_origins)
+
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[
+#         "*",
+#         "https://solar-archive.myshopify.com",
+#         "https://*.myshopify.com",
+#         "https://shop.app",
+#         "https://solar-archive.onrender.com",
+#         "https://127.0.0.1:8000",
+#         "https://localhost:8000",
+#         "https://127.0.0.1:3000",
+#         "https://localhost:3000",
+#     ],
+#     allow_origin_regex=r"https://[a-zA-Z0-9-]+\.myshopify\.com",
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+#     expose_headers=["*"],
+# )
 
 
 # Serve /api/test_frontend.html and other frontend assets
@@ -191,7 +227,8 @@ app.add_middleware(
 
 from pathlib import Path
 app_dir = Path(__file__).parent
-app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
+# app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
+app.mount("/static", StaticFiles(directory=app_dir, html=True), name="static")
 
 
 
@@ -284,7 +321,7 @@ async def stream_logs(request: Request):
 
 
 import shutil
-@app.post("/clear_cache")
+@app.post("/api/clear_cache")
 async def clear_cache():
     try:
         shutil.rmtree("/tmp/output", ignore_errors=True)
@@ -598,7 +635,7 @@ def debug_vso():
             a.Instrument("AIA"),
             a.Wavelength(171 * u.angstrom),
             a.Source("SDO"),
-            a.Provider("VSO")
+
         )
         n_results = len(qr) if hasattr(qr, "__len__") else 0
         print(f"[status] VSO search: {n_results} results.", flush=True)
@@ -693,103 +730,103 @@ def choose_mission(dt: datetime) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Fido fetch helpers
 # ──────────────────────────────────────────────────────────────────────────────
-def manual_aiaprep(smap):
-    """
-    Manual replacement for aiaprep using aiapy calibration routines.
-    Performs:
-      1) update_pointing with a retrieved pointing table (if available),
-      2) register to common plate scale and north-up,
-      3) exposure normalization via EXPTIME.
-    Falls back gracefully if any step is unavailable.
-    """
-    # from sunpy.map import Map
-    from astropy import units as u
-    # aiapy calibrations
-    try:
-        from aiapy.calibrate import update_pointing, register
-        try:
-            from aiapy.calibrate import get_pointing  # preferred API
-        except Exception:
-            get_pointing = None
-    except Exception as e:
-        log_to_queue(f"[fetch] [AIA] aiapy.calibrate unavailable ({e}); skipping manual prep.")
-        return smap
-    # Try to obtain a pointing table in a version-agnostic way
-    pointing_table = None
-    if 'AIA' in str(smap.meta.get('instrume', smap.meta.get('instrument', ''))).upper():
-        # Best-effort retrieval of pointing table
-        if get_pointing is not None:
-            try:
-                # First try signature that accepts the Map directly
-                pointing_table = get_pointing(smap)
-            except TypeError:
-                # Fallback to passing a time (or small range) if required by the installed aiapy
-                try:
-                    from sunpy.time import parse_time
-                    t = getattr(smap, 'date', None)
-                    if t is None:
-                        t = parse_time(smap.meta.get('date-obs') or smap.meta.get('DATE-OBS'))
-                    # Some versions accept a single time, others expect a range; try single time first
-                    try:
-                        pointing_table = get_pointing(t)
-                    except Exception:
-                        # Final fallback: small window around the observation time
-                        from datetime import timedelta
-                        t0 = t - timedelta(minutes=10)
-                        t1 = t + timedelta(minutes=10)
-                        pointing_table = get_pointing(t0, t1)
-                except Exception as pt_err:
-                    log_to_queue(f"[fetch] [AIA] get_pointing fallback failed: {pt_err}")
-        else:
-            # Manual pointing alignment fallback if get_pointing is unavailable
-            try:
-                from sunpy.coordinates import frames
-                from sunpy.coordinates.ephemeris import get_body_heliographic_stonyhurst
-                import astropy.units as u
-                from astropy.coordinates import SkyCoord
-                import numpy as np
+# def manual_aiaprep(smap):
+#     """
+#     Manual replacement for aiaprep using aiapy calibration routines.
+#     Performs:
+#       1) update_pointing with a retrieved pointing table (if available),
+#       2) register to common plate scale and north-up,
+#       3) exposure normalization via EXPTIME.
+#     Falls back gracefully if any step is unavailable.
+#     """
+#     # from sunpy.map import Map
+#     from astropy import units as u
+#     # aiapy calibrations
+#     try:
+#         from aiapy.calibrate import update_pointing, register
+#         try:
+#             from aiapy.calibrate import get_pointing  # preferred API
+#         except Exception:
+#             get_pointing = None
+#     except Exception as e:
+#         log_to_queue(f"[fetch] [AIA] aiapy.calibrate unavailable ({e}); skipping manual prep.")
+#         return smap
+#     # Try to obtain a pointing table in a version-agnostic way
+#     pointing_table = None
+#     if 'AIA' in str(smap.meta.get('instrume', smap.meta.get('instrument', ''))).upper():
+#         # Best-effort retrieval of pointing table
+#         if get_pointing is not None:
+#             try:
+#                 # First try signature that accepts the Map directly
+#                 pointing_table = get_pointing(smap)
+#             except TypeError:
+#                 # Fallback to passing a time (or small range) if required by the installed aiapy
+#                 try:
+#                     from sunpy.time import parse_time
+#                     t = getattr(smap, 'date', None)
+#                     if t is None:
+#                         t = parse_time(smap.meta.get('date-obs') or smap.meta.get('DATE-OBS'))
+#                     # Some versions accept a single time, others expect a range; try single time first
+#                     try:
+#                         pointing_table = get_pointing(t)
+#                     except Exception:
+#                         # Final fallback: small window around the observation time
+#                         from datetime import timedelta
+#                         t0 = t - timedelta(minutes=10)
+#                         t1 = t + timedelta(minutes=10)
+#                         pointing_table = get_pointing(t0, t1)
+#                 except Exception as pt_err:
+#                     log_to_queue(f"[fetch] [AIA] get_pointing fallback failed: {pt_err}")
+#         else:
+#             # Manual pointing alignment fallback if get_pointing is unavailable
+#             try:
+#                 from sunpy.coordinates import frames
+#                 from sunpy.coordinates.ephemeris import get_body_heliographic_stonyhurst
+#                 import astropy.units as u
+#                 from astropy.coordinates import SkyCoord
+#                 import numpy as np
 
-                # Rough recentering on the solar disk using CRPIX and RSUN metadata
-                meta = smap.meta.copy()
-                rsun_obs = meta.get("rsun_obs")
-                crpix1, crpix2 = meta.get("crpix1"), meta.get("crpix2")
-                if rsun_obs and crpix1 and crpix2:
-                    # Estimate offset from center
-                    x_center, y_center = smap.data.shape[1] / 2, smap.data.shape[0] / 2
-                    shift_x = x_center - crpix1
-                    shift_y = y_center - crpix2
-                    shifted_data = np.roll(smap.data, int(round(shift_y)), axis=0)
-                    shifted_data = np.roll(shifted_data, int(round(shift_x)), axis=1)
-                    meta["crpix1"] = x_center
-                    meta["crpix2"] = y_center
-                    smap = Map(shifted_data, meta)
-                    # print("[fetch] [AIA] Performed rough manual recentering due to missing get_pointing().", flush=True)
-            except Exception as manual_err:
-                log_to_queue(f"[fetch] [AIA] Manual recentering failed: {manual_err}")
-    # Apply pointing update if we obtained a table
-    m = smap
-    try:
-        if pointing_table is not None:
-            m = update_pointing(smap, pointing_table=pointing_table)
-        else:
-            m = smap
-    except TypeError as te:
-        log_to_queue(f"[fetch] [AIA] update_pointing requires pointing_table on this aiapy version ({te}); skipping.")
-    except Exception as e:
-        log_to_queue(f"[fetch] [AIA] update_pointing failed: {e}; proceeding without.")
-    # Register (rotate to north-up, scale to 0.6 arcsec/pix, recenter)
-    try:
-        m = register(m)
-    except Exception as reg_err:
-        log_to_queue(f"[fetch] [AIA] register failed: {reg_err}; continuing with unregistered map.")
-    # Exposure normalization
-    try:
-        if hasattr(m, "exposure_time") and m.exposure_time is not None:
-            data_norm = m.data / m.exposure_time.to(u.s).value
-            m = Map(data_norm, m.meta)
-    except Exception as norm_err:
-        log_to_queue(f"[fetch] [AIA] Exposure normalization failed: {norm_err}")
-    return Map(m.data, m.meta)
+#                 # Rough recentering on the solar disk using CRPIX and RSUN metadata
+#                 meta = smap.meta.copy()
+#                 rsun_obs = meta.get("rsun_obs")
+#                 crpix1, crpix2 = meta.get("crpix1"), meta.get("crpix2")
+#                 if rsun_obs and crpix1 and crpix2:
+#                     # Estimate offset from center
+#                     x_center, y_center = smap.data.shape[1] / 2, smap.data.shape[0] / 2
+#                     shift_x = x_center - crpix1
+#                     shift_y = y_center - crpix2
+#                     shifted_data = np.roll(smap.data, int(round(shift_y)), axis=0)
+#                     shifted_data = np.roll(shifted_data, int(round(shift_x)), axis=1)
+#                     meta["crpix1"] = x_center
+#                     meta["crpix2"] = y_center
+#                     smap = Map(shifted_data, meta)
+#                     # print("[fetch] [AIA] Performed rough manual recentering due to missing get_pointing().", flush=True)
+#             except Exception as manual_err:
+#                 log_to_queue(f"[fetch] [AIA] Manual recentering failed: {manual_err}")
+#     # Apply pointing update if we obtained a table
+#     m = smap
+#     try:
+#         if pointing_table is not None:
+#             m = update_pointing(smap, pointing_table=pointing_table)
+#         else:
+#             m = smap
+#     except TypeError as te:
+#         log_to_queue(f"[fetch] [AIA] update_pointing requires pointing_table on this aiapy version ({te}); skipping.")
+#     except Exception as e:
+#         log_to_queue(f"[fetch] [AIA] update_pointing failed: {e}; proceeding without.")
+#     # Register (rotate to north-up, scale to 0.6 arcsec/pix, recenter)
+#     try:
+#         m = register(m)
+#     except Exception as reg_err:
+#         log_to_queue(f"[fetch] [AIA] register failed: {reg_err}; continuing with unregistered map.")
+#     # Exposure normalization
+#     try:
+#         if hasattr(m, "exposure_time") and m.exposure_time is not None:
+#             data_norm = m.data / m.exposure_time.to(u.s).value
+#             m = Map(data_norm, m.meta)
+#     except Exception as norm_err:
+#         log_to_queue(f"[fetch] [AIA] Exposure normalization failed: {norm_err}")
+#     return Map(m.data, m.meta)
 
 @app.get("/debug/list_output")
 async def list_output():
@@ -799,60 +836,117 @@ async def list_output():
     return {"output_dir": OUTPUT_DIR, "files": files}
 
 
-def aiaprep_new(smap):
-    """
-    Equivalent to aia_prep via aiapy: updates pointing, aligns to common plate scale,
-    and north-up registers the map.
+# def aiaprep_new(smap):
+#     """
+#     Equivalent to aia_prep via aiapy: updates pointing, aligns to common plate scale,
+#     and north-up registers the map.
 
-    Parameters
-    ----------
-    smap : sunpy.map.Map
-        Input level-1 (or earlier) AIA map.
+#     Parameters
+#     ----------
+#     smap : sunpy.map.Map
+#         Input level-1 (or earlier) AIA map.
 
-    Returns
-    -------
-    sunpy.map.Map
-        Calibrated/registered map (level-1.5 equivalent).
+#     Returns
+#     -------
+#     sunpy.map.Map
+#         Calibrated/registered map (level-1.5 equivalent).
+#     """
+#     from aiapy.calibrate.utils import get_pointing_table
+#     from aiapy.calibrate import update_pointing, register
+#     import astropy.units as u
+
+#     # Determine a time window to fetch pointing table: ±12h around observation time (as per docs example)
+#     obs_time = smap.date
+#     t0 = obs_time - 12 * u.hour
+#     t1 = obs_time + 12 * u.hour
+
+#     # Fetch pointing table
+#     pointing_table = get_pointing_table("JSOC", time_range=(t0, t1))
+
+#     # Update pointing metadata
+#     try:
+#         smap_updated = update_pointing(smap, pointing_table=pointing_table)
+#     except Exception as e:
+#         # Fallback: if update_pointing fails, log and use original map
+#         log_to_queue(f"[fetch][warn] update_pointing failed: {e}")
+#         smap_updated = smap
+
+#     # Register (rescale, derotate, north-up) to common grid
+#     try:
+#         smap_registered = register(smap_updated)
+#     except Exception as e:
+#         log_to_queue(f"[fetch][warn] register failed: {e}; returning unregistered map")
+#         smap_registered = smap_updated
+
+#     # Normalize exposure time if available
+#     try:
+#         exptime = smap_registered.meta.get("exptime")
+#         if exptime is not None:
+#             norm_data = smap_registered.data.astype(float) / float(exptime)
+#             from sunpy.map import Map as SunpyMap
+#             smap_registered = SunpyMap(norm_data, smap_registered.meta)
+#     except Exception as e:
+#         log_to_queue(f"[fetch][warn] exposure normalization failed: {e}")
+
+#     return smap_registered
+
+
+from aiapy.calibrate import register, update_pointing
+
+def normalize_exposure(m):
     """
-    from aiapy.calibrate.utils import get_pointing_table
-    from aiapy.calibrate import update_pointing, register
+    Safe fallback for exposure normalization.
+    Divides by 'exptime' if present in metadata.
+    """
     import astropy.units as u
-
-    # Determine a time window to fetch pointing table: ±12h around observation time (as per docs example)
-    obs_time = smap.date
-    t0 = obs_time - 12 * u.hour
-    t1 = obs_time + 12 * u.hour
-
-    # Fetch pointing table
-    pointing_table = get_pointing_table("JSOC", time_range=(t0, t1))
-
-    # Update pointing metadata
+    from sunpy.map import Map
     try:
-        smap_updated = update_pointing(smap, pointing_table=pointing_table)
+        exptime = m.meta.get("exptime") or m.meta.get("EXPTIME")
+        if exptime:
+            data = m.data / float(exptime)
+            return Map(data, m.meta)
     except Exception as e:
-        # Fallback: if update_pointing fails, log and use original map
-        log_to_queue(f"[fetch][warn] update_pointing failed: {e}")
-        smap_updated = smap
+        print(f"[aiapy][warn] normalize_exposure fallback failed: {e}")
+    return m
 
-    # Register (rescale, derotate, north-up) to common grid
+def manual_aiaprep(m):
+    """
+    Modern aiapy-based AIA calibration pipeline using the current aiapy interface:
+      - Retrieves pointing table from JSOC (±12h window) via aiapy.calibrate.get_pointing_table
+      - Updates pointing metadata
+      - Registers image to a common reference frame
+      - Normalizes exposure
+    """
+    from aiapy.calibrate import update_pointing, register, get_pointing_table
+    import astropy.units as u
+    from datetime import timedelta
+    from sunpy.map import Map
+
     try:
-        smap_registered = register(smap_updated)
+        # Define a ±12-hour window around observation time
+        t0 = m.date - 12 * u.hour
+        t1 = m.date + 12 * u.hour
+        log_to_queue(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
+        pointing_table = get_pointing_table("JSOC", time_range=(t0, t1))
+        log_to_queue(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
+
+        # Update pointing metadata using the retrieved table
+        m = update_pointing(m, pointing_table=pointing_table)
+        log_to_queue("[fetch][AIA] Pointing metadata updated.")
+
+        # Register to standard AIA scale (0.6 arcsec/pixel) and north-up orientation
+        m = register(m)
+        log_to_queue("[fetch][AIA] Image registered to common scale and orientation.")
+
+        # Normalize exposure safely
+        m = normalize_exposure(m)
+        log_to_queue("[fetch][AIA] Exposure normalized successfully.")
+
+        return m
+
     except Exception as e:
-        log_to_queue(f"[fetch][warn] register failed: {e}; returning unregistered map")
-        smap_registered = smap_updated
-
-    # Normalize exposure time if available
-    try:
-        exptime = smap_registered.meta.get("exptime")
-        if exptime is not None:
-            norm_data = smap_registered.data.astype(float) / float(exptime)
-            from sunpy.map import Map as SunpyMap
-            smap_registered = SunpyMap(norm_data, smap_registered.meta)
-    except Exception as e:
-        log_to_queue(f"[fetch][warn] exposure normalization failed: {e}")
-
-    return smap_registered
-
+        log_to_queue(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
+        return m
 
 
 def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
@@ -907,7 +1001,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             a.Instrument("AIA"),
             a.Source("SDO"),
             a.Wavelength(wl * u.angstrom),
-            a.Provider("VSO")
+
         )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
@@ -916,7 +1010,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 a.Instrument("AIA"),
                 a.Source("SDO"),
                 a.Wavelength(wl * u.angstrom),
-                a.Provider("VSO")
+
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±10min. No fallback available.")
@@ -943,7 +1037,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 try:
                     m_prep = None
                     try:
-                        m_prep = aiaprep_new(m)
+                        m_prep = manual_aiaprep(m)
                     except Exception as e:
                         log_to_queue(f"[fetch][warn] aiapy prep failed for {os.path.basename(f)}: {e}")
                         m_prep = m
@@ -951,6 +1045,12 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 except Exception as e:
                     log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
                     maps.append(m)
+
+            # Ensure all maps have consistent shapes and WCS before stacking (SKIPPED: see log)
+            if maps:
+                ref_shape = maps[0].data.shape
+                log_to_queue(f"[fetch][align] Skipping resample — assuming consistent {ref_shape} frames.")
+
             ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
             for i, m in enumerate(maps):
                 if ref_wcs is not None and hasattr(m, "wcs"):
@@ -1122,62 +1222,115 @@ def soho_eit_fallback(dt: datetime) -> Map:
 def default_filter(smap: Map) -> Map:
     import sys
     import contextlib
+    import numpy as _np
+    import time as _time
+    from sunpy.map import Map as _SunpyMap
+    from astropy.nddata import block_reduce as _block_reduce
+    from astropy import units as _u
 
-    # Local context manager to adapt tqdm/rhef carriage returns to newlines for streaming
+    # Local context manager: ensure tqdm carriage returns reach the SSE stream
     @contextlib.contextmanager
     def tqdm_stream_adapter():
-        class CarriageReturnToNewline:
-            def __init__(self, orig_stream):
-                self.orig_stream = orig_stream
+        class _CR2NL:
+            def __init__(self, stream):
+                self._s = stream
             def write(self, data):
-                # Replace '\r' with '\n' so tqdm progress updates stream properly
-                data = data.replace('\r', '\n')
-                self.orig_stream.write(data)
-                self.orig_stream.flush()
+                data = data.replace("\r", "\n")
+                self._s.write(data)
+                self._s.flush()
             def flush(self):
-                self.orig_stream.flush()
+                self._s.flush()
             def isatty(self):
                 return False
-
-        orig_stdout, orig_stderr = sys.stdout, sys.stderr
-        adapter = CarriageReturnToNewline(orig_stdout)
+        _orig_out, _orig_err = sys.stdout, sys.stderr
+        adapter = _CR2NL(_orig_out)
         sys.stdout = adapter
         sys.stderr = adapter
         try:
             yield
         finally:
-            sys.stdout = orig_stdout
-            sys.stderr = orig_stderr
+            sys.stdout = _orig_out
+            sys.stderr = _orig_err
 
+    t0 = _time.time()
     try:
-        with tqdm_stream_adapter():
+        # ── 1) Prepare data safely for RHEF ────────────────────────────────────
+        data = _np.array(smap.data, dtype=_np.float32, copy=True)
+        # Mask obvious bads
+        data[~_np.isfinite(data)] = _np.nan
+        # Avoid negative / zeros that can destabilize ranks in deep background
+        data[data <= 0] = _np.nan
+
+        # Choose downsample factor (env override: RHEF_BLOCK=1/2/4)
+        try:
+            block_size = int(os.environ.get("RHEF_BLOCK", "2"))
+            if block_size not in (1, 2, 4, 8):
+                block_size = 2
+        except Exception:
             block_size = 2
-            from astropy.nddata import block_reduce
-            import sunpy
-            log_to_queue("[render] Performing RHE...")
-            header = smap.meta
-            header['CRPIX1'] /= block_size
-            header['CRPIX2'] /= block_size
-            header['CDELT1'] *= block_size
-            header['CDELT2'] *= block_size
-            reduced_data = block_reduce(smap.data.astype(np.float32), block_size=block_size, func=np.nanmean)
-            sunpy_map = sunpy.map.Map(reduced_data, header)
-            # filtered_sample = rhef(sunpy_map, progress=True, method=rankdata_ignore_nan)
-            filtered = rhef(sunpy_map, progress=False, vignette=1.51 * u.R_sun)
+
+        # Skip downsample if already small
+        H, W = data.shape[:2]
+        if max(H, W) <= 2048:
+            block_size = min(block_size, 1)
+
+        # Copy meta so we don't mutate the original
+        header = smap.meta.copy()
+
+        if block_size > 1:
+            log_to_queue(f"[render] Performing RHEF (downsample x{block_size})...")
+            # Adjust WCS for reduced sampling
+            for key in ("CRPIX1", "CRPIX2", "crpix1", "crpix2"):
+                if key in header:
+                    header[key] = header[key] / block_size
+            for key in ("CDELT1", "CDELT2", "cdelt1", "cdelt2"):
+                if key in header:
+                    header[key] = header[key] * block_size
+            # Reduce with NaN-aware average
+            data = _block_reduce(data, (block_size, block_size), func=_np.nanmean)
+        else:
+            log_to_queue("[render] Performing RHEF at native sampling...")
+
+        prep_map = _SunpyMap(data, header)
+
+        # ── 2) Run RHEF ───────────────────────────────────────────────────────
+        with tqdm_stream_adapter():
+            t1 = _time.time()
+            filtered = rhef(
+                prep_map,
+                progress=True,               # show tqdm into the SSE stream
+                vignette=1.51 * _u.R_sun     # robust limb vignette
+            )
+            t2 = _time.time()
+        # Ensure we always return a Map
+        # from sunpy.map import Map
+        if not isinstance(filtered, _SunpyMap):
+            filtered = _SunpyMap(_np.asarray(filtered, dtype=_np.float32), header)
+
+        # Clean any residual infs/nans
+        arr = _np.array(filtered.data, dtype=_np.float32, copy=True)
+        arr[~_np.isfinite(arr)] = _np.nan
+        filtered = _SunpyMap(arr, filtered.meta)
+
+        log_to_queue(f"[render] RHEF complete in {t2 - t1:.2f}s (total {t2 - t0:.2f}s); shape={arr.shape}")
         return filtered
+
     except Exception as e:
+        # Detailed traceback to logs, but keep service alive with a graceful fallback
         import traceback
         log_to_queue("[render] RHEF filter failed with exception:")
         traceback.print_exc()
-        log_to_queue(f"[render] RHEF filter failed: {e}. Using asinh stretch.")
-        arr = smap.data.astype(float)
-        arr[~np.isfinite(arr)] = np.nan
-        # Return a Map object for consistency
-        from sunpy.map import Map as SunpyMap
-        asinh_map = SunpyMap(np.arcsinh(arr), smap.meta)
-        # Mark that fallback was used via a custom attribute
-        asinh_map.meta["rhef_failed"] = True
-        return asinh_map
+        log_to_queue(f"[render] RHEF failed ({e}); falling back to asinh stretch.")
+        arr = _np.array(smap.data, dtype=_np.float32, copy=True)
+        arr[~_np.isfinite(arr)] = _np.nan
+        # Asinh stretch is robust to a wide dynamic range
+        arr = _np.arcsinh(arr)
+        fallback_map = _SunpyMap(arr, smap.meta.copy())
+        try:
+            fallback_map.meta["rhef_failed"] = True
+        except Exception:
+            pass
+        return fallback_map
 
 def map_to_png(
     smap: Map,
@@ -1454,9 +1607,15 @@ def printful_create_order(file_id: int, title: str, recipient_info: Optional[dic
 # ──────────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ──────────────────────────────────────────────────────────────────────────────
-@app.get("/status")
-def status():
-    return {"ok": True, "app": APP_NAME}
+
+
+
+
+@app.get("/api/status")
+async def status(job_id: Optional[str] = None):
+    if job_id and job_id in task_registry:
+        return task_registry[job_id]
+    return {"status": "idle", "app": APP_NAME}
 
 @app.get("/asset/{filename}")
 def get_local_asset(filename: str):
@@ -1512,7 +1671,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
         if mission.upper() == "SDO":
             wl = wavelength * u.angstrom
             log_to_queue(f"[preview] Using VSO quicklook fetch for SDO/AIA {wl}")
-            qr = client.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl), a.Provider("VSO"))
+            qr = client.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl), )
             if len(qr) == 0:
                 raise ValueError("No VSO AIA results found.")
         elif mission.upper() == "SOHO-EIT":
@@ -1547,10 +1706,6 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
             raise HTTPException(status_code=502, detail=f"Quicklook fetch failed: {e}; fallback failed: {fb_err}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helioviewer JPEG2000 Preview Helper
-# ──────────────────────────────────────────────────────────────────────────────
-
 
 
 @app.options("/shopify/preview")
@@ -1558,141 +1713,99 @@ async def shopify_preview_options():
     # CORS preflight for Shopify preview endpoint
     return JSONResponse({}, headers=CORS_HEADERS)
 
-@app.post("/shopify/preview")
-async def shopify_preview(req: PreviewRequest):
+
+# ──────────────────────────────────────────────────────────────────────────────
+# New endpoints for Preview / HQ Render / Printful Upload
+# ──────────────────────────────────────────────────────────────────────────────
+
+from fastapi import BackgroundTasks
+
+@app.post("/api/generate_preview")
+async def generate_preview(request: Request):
     """
-    Shopify preview endpoint: calls the same logic as /preview for consistent results.
-    Returns JSON: {"preview_url": ...} and correct CORS headers.
+    Generate a single-frame RHEF preview for quick visualization.
     """
     try:
-        # Parse request
-        date_str = req.date
-        wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        mission = (req.mission or choose_mission(dt)).upper()
-        # 1) Fetch a quicklook FITS via VSO
-        fits_path = fetch_quicklook_fits(mission, date_str, wavelength)
-        # 2) Build a SunPy Map, with light prep for AIA
+        payload = await request.json()
+        date = payload.get("date")
+        wavelength = int(payload.get("wavelength", 211))
+        mission = payload.get("mission", "SDO")
+
+        log_to_queue(f"[preview] Request for {mission} {wavelength}Å on {date}")
+        fits_path = fetch_quicklook_fits(mission, date, wavelength)
         smap = Map(fits_path)
-        try:
-            if "AIA" in (smap.meta.get("instrume", "") + smap.meta.get("instrument", "")).upper():
-                smap = manual_aiaprep(smap)
-        except Exception as e:
-            log_to_queue(f"[preview] manual_aiaprep failed: {e}; proceeding without.")
-        # 3) Render a small preview PNG
-        fname = f"preview_{mission}_{wavelength}_{dt.strftime('%Y-%m-%d')}.png".replace(' ', '_').replace('/', '-')
-        out_png = os.path.join(OUTPUT_DIR, fname)
-        map_to_png(smap, out_png, annotate=False, dpi=150, size_inches=6.0, dolog=False)
-        # 4) Build asset URL
-        base = ASSET_BASE_URL.rstrip('/')
-        if not base.endswith('asset'):
-            preview_url = f"{base}/asset/{os.path.basename(out_png)}"
-        else:
-            preview_url = f"{base}/{os.path.basename(out_png)}"
-        log_to_queue(f"[preview] Using VSO quicklook fetch: {out_png}")
-        return JSONResponse({"preview_url": preview_url}, headers=CORS_HEADERS)
-    except HTTPException:
-        raise
-    except Exception as e:
-        log_to_queue(f"[preview] Error creating preview: {e}")
-        raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
+        filtered = default_filter(smap)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# HQ PNG Generation Endpoint
-# ──────────────────────────────────────────────────────────────────────────────
+        filename = f"preview_{mission}_{wavelength}_{date}.png"
+        file_info = local_path_and_url(filename)
+        map_to_png(filtered, file_info["path"], annotate=True, dpi=150, size_inches=6, dolog=True)
 
-
-# Background HQ render function for /generate
-async def run_hq_render(task_id, req: GenerateRequest):
-    date_str = req.date
-    wavelength = int(req.wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
-    try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        mission = (req.mission or choose_mission(dt)).upper()
-        log_to_queue(f"[generate][task:{task_id}] Starting HQ render for {mission} {wavelength}Å on {date_str}")
-        task_registry[task_id] = {"status": "fetching", "progress": "Fetching FITS data", "result": None}
-        # Fetch full-resolution FITS from JSOC/Fido
-        smap = await asyncio.to_thread(fido_fetch_map, dt, mission, wavelength, req.detector)
-        task_registry[task_id] = {"status": "filtering", "progress": "Applying filter", "result": None}
-        # Apply the full-quality RHEF filter (no downsampling)
-        filtered = await asyncio.to_thread(default_filter, smap)
-        log_to_queue(f"[generate][task:{task_id}] Using native resolution: {filtered.data.shape}")
-        # Output file path
-        fname = f"hq_{mission}_{wavelength}_{dt.strftime('%Y-%m-%d')}.png".replace(' ', '_').replace('/', '-')
-        out_png = os.path.join(OUTPUT_DIR, fname)
-        task_registry[task_id] = {"status": "rendering", "progress": "Rendering PNG", "result": None}
-        # Save HQ PNG at full 4K equivalent resolution (13.6 inches * 300 dpi ≈ 4080 px)
-        await asyncio.to_thread(
-            map_to_png,
-            filtered,
-            out_png,
-            req.annotate,
-            300,
-            13.6,
-            False
-        )
-        base = ASSET_BASE_URL.rstrip('/')
-        if not base.endswith('asset'):
-            png_url = f"{base}/asset/{os.path.basename(out_png)}"
-        else:
-            png_url = f"{base}/{os.path.basename(out_png)}"
-        log_to_queue(f"[generate][task:{task_id}] HQ proof generated at full resolution: {out_png}")
-        log_to_queue(f"[generate][task:{task_id}] HQ proof generated at full resolution: {png_url}")
+        task_id = str(uuid.uuid4())
         task_registry[task_id] = {
-            "status": "done",
-            "progress": "Completed",
-            "result": {"png_url": png_url},
-        }
-    except Exception as e:
-        import traceback
-        log_to_queue(f"[generate][task:{task_id}] Error: {e}")
-        traceback.print_exc()
-        task_registry[task_id] = {
-            "status": "error",
-            "progress": "Failed",
-            "result": {"error": str(e)},
+            "status": "complete",
+            "image_url": file_info["url"]
         }
 
-
-# Robust /generate endpoint for polling tasks
-@app.post("/generate")
-async def generate(req: GenerateRequest):
-    # Generate a unique task ID
-    task_id = str(uuid.uuid4())
-    # Register initial state
-    task_registry[task_id] = {"state": "queued", "progress": "Queued for processing", "result": None}
-    # Launch background render
-    asyncio.create_task(run_hq_render(task_id, req))
-    return JSONResponse({"task_id": task_id, "state": "queued"}, headers=CORS_HEADERS)
-
-# Polling endpoint for task status/result
-@app.options("/status/{task_id}")
-async def status_options(task_id: str):
-    return JSONResponse({}, headers=CORS_HEADERS)
-
-@app.get("/status/{task_id}")
-async def get_task_status(task_id: str):
-    """Return the current state of a given HQ render task."""
-    task = task_registry.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Not Found")
-    # Normalize output fields for frontend consistency
-    state = task.get("status") or task.get("state", "unknown")
-    progress = task.get("progress", "")
-    result = task.get("result", {})
-    png_url = None
-    if isinstance(result, dict):
-        png_url = result.get("png_url")
-    return JSONResponse(
-        {
+        return JSONResponse({
+            "status": "complete",
+            "image_url": file_info["url"],
             "task_id": task_id,
-            "state": state,
-            "progress": progress,
-            "png_url": png_url
-        },
-        headers=CORS_HEADERS
-    )
+            "status_url": f"/status/{task_id}"
+        })
+    except Exception as e:
+        log_to_queue(f"[preview][error] {e}")
+        raise HTTPException(status_code=500, detail=f"Preview generation failed: {e}")
 
-# @app.head("/")
-# async def head_root():
-#     return Response(status_code=200)
+    from fastapi import Body
+
+@app.post("/api/generate")
+async def generate(request: Request):
+    """
+    Handle solar image generation.
+    Accepts JSON with 'date', 'wavelength', 'preview', 'upload_to_printful', etc.
+    """
+    data = await request.json()
+    date = data.get("date")
+    wavelength = data.get("wavelength")
+    preview = data.get("preview", True)
+    upload_to_printful = data.get("upload_to_printful", False)
+
+    # for now, just simulate a success response
+    print(f"[generate] date={date}, wl={wavelength}, preview={preview}, upload={upload_to_printful}")
+
+    # return mock status URL for pollStatus
+    return {
+        "status_url": f"/api/status/{uuid.uuid4()}",
+        "message": "Mock generation started"
+    }
+
+from fastapi import Request
+
+# /api/generate_preview remains above /api/generate
+
+@app.post("/generate")
+async def generate(request: Request):
+    data = await request.json()
+    date = data.get("date")
+    wavelength = data.get("wavelength")
+    preview = data.get("preview")
+    upload_to_printful = data.get("upload_to_printful")
+
+    log_to_queue(f"[api/generate] date={date}, wavelength={wavelength}, preview={preview}, upload_to_printful={upload_to_printful}")
+
+    # Generate a unique job_id
+    job_id = str(uuid.uuid4())
+    task_registry[job_id] = {
+        "status": "processing",
+        "image_url": None
+    }
+
+    # Simulate short async "processing"
+    async def do_fake_work():
+        await asyncio.sleep(2)
+        task_registry[job_id]["status"] = "complete"
+        task_registry[job_id]["image_url"] = f"/asset/mock_{date}_{wavelength}.png"
+
+    asyncio.create_task(do_fake_work())
+
+    return {"status_url": f"/api/status?job_id={job_id}", "status": "processing"}

@@ -112,7 +112,7 @@
 </div>
 
 <script>
-const API_BASE = "https://solar-archive.onrender.com";
+const API_BASE = window.location.origin;
 const previewImg = document.getElementById("solar-image");
 const statusBox = document.getElementById("solar-status");
 const generateBtn = document.getElementById("generate-btn");
@@ -128,7 +128,7 @@ generateBtn.onclick = async () => {
   try {
     // Step 1: fetch preview
     const payload = { date, wavelength: parseInt(wavelength), mission: "SDO", annotate: false };
-    const res = await fetch(`${API_BASE}/shopify/preview`, {
+    const res = await fetch(`${API_BASE}/api/generate_preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -145,7 +145,7 @@ generateBtn.onclick = async () => {
 
     // Step 2: generate HQ image
 statusBox.textContent = "Rendering HQ proof... (this may take a minute)";
-const hqRes = await fetch(`${API_BASE}/generate`, {
+const hqRes = await fetch(`${API_BASE}/api/generate`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -171,7 +171,7 @@ else if (hqData.task_id) {
   // Poll every 5 seconds until image is ready
   for (let i = 0; i < 40; i++) { // up to ~3 minutes max
     await new Promise(r => setTimeout(r, 5000));
-    const check = await fetch(`${API_BASE}/status/${taskId}`);
+    const check = await fetch(`${API_BASE}/api/status?job_id=${taskId}`);
     const statusData = await check.json();
     console.log("[poll]", statusData);
     if (statusData.png_url) {
@@ -193,7 +193,7 @@ function showHQImage(url) {
 }
 
     // Step 3: upload to Printful
-    const upload = await fetch(`${API_BASE}/upload_to_printful`, {
+    const upload = await fetch(`${API_BASE}/api/upload_to_printful`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
