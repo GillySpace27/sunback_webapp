@@ -49,20 +49,19 @@ class PreviewRequest(BaseModel):
     mission: str | None = "SDO"
     annotate: bool | None = False
 
-# ──────────────────────────────────────────────────────────────────────────────
+
+# Global CORS headers for asset endpoints etc.
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+}
 # Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
 # This should run before any SunPy config or network code.
 # ──────────────────────────────────────────────────────────────────────────────
 # Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
 # This should run before any SunPy config or network code.
 
-# CORS headers for all responses
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "https://solar-archive.myshopify.com",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
-    "Access-Control-Allow-Credentials": "true",
-}
 
 # SSL/certifi setup (single block)
 import certifi
@@ -127,6 +126,10 @@ def fetch_sync_safe(query):
 APP_NAME = "Solar Archive Backend"
 OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
 
+# Preview subdirectory for all preview-related output
+PREVIEW_DIR = os.path.join(OUTPUT_DIR, "preview")
+os.makedirs(PREVIEW_DIR, exist_ok=True)
+
 if os.getenv("RENDER"):
     os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com/"
 else:
@@ -136,6 +139,7 @@ ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base
 print(f"{ASSET_BASE_URL = }")
 print(f"{OUTPUT_DIR = }")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(PREVIEW_DIR, exist_ok=True)
 
 # Printful
 PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", None)
@@ -165,6 +169,27 @@ import sys
 import threading
 
 app = FastAPI(title=APP_NAME)
+
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+from fastapi.staticfiles import StaticFiles
+# Serve all static files (HTML, JS, CSS) from /api/
+app.mount("/api/static", StaticFiles(directory="api"), name="static")
+
+from fastapi.responses import FileResponse
+# Main asset mount: serves HQ/full-res images from OUTPUT_DIR (not including preview subdir)
+app.mount("/asset", StaticFiles(directory=OUTPUT_DIR), name="asset")
+# New: serve preview images from the preview subfolder
+app.mount("/asset/preview", StaticFiles(directory=PREVIEW_DIR), name="asset_preview")
+
+@app.get("/api/test_frontend.html")
+async def serve_test_frontend():
+    """Serve the test_frontend.html page."""
+    return FileResponse(os.path.join("api", "test_frontend.html"))
+
 
 # ---------------------------------------------------------
 # CORS CONFIGURATION — fixes Shopify ↔ Render cross-origin
@@ -201,25 +226,98 @@ app.add_middleware(
 print("[startup] CORS configured for:", allowed_origins)
 
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=[
-#         "*",
-#         "https://solar-archive.myshopify.com",
-#         "https://*.myshopify.com",
-#         "https://shop.app",
-#         "https://solar-archive.onrender.com",
-#         "https://127.0.0.1:8000",
-#         "https://localhost:8000",
-#         "https://127.0.0.1:3000",
-#         "https://localhost:3000",
-#     ],
-#     allow_origin_regex=r"https://[a-zA-Z0-9-]+\.myshopify\.com",
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-#     expose_headers=["*"],
-# )
+# ──────────────────────────────────────────────────────────────────────────────
+# /api/generate_preview — fast preview: single FITS, log10, color, no filtering
+# ──────────────────────────────────────────────────────────────────────────────
+from fastapi import Body
+@app.post("/api/generate_preview")
+async def generate_preview(req: PreviewRequest = Body(...)):
+    """
+    Fast preview: fetch only first FITS, quick log10 stretch, color, PNG.
+    Returns: {"preview_url": "/asset/preview/preview_SDO_<wl>_<date>.png"}
+    """
+    try:
+        # Parse date/wavelength
+        dt = datetime.strptime(req.date, "%Y-%m-%d")
+        wl = int(req.wavelength)
+        date_str = dt.strftime("%Y%m%d")
+        out_path = os.path.join(PREVIEW_DIR, f"preview_SDO_{wl}_{date_str}.png")
+        url_path = f"/asset/preview/preview_SDO_{wl}_{date_str}.png"
+        # If already exists, return immediately
+        if os.path.exists(out_path):
+            return {"preview_url": url_path}
+        # Download only first FITS frame
+        from sunpy.net import Fido, attrs as a
+        import astropy.units as u
+        qr = Fido.search(
+            a.Time(dt - timedelta(minutes=1), dt + timedelta(minutes=1)),
+            a.Instrument("AIA"),
+            a.Source("SDO"),
+            a.Wavelength(wl * u.angstrom),
+        )
+        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+            qr = Fido.search(
+                a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
+                a.Instrument("AIA"),
+                a.Source("SDO"),
+                a.Wavelength(wl * u.angstrom),
+            )
+        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+            raise HTTPException(status_code=404, detail="No AIA data for this date/wavelength")
+        from parfive import Downloader
+        dl = Downloader(max_conn=4, progress=False, overwrite=False)
+        target_dir = os.environ["SUNPY_DOWNLOADDIR"]
+        files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
+        if not files or len(files) == 0:
+            raise HTTPException(status_code=502, detail="No FITS files fetched")
+        fits_path = str(files[0])
+        # Optionally: copy or link preview FITS to preview_dir (if needed in future)
+        # preview_fits_path = os.path.join(PREVIEW_DIR, f"preview_SDO_{wl}_{date_str}.fits")
+        # shutil.copy2(fits_path, preview_fits_path)
+        # Load Map, skip filtering, just log10 + color
+        from sunpy.map import Map
+        import numpy as np
+        import matplotlib.pyplot as plt
+        smap = Map(fits_path)
+        data = np.array(smap.data, dtype=np.float32)
+        data[data <= 0] = np.nan
+        img = np.log10(data)
+        vmin = np.nanpercentile(img, 1)
+        vmax = np.nanpercentile(img, 99.7)
+        cmap = plt.get_cmap(f"sdoaia{wl}")
+        plt.figure(figsize=(8,8), dpi=100)
+        plt.axis("off")
+        plt.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        plt.tight_layout(pad=0)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)  # <--- ADD THIS
+        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+        plt.close()
+
+        # Ensure file is written and visible before returning
+        import time
+        for _ in range(50):
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+                break
+            time.sleep(0.05)
+
+        return {"preview_url": url_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
+
+
+
+from api import printful_routes
+app.include_router(printful_routes.router, prefix="/api")
+# --- Alias endpoint: /api/status/{job_id} ---
+@app.get("/api/status/{job_id}")
+async def get_status_by_path(job_id: str):
+    """
+    Convenience alias for /api/status?job_id={job_id}.
+    """
+    if job_id in task_registry:
+        return task_registry[job_id]
+    raise HTTPException(status_code=404, detail="Job not found")
+
 
 
 # Serve /api/test_frontend.html and other frontend assets
@@ -749,6 +847,83 @@ class GenerateRequest(BaseModel):
     title: Optional[str] = None
 
 # ──────────────────────────────────────────────────────────────────────────────
+# /api/generate — HQ render: use combined cache if exists, else fetch; apply RHEF, save PNG, return URL
+# ──────────────────────────────────────────────────────────────────────────────
+# ----------------------------
+# /api/generate — HQ render in background thread for responsiveness
+# ----------------------------
+from concurrent.futures import ThreadPoolExecutor
+executor = ThreadPoolExecutor(max_workers=2)
+
+def do_generate_sync(data):
+    """
+    Synchronous logic for HQ PNG generation.
+    """
+    try:
+        req = GenerateRequest(**data)
+        dt = datetime.strptime(req.date, "%Y-%m-%d")
+        wl = int(req.wavelength or 171)
+        date_str = dt.strftime("%Y%m%d")
+        combined_npz = os.path.join(OUTPUT_DIR, f"temp_combined_SDO_{wl}_{date_str}.npz")
+        hq_png = os.path.join(OUTPUT_DIR, f"hq_SDO_{wl}_{date_str}.png")
+        png_url = f"/asset/hq_SDO_{wl}_{date_str}.png"
+        # Remove any low-res FITS files (e.g., from preview downloads) before proceeding
+        import glob
+        from astropy.io import fits
+        for f in glob.glob(os.path.join(OUTPUT_DIR, "*.fits")):
+            try:
+                with fits.open(f) as hdul:
+                    shape = hdul[0].data.shape
+                if shape[0] < 2000:
+                    os.remove(f)
+                    log_to_queue(f"[fetch][cleanup] Removed low-res FITS {f}")
+            except Exception:
+                continue
+        # If PNG already exists, return immediately
+        if os.path.exists(hq_png):
+            return {"png_url": png_url}
+        # Try to load combined cache if available
+        from sunpy.map import Map
+        import numpy as np
+        smap = None
+        if os.path.exists(combined_npz):
+            with np.load(combined_npz, allow_pickle=True) as npz:
+                combined_data = npz["data"]
+                combined_meta = npz["meta"].item()
+            smap = Map(combined_data, combined_meta)
+        else:
+            # Fetch and combine via fido_fetch_map (which will cache)
+            smap = fido_fetch_map(dt, "SDO", wl, "AIA")
+        # Apply RHEF filtering
+        from sunkit_image import radial
+        data = np.array(smap.data, dtype=np.float32)
+        data[data <= 0] = np.nan
+        rhef_data = radial.rhef(data)
+        # Save PNG with color table
+        import matplotlib.pyplot as plt
+        vmin = np.nanpercentile(rhef_data, 1)
+        vmax = np.nanpercentile(rhef_data, 99.7)
+        cmap = plt.get_cmap(f"sdoaia{wl}")
+        plt.figure(figsize=(10,10), dpi=300)
+        plt.axis("off")
+        plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        plt.tight_layout(pad=0)
+        plt.savefig(hq_png, bbox_inches="tight", pad_inches=0)
+        plt.close()
+        return {"png_url": png_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HQ render failed: {e}")
+
+
+@app.post("/api/generate")
+async def generate(request: Request):
+    """
+    Handle HQ render asynchronously so preview serving remains responsive.
+    """
+    data = await request.json()
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(executor, lambda: do_generate_sync(data))
+    return result
 # Utility: pick mission by date
 # ──────────────────────────────────────────────────────────────────────────────
 def choose_mission(dt: datetime) -> str:
@@ -922,7 +1097,16 @@ async def list_output():
 #     return smap_registered
 
 
-from aiapy.calibrate import register, update_pointing
+
+# --- Safe aiapy calibration import (handles version differences gracefully) ---
+try:
+    from aiapy.calibrate import register, update_pointing, correct_degradation, get_pointing_table
+except ImportError:
+    from aiapy.calibrate import register, update_pointing, correct_degradation
+    try:
+        from aiapy.calibrate.util import get_correction_table as get_pointing_table
+    except ImportError:
+        get_pointing_table = None
 
 def normalize_exposure(m):
     """
@@ -940,43 +1124,57 @@ def normalize_exposure(m):
         print(f"[aiapy][warn] normalize_exposure fallback failed: {e}")
     return m
 
-def manual_aiaprep(m):
+def manual_aiaprep(m, logger=print):
     """
     Modern aiapy-based AIA calibration pipeline using the current aiapy interface:
       - Retrieves pointing table from JSOC (±12h window) via aiapy.calibrate.get_pointing_table
-      - Updates pointing metadata
+      - Updates pointing metadata (if possible)
       - Registers image to a common reference frame
       - Normalizes exposure
+    Handles missing get_pointing_table gracefully and logs any failures.
     """
-    from aiapy.calibrate import update_pointing, register, get_pointing_table
     import astropy.units as u
     from datetime import timedelta
     from sunpy.map import Map
-
+    # Use safe import block from above (get_pointing_table may be None)
     try:
-        # Define a ±12-hour window around observation time
-        t0 = m.date - 12 * u.hour
-        t1 = m.date + 12 * u.hour
-        log_to_queue(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
-        pointing_table = get_pointing_table("JSOC", time_range=(t0, t1))
-        log_to_queue(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
-
-        # Update pointing metadata using the retrieved table
-        m = update_pointing(m, pointing_table=pointing_table)
-        log_to_queue("[fetch][AIA] Pointing metadata updated.")
-
-        # Register to standard AIA scale (0.6 arcsec/pixel) and north-up orientation
-        m = register(m)
-        log_to_queue("[fetch][AIA] Image registered to common scale and orientation.")
-
+        # Try pointing correction if possible
+        if get_pointing_table is not None:
+            try:
+                t0 = m.date - 12 * u.hour
+                t1 = m.date + 12 * u.hour
+                logger(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
+                pointing_table = get_pointing_table("JSOC", m.date)
+                logger(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
+                try:
+                    m = update_pointing(m, pointing_table=pointing_table)
+                    logger("[fetch][AIA] Pointing metadata updated.")
+                except Exception as e:
+                    logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
+            except Exception as e:
+                logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
+        else:
+            logger("[fetch][warn] AIA pointing correction skipped: get_pointing_table unavailable")
+        # Continue with registration and degradation correction regardless of pointing success
+        try:
+            m = register(m)
+            logger("[fetch][AIA] Image registered to common scale and orientation.")
+        except Exception as reg_err:
+            logger(f"[fetch][warn] aiapy register failed: {reg_err}")
+        # Degradation correction block (new)
+        try:
+            from aiapy.calibrate import get_correction_table
+            corr_table = get_correction_table("aia", m.date)
+            m = correct_degradation(m, correction_table=corr_table)
+            logger("[fetch][AIA] Degradation correction applied.")
+        except Exception as corr_err:
+            logger(f"[fetch][warn] aiapy degradation correction failed: {corr_err}")
         # Normalize exposure safely
         m = normalize_exposure(m)
-        log_to_queue("[fetch][AIA] Exposure normalized successfully.")
-
+        logger("[fetch][AIA] Exposure normalized successfully.")
         return m
-
     except Exception as e:
-        log_to_queue(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
+        logger(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
         return m
 
 
@@ -1032,7 +1230,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             a.Instrument("AIA"),
             a.Source("SDO"),
             a.Wavelength(wl * u.angstrom),
-
         )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
@@ -1041,7 +1238,6 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 a.Instrument("AIA"),
                 a.Source("SDO"),
                 a.Wavelength(wl * u.angstrom),
-
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±10min. No fallback available.")
@@ -1059,63 +1255,90 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if not files or len(files) == 0:
             log_to_queue(f"[fetch] [AIA] VSO fetch returned no files.")
             raise HTTPException(status_code=502, detail="No files from VSO AIA fetch.")
-        if isinstance(files, (list, tuple)) and len(files) > 1:
-            import numpy as np
-            maps = []
-            for i, f in enumerate(files):
-                m = Map(f)
-                log_to_queue(f"[fetch][progress] Prepping {i+1}/{len(files)}")
+
+        # Restrict to only full-resolution level-1 science FITS files (exclude preview/quicklook)
+        import glob
+        fits_files = sorted(glob.glob(os.path.join(target_dir, "*image_lev1.fits")))
+        fits_files = [f for f in fits_files if "preview" not in f and "quicklook" not in f]
+        log_to_queue(f"[fetch][AIA] {len(fits_files)} full-res level-1 FITS found after filtering.")
+        if not fits_files:
+            log_to_queue("[fetch][AIA][warn] No full-res level-1 science FITS found after filtering.")
+            raise HTTPException(status_code=502, detail="No full-res level-1 AIA FITS found.")
+        maps = []
+        for i, f in enumerate(fits_files):
+            m = Map(f)
+            log_to_queue(f"[fetch][progress] Prepping {i+1}/{len(fits_files)}")
+            try:
+                m_prep = None
                 try:
-                    m_prep = None
-                    try:
-                        m_prep = manual_aiaprep(m)
-                    except Exception as e:
-                        log_to_queue(f"[fetch][warn] aiapy prep failed for {os.path.basename(f)}: {e}")
-                        m_prep = m
-                    maps.append(m_prep)
+                    m_prep = manual_aiaprep(
+                        m,
+                        logger=lambda msg: log_to_queue(msg)
+                    )
                 except Exception as e:
-                    log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
-                    maps.append(m)
+                    log_to_queue(f"[fetch][warn] aiapy prep failed for {os.path.basename(f)}: {e}")
+                    m_prep = m
+                maps.append(m_prep)
+            except Exception as e:
+                log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
+                maps.append(m)
 
-            # Ensure all maps have consistent shapes and WCS before stacking (SKIPPED: see log)
-            if maps:
+        # SHAPE CONSISTENCY CHECK BEFORE STACKING
+        if len(maps) == 0:
+            raise RuntimeError("No AIA frames loaded for combination.")
+        ref_shape = maps[0].data.shape
+        # Filter maps to only full-res frames
+        if ref_shape[0] < 2000:
+            log_to_queue(f"[fetch][warn] Detected low-res reference map ({ref_shape}), filtering full-res maps only.")
+            full_res_maps = [m for m in maps if m.data.shape[0] >= 2000]
+            if full_res_maps:
+                maps = full_res_maps
                 ref_shape = maps[0].data.shape
-                log_to_queue(f"[fetch][align] Skipping resample — assuming consistent {ref_shape} frames.")
+            else:
+                raise RuntimeError("No full-resolution AIA maps found after filtering.")
+        valid_maps = [f for f in maps if f.data.shape == ref_shape]
+        if len(valid_maps) != len(maps):
+            log_to_queue(f"[fetch][warn] Skipping {len(maps) - len(valid_maps)} frames with inconsistent shapes.")
+        maps = valid_maps
+        if len(maps) < 2:
+            raise RuntimeError(f"Inconsistent AIA frame sizes. Expected {ref_shape}, got {set(f.data.shape for f in maps)}.")
+        log_to_queue(f"[fetch][align] Using {len(maps)} frames of shape {ref_shape} for combination.")
 
-            ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
-            for i, m in enumerate(maps):
-                if ref_wcs is not None and hasattr(m, "wcs"):
-                    if m.data.shape != maps[0].data.shape:
-                        log_to_queue(f"[fetch][warn] Frame {i+1} shape {m.data.shape} != ref {maps[0].data.shape}")
-            exptimes = np.array([float(m.meta.get("exptime", 1.0)) for m in maps])
-            log_to_queue("[fetch][progress] Exposure-weighted combination")
-            data_stack = np.stack([m.data for m in maps])
-            weighted_sum = np.nansum(data_stack * exptimes[:, None, None], axis=0)
-            sum_exp = np.nansum(exptimes)
-            combined_data = weighted_sum / sum_exp
-            try:
-                h, w = maps[0].data.shape
-                x0, x1 = int(w // 2 - 128), int(w // 2 + 128)
-                y0, y1 = int(h // 2 - 128), int(h // 2 + 128)
-                sigma_single = float(np.nanstd(maps[0].data[y0:y1, x0:x1] / max(exptimes[0], 1e-6)))
-                sigma_comb = float(np.nanstd(combined_data[y0:y1, x0:x1]))
-                snr_gain = (sigma_single / sigma_comb) if sigma_comb > 0 else float("nan")
-                log_to_queue(f"[fetch][snr] Central patch σ_single/σ_combined = {sigma_single:.3g}/{sigma_comb:.3g} → gain ≈ {snr_gain:.2f}× (expected ~{np.sqrt(len(maps)):.2f}×)")
-            except Exception as snr_err:
-                log_to_queue(f"[fetch][snr][warn] Unable to compute SNR diagnostics: {snr_err}")
-            combined_meta = maps[0].meta.copy()
-            combined_meta["n_frames"] = len(maps)
-            combined_meta["t_start"] = str(maps[0].date)
-            combined_meta["t_end"] = str(maps[-1].date)
-            combined_map = Map(combined_data, combined_meta)
-            log_to_queue(f"[fetch] Combined {len(maps)} frames with exposure weighting over {combined_meta['t_start']} → {combined_meta['t_end']}")
-            log_to_queue("[fetch][progress] Integration complete")
-            date_str = dt.strftime("%Y%m%d")
-            try:
-                from astropy import units as _u
-                wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
-            except Exception:
-                wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
+        ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
+        for i, m in enumerate(maps):
+            if ref_wcs is not None and hasattr(m, "wcs"):
+                if m.data.shape != maps[0].data.shape:
+                    log_to_queue(f"[fetch][warn] Frame {i+1} shape {m.data.shape} != ref {maps[0].data.shape}")
+        import numpy as np
+        exptimes = np.array([float(m.meta.get("exptime", 1.0)) for m in maps])
+        log_to_queue("[fetch][progress] Exposure-weighted combination")
+        data_stack = np.stack([m.data for m in maps])
+        weighted_sum = np.nansum(data_stack * exptimes[:, None, None], axis=0)
+        sum_exp = np.nansum(exptimes)
+        combined_data = weighted_sum / sum_exp
+        try:
+            h, w = maps[0].data.shape
+            x0, x1 = int(w // 2 - 128), int(w // 2 + 128)
+            y0, y1 = int(h // 2 - 128), int(h // 2 + 128)
+            sigma_single = float(np.nanstd(maps[0].data[y0:y1, x0:x1] / max(exptimes[0], 1e-6)))
+            sigma_comb = float(np.nanstd(combined_data[y0:y1, x0:x1]))
+            snr_gain = (sigma_single / sigma_comb) if sigma_comb > 0 else float("nan")
+            log_to_queue(f"[fetch][snr] Central patch σ_single/σ_combined = {sigma_single:.3g}/{sigma_comb:.3g} → gain ≈ {snr_gain:.2f}× (expected ~{np.sqrt(len(maps)):.2f}×)")
+        except Exception as snr_err:
+            log_to_queue(f"[fetch][snr][warn] Unable to compute SNR diagnostics: {snr_err}")
+        combined_meta = maps[0].meta.copy()
+        combined_meta["n_frames"] = len(maps)
+        combined_meta["t_start"] = str(maps[0].date)
+        combined_meta["t_end"] = str(maps[-1].date)
+        combined_map = Map(combined_data, combined_meta)
+        log_to_queue(f"[fetch] Combined {len(maps)} frames with exposure weighting over {combined_meta['t_start']} → {combined_meta['t_end']}")
+        log_to_queue("[fetch][progress] Integration complete")
+        date_str = dt.strftime("%Y%m%d")
+        try:
+            from astropy import units as _u
+            wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
+        except Exception:
+            wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
             combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}.npz")
             np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
             log_to_queue(f"[cache] Saved combined map to {combined_cache_file}")
@@ -1749,94 +1972,106 @@ async def shopify_preview_options():
 # New endpoints for Preview / HQ Render / Printful Upload
 # ──────────────────────────────────────────────────────────────────────────────
 
-from fastapi import BackgroundTasks
+# from fastapi import BackgroundTasks
 
-@app.post("/api/generate_preview")
-async def generate_preview(request: Request):
-    """
-    Generate a single-frame RHEF preview for quick visualization.
-    """
-    try:
-        payload = await request.json()
-        date = payload.get("date")
-        wavelength = int(payload.get("wavelength", 211))
-        mission = payload.get("mission", "SDO")
+# @app.post("/api/generate_preview")
+# async def generate_preview(request: Request):
+#     """
+#     Generate a single-frame RHEF preview for quick visualization.
+#     """
+#     try:
+#         payload = await request.json()
+#         date = payload.get("date")
+#         wavelength = int(payload.get("wavelength", 211))
+#         mission = payload.get("mission", "SDO")
 
-        log_to_queue(f"[preview] Request for {mission} {wavelength}Å on {date}")
-        fits_path = fetch_quicklook_fits(mission, date, wavelength)
-        smap = Map(fits_path)
-        filtered = default_filter(smap)
+#         log_to_queue(f"[preview] Request for {mission} {wavelength}Å on {date}")
+#         fits_path = fetch_quicklook_fits(mission, date, wavelength)
+#         smap = Map(fits_path)
+#         filtered = default_filter(smap)
 
-        filename = f"preview_{mission}_{wavelength}_{date}.png"
-        file_info = local_path_and_url(filename)
-        map_to_png(filtered, file_info["path"], annotate=True, dpi=150, size_inches=6, dolog=True)
+#         filename = f"preview_{mission}_{wavelength}_{date}.png"
+#         file_info = local_path_and_url(filename)
+#         map_to_png(filtered, file_info["path"], annotate=True, dpi=150, size_inches=6, dolog=True)
 
-        task_id = str(uuid.uuid4())
-        task_registry[task_id] = {
-            "status": "complete",
-            "image_url": file_info["url"]
-        }
+#         task_id = str(uuid.uuid4())
+#         task_registry[task_id] = {
+#             "status": "complete",
+#             "image_url": file_info["url"]
+#         }
 
-        return JSONResponse({
-            "status": "complete",
-            "image_url": file_info["url"],
-            "task_id": task_id,
-            "status_url": f"/status/{task_id}"
-        })
-    except Exception as e:
-        log_to_queue(f"[preview][error] {e}")
-        raise HTTPException(status_code=500, detail=f"Preview generation failed: {e}")
+#         return JSONResponse({
+#             "status": "complete",
+#             "image_url": file_info["url"],
+#             "task_id": task_id,
+#             "status_url": f"/status/{task_id}"
+#         })
+#     except Exception as e:
+#         log_to_queue(f"[preview][error] {e}")
+#         raise HTTPException(status_code=500, detail=f"Preview generation failed: {e}")
 
     from fastapi import Body
 
-@app.post("/api/generate")
-async def generate(request: Request):
-    """
-    Handle solar image generation.
-    Accepts JSON with 'date', 'wavelength', 'preview', 'upload_to_printful', etc.
-    """
-    data = await request.json()
-    date = data.get("date")
-    wavelength = data.get("wavelength")
-    preview = data.get("preview", True)
-    upload_to_printful = data.get("upload_to_printful", False)
+# @app.post("/api/generate")
+# async def generate(request: Request):
+#     """
+#     Handle solar image generation.
+#     Accepts JSON with 'date', 'wavelength', 'preview', 'upload_to_printful', etc.
+#     """
+#     data = await request.json()
+#     date = data.get("date")
+#     wavelength = data.get("wavelength")
+#     preview = data.get("preview", True)
+#     upload_to_printful = data.get("upload_to_printful", False)
 
-    # for now, just simulate a success response
-    print(f"[generate] date={date}, wl={wavelength}, preview={preview}, upload={upload_to_printful}")
+#     # for now, just simulate a success response
+#     print(f"[generate] date={date}, wl={wavelength}, preview={preview}, upload={upload_to_printful}")
 
-    # return mock status URL for pollStatus
-    return {
-        "status_url": f"/api/status/{uuid.uuid4()}",
-        "message": "Mock generation started"
-    }
+#     # return mock status URL for pollStatus
+#     png_url = f"{ASSET_BASE_URL}hq_SDO_{wavelength}_{date}.png"
+#     return {
+#         "message": "Mock generation started",
+#         "png_url": png_url,
+#     }
 
-from fastapi import Request
+# from fastapi import Request
 
-# /api/generate_preview remains above /api/generate
+# # /api/generate_preview remains above /api/generate
 
-@app.post("/generate")
-async def generate(request: Request):
-    data = await request.json()
-    date = data.get("date")
-    wavelength = data.get("wavelength")
-    preview = data.get("preview")
-    upload_to_printful = data.get("upload_to_printful")
+# @app.post("/generate")
+# async def generate(request: Request):
+#     data = await request.json()
+#     date = data.get("date")
+#     wavelength = data.get("wavelength")
+#     preview = data.get("preview")
+#     upload_to_printful = data.get("upload_to_printful")
 
-    log_to_queue(f"[api/generate] date={date}, wavelength={wavelength}, preview={preview}, upload_to_printful={upload_to_printful}")
+#     log_to_queue(f"[api/generate] date={date}, wavelength={wavelength}, preview={preview}, upload_to_printful={upload_to_printful}")
 
-    # Generate a unique job_id
-    job_id = str(uuid.uuid4())
-    task_registry[job_id] = {
-        "status": "processing",
-        "image_url": None
-    }
+#     # Generate a unique job_id
+#     job_id = str(uuid.uuid4())
+#     task_registry[job_id] = {
+#         "status": "processing",
+#         "image_url": None
+#     }
 
-    # Simulate short async "processing"
-    async def do_fake_work():
-        await asyncio.sleep(2)
-        task_registry[job_id]["status"] = "complete"
-        task_registry[job_id]["image_url"] = f"/asset/mock_{date}_{wavelength}.png"
+#     # Simulate short async "processing"
+#     async def do_fake_work():
+#         await asyncio.sleep(2)
+#         task_registry[job_id]["status"] = "complete"
+#         task_registry[job_id]["image_url"] = f"/asset/mock_{date}_{wavelength}.png"
 
-    asyncio.create_task(do_fake_work())
+#     asyncio.create_task(do_fake_work())
 
-    return {"status_url": f"/api/status?job_id={job_id}", "status": "processing"}
+#     return {"status_url": f"/api/status?job_id={job_id}", "status": "processing"}
+# -------------------------------------------------------------------
+# Dedicated endpoint to serve image assets via FileResponse
+# -------------------------------------------------------------------
+from fastapi.responses import FileResponse
+@app.get("/asset/{subpath:path}")
+async def serve_asset(subpath: str):
+    """Serve any file under /tmp/output, including previews and HQ renders."""
+    file_path = os.path.join("/tmp/output", subpath)
+    if not os.path.exists(file_path):
+        return JSONResponse(status_code=404, content={"error": f"File not found: {file_path}"})
+    return FileResponse(file_path, media_type="image/png", headers={"Cache-Control": "no-cache"})

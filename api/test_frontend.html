@@ -112,7 +112,9 @@
 </div>
 
 <script>
-const API_BASE = window.location.origin;
+const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
+  ? "http://127.0.0.1:8000"
+  : window.location.origin;
 const previewImg = document.getElementById("solar-image");
 const statusBox = document.getElementById("solar-status");
 const generateBtn = document.getElementById("generate-btn");
@@ -126,7 +128,6 @@ generateBtn.onclick = async () => {
   generateBtn.disabled = true;
 
   try {
-    // Step 1: fetch preview
     const payload = { date, wavelength: parseInt(wavelength), mission: "SDO", annotate: false };
     const res = await fetch(`${API_BASE}/api/generate_preview`, {
       method: "POST",
@@ -134,88 +135,71 @@ generateBtn.onclick = async () => {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    const previewUrl = data.preview_url || data.url || data.path || data.png_url;
+    if (!res.ok) throw new Error(data.detail || data.error || "Preview request failed");
+
+    const previewUrl = data.preview_url || data.image_url || data.url || data.path || data.png_url;
     if (!previewUrl) throw new Error("No preview URL returned from server");
 
-    previewImg.src = previewUrl.startsWith("/asset")
+    const fullUrl = previewUrl.startsWith("/asset")
       ? `${API_BASE}${previewUrl}`
       : previewUrl;
+
+    previewImg.src = fullUrl;
     previewImg.style.display = "block";
     statusBox.textContent = "✅ Preview ready";
-
-    // Step 2: generate HQ image
-statusBox.textContent = "Rendering HQ proof... (this may take a minute)";
-const hqRes = await fetch(`${API_BASE}/api/generate`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    date,
-    mission: "SDO",
-    wavelength: parseInt(wavelength),
-    detector: "AIA",
-    annotate: true,
-  }),
-});
-
-const hqData = await hqRes.json();
-
-// Case 1: backend returned the PNG immediately
-if (hqData.png_url) {
-  showHQImage(hqData.png_url);
-}
-// Case 2: backend returned a task_id (asynchronous job)
-else if (hqData.task_id) {
-  statusBox.textContent = "HQ render queued, waiting for completion...";
-  const taskId = hqData.task_id;
-
-  // Poll every 5 seconds until image is ready
-  for (let i = 0; i < 40; i++) { // up to ~3 minutes max
-    await new Promise(r => setTimeout(r, 5000));
-    const check = await fetch(`${API_BASE}/api/status?job_id=${taskId}`);
-    const statusData = await check.json();
-    console.log("[poll]", statusData);
-    if (statusData.png_url) {
-      showHQImage(statusData.png_url);
-      break;
-    }
-    if (i % 4 === 0) statusBox.textContent = `Still rendering... (${i*5}s)`;
-  }
-}
-else {
-  throw new Error("HQ render response missing both png_url and task_id");
-}
-
-function showHQImage(url) {
-  const resolved = url.startsWith("/asset") ? `${API_BASE}${url}` : url;
-  previewImg.src = resolved;
-  previewImg.style.display = "block";
-  statusBox.textContent = "✅ HQ image ready — uploading to Printful...";
-}
-
-    // Step 3: upload to Printful
-    const upload = await fetch(`${API_BASE}/api/upload_to_printful`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image_path: `/tmp/output/${hqData.png_url.split("/").pop()}`,
-        title: `Sun on ${date}`,
-      }),
-    });
-
-    const uploadData = await upload.json();
-    if (uploadData.file_id) {
-      alert(`✅ Uploaded to Printful! File ID: ${uploadData.file_id}`);
-      statusBox.textContent = "✅ Uploaded to Printful!";
-    } else {
-      alert("❌ Upload failed.");
-      statusBox.textContent = "Upload failed.";
-    }
   } catch (err) {
     console.error(err);
-    statusBox.textContent = "Error during process.";
+    statusBox.textContent = "Error during preview generation.";
     alert(err.message);
   } finally {
     generateBtn.disabled = false;
   }
 };
 </script>
+
+<!-- Removed earlier duplicate mockupContainer and mockupImage -->
+
+<!-- PRINTFUL INTEGRATION SECTION -->
+<div id="printful-section"
+     style="text-align:center; background:#fff; padding:2em; margin-top:2em;
+            border-radius:16px; box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+
+  <h2 style="margin-bottom:0.5em;">Create Your Custom Print</h2>
+  <p style="color:#555; margin-bottom:1.5em;">
+    Turn your generated Sun image into a real product — paddle, canvas, hoodie, mug, and more!
+  </p>
+
+
+  <div id="mockupContainer" style="display:none; margin-top:2em;">
+    <h3 style="margin-bottom:1em;">Live Mockup Preview</h3>
+    <img id="mockupImage"
+         style="max-width:90%; border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.15);">
+    <form id="orderForm"
+          style="margin-top:2em; display:inline-block; text-align:left;">
+      <h4 style="text-align:center;">Shipping Details</h4>
+      <input name="name" placeholder="Full name" required><br>
+      <input name="address1" placeholder="Address" required><br>
+      <input name="city" placeholder="City" required><br>
+      <input name="state_code" placeholder="State" required><br>
+      <input name="country_code" placeholder="Country (e.g. US)" required><br>
+      <input name="zip" placeholder="ZIP" required><br>
+      <input name="email" type="email" placeholder="Email" required><br>
+      <button type="submit"
+              style="background:#27ae60; color:#fff; border:none; padding:0.6em 1.2em;
+                     border-radius:8px; cursor:pointer; margin-top:0.8em;">
+        Place Order
+      </button>
+    </form>
+  </div>
+</div>
+
+
+
+<div id="productPicker"
+     style="margin:2em auto; max-width:900px; display:flex; flex-wrap:wrap;
+            justify-content:center; gap:1em;">
+  <p id="productLoading" style="color:#777;">Loading products…</p>
+</div>
+
+<script src="/api/static/printful.js"></script>
+<script src="/api/static/test_frontend.js"></script>
