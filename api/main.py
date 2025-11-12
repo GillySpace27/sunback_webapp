@@ -39,6 +39,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="parfive.downloader")
 from fastapi import Body
 from fastapi.responses import StreamingResponse
+from tqdm import tqdm
 
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
@@ -233,7 +234,7 @@ from fastapi import Body
 @app.post("/api/generate_preview")
 async def generate_preview(req: PreviewRequest = Body(...)):
     """
-    Fast preview: fetch only first FITS, quick log10 stretch, color, PNG.
+    Fast preview: fetch only first FITS, downsample, apply RHEF, color, PNG.
     Returns: {"preview_url": "/asset/preview/preview_SDO_<wl>_<date>.png"}
     """
     try:
@@ -265,41 +266,64 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             raise HTTPException(status_code=404, detail="No AIA data for this date/wavelength")
         from parfive import Downloader
-        dl = Downloader(max_conn=4, progress=False, overwrite=False)
+        dl = Downloader(max_conn=12, progress=False, overwrite=False)
         target_dir = os.environ["SUNPY_DOWNLOADDIR"]
         files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
         if not files or len(files) == 0:
             raise HTTPException(status_code=502, detail="No FITS files fetched")
         fits_path = str(files[0])
-        # Optionally: copy or link preview FITS to preview_dir (if needed in future)
-        # preview_fits_path = os.path.join(PREVIEW_DIR, f"preview_SDO_{wl}_{date_str}.fits")
-        # shutil.copy2(fits_path, preview_fits_path)
-        # Load Map, skip filtering, just log10 + color
+        # Load Map, then downsample, apply RHEF, color
         from sunpy.map import Map
         import numpy as np
         import matplotlib.pyplot as plt
+        # Import block_reduce only here
+        from skimage.measure import block_reduce
         smap = Map(fits_path)
+        # Downsample to ~512x512 using block_reduce (nanmean)
         data = np.array(smap.data, dtype=np.float32)
         data[data <= 0] = np.nan
-        img = np.log10(data)
-        vmin = np.nanpercentile(img, 1)
-        vmax = np.nanpercentile(img, 99.7)
+        h, w = data.shape
+        block_size = max(1, int(np.ceil(h / 512)))
+        reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
+        # Rebuild Map with reduced data and original metadata (approximate WCS)
+        from sunpy.map.sources.sdo import AIAMap
+        from sunpy.util.metadata import MetaDict
+        meta = MetaDict(smap.meta.copy())
+        # Adjust pixel size (cdelt1/cdelt2) if present
+        if "cdelt1" in meta and "cdelt2" in meta:
+            meta["cdelt1"] = meta["cdelt1"] * block_size
+            meta["cdelt2"] = meta["cdelt2"] * block_size
+            meta["crpix1"] = meta["crpix1"] / block_size
+            meta["crpix2"] = meta["crpix2"] / block_size
+        # Optionally adjust NAXIS1/2
+        meta["naxis1"] = reduced.shape[1]
+        meta["naxis2"] = reduced.shape[0]
+        # Build as AIAMap to preserve correct subclass and WCS
+        smap_reduced = AIAMap(reduced, meta)
+        from sunkit_image import radial
+        # Apply RHEF with fallback
+        try:
+            rhef_data = radial.rhef(smap_reduced).data
+        except Exception:
+            log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
+            rhef_data = radial.rhef(smap_reduced.data).data
+        # Save PNG with color table
         cmap = plt.get_cmap(f"sdoaia{wl}")
+        vmin = np.nanpercentile(rhef_data, 1)
+        vmax = np.nanpercentile(rhef_data, 99.7)
         plt.figure(figsize=(8,8), dpi=100)
         plt.axis("off")
-        plt.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
         plt.tight_layout(pad=0)
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)  # <--- ADD THIS
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
         plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
         plt.close()
-
         # Ensure file is written and visible before returning
         import time
         for _ in range(50):
             if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
                 break
             time.sleep(0.05)
-
         return {"preview_url": url_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
@@ -859,6 +883,9 @@ def do_generate_sync(data):
     """
     Synchronous logic for HQ PNG generation.
     """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from sunkit_image import radial
     try:
         req = GenerateRequest(**data)
         dt = datetime.strptime(req.date, "%Y-%m-%d")
@@ -883,24 +910,67 @@ def do_generate_sync(data):
         if os.path.exists(hq_png):
             return {"png_url": png_url}
         # Try to load combined cache if available
-        from sunpy.map import Map
-        import numpy as np
         smap = None
         if os.path.exists(combined_npz):
             with np.load(combined_npz, allow_pickle=True) as npz:
                 combined_data = npz["data"]
                 combined_meta = npz["meta"].item()
+            from sunpy.map import Map
+            from sunpy.util.metadata import MetaDict
+            # Ensure meta is a MetaDict
+            if isinstance(combined_meta, dict):
+                combined_meta = MetaDict(combined_meta)
+            # Enforce correct instrument metadata for AIAMap
+            combined_meta["instrument"] = "AIA"
+            combined_meta["detector"] = "AIA"
+            # Convert numpy scalar types to Python primitives for all meta keys/values
+            for k, v in list(combined_meta.items()):
+                # Convert numpy scalars (e.g., np.int64, np.float64, np.str_) to Python types
+                if hasattr(v, "item"):
+                    try:
+                        combined_meta[k] = v.item()
+                    except Exception:
+                        pass
             smap = Map(combined_data, combined_meta)
+            log_to_queue(f"[rhef][debug] Restored map from cache: {type(smap).__name__}, instrument={combined_meta.get('instrument')}")
         else:
-            # Fetch and combine via fido_fetch_map (which will cache)
             smap = fido_fetch_map(dt, "SDO", wl, "AIA")
-        # Apply RHEF filtering
+
+        smap.peek()
+        plt.show()
+
+        # After obtaining smap, downsample to ~2048x2048 using block_reduce (nanmean)
+        # Import block_reduce here
+        from sunpy.map.sources.sdo import AIAMap
+        from skimage.measure import block_reduce
+        import numpy as np
+        h, w = smap.data.shape
+        block_size = max(1, int(np.ceil(h / 2048)))
+        if block_size > 1:
+            reduced = block_reduce(np.array(smap.data, dtype=np.float32), block_size=(block_size, block_size), func=np.nanmean)
+            from sunpy.util.metadata import MetaDict
+            meta = MetaDict(smap.meta.copy())
+            meta["cdelt1"] *= block_size
+            meta["cdelt2"] *= block_size
+            meta["crpix1"] /= block_size
+            meta["crpix2"] /= block_size
+            meta["naxis1"] = reduced.shape[1]
+            meta["naxis2"] = reduced.shape[0]
+            # Build as AIAMap
+            smap_reduced = AIAMap(reduced, meta)
+            log_to_queue(f"[rhef][downsample] Reduced map shape from {h}x{w} to {reduced.shape[0]}x{reduced.shape[1]} (block_size={block_size})")
+        else:
+            smap_reduced = smap
+            log_to_queue(f"[rhef][downsample] No reduction applied, shape is {h}x{w}")
+
+        # Apply RHEF with fallback
         from sunkit_image import radial
-        data = np.array(smap.data, dtype=np.float32)
-        data[data <= 0] = np.nan
-        rhef_data = radial.rhef(data)
+        try:
+            rhef_data = radial.rhef(smap_reduced).data
+        except Exception:
+            log_to_queue("[rhef][warn] HQ RHEF failed on Map — using array fallback.")
+            rhef_data = radial.rhef(smap_reduced.data).data
         # Save PNG with color table
-        import matplotlib.pyplot as plt
         vmin = np.nanpercentile(rhef_data, 1)
         vmax = np.nanpercentile(rhef_data, 99.7)
         cmap = plt.get_cmap(f"sdoaia{wl}")
@@ -1136,46 +1206,52 @@ def manual_aiaprep(m, logger=print):
     import astropy.units as u
     from datetime import timedelta
     from sunpy.map import Map
+
     # Use safe import block from above (get_pointing_table may be None)
-    try:
-        # Try pointing correction if possible
-        if get_pointing_table is not None:
-            try:
-                t0 = m.date - 12 * u.hour
-                t1 = m.date + 12 * u.hour
-                logger(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
-                pointing_table = get_pointing_table("JSOC", m.date)
-                logger(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
+    point = False
+
+    if point:
+        try:
+            # Try pointing correction if possible
+            if get_pointing_table is not None:
                 try:
-                    m = update_pointing(m, pointing_table=pointing_table)
-                    logger("[fetch][AIA] Pointing metadata updated.")
+                    t0 = m.date - 12 * u.hour
+                    t1 = m.date + 12 * u.hour
+                    logger(f"[fetch][AIA] Retrieving pointing table from JSOC for {t0}–{t1}...")
+                    pointing_table = get_pointing_table("JSOC", m.date)
+                    logger(f"[fetch][AIA] Pointing table retrieved ({len(pointing_table)} entries).")
+                    try:
+                        m = update_pointing(m, pointing_table=pointing_table)
+                        logger("[fetch][AIA] Pointing metadata updated.")
+                    except Exception as e:
+                        logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
                 except Exception as e:
                     logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
-            except Exception as e:
-                logger(f"[fetch][warn] AIA pointing correction skipped: {e}")
-        else:
-            logger("[fetch][warn] AIA pointing correction skipped: get_pointing_table unavailable")
-        # Continue with registration and degradation correction regardless of pointing success
-        try:
-            m = register(m)
-            logger("[fetch][AIA] Image registered to common scale and orientation.")
-        except Exception as reg_err:
-            logger(f"[fetch][warn] aiapy register failed: {reg_err}")
-        # Degradation correction block (new)
-        try:
-            from aiapy.calibrate import get_correction_table
-            corr_table = get_correction_table("aia", m.date)
-            m = correct_degradation(m, correction_table=corr_table)
-            logger("[fetch][AIA] Degradation correction applied.")
-        except Exception as corr_err:
-            logger(f"[fetch][warn] aiapy degradation correction failed: {corr_err}")
-        # Normalize exposure safely
-        m = normalize_exposure(m)
-        logger("[fetch][AIA] Exposure normalized successfully.")
-        return m
-    except Exception as e:
-        logger(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
-        return m
+        except Exception as e:
+            logger(f"[fetch][warn] manual_aiaprep failed: {e}; returning unprocessed map.")
+            return m
+
+    else:
+        logger("[fetch][warn] AIA pointing correction skipped")
+
+    # Continue with registration and degradation correction regardless of pointing success
+    try:
+        m = register(m)
+        logger("[fetch][AIA] Image registered to common scale and orientation.")
+    except Exception as reg_err:
+        logger(f"[fetch][warn] aiapy register failed: {reg_err}")
+
+    try:
+        from aiapy.calibrate import get_correction_table
+        corr_table = get_correction_table("aia", m.date)
+        m = correct_degradation(m, correction_table=corr_table)
+        logger("[fetch][AIA] Degradation correction applied.")
+    except Exception as corr_err:
+        logger(f"[fetch][warn] aiapy degradation correction failed: {corr_err}")
+
+    m = normalize_exposure(m)
+    logger("[fetch][AIA] Exposure normalized successfully.")
+    return m
 
 
 def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
@@ -1216,11 +1292,24 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             with np.load(combined_cache_file, allow_pickle=True) as npz:
                 combined_data = npz["data"]
                 combined_meta = npz["meta"].item()
-            combined_map = Map(combined_data, combined_meta)
+            # Ensure combined_data and metadata are wrapped into a Map
+            import numpy as np
+            if isinstance(combined_data, np.ndarray):
+                try:
+                    combined_map = Map(combined_data, combined_meta)
+                except Exception:
+                    # fallback minimal header if meta missing
+                    combined_map = Map(combined_data, {})
+            else:
+                combined_map = combined_data
             log_to_queue(f"[fetch] Returning combined map ({combined_meta['n_frames']} frames).")
             return combined_map
 
     if mission == "SDO":
+        # Create a unique working directory for this date
+        from pathlib import Path
+        work_dir = Path(OUTPUT_DIR) / f"aia_{date_str}"
+        work_dir.mkdir(parents=True, exist_ok=True)
         from sunpy.net import Fido, attrs as a
         import astropy.units as u
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
@@ -1244,9 +1333,9 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             raise HTTPException(status_code=502, detail="No VSO data available for this date.")
         log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
         from parfive import Downloader
-        dl = Downloader(max_conn=15, progress=True)
-        target_dir = os.environ["SUNPY_DOWNLOADDIR"]
-        files = Fido.fetch(qr, downloader=dl, path=target_dir)
+        dl = Downloader(max_conn=15, progress=True, overwrite=False)
+        # Download to work_dir
+        files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
         try:
             files = list(map(str, files))
         except Exception:
@@ -1257,24 +1346,27 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             raise HTTPException(status_code=502, detail="No files from VSO AIA fetch.")
 
         # Restrict to only full-resolution level-1 science FITS files (exclude preview/quicklook)
-        import glob
-        fits_files = sorted(glob.glob(os.path.join(target_dir, "*image_lev1.fits")))
-        fits_files = [f for f in fits_files if "preview" not in f and "quicklook" not in f]
+        fits_files = sorted(work_dir.glob("*.fits"))
+        fits_files = [str(f) for f in fits_files if "preview" not in str(f) and "quicklook" not in str(f) and "image_lev1" in str(f)]
         log_to_queue(f"[fetch][AIA] {len(fits_files)} full-res level-1 FITS found after filtering.")
         if not fits_files:
             log_to_queue("[fetch][AIA][warn] No full-res level-1 science FITS found after filtering.")
             raise HTTPException(status_code=502, detail="No full-res level-1 AIA FITS found.")
         maps = []
-        for i, f in enumerate(fits_files):
+
+        for i, f in enumerate(tqdm(fits_files, desc="Prepping Files")):
+            # log_to_queue(f"{i}, {f} \n")
+
             m = Map(f)
-            log_to_queue(f"[fetch][progress] Prepping {i+1}/{len(fits_files)}")
             try:
                 m_prep = None
                 try:
+
                     m_prep = manual_aiaprep(
                         m,
                         logger=lambda msg: log_to_queue(msg)
                     )
+                    # log_to_queue(m_prep)
                 except Exception as e:
                     log_to_queue(f"[fetch][warn] aiapy prep failed for {os.path.basename(f)}: {e}")
                     m_prep = m
@@ -1282,11 +1374,14 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             except Exception as e:
                 log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
                 maps.append(m)
-
         # SHAPE CONSISTENCY CHECK BEFORE STACKING
         if len(maps) == 0:
             raise RuntimeError("No AIA frames loaded for combination.")
-        ref_shape = maps[0].data.shape
+        else:
+            # log_to_queue(maps)
+            ref_map = maps[0]
+            ref_shape = ref_map.data.shape
+
         # Filter maps to only full-res frames
         if ref_shape[0] < 2000:
             log_to_queue(f"[fetch][warn] Detected low-res reference map ({ref_shape}), filtering full-res maps only.")
@@ -1303,6 +1398,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if len(maps) < 2:
             raise RuntimeError(f"Inconsistent AIA frame sizes. Expected {ref_shape}, got {set(f.data.shape for f in maps)}.")
         log_to_queue(f"[fetch][align] Using {len(maps)} frames of shape {ref_shape} for combination.")
+
 
         ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
         for i, m in enumerate(maps):
@@ -1330,27 +1426,38 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         combined_meta["n_frames"] = len(maps)
         combined_meta["t_start"] = str(maps[0].date)
         combined_meta["t_end"] = str(maps[-1].date)
-        combined_map = Map(combined_data, combined_meta)
-        log_to_queue(f"[fetch] Combined {len(maps)} frames with exposure weighting over {combined_meta['t_start']} → {combined_meta['t_end']}")
-        log_to_queue("[fetch][progress] Integration complete")
+        # Ensure combined_data and metadata are wrapped into a Map
+        import numpy as np
+        # Save combined .npz to OUTPUT_DIR (not to work_dir!)
         date_str = dt.strftime("%Y%m%d")
         try:
             from astropy import units as _u
             wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
         except Exception:
             wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
-            combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}.npz")
-            np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
-            log_to_queue(f"[cache] Saved combined map to {combined_cache_file}")
-            del maps
-            import gc
-            gc.collect()
-            log_to_queue(f"[fetch] Returning combined map ({combined_meta['n_frames']} frames).")
-            return combined_map
+        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}.npz")
+        np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
+        log_to_queue(f"[cache] Saved combined map to {combined_cache_file}")
+        # Delete all FITS files in work_dir (but not .npz or .png)
+        for f in fits_files:
+            try:
+                Path(f).unlink()
+            except Exception:
+                pass
+        del maps
+        import gc
+        gc.collect()
+        log_to_queue(f"[fetch] Returning combined map ({combined_meta['n_frames']} frames).")
+        # Always return a proper sunpy.map.Map object
+        if isinstance(combined_data, np.ndarray):
+            try:
+                combined_map = Map(combined_data, combined_meta)
+            except Exception:
+                # fallback minimal header if meta missing
+                combined_map = Map(combined_data, {})
         else:
-            single_map = Map(files[0])
-            log_to_queue(f"[fetch] Returning combined map (1 frames).")
-            return single_map
+            combined_map = combined_data
+        return combined_map
     elif mission == "SOHO-EIT":
         wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH.value)) * u.angstrom
         log_to_queue(f"[fetch] SOHO-EIT wavelength {wl}")
@@ -1534,10 +1641,10 @@ def default_filter(smap: Map) -> Map:
         if block_size > 1:
             log_to_queue(f"[render] Performing RHEF (downsample x{block_size})...")
             # Adjust WCS for reduced sampling
-            for key in ("CRPIX1", "CRPIX2", "crpix1", "crpix2"):
+            for key in ("CRPIX1", "CRPIX2"):
                 if key in header:
                     header[key] = header[key] / block_size
-            for key in ("CDELT1", "CDELT2", "cdelt1", "cdelt2"):
+            for key in ("CDELT1", "CDELT2"):
                 if key in header:
                     header[key] = header[key] * block_size
             # Reduce with NaN-aware average
@@ -1967,103 +2074,6 @@ async def shopify_preview_options():
     # CORS preflight for Shopify preview endpoint
     return JSONResponse({}, headers=CORS_HEADERS)
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# New endpoints for Preview / HQ Render / Printful Upload
-# ──────────────────────────────────────────────────────────────────────────────
-
-# from fastapi import BackgroundTasks
-
-# @app.post("/api/generate_preview")
-# async def generate_preview(request: Request):
-#     """
-#     Generate a single-frame RHEF preview for quick visualization.
-#     """
-#     try:
-#         payload = await request.json()
-#         date = payload.get("date")
-#         wavelength = int(payload.get("wavelength", 211))
-#         mission = payload.get("mission", "SDO")
-
-#         log_to_queue(f"[preview] Request for {mission} {wavelength}Å on {date}")
-#         fits_path = fetch_quicklook_fits(mission, date, wavelength)
-#         smap = Map(fits_path)
-#         filtered = default_filter(smap)
-
-#         filename = f"preview_{mission}_{wavelength}_{date}.png"
-#         file_info = local_path_and_url(filename)
-#         map_to_png(filtered, file_info["path"], annotate=True, dpi=150, size_inches=6, dolog=True)
-
-#         task_id = str(uuid.uuid4())
-#         task_registry[task_id] = {
-#             "status": "complete",
-#             "image_url": file_info["url"]
-#         }
-
-#         return JSONResponse({
-#             "status": "complete",
-#             "image_url": file_info["url"],
-#             "task_id": task_id,
-#             "status_url": f"/status/{task_id}"
-#         })
-#     except Exception as e:
-#         log_to_queue(f"[preview][error] {e}")
-#         raise HTTPException(status_code=500, detail=f"Preview generation failed: {e}")
-
-    from fastapi import Body
-
-# @app.post("/api/generate")
-# async def generate(request: Request):
-#     """
-#     Handle solar image generation.
-#     Accepts JSON with 'date', 'wavelength', 'preview', 'upload_to_printful', etc.
-#     """
-#     data = await request.json()
-#     date = data.get("date")
-#     wavelength = data.get("wavelength")
-#     preview = data.get("preview", True)
-#     upload_to_printful = data.get("upload_to_printful", False)
-
-#     # for now, just simulate a success response
-#     print(f"[generate] date={date}, wl={wavelength}, preview={preview}, upload={upload_to_printful}")
-
-#     # return mock status URL for pollStatus
-#     png_url = f"{ASSET_BASE_URL}hq_SDO_{wavelength}_{date}.png"
-#     return {
-#         "message": "Mock generation started",
-#         "png_url": png_url,
-#     }
-
-# from fastapi import Request
-
-# # /api/generate_preview remains above /api/generate
-
-# @app.post("/generate")
-# async def generate(request: Request):
-#     data = await request.json()
-#     date = data.get("date")
-#     wavelength = data.get("wavelength")
-#     preview = data.get("preview")
-#     upload_to_printful = data.get("upload_to_printful")
-
-#     log_to_queue(f"[api/generate] date={date}, wavelength={wavelength}, preview={preview}, upload_to_printful={upload_to_printful}")
-
-#     # Generate a unique job_id
-#     job_id = str(uuid.uuid4())
-#     task_registry[job_id] = {
-#         "status": "processing",
-#         "image_url": None
-#     }
-
-#     # Simulate short async "processing"
-#     async def do_fake_work():
-#         await asyncio.sleep(2)
-#         task_registry[job_id]["status"] = "complete"
-#         task_registry[job_id]["image_url"] = f"/asset/mock_{date}_{wavelength}.png"
-
-#     asyncio.create_task(do_fake_work())
-
-#     return {"status_url": f"/api/status?job_id={job_id}", "status": "processing"}
 # -------------------------------------------------------------------
 # Dedicated endpoint to serve image assets via FileResponse
 # -------------------------------------------------------------------
