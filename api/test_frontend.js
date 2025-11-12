@@ -139,6 +139,36 @@ async function loadProductPicker(){
 
 // Initialization: wire up UI
 function initApp() {
+  let globalProgress = 0;
+  function bumpProgress(delta = 2) {
+    globalProgress = Math.min(100, globalProgress + delta);
+    const bar = document.getElementById("progress-bar");
+    if (bar) bar.style.width = globalProgress + "%";
+  }
+  function setProgress(pct) {
+    globalProgress = pct;
+    const bar = document.getElementById("progress-bar");
+    bar.style.width = pct + "%";
+  }
+
+  let progressTimer = null;
+
+  function startProgressTimer() {
+    if (progressTimer) return;
+    progressTimer = setInterval(() => {
+      // Slowly bump while waiting, but never reach 100
+      if (globalProgress < 95) {
+        bumpProgress(1);
+      }
+    }, 1500); // bump every 1.5 seconds
+  }
+
+  function stopProgressTimer() {
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
+  }
   const generateBtn = document.getElementById("generate-btn");
   const clearCacheBtn = document.getElementById("clearCacheBtn");
   const dateInput = document.getElementById("solar-date");
@@ -164,12 +194,16 @@ function initApp() {
       const clearCacheBtn = document.getElementById("clearCacheBtn");
       if (hqBtn) hqBtn.disabled = true;   // disable HQ during preview generation
       if (clearCacheBtn) clearCacheBtn.disabled = true;
+      setProgress(0);
+      startProgressTimer();
       setStatus("Generating preview...", "blue");
+      setProgress(10); // request sent
       try {
         const date = dateInput.value;
         const wavelength = wavelengthInput.value;
         const apiBase = getApiBase();
         const res = await postJSON(`${apiBase}/generate_preview`, { date, wavelength, mission: "SDO" });
+        setProgress(50); // backend responded with preview metadata
         const previewUrl = res.preview_url || res.png_url;
         if (!previewUrl) throw new Error("No preview URL from backend");
         const imgEl = document.getElementById("solar-image");
@@ -178,11 +212,14 @@ function initApp() {
         imgEl.style.display = "block";
         imgEl.onload = null;
         imgEl.onerror = () => setStatus("❌ Failed to load preview image.", "red");
+        setProgress(80); // image assigned to DOM, loading underway
         setStatus("Preview loaded! Click the button to generate the HQ image next!", "green");
+        setProgress(100);
       } catch (err) {
         console.error(err);
         setStatus(`Error: ${err.message}`, "red");
       } finally {
+        stopProgressTimer();
         generateBtn.disabled = false;
         const clearCacheBtn = document.getElementById("clearCacheBtn");
         const hqBtn = document.getElementById("hq-btn");
@@ -204,6 +241,8 @@ function initApp() {
       const hqBtn = document.getElementById("hq-btn");
       if (generateBtn) generateBtn.disabled = true;
       if (hqBtn) hqBtn.disabled = true;
+      setProgress(0);
+      stopProgressTimer();
       setStatus("Clearing cache...", "blue");
       try {
         const apiBase = getApiBase();
@@ -216,6 +255,7 @@ function initApp() {
           imgEl.style.display = "none";
         }
         setStatus("Cache cleared!", "green");
+        setProgress(0);
       } catch (err) {
         setStatus(`Failed to clear cache: ${err.message}`, "red");
       } finally {
@@ -240,24 +280,31 @@ function initApp() {
       if (currentAbortController) currentAbortController.abort();
       currentAbortController = null;
       hqBtn.disabled = true;
+      setProgress(0);
+      startProgressTimer();
       setStatus("Generating HQ image...", "blue");
+      setProgress(10); // HQ request sent
       try {
         const date = dateInput.value;
         const wavelength = wavelengthInput.value;
         const apiBase = getApiBase();
         const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
+        setProgress(60); // HQ backend responded
         if (hqRes.png_url) {
           const resolved = normalizeUrl(hqRes.png_url);
           const imgEl = document.getElementById("solar-image");
           imgEl.src = resolved;
           imgEl.style.display = "block";
+          setProgress(90); // image assigned
           setStatus("HQ image loaded!", "green");
+          setProgress(100);
         } else {
           setStatus("HQ generation returned no PNG.", "orange");
         }
       } catch (e) {
         setStatus("HQ generation failed: " + e.message, "red");
       } finally {
+        stopProgressTimer();
         hqBtn.disabled = false;
         const generateBtn = document.getElementById("generate-btn");
         const clearCacheBtn = document.getElementById("clearCacheBtn");
@@ -270,6 +317,18 @@ function initApp() {
 
 // Run on page load
 window.addEventListener("DOMContentLoaded", initApp);
+const originalLog = console.log;
+console.log = function(...args) {
+  originalLog.apply(console, args);
+  try {
+    // bump progress for any backend console-write reflected here
+    const bar = document.getElementById("progress-bar");
+    if (bar) {
+      const evt = args.join(" ");
+      bumpProgress(evt.includes("[fetch]") || evt.includes("[rhef]") ? 4 : 1);
+    }
+  } catch(e){}
+};
   // Bind order form submit
   const orderForm = document.getElementById("orderForm");
   if (orderForm){
