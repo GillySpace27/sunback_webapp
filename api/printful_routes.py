@@ -1,4 +1,5 @@
-from fastapi import APIRouter, UploadFile, Form
+from fastapi import APIRouter, UploadFile, Form, Request, File
+from typing import List
 from fastapi.responses import JSONResponse
 import requests, time, os
 
@@ -7,6 +8,27 @@ router = APIRouter(prefix="/printful", tags=["printful"])
 PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY")
 PRINTFUL_BASE = "https://api.printful.com"
 
+# Curated product templates used by the frontend picker.
+# NOTE: Replace product_id and variant_id with real IDs from your Printful dashboard.
+TEMPLATES = [
+    {
+        "key": "poster_matte_12x18",
+        "label": 'Poster — 12×18" Premium Matte',
+        "product_id": 0,
+        "variant_id": 0,
+        "thumbnail": None,
+        "description": "Example poster template. Replace IDs with real Printful product/variant.",
+    },
+    {
+        "key": "canvas_16x20",
+        "label": 'Canvas — 16×20" Gallery Wrap',
+        "product_id": 0,
+        "variant_id": 0,
+        "thumbnail": None,
+        "description": "Example canvas template. Replace IDs with real Printful product/variant.",
+    },
+]
+
 def _headers():
     if not PRINTFUL_API_KEY:
         # Late binding so hot-reloads pick up env changes
@@ -14,23 +36,148 @@ def _headers():
     return {"Authorization": f"Bearer {PRINTFUL_API_KEY}"}
 
 
-# ────────────────────────────────────────────────
-# 1️⃣  Upload image to Printful File Library
-# ────────────────────────────────────────────────
-@router.post("/upload")
-async def upload_image(file: UploadFile):
-    """Uploads a solar image (PNG/JPG) to the Printful File Library."""
-    try:
-        _ = _headers()  # validates key
-        files = {"file": (file.filename, await file.read(), file.content_type)}
-        data = {"purpose": "preview"}
-        r = requests.post(f"{PRINTFUL_BASE}/files", headers=_headers(), files=files, data=data)
-        r.raise_for_status()
-        file_id = r.json()["result"]["id"]
-        return {"file_id": file_id}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"Printful upload failed: {e}"})
 
+# ────────────────────────────────────────────────
+# 1️⃣  Upload image to Printful File Library (JSON URL-based method)
+# ────────────────────────────────────────────────
+from fastapi import HTTPException
+import os
+
+ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "http://127.0.0.1:8000/asset")
+
+@router.post("/upload")
+async def upload_image(request: Request):
+    """
+    Uploads a solar image to Printful using JSON URL-based method.
+    Expects JSON:
+    {
+        "image_path": "hq_SDO_171_2025-11-09.png",
+        "filename": "optional_custom.png"
+    }
+    """
+    try:
+        data = await request.json()
+        image_path = data.get("image_path")
+        custom_filename = data.get("filename")
+
+        if not image_path:
+            raise HTTPException(status_code=400, detail="image_path is required")
+
+        # Idempotency check: avoid duplicate uploads if the same file already exists
+        basename = os.path.basename(image_path)
+        try:
+            check = requests.get(f"{PRINTFUL_BASE}/files", headers={"Authorization": f"Bearer {PRINTFUL_API_KEY}"})
+            if check.ok:
+                existing = check.json().get("result", {}).get("items", [])
+                for item in existing:
+                    if item.get("filename") == basename:
+                        return {
+                            "status": "success",
+                            "file_id": item.get("id"),
+                            "file_url": item.get("url"),
+                            "raw": item
+                        }
+        except Exception:
+            pass
+
+        # Handle relative paths under /tmp/output
+        if not image_path.startswith("http://") and not image_path.startswith("https://"):
+            if not os.path.isabs(image_path):
+                image_path = os.path.join("/tmp/output", image_path)
+            if not os.path.exists(image_path):
+                raise HTTPException(status_code=400, detail=f"File not found: {image_path}")
+
+            # Convert to public URL
+            basename = os.path.basename(image_path)
+            public_url = f"{ASSET_BASE_URL.rstrip('/')}/{basename}"
+        else:
+            public_url = image_path
+
+        filename = custom_filename or os.path.basename(public_url)
+
+        payload = {
+            "type": "default",
+            "url": public_url,
+            "options": [
+                {"id": "template_type", "value": "native"}
+            ],
+            "filename": filename,
+            "visible": True
+        }
+
+        headers = {
+            "Authorization": f"Bearer {PRINTFUL_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        r = requests.post(
+            f"{PRINTFUL_BASE}/files",
+            headers=headers,
+            json=payload
+        )
+
+        if r.status_code >= 400:
+            raise HTTPException(
+                status_code=r.status_code,
+                detail=r.text
+            )
+
+        result = r.json().get("result", {})
+        return {
+            "status": "success",
+            "file_id": result.get("id"),
+            "file_url": result.get("url"),
+            "raw": result
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+
+
+
+# ────────────────────────────────────────────────
+# List curated product templates for frontend picker
+# ────────────────────────────────────────────────
+@router.get("/templates")
+async def list_templates():
+    """
+    Return curated Printful product templates for use in the Solar Archive UI.
+
+    Each template packs the product_id + variant_id needed for automatic mockups.
+    """
+    return TEMPLATES
+
+
+# ────────────────────────────────────────────────
+# List live product templates from Printful
+# ────────────────────────────────────────────────
+@router.get("/templates/live")
+async def list_live_templates():
+    try:
+        hdr = _headers()
+        r = requests.get(f"{PRINTFUL_BASE}/product-templates", headers=hdr)
+        r.raise_for_status()
+        raw = r.json().get("result", [])
+        templates = []
+        for t in raw:
+            tpl = {
+                "template_id": t.get("id"),
+                "product_id": t.get("product_id"),
+                "name": t.get("name") or t.get("title") or "Untitled Template",
+                "thumbnail": t.get("thumbnail_url") or t.get("preview_url"),
+                "variants": []
+            }
+            for v in t.get("variants", []):
+                tpl["variants"].append({
+                    "variant_id": v.get("id"),
+                    "name": v.get("name") or v.get("title"),
+                    "size": v.get("size"),
+                    "color": v.get("color")
+                })
+            templates.append(tpl)
+        return templates
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to fetch templates: {e}"})
 
 # ────────────────────────────────────────────────
 # 2️⃣  Generate live product mockup

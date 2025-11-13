@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- source ../.env must be run server-side before launch -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -16,6 +17,22 @@
     #productPicker { display:flex; flex-wrap:wrap; gap:12px; margin-top: 16px; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items:start; }
     @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    #productPicker {
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:center;
+      align-items:flex-start;
+      gap:1em;
+    }
+
+    .template-thumb {
+      width:100%;
+      border-radius:8px;
+    }
+
+    .template-card:hover {
+      transform:scale(1.03);
+    }
   </style>
 </head>
 <body>
@@ -55,6 +72,8 @@
         <img id="solar-image" alt="Solar preview" />
       </div>
       <div>
+        <button id="uploadPrintfulBtn" style="margin-bottom:1rem; width:200px;">Upload to Printful</button>
+        <button id="openPrintfulDashboardBtn" style="margin-bottom:1rem; width:200px;">Open Printful Dashboard</button>
         <h3>Products</h3>
         <div id="productPicker"></div>
 
