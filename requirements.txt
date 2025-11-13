@@ -9,3 +9,4 @@ pydantic
 sse_starlette
 sunkit-image
 aiapy
+dotenv
