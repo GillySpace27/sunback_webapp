@@ -10,3 +10,4 @@ sse_starlette
 sunkit-image
 aiapy
 dotenv
+cryptography
