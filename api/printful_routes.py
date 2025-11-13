@@ -73,6 +73,7 @@ async def upload_to_printful(request: Request):
         "url": "https://solar-archive.onrender.com/asset/hq_SDO_171_2024-09-15.png",
         "filename": "hq_SDO_171_2024-09-15.png"
     }
+    Before sending to Printful, rewrites local asset URLs to Render domain if running on Render.
     """
     try:
         body = await request.json()
@@ -83,14 +84,30 @@ async def upload_to_printful(request: Request):
         if not url:
             raise HTTPException(status_code=400, detail="Missing 'url' field in JSON body.")
 
+        # Rewrite local URLs to Render domain if needed
+        render_env = os.getenv("RENDER")
+        is_local_url = False
+        local_bases = [
+            "http://127.0.0.1",
+            "http://localhost"
+        ]
+        new_url = url
+        for base in local_bases:
+            if url.startswith(base):
+                is_local_url = True
+                break
+        if render_env or is_local_url:
+            # Replace base with Render domain
+            import re
+            # Accept possible port and path, replace with Render domain
+            new_url = re.sub(r"^http://(127\.0\.0\.1|localhost)(:\d+)?", "https://solar-archive.onrender.com", url)
+            log_to_queue(f"[printful][upload] Rewriting asset URL for Printful: {url} -> {new_url}")
+        url = new_url
+
         import tempfile, shutil
         # Create clean temporary cert file and ensure it is closed before use
         tmp_clean_cert_path = None
         try:
-            # with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as tmp_clean_cert:
-            #     shutil.copyfile(certifi.where(), tmp_clean_cert.name)
-            #     tmp_clean_cert.flush()
-            #     tmp_clean_cert_path = tmp_clean_cert.name
             tmp_clean_cert_path = certifi.where()
             log_to_queue(f"[printful][upload] Using isolated cert bundle for Printful: {tmp_clean_cert_path}")
         except Exception as e:
