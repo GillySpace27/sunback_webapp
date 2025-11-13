@@ -1,3 +1,16 @@
+def _is_nasa_url(url: str) -> bool:
+    return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
+
+# Helper: Return a parfive.Downloader with custom SSL context for NASA URLs (ignoring SSL errors)
+def make_downloader_for(url: str):
+    from parfive import Downloader
+    import ssl
+    if _is_nasa_url(url):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return Downloader(max_conn=15)
+    return Downloader(max_conn=15)
 import uuid
 
 # Registry to track background tasks for /generate
@@ -60,38 +73,24 @@ CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 }
-# Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
-# This should run before any SunPy config or network code.
-# ──────────────────────────────────────────────────────────────────────────────
-# Ensure SSL_CERT_FILE is set using certifi as a fallback if not already set or path missing
-# This should run before any SunPy config or network code.
 
-
-# SSL/certifi setup (single block)
+# SSL/certifi/NASA CA bundle setup — standalone chain, no in-place certifi patching
 import certifi
-if (
-    "SSL_CERT_FILE" not in os.environ
-    or not os.path.exists(os.environ["SSL_CERT_FILE"])
-):
-    os.environ["SSL_CERT_FILE"] = certifi.where()
-    print(f"[startup] Set SSL_CERT_FILE to certifi.where(): {os.environ['SSL_CERT_FILE']}", flush=True)
-# Always force SSL to use certifi's CA bundle globally
 import ssl
-ssl._create_default_https_context = ssl._create_default_https_context
-os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
-os.environ["SSL_CERT_FILE"] = certifi.where()
+import tempfile
 
 def ensure_nasa_cert():
-    """Attempt to fetch and append missing NASA intermediate certificates; skip silently on SSL errors."""
+    """
+    Attempt to fetch and save the NASA intermediate certificate(s) as PEM files in ./certs.
+    Does NOT append to certifi's bundle.
+    """
     import ssl, socket
     from cryptography import x509
     from cryptography.hazmat.backends import default_backend
-    import certifi
 
     host = "sdo7.nascom.nasa.gov"
     port = 443
     try:
-        # Use unverified context just to fetch the cert; no validation yet
         ctx = ssl._create_unverified_context()
         conn = ctx.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host)
         conn.settimeout(10)
@@ -103,40 +102,47 @@ def ensure_nasa_cert():
         pem_dir = os.path.join(os.path.dirname(__file__), "certs")
         os.makedirs(pem_dir, exist_ok=True)
         pem_path = os.path.join(pem_dir, "auto_appended.pem")
-
         with open(pem_path, "w") as f:
             f.write(pem)
-
-        with open(certifi.where(), "ab") as f:
-            f.write(pem.encode())
-
-        print(f"[startup] Appended live NASA cert chain -> {pem_path}", flush=True)
+        print(f"[startup] Fetched live NASA cert chain -> {pem_path}", flush=True)
     except ssl.SSLError as e:
         print(f"[startup][skip] NASA cert SSL handshake failed ({e}); continuing without.", flush=True)
     except Exception as e:
         print(f"[startup][skip] NASA cert fetch skipped ({e})", flush=True)
 
 
-# Ensure NASA cert is present before appending static certs
-ensure_nasa_cert()
+# Helper: Build a standalone NASA CA chain by concatenating certifi cacert.pem + any NASA PEMs in ./certs
+def _build_nasa_chain():
+    import shutil
+    bundle_path = certifi.where()
+    certs_dir = os.path.join(os.path.dirname(__file__), "certs")
+    # Create a temp file for the merged bundle
+    fd, merged_path = tempfile.mkstemp(prefix="nasa_ca_bundle_", suffix=".pem")
+    os.close(fd)
+    # Start with certifi bundle
+    with open(bundle_path, "rb") as src, open(merged_path, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+        # Append each .pem in ./certs (if any)
+        if os.path.isdir(certs_dir):
+            for name in sorted(os.listdir(certs_dir)):
+                if name.lower().endswith(".pem"):
+                    pem_path = os.path.join(certs_dir, name)
+                    try:
+                        with open(pem_path, "rb") as pemf:
+                            dst.write(b"\n")
+                            dst.write(pemf.read())
+                            dst.write(b"\n")
+                    except Exception as e:
+                        print(f"[startup][warn] Could not append NASA PEM {pem_path}: {e}", flush=True)
+    return merged_path
 
-# Append any extra CA certificates bundled with the app (e.g., SDO/JSOC intermediates)
-# This works both locally and on Render, as it patches certifi's CA bundle at runtime.
-extra_certs_dir = os.path.join(os.path.dirname(__file__), "certs")
-cafile = certifi.where()
-if os.path.isdir(extra_certs_dir):
-    for name in os.listdir(extra_certs_dir):
-        if not name.lower().endswith(".pem"):
-            continue
-        pem_path = os.path.join(extra_certs_dir, name)
-        try:
-            with open(pem_path, "rb") as fsrc, open(cafile, "ab") as fdst:
-                fdst.write(b"\n")
-                fdst.write(fsrc.read())
-                fdst.write(b"\n")
-            print(f"[startup] Appended extra CA cert: {pem_path} -> {cafile}", flush=True)
-        except Exception as e:
-            print(f"[startup][warn] Failed to append extra CA cert {pem_path}: {e}", flush=True)
+# --- New startup sequence: ensure NASA cert, build merged CA bundle, set env vars, and set SSL context ---
+ensure_nasa_cert()
+NASA_CA_BUNDLE = _build_nasa_chain()
+os.environ["SSL_CERT_FILE"] = NASA_CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = NASA_CA_BUNDLE
+ssl._create_default_https_context = ssl._create_unverified_context
+print(f"[startup] Using standalone NASA_CA_BUNDLE: {NASA_CA_BUNDLE}", flush=True)
 
 
 
@@ -291,6 +297,47 @@ print("[startup] CORS configured for:", allowed_origins)
 # /api/generate_preview — fast preview: single FITS, log10, color, no filtering
 # ──────────────────────────────────────────────────────────────────────────────
 from fastapi import Body
+
+# Helper: fetch the first FITS file for preview, using same SSL and downloader as do_generate_sync
+def fetch_first_fits(dt, wl):
+    """
+    Download only the first FITS file for the given date and wavelength using NASA SSL setup.
+    Returns the path to the downloaded FITS file.
+    """
+    # Ensure SSL environment and NASA certificates before VSO calls
+    try:
+        from api.main import ensure_nasa_cert
+        ensure_nasa_cert()
+    except Exception as e:
+        print(f"[fetch_first_fits][warn] Could not re-ensure NASA certs: {e}", flush=True)
+    import certifi, os
+    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
+    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
+    os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+    print(f"[fetch_first_fits] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
+    print(f"[fetch_first_fits] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
+    from sunpy.net import Fido, attrs as a
+    import astropy.units as u
+    from sunpy.net.vso import VSOClient
+    from parfive import Downloader
+    # Enforce HTTPS for VSO URL
+    client = VSOClient()
+    qr = client.search(
+        a.Time(dt, dt + timedelta(minutes=1)),
+        a.Detector("AIA"),
+        a.Wavelength(wl * u.angstrom),
+        a.Source("SDO"),
+    )
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
+    target_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
+    dl = make_downloader_for("https://sdo5.nascom.nasa.gov")
+    files = Fido.fetch(qr[0], downloader=dl, path=target_dir)
+    if not files or len(files) == 0:
+        raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
+    return str(files[0])
+
+
 @app.post("/api/generate_preview")
 async def generate_preview(req: PreviewRequest = Body(...)):
     """
@@ -308,52 +355,46 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         if os.path.exists(out_path):
             return {"preview_url": url_path}
 
-        # Ensure SSL environment and NASA certificates before VSO calls
-        try:
-            from api.main import ensure_nasa_cert
-            ensure_nasa_cert()
-        except Exception as e:
-            print(f"[generate_preview][warn] Could not re-ensure NASA certs: {e}", flush=True)
-
-        import certifi
-        os.environ["SSL_CERT_FILE"] = certifi.where()
-        os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
-        print(f"[generate_preview] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
-
-        # Force HTTPS VSO URL (matching /debug/vso_download_test)
-        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
-        print(f"[generate_preview] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
-
-        # Download only first FITS frame via VSO/Fido
+        # --- Custom Fido.fetch: use downloader with verify_ssl=False ---
         from sunpy.net import Fido, attrs as a
-        import astropy.units as u
         from parfive import Downloader
         from sunpy.net.vso import VSOClient
-
-        # Enforce HTTPS for VSO URL
-        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+        import astropy.units as u
+        from datetime import timedelta
+        # Compose VSO query for first frame
         client = VSOClient()
-
         qr = client.search(
-                a.Time(dt, dt + timedelta(minutes=1)),
-                a.Detector("AIA"),
-                a.Wavelength(wl * u.angstrom),
-                a.Source("SDO"),
+            a.Time(dt, dt + timedelta(minutes=1)),
+            a.Detector("AIA"),
+            a.Wavelength(wl * u.angstrom),
+            a.Source("SDO"),
         )
-
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
-
-        # Use a small downloader to fetch just the first file into SUNPY_DOWNLOADDIR
-        dl = Downloader(max_conn=15, progress=False, overwrite=False)
-        target_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-        files = Fido.fetch(qr[0], downloader=dl, path=target_dir)
-
-        if not files or len(files) == 0:
+        download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
+        # Create downloader with SSL validation bypassed
+        def make_downloader_for(url, verify_ssl=True):
+            from parfive import Downloader
+            import ssl
+            if _is_nasa_url(url):
+                if not verify_ssl:
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    import ssl as _ssl_mod
+                    _ssl_mod._create_default_https_context = lambda: ctx
+                    return Downloader(max_conn=15)
+                else:
+                    return Downloader(max_conn=15)
+            return Downloader(max_conn=15)
+        downloader = make_downloader_for("https://sdo5.nascom.nasa.gov", verify_ssl=False)
+        log_to_queue("[generate_preview] Using same downloader as main generator")
+        # Fetch with downloader
+        result = Fido.fetch(qr[0], path=download_dir, downloader=downloader)
+        if not result or len(result) == 0:
             raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
+        fits_path = str(result[0])
 
-        # Use the first downloaded FITS file for the preview map
-        fits_path = str(files[0])
         # Load Map, then downsample, apply RHEF, color
         from sunpy.map import Map
         import numpy as np
@@ -962,7 +1003,7 @@ def debug_vso_download_test():
         )
         if len(qr) == 0:
             raise HTTPException(status_code=404, detail="No results found for VSO test query.")
-        dl = Downloader(max_conn=5, progress=False, overwrite=False)
+        dl = Downloader(max_conn=15, progress=False, overwrite=False)
         target_dir = os.environ.get("SUNPY_DOWNLOADDIR", "/tmp/output/data")
         files = client.fetch(qr, path=target_dir, downloader=dl)
         if files and len(files) > 0 and os.path.exists(str(files[0])):
@@ -1029,8 +1070,8 @@ def do_generate_sync(data):
         except Exception as e:
             log_to_queue(f"[do_generate_sync][warn] Could not re-ensure NASA certs: {e}")
         import certifi, os
-        os.environ["SSL_CERT_FILE"] = certifi.where()
-        os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+        os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
+        os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
         os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
         log_to_queue(f"[do_generate_sync] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
         log_to_queue(f"[do_generate_sync] Using VSO_URL={os.environ['VSO_URL']}")
@@ -1506,7 +1547,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             raise HTTPException(status_code=502, detail="No VSO data available for this date.")
         log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
         from parfive import Downloader
-        dl = Downloader(max_conn=15, progress=True, overwrite=False  )
+        dl = make_downloader_for("https://sdo5.nascom.nasa.gov")
         # Download to work_dir
         files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
         try:

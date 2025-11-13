@@ -199,7 +199,7 @@ function initApp() {
       // Disable HQ and clear cache during preview generation
       // const hqBtn = document.getElementById("hq-btn");
       if (hqBtn) {
-        // hqBtn.disabled = true;   // disable HQ during preview generation (removed per instructions)
+        hqBtn.disabled = false;   // disable HQ during preview generation (removed per instructions)
       }
       if (clearCacheBtn) clearCacheBtn.disabled = true;
       setProgress(0);

@@ -44,7 +44,11 @@
         P.__uploadLock = true;
         try {
           const basename = imageUrl.substring(imageUrl.lastIndexOf("/") + 1);
-          const body = { image_path: basename, filename: basename };
+          const body = {
+            type: "preview",
+            url: imageUrl,
+            filename: basename
+          };
 
           const res = await fetch(`${API_BASE}/printful/upload`, {
             method: "POST",
