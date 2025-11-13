@@ -98,21 +98,23 @@ async def upload_to_printful(request: Request):
 
         headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}", "Content-Type": "application/json"}
         payload = {
-            "type": upload_type,
+            # "type": upload_type,
             "url": url,
-            "filename": filename
+            # "filename": filename
         }
         log_to_queue(f"[printful][upload] Sending JSON payload: {payload}")
+        log_to_queue(f"[printful][upload] Sending JSON headers: {headers}")
+        log_to_queue(f"[printful][upload] Sending verification: {tmp_clean_cert_path}")
 
         response = requests.post(
-            f"{PRINTFUL_BASE}/files",
+            f"https://api.printful.com/v2/files",
             headers=headers,
             json=payload,
             verify=tmp_clean_cert_path
         )
 
         if response.status_code != 200:
-            raise Exception(f"Upload failed: {response.text}")
+            raise Exception(f"Inner Upload failed: {response.text}")
 
         result = response.json()
         log_to_queue(f"[printful][upload] Success: {result}")
