@@ -1,11 +1,27 @@
-from fastapi import APIRouter, UploadFile, Form, Request, File
-from typing import List
+import os
+import ssl
+import certifi
+import requests
+from fastapi import APIRouter, UploadFile, File, Form, Request, HTTPException
+# from fastapi import FastAPI, , Query, Request
+
 from fastapi.responses import JSONResponse
-import requests, time, os
+import sys
+import asyncio
+import logging
+log_queue: asyncio.Queue[str] = asyncio.Queue()
 
-router = APIRouter(prefix="/printful", tags=["printful"])
+def log_to_queue(msg: str):
+    """Add message to both the console and the live streaming log."""
+    try:
+        log_queue.put_nowait(msg)
+    except Exception:
+        pass
+    print(msg, flush=True)
+    sys.stdout.flush()
+router = APIRouter(prefix="/printful", tags=["Printful"])
 
-PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY")
+PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", "")
 PRINTFUL_BASE = "https://api.printful.com"
 
 # Curated product templates used by the frontend picker.
@@ -40,98 +56,71 @@ def _headers():
 # ────────────────────────────────────────────────
 # 1️⃣  Upload image to Printful File Library (JSON URL-based method)
 # ────────────────────────────────────────────────
-from fastapi import HTTPException
-import os
+# ────────────────────────────────────────────────
+# 1️⃣  Upload image to Printful File Library (JSON URL-based method)
+# ────────────────────────────────────────────────
 
-ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "http://127.0.0.1:8000/asset")
 
+
+# --- New: Upload to Printful using URL-based JSON upload (per new Printful API spec) ---
 @router.post("/upload")
-async def upload_image(request: Request):
+async def upload_to_printful(request: Request):
     """
-    Uploads a solar image to Printful using JSON URL-based method.
-    Expects JSON:
+    Upload a file to Printful's file library using the URL-based JSON method.
+    Expects a JSON body like:
     {
-        "image_path": "hq_SDO_171_2025-11-09.png",
-        "filename": "optional_custom.png"
+        "type": "preview",
+        "url": "https://solar-archive.onrender.com/asset/hq_SDO_171_2024-09-15.png",
+        "filename": "hq_SDO_171_2024-09-15.png"
     }
     """
     try:
-        data = await request.json()
-        image_path = data.get("image_path")
-        custom_filename = data.get("filename")
+        body = await request.json()
+        url = body.get("url")
+        filename = body.get("filename") or (os.path.basename(url) if url else None)
+        upload_type = body.get("type", "default")
 
-        if not image_path:
-            raise HTTPException(status_code=400, detail="image_path is required")
+        if not url:
+            raise HTTPException(status_code=400, detail="Missing 'url' field in JSON body.")
 
-        # Idempotency check: avoid duplicate uploads if the same file already exists
-        basename = os.path.basename(image_path)
+        import tempfile, shutil
+        # Create clean temporary cert file and ensure it is closed before use
+        tmp_clean_cert_path = None
         try:
-            check = requests.get(f"{PRINTFUL_BASE}/files", headers={"Authorization": f"Bearer {PRINTFUL_API_KEY}"})
-            if check.ok:
-                existing = check.json().get("result", {}).get("items", [])
-                for item in existing:
-                    if item.get("filename") == basename:
-                        return {
-                            "status": "success",
-                            "file_id": item.get("id"),
-                            "file_url": item.get("url"),
-                            "raw": item
-                        }
-        except Exception:
-            pass
+            # with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as tmp_clean_cert:
+            #     shutil.copyfile(certifi.where(), tmp_clean_cert.name)
+            #     tmp_clean_cert.flush()
+            #     tmp_clean_cert_path = tmp_clean_cert.name
+            tmp_clean_cert_path = certifi.where()
+            log_to_queue(f"[printful][upload] Using isolated cert bundle for Printful: {tmp_clean_cert_path}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to create clean cert file: {e}")
 
-        # Handle relative paths under /tmp/output
-        if not image_path.startswith("http://") and not image_path.startswith("https://"):
-            if not os.path.isabs(image_path):
-                image_path = os.path.join("/tmp/output", image_path)
-            if not os.path.exists(image_path):
-                raise HTTPException(status_code=400, detail=f"File not found: {image_path}")
-
-            # Convert to public URL
-            basename = os.path.basename(image_path)
-            public_url = f"{ASSET_BASE_URL.rstrip('/')}/{basename}"
-        else:
-            public_url = image_path
-
-        filename = custom_filename or os.path.basename(public_url)
-
+        headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}", "Content-Type": "application/json"}
         payload = {
-            "type": "default",
-            "url": public_url,
-            "options": [
-                {"id": "template_type", "value": "native"}
-            ],
-            "filename": filename,
-            "visible": True
+            "type": upload_type,
+            "url": url,
+            "filename": filename
         }
+        log_to_queue(f"[printful][upload] Sending JSON payload: {payload}")
 
-        headers = {
-            "Authorization": f"Bearer {PRINTFUL_API_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        r = requests.post(
+        response = requests.post(
             f"{PRINTFUL_BASE}/files",
             headers=headers,
-            json=payload
+            json=payload,
+            verify=tmp_clean_cert_path
         )
 
-        if r.status_code >= 400:
-            raise HTTPException(
-                status_code=r.status_code,
-                detail=r.text
-            )
+        if response.status_code != 200:
+            raise Exception(f"Upload failed: {response.text}")
 
-        result = r.json().get("result", {})
-        return {
-            "status": "success",
-            "file_id": result.get("id"),
-            "file_url": result.get("url"),
-            "raw": result
-        }
-
+        result = response.json()
+        log_to_queue(f"[printful][upload] Success: {result}")
+        return JSONResponse(content=result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+        err = f"Upload failed: {e}"
+        log_to_queue(err)
+        return JSONResponse(status_code=500, content={"detail": err})
 
 
 
