@@ -17,6 +17,8 @@
 
   // --- Public API used by test_frontend.js ---
   const P = {
+      __uploadLock: false,
+
     getApiBase() {
       return API_BASE;
     },
@@ -25,23 +27,48 @@
       // Returns array of {id, name, thumbnail, type}
       return await jsonFetch(`${API_BASE}/printful/products`);
     },
+    async listTemplates() {
+      // Returns array of curated templates defined in the backend
+      return await jsonFetch(`${API_BASE}/printful/templates`);
+    },
+
+    async listLiveTemplates() {
+      // Fetches live templates pulled from Printful via backend
+      return await jsonFetch(`${API_BASE}/printful/templates/live`);
+    },
 
     async uploadImageToPrintfulFromUrl(imageUrl) {
-      // Fetch the image and re-upload to /api/printful/upload
-      const resp = await fetch(imageUrl);
-      if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
-      const blob = await resp.blob();
-      const file = new File([blob], imageUrl.split("/").pop() || "image.png", { type: blob.type || "image/png" });
-      const form = new FormData();
-      form.append("file", file);
-      const up = await fetch(`${API_BASE}/printful/upload`, { method: "POST", body: form });
-      if (!up.ok) {
-        const txt = await up.text();
-        throw new Error(`Upload failed: ${txt}`);
-      }
-      const data = await up.json();
-      if (!data.file_id) throw new Error("No file_id returned from upload");
-      return data.file_id;
+        if (P.__uploadLock) {
+          throw new Error("Upload already in progress");
+        }
+        P.__uploadLock = true;
+        try {
+          const basename = imageUrl.substring(imageUrl.lastIndexOf("/") + 1);
+          const body = { image_path: basename, filename: basename };
+
+          const res = await fetch(`${API_BASE}/printful/upload`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+
+          if (!res.ok) {
+            const txt = await res.text();
+            P.__uploadLock = false;
+            throw new Error(`Upload failed: ${txt}`);
+          }
+
+          const data = await res.json();
+          if (!data.file_id) throw new Error("No file_id returned from Printful");
+
+          P.__uploadLock = false;
+          return data.file_id;
+        } catch(e) {
+          P.__uploadLock = false;
+          throw e;
+        } finally {
+          P.__uploadLock = false;
+        }
     },
 
     async handleUploadAndMockup(imageUrl, productId, variantId) {
@@ -52,6 +79,26 @@
       const form = new FormData();
       form.append("product_id", String(productId));
       form.append("variant_id", String(variantId));
+      form.append("file_id", String(file_id));
+
+      const res = await fetch(`${API_BASE}/printful/mockup`, { method: "POST", body: form });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Mockup request failed: ${txt}`);
+      }
+      const data = await res.json();
+      if (!data.mockup_url) throw new Error("No mockup URL returned");
+      // Show mockup in a new tab
+      window.open(data.mockup_url, "_blank");
+      return data.mockup_url;
+    },
+    async handleUploadAndMockupToTemplate(imageUrl, template) {
+      // Upload the image and request a mockup using a curated template's product/variant IDs
+      const file_id = await P.uploadImageToPrintfulFromUrl(imageUrl);
+
+      const form = new FormData();
+      form.append("product_id", String(template.product_id));
+      form.append("variant_id", String(template.variant_id));
       form.append("file_id", String(file_id));
 
       const res = await fetch(`${API_BASE}/printful/mockup`, { method: "POST", body: form });

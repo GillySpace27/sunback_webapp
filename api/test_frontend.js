@@ -102,38 +102,40 @@ async function generatePreview(prompt) {
 // Additional: product picker helpers and order form bind
 async function loadProductPicker(){
   const picker = document.getElementById("productPicker");
-  if (!picker) return;
   picker.innerHTML = "";
-  try{
-    const products = await P.listProducts();
-    products.slice(0, 12).forEach(p=>{
+  try {
+    const templates = await P.listLiveTemplates();
+    templates.forEach(t => {
       const card = document.createElement("div");
       card.style.cssText = `
-        width:180px; padding:1em; border-radius:12px;
+        width:200px; padding:1em; border-radius:12px;
         box-shadow:0 2px 8px rgba(0,0,0,0.1);
         background:#fff; cursor:pointer; text-align:center;
-        transition:transform 0.2s ease;
+        transition:transform 0.2s ease; margin:0.5em;
       `;
       card.onmouseenter = ()=> card.style.transform = "scale(1.03)";
       card.onmouseleave = ()=> card.style.transform = "scale(1)";
+      const thumb = t.thumbnail ? `<img src="${t.thumbnail}" style="width:100%; border-radius:8px; margin-bottom:0.5em;">` : "";
+      const variantsHtml = t.variants.map(v => `<div style="font-size:0.8em; color:#555;">${v.name}</div>`).join("");
       card.innerHTML = `
-        <img src="${p.thumbnail}" style="width:100%; border-radius:8px; margin-bottom:0.5em;">
-        <div style="font-weight:600;">${p.name}</div>
-        <div style="font-size:0.85em; color:#666;">${p.type||''}</div>
+        ${thumb}
+        <div style="font-weight:700; margin-bottom:0.25em;">${t.name}</div>
+        <div>${variantsHtml}</div>
       `;
       card.addEventListener("click", ()=>{
-        const latest = document.getElementById("solar-image")?.src;
-        if (!latest){ alert("No preview image yet — generate one first."); return; }
-        // Temporary: use product id for both product and variant until variant UI is added
-        P.handleUploadAndMockup(latest, p.id, p.id).catch(err=>alert(err.message));
+        const img = document.getElementById("solar-image")?.src;
+        if (!img){ alert("No image yet — generate HQ first."); return; }
+        const first = t.variants[0];
+        if (!first){ alert("No variants available for this template."); return; }
+        P.handleUploadAndMockupToTemplate(img, {
+          product_id: t.product_id,
+          variant_id: first.variant_id
+        }).catch(err=>alert(err.message));
       });
       picker.appendChild(card);
     });
-  }catch(e){
-    const p = document.createElement("p");
-    p.style.color = "#b00";
-    p.textContent = "Failed to load products: " + e.message;
-    picker.appendChild(p);
+  } catch (e) {
+    picker.innerHTML = `<div style="color:red;">Failed to load: ${e.message}</div>`;
   }
 }
 
@@ -182,6 +184,11 @@ function initApp() {
     wavelengthInput.value = 171;
   }
 
+  const hqBtn = document.getElementById("hq-btn");
+  const uploadBtn = document.getElementById("uploadPrintfulBtn");
+  if (uploadBtn) {
+    uploadBtn.disabled = true;
+  }
 
   if (generateBtn && dateInput && wavelengthInput) {
     generateBtn.addEventListener("click", async () => {
@@ -190,9 +197,10 @@ function initApp() {
       currentAbortController = null;
       generateBtn.disabled = true;
       // Disable HQ and clear cache during preview generation
-      const hqBtn = document.getElementById("hq-btn");
-      const clearCacheBtn = document.getElementById("clearCacheBtn");
-      if (hqBtn) hqBtn.disabled = true;   // disable HQ during preview generation
+      // const hqBtn = document.getElementById("hq-btn");
+      if (hqBtn) {
+        // hqBtn.disabled = true;   // disable HQ during preview generation (removed per instructions)
+      }
       if (clearCacheBtn) clearCacheBtn.disabled = true;
       setProgress(0);
       startProgressTimer();
@@ -221,10 +229,10 @@ function initApp() {
       } finally {
         stopProgressTimer();
         generateBtn.disabled = false;
-        const clearCacheBtn = document.getElementById("clearCacheBtn");
-        const hqBtn = document.getElementById("hq-btn");
         if (clearCacheBtn) clearCacheBtn.disabled = false;
-        if (hqBtn) hqBtn.disabled = false;   // HQ becomes available only after preview success
+        if (hqBtn) {
+          // hqBtn.disabled = false;   // HQ becomes available only after preview success (removed per instructions)
+        }
       }
     });
   }
@@ -237,8 +245,6 @@ function initApp() {
       }
       clearCacheBtn.disabled = true;
       // Also disable preview and HQ buttons
-      const generateBtn = document.getElementById("generate-btn");
-      const hqBtn = document.getElementById("hq-btn");
       if (generateBtn) generateBtn.disabled = true;
       if (hqBtn) hqBtn.disabled = true;
       setProgress(0);
@@ -260,26 +266,26 @@ function initApp() {
         setStatus(`Failed to clear cache: ${err.message}`, "red");
       } finally {
         clearCacheBtn.disabled = false;
-        const generateBtn = document.getElementById("generate-btn");
-        const hqBtn = document.getElementById("hq-btn");
         if (generateBtn) generateBtn.disabled = false;
         if (hqBtn) hqBtn.disabled = true;   // HQ must stay disabled until a new preview exists
       }
     });
   }
 
-  // HQ Button logic
-  const hqBtn = document.getElementById("hq-btn");
   if (hqBtn && dateInput && wavelengthInput) {
-    hqBtn.disabled = true;   // HQ starts disabled
+    // hqBtn.disabled = true;   // HQ starts disabled (removed per instructions, so HQ enabled at init)
+
+    // Add global flag uploadAllowed here
+    let uploadInProgress = false;
+    let uploadAllowed = false;
+
     hqBtn.addEventListener("click", async () => {
-      const generateBtn = document.getElementById("generate-btn");
-      const clearCacheBtn = document.getElementById("clearCacheBtn");
       if (generateBtn) generateBtn.disabled = true;
       if (clearCacheBtn) clearCacheBtn.disabled = true;
       if (currentAbortController) currentAbortController.abort();
       currentAbortController = null;
       hqBtn.disabled = true;
+      if (uploadBtn) uploadBtn.disabled = true;
       setProgress(0);
       startProgressTimer();
       setStatus("Generating HQ image...", "blue");
@@ -298,6 +304,10 @@ function initApp() {
           setProgress(90); // image assigned
           setStatus("HQ image loaded!", "green");
           setProgress(100);
+          if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadAllowed = true; // allow exactly one upload per HQ generation
+          }
         } else {
           setStatus("HQ generation returned no PNG.", "orange");
         }
@@ -306,11 +316,51 @@ function initApp() {
       } finally {
         stopProgressTimer();
         hqBtn.disabled = false;
-        const generateBtn = document.getElementById("generate-btn");
-        const clearCacheBtn = document.getElementById("clearCacheBtn");
         if (generateBtn) generateBtn.disabled = false;
         if (clearCacheBtn) clearCacheBtn.disabled = false;
       }
+    });
+
+    if (uploadBtn) {
+      uploadBtn.addEventListener("click", async () => {
+        // Replace old guard with new logic
+        if (uploadBtn.disabled) return;
+        if (!uploadAllowed) return;
+
+        uploadBtn.disabled = true;   // HARD LOCK: cannot be clicked again
+        uploadInProgress = true;
+        uploadBtn.innerText = "Uploading…";
+        const imgEl = document.getElementById("solar-image");
+        const latest = imgEl?.src;
+        if (!latest) {
+          alert("No HQ image available. Generate the HQ proof first.");
+          uploadInProgress = false;
+          uploadBtn.disabled = false;
+          uploadBtn.innerText = "Upload to Printful";
+          return;
+        }
+        setStatus("Uploading image to Printful...", "blue");
+        try {
+          const file_id = await P.uploadImageToPrintfulFromUrl(latest);  // correct upload function
+          setStatus("Upload complete! File ID: " + file_id, "green");
+        } catch (err) {
+          setStatus("Upload failed: " + err.message, "red");
+        } finally {
+          uploadInProgress = false;
+          uploadAllowed = false;
+          uploadBtn.disabled = true;
+          uploadBtn.innerText = "Upload to Printful";
+        }
+      });
+    }
+  }
+
+  const dashBtn = document.getElementById("openPrintfulDashboardBtn");
+  if (dashBtn) {
+    dashBtn.addEventListener("click", () => {
+      // Opens Printful File Library where the user can select any product
+      window.open("https://www.printful.com/dashboard/library/index", "_blank");
+      setStatus("Opened Printful dashboard in a new tab.", "green");
     });
   }
 }

@@ -4,6 +4,9 @@ import uuid
 task_registry: dict = {}
 from urllib.parse import urlencode, quote_plus
 import os, sys
+from dotenv import load_dotenv
+# Load environment variables from ../.env (backend startup)
+load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 os.environ["PYTHONUNBUFFERED"] = "1"
 try:
     sys.stdout.reconfigure(write_through=True)
@@ -77,6 +80,63 @@ import ssl
 ssl._create_default_https_context = ssl._create_default_https_context
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 os.environ["SSL_CERT_FILE"] = certifi.where()
+
+def ensure_nasa_cert():
+    """Attempt to fetch and append missing NASA intermediate certificates; skip silently on SSL errors."""
+    import ssl, socket
+    from cryptography import x509
+    from cryptography.hazmat.backends import default_backend
+    import certifi
+
+    host = "sdo7.nascom.nasa.gov"
+    port = 443
+    try:
+        # Use unverified context just to fetch the cert; no validation yet
+        ctx = ssl._create_unverified_context()
+        conn = ctx.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host)
+        conn.settimeout(10)
+        conn.connect((host, port))
+        der_cert = conn.getpeercert(True)
+        pem = ssl.DER_cert_to_PEM_cert(der_cert)
+        conn.close()
+
+        pem_dir = os.path.join(os.path.dirname(__file__), "certs")
+        os.makedirs(pem_dir, exist_ok=True)
+        pem_path = os.path.join(pem_dir, "auto_appended.pem")
+
+        with open(pem_path, "w") as f:
+            f.write(pem)
+
+        with open(certifi.where(), "ab") as f:
+            f.write(pem.encode())
+
+        print(f"[startup] Appended live NASA cert chain -> {pem_path}", flush=True)
+    except ssl.SSLError as e:
+        print(f"[startup][skip] NASA cert SSL handshake failed ({e}); continuing without.", flush=True)
+    except Exception as e:
+        print(f"[startup][skip] NASA cert fetch skipped ({e})", flush=True)
+
+
+# Ensure NASA cert is present before appending static certs
+ensure_nasa_cert()
+
+# Append any extra CA certificates bundled with the app (e.g., SDO/JSOC intermediates)
+# This works both locally and on Render, as it patches certifi's CA bundle at runtime.
+extra_certs_dir = os.path.join(os.path.dirname(__file__), "certs")
+cafile = certifi.where()
+if os.path.isdir(extra_certs_dir):
+    for name in os.listdir(extra_certs_dir):
+        if not name.lower().endswith(".pem"):
+            continue
+        pem_path = os.path.join(extra_certs_dir, name)
+        try:
+            with open(pem_path, "rb") as fsrc, open(cafile, "ab") as fdst:
+                fdst.write(b"\n")
+                fdst.write(fsrc.read())
+                fdst.write(b"\n")
+            print(f"[startup] Appended extra CA cert: {pem_path} -> {cafile}", flush=True)
+        except Exception as e:
+            print(f"[startup][warn] Failed to append extra CA cert {pem_path}: {e}", flush=True)
 
 
 
@@ -247,30 +307,52 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         # If already exists, return immediately
         if os.path.exists(out_path):
             return {"preview_url": url_path}
-        # Download only first FITS frame
+
+        # Ensure SSL environment and NASA certificates before VSO calls
+        try:
+            from api.main import ensure_nasa_cert
+            ensure_nasa_cert()
+        except Exception as e:
+            print(f"[generate_preview][warn] Could not re-ensure NASA certs: {e}", flush=True)
+
+        import certifi
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+        print(f"[generate_preview] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
+
+        # Force HTTPS VSO URL (matching /debug/vso_download_test)
+        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+        print(f"[generate_preview] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
+
+        # Download only first FITS frame via VSO/Fido
         from sunpy.net import Fido, attrs as a
         import astropy.units as u
-        qr = Fido.search(
-            a.Time(dt - timedelta(minutes=1), dt + timedelta(minutes=1)),
-            a.Instrument("AIA"),
-            a.Source("SDO"),
-            a.Wavelength(wl * u.angstrom),
-        )
-        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            qr = Fido.search(
-                a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
-                a.Instrument("AIA"),
-                a.Source("SDO"),
-                a.Wavelength(wl * u.angstrom),
-            )
-        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            raise HTTPException(status_code=404, detail="No AIA data for this date/wavelength")
         from parfive import Downloader
+        from sunpy.net.vso import VSOClient
+
+        # Enforce HTTPS for VSO URL
+        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+        client = VSOClient()
+
+        qr = client.search(
+                a.Time(dt, dt + timedelta(minutes=1)),
+                a.Detector("AIA"),
+                a.Wavelength(wl * u.angstrom),
+                a.Source("SDO"),
+        )
+
+        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+            raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
+
+        # Use a small downloader to fetch just the first file into SUNPY_DOWNLOADDIR
         dl = Downloader(max_conn=15, progress=False, overwrite=False)
-        target_dir = os.environ["SUNPY_DOWNLOADDIR"]
-        files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
+        target_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
+        files = Fido.fetch(qr[0], downloader=dl, path=target_dir)
+
         if not files or len(files) == 0:
-            raise HTTPException(status_code=502, detail="No FITS files fetched")
+            raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
+
+        # Use the first downloaded FITS file for the preview map
         fits_path = str(files[0])
         # Load Map, then downsample, apply RHEF, color
         from sunpy.map import Map
@@ -458,49 +540,61 @@ async def clear_cache():
         raise HTTPException(status_code=500, detail=f"Failed to clear cache: {e}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Upload to Printful endpoint
-# ──────────────────────────────────────────────────────────────────────────────
 @app.post("/upload_to_printful")
-async def upload_to_printful(request: Request):
+async def upload_to_printful_redirect():
     """
-    Upload a generated image to Printful's file library.
-    Receives JSON body with keys 'image_path' and optional 'title'.
+    Legacy endpoint for uploading an image to Printful. Use /api/printful/upload instead.
+    This block implements robust error handling for Printful's /files API.
     """
+    from fastapi import Request
     try:
-        payload = await request.json()
+        payload = await Request.json()
         image_path = payload.get("image_path")
         title = payload.get("title", os.path.basename(image_path) if image_path else "Solar Archive Image")
-        # Accept relative paths under /tmp/output for safety
+
         if not image_path:
-            log_to_queue(f"[upload] No image_path provided in request.")
-            raise HTTPException(status_code=400, detail="image_path is required")
-        # If image_path is not absolute, prepend /tmp/output
+            return JSONResponse(status_code=400, content={"error": "image_path is required"})
+
         if not os.path.isabs(image_path):
             image_path = os.path.join("/tmp/output", image_path)
+
         if not os.path.exists(image_path):
-            log_to_queue(f"[upload] File not found: {image_path}")
-            raise HTTPException(status_code=400, detail=f"File not found: {image_path}")
+            return JSONResponse(status_code=400, content={"error": f"File not found: {image_path}"})
+
+        size = os.path.getsize(image_path)
+
         if not PRINTFUL_API_KEY:
-            log_to_queue("[upload] PRINTFUL_API_KEY is missing.")
-            raise HTTPException(status_code=500, detail="Missing PRINTFUL_API_KEY in environment")
-        log_to_queue(f"[upload] Uploading {image_path} to Printful...")
+            return JSONResponse(status_code=500, content={"error": "Missing PRINTFUL_API_KEY in environment"})
+
         with open(image_path, "rb") as f:
             files = {"file": (os.path.basename(image_path), f, "image/png")}
             data = {"purpose": "default", "filename": title}
             headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}"}
             response = requests.post(f"{PRINTFUL_BASE_URL}/files", headers=headers, files=files, data=data)
+
         if response.status_code >= 400:
-            log_to_queue(f"[upload] Printful upload failed: {response.status_code} {response.text}")
-            raise HTTPException(status_code=response.status_code, detail=response.text)
-        result = response.json()
+            # Try JSON first
+            try:
+                err = response.json()
+            except Exception:
+                # Fallback: raw bytes repr (never decode as UTF‑8)
+                err = {"raw_error": repr(response.content[:200])}
+
+            log_to_queue(f"[upload] Printful upload failed: {response.status_code} {err}")
+            raise HTTPException(status_code=response.status_code, detail=err)
+
+        # Try JSON for success response
+        try:
+            result = response.json()
+        except Exception:
+            log_to_queue("[upload] Warning: non-JSON success payload from Printful")
+            result = {}
+
         file_id = result.get("result", {}).get("id")
         file_url = result.get("result", {}).get("url")
-        log_to_queue(f"[upload] Printful upload successful: file_id={file_id}, url={file_url}")
-        return JSONResponse({"status": "success", "file_id": file_id, "file_url": file_url, "raw": result})
+        return {"status": "success", "file_id": file_id, "file_url": file_url, "raw": result}
     except Exception as e:
-        log_to_queue(f"[upload] Exception during upload_to_printful: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+        return JSONResponse(status_code=500, content={"error": f"Upload failed: {e}"})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -777,18 +871,17 @@ def debug_vso():
 
     print("[status] Initializing VSOClient...", flush=True)
     client = VSOClient()
-    try:
-        client.registry.load()
-    except Exception as e:
-        print(f"[debug_vso] Registry load exception: {e}", flush=True)
+    # try:
+    #     client.registry.load()
+    # except Exception as e:
+    #     print(f"[debug_vso] Registry load exception: {e}", flush=True)
 
     try:
         qr = client.search(
-            a.Time("2019-06-01", "2019-06-02"),
-            a.Instrument("AIA"),
+            a.Time("2019-06-01T00:00:00", "2019-06-01T00:00:12"),
+            a.Detector("AIA"),
             a.Wavelength(171 * u.angstrom),
             a.Source("SDO"),
-
         )
         n_results = len(qr) if hasattr(qr, "__len__") else 0
         print(f"[status] VSO search: {n_results} results.", flush=True)
@@ -801,7 +894,7 @@ def debug_vso():
         else:
             providers = ["unknown"]
 
-                # Build sample rows safely for modern SunPy (Astropy Table rows)
+        # Build sample rows safely for modern SunPy (Astropy Table rows)
         sample_rows = []
         if n_results > 0:
             for i in range(min(3, n_results)):
@@ -841,9 +934,49 @@ def debug_vso():
     except Exception as e:
         print(f"[status] Exception during search: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"VSO search failed: {e}")
+
+
+# --- Inserted endpoint: /debug/vso_download_test ---
+@app.get("/debug/vso_download_test")
+def debug_vso_download_test():
+    """
+    Attempts to download a small file from VSO (using the same query as /debug/vso).
+    Returns success if a file is downloaded to the temp directory.
+    """
+    from sunpy.net.vso import VSOClient
+    from sunpy.net import attrs as a
+    from astropy import units as u
+    from parfive import Downloader
+    import os
+
+
+    # Enforce HTTPS for VSO URL
+    os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+    client = VSOClient()
+    try:
+        qr = client.search(
+            a.Time("2019-06-01T00:00:00", "2019-06-01T00:02:00"),
+            a.Detector("AIA"),
+            a.Wavelength(171 * u.angstrom),
+            a.Source("SDO"),
+        )
+        if len(qr) == 0:
+            raise HTTPException(status_code=404, detail="No results found for VSO test query.")
+        dl = Downloader(max_conn=5, progress=False, overwrite=False)
+        target_dir = os.environ.get("SUNPY_DOWNLOADDIR", "/tmp/output/data")
+        files = client.fetch(qr, path=target_dir, downloader=dl)
+        if files and len(files) > 0 and os.path.exists(str(files[0])):
+            return {"status": "success", "file": str(files[0])}
+        else:
+            raise HTTPException(status_code=502, detail="VSO fetch returned no files or file missing.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"VSO download test failed: {e}")
+
+
+
+
+
 @app.get("/debug/env")
-
-
 def debug_env():
     return {
         "sunpy_configdir": os.environ.get("SUNPY_CONFIGDIR"),
@@ -888,6 +1021,20 @@ def do_generate_sync(data):
     from sunkit_image import radial
     try:
         req = GenerateRequest(**data)
+
+        # Ensure SSL environment and NASA certificates before VSO calls
+        try:
+            from api.main import ensure_nasa_cert
+            ensure_nasa_cert()
+        except Exception as e:
+            log_to_queue(f"[do_generate_sync][warn] Could not re-ensure NASA certs: {e}")
+        import certifi, os
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+        log_to_queue(f"[do_generate_sync] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
+        log_to_queue(f"[do_generate_sync] Using VSO_URL={os.environ['VSO_URL']}")
+
         dt = datetime.strptime(req.date, "%Y-%m-%d")
         wl = int(req.wavelength or 171)
         date_str = dt.strftime("%Y%m%d")
@@ -1330,17 +1477,27 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         import astropy.units as u
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
         log_to_queue(f"[fetch] Using VSO for AIA data ({wl}Å)")
-        qr = Fido.search(
-            a.Time(dt - timedelta(minutes=1), dt + timedelta(minutes=1)),
-            a.Instrument("AIA"),
-            a.Source("SDO"),
-            a.Wavelength(wl * u.angstrom),
+
+
+
+        from sunpy.net.vso import VSOClient
+
+        # Enforce HTTPS for VSO URL
+        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+        client = VSOClient()
+
+        qr = client.search(
+                a.Time(dt, dt + timedelta(minutes=2)),
+                a.Detector("AIA"),
+                a.Wavelength(wavelength * u.angstrom),
+                a.Source("SDO"),
         )
+
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
             qr = Fido.search(
                 a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
-                a.Instrument("AIA"),
+                a.Detector("AIA"), a.Provider("VSO"),
                 a.Source("SDO"),
                 a.Wavelength(wl * u.angstrom),
             )
@@ -1349,7 +1506,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             raise HTTPException(status_code=502, detail="No VSO data available for this date.")
         log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
         from parfive import Downloader
-        dl = Downloader(max_conn=15, progress=True, overwrite=False)
+        dl = Downloader(max_conn=15, progress=True, overwrite=False  )
         # Download to work_dir
         files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
         try:
@@ -1507,7 +1664,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         try:
             log_to_queue(f"[fetch] Attempt {attempt} to fetch...")
             from parfive import Downloader
-            dl = Downloader(max_conn=15, progress=False, overwrite=False)
+            dl = Downloader(max_conn=15, progress=False, overwrite=False  )
             target_dir = os.environ["SUNPY_DOWNLOADDIR"]
             files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
             if files and len(files) > 0:
@@ -1574,7 +1731,7 @@ def soho_eit_fallback(dt: datetime) -> Map:
         try:
             log_to_queue(f"[fetch] Fallback attempt {attempt}...")
             from parfive import Downloader
-            dl = Downloader(max_conn=15, progress=False, overwrite=False)
+            dl = Downloader(max_conn=15, progress=False, overwrite=False  )
             fallback_files = Fido.fetch(fallback_qr[0, 0], downloader=dl, path=os.environ["SUNPY_DOWNLOADDIR"])
             if fallback_files and len(fallback_files) > 0:
                 break
@@ -2048,7 +2205,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
         if mission.upper() == "SDO":
             wl = wavelength * u.angstrom
             log_to_queue(f"[preview] Using VSO quicklook fetch for SDO/AIA {wl}")
-            qr = client.search(a.Time(t0, t1), a.Instrument("AIA"), a.Wavelength(wl), )
+            qr = client.search(a.Time(t0, t1), a.Detector("AIA"), a.Provider("VSO"), a.Wavelength(wl), )
             if len(qr) == 0:
                 raise ValueError("No VSO AIA results found.")
         elif mission.upper() == "SOHO-EIT":
