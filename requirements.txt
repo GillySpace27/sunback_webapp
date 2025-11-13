@@ -11,3 +11,4 @@ sunkit-image
 aiapy
 dotenv
 cryptography
+python-multipart
