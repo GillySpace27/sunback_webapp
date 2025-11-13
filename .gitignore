@@ -4,3 +4,4 @@ dep/*
 *.png
 *.fits
 *.npz
+*.pyc
