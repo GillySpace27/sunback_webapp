@@ -15,7 +15,7 @@
     return res.text();
   }
 
-  // --- Public API used by test_frontend.js ---
+  // --- Public API used by frontend.js ---
   const P = {
       __uploadLock: false,
 

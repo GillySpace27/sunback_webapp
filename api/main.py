@@ -241,10 +241,10 @@ app.mount("/asset", StaticFiles(directory=OUTPUT_DIR), name="asset")
 # New: serve preview images from the preview subfolder
 app.mount("/asset/preview", StaticFiles(directory=PREVIEW_DIR), name="asset_preview")
 
-@app.get("/api/test_frontend.html")
-async def serve_test_frontend():
-    """Serve the test_frontend.html page."""
-    return FileResponse(os.path.join("api", "test_frontend.html"))
+@app.get("/api/frontend.html")
+async def serve_frontend():
+    """Serve the frontend.html page."""
+    return FileResponse(os.path.join("api", "frontend.html"))
 
 
 # ---------------------------------------------------------
@@ -573,7 +573,7 @@ async def get_status(task_id: str):
 
 
 
-# Serve /api/test_frontend.html and other frontend assets
+# Serve /api/frontend.html and other frontend assets
 # app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
 
 from pathlib import Path
@@ -942,7 +942,7 @@ async def redirect_to_shopify(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Redirect root URL to hosted frontend page."""
-    return RedirectResponse(url="https://solar-archive.onrender.com/api/test_frontend.html", status_code=302)
+    return RedirectResponse(url="https://solar-archive.onrender.com/api/frontend.html", status_code=302)
 
 
 # Serve the original cute Solar Archive landing page at /api
@@ -1118,103 +1118,6 @@ def choose_mission(dt: datetime) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Fido fetch helpers
 # ──────────────────────────────────────────────────────────────────────────────
-# def manual_aiaprep(smap):
-#     """
-#     Manual replacement for aiaprep using aiapy calibration routines.
-#     Performs:
-#       1) update_pointing with a retrieved pointing table (if available),
-#       2) register to common plate scale and north-up,
-#       3) exposure normalization via EXPTIME.
-#     Falls back gracefully if any step is unavailable.
-#     """
-#     # from sunpy.map import Map
-#     from astropy import units as u
-#     # aiapy calibrations
-#     try:
-#         from aiapy.calibrate import update_pointing, register
-#         try:
-#             from aiapy.calibrate import get_pointing  # preferred API
-#         except Exception:
-#             get_pointing = None
-#     except Exception as e:
-#         log_to_queue(f"[fetch] [AIA] aiapy.calibrate unavailable ({e}); skipping manual prep.")
-#         return smap
-#     # Try to obtain a pointing table in a version-agnostic way
-#     pointing_table = None
-#     if 'AIA' in str(smap.meta.get('instrume', smap.meta.get('instrument', ''))).upper():
-#         # Best-effort retrieval of pointing table
-#         if get_pointing is not None:
-#             try:
-#                 # First try signature that accepts the Map directly
-#                 pointing_table = get_pointing(smap)
-#             except TypeError:
-#                 # Fallback to passing a time (or small range) if required by the installed aiapy
-#                 try:
-#                     from sunpy.time import parse_time
-#                     t = getattr(smap, 'date', None)
-#                     if t is None:
-#                         t = parse_time(smap.meta.get('date-obs') or smap.meta.get('DATE-OBS'))
-#                     # Some versions accept a single time, others expect a range; try single time first
-#                     try:
-#                         pointing_table = get_pointing(t)
-#                     except Exception:
-#                         # Final fallback: small window around the observation time
-#                         from datetime import timedelta
-#                         t0 = t - timedelta(minutes=10)
-#                         t1 = t + timedelta(minutes=10)
-#                         pointing_table = get_pointing(t0, t1)
-#                 except Exception as pt_err:
-#                     log_to_queue(f"[fetch] [AIA] get_pointing fallback failed: {pt_err}")
-#         else:
-#             # Manual pointing alignment fallback if get_pointing is unavailable
-#             try:
-#                 from sunpy.coordinates import frames
-#                 from sunpy.coordinates.ephemeris import get_body_heliographic_stonyhurst
-#                 import astropy.units as u
-#                 from astropy.coordinates import SkyCoord
-#                 import numpy as np
-
-#                 # Rough recentering on the solar disk using CRPIX and RSUN metadata
-#                 meta = smap.meta.copy()
-#                 rsun_obs = meta.get("rsun_obs")
-#                 crpix1, crpix2 = meta.get("crpix1"), meta.get("crpix2")
-#                 if rsun_obs and crpix1 and crpix2:
-#                     # Estimate offset from center
-#                     x_center, y_center = smap.data.shape[1] / 2, smap.data.shape[0] / 2
-#                     shift_x = x_center - crpix1
-#                     shift_y = y_center - crpix2
-#                     shifted_data = np.roll(smap.data, int(round(shift_y)), axis=0)
-#                     shifted_data = np.roll(shifted_data, int(round(shift_x)), axis=1)
-#                     meta["crpix1"] = x_center
-#                     meta["crpix2"] = y_center
-#                     smap = Map(shifted_data, meta)
-#                     # print("[fetch] [AIA] Performed rough manual recentering due to missing get_pointing().", flush=True)
-#             except Exception as manual_err:
-#                 log_to_queue(f"[fetch] [AIA] Manual recentering failed: {manual_err}")
-#     # Apply pointing update if we obtained a table
-#     m = smap
-#     try:
-#         if pointing_table is not None:
-#             m = update_pointing(smap, pointing_table=pointing_table)
-#         else:
-#             m = smap
-#     except TypeError as te:
-#         log_to_queue(f"[fetch] [AIA] update_pointing requires pointing_table on this aiapy version ({te}); skipping.")
-#     except Exception as e:
-#         log_to_queue(f"[fetch] [AIA] update_pointing failed: {e}; proceeding without.")
-#     # Register (rotate to north-up, scale to 0.6 arcsec/pix, recenter)
-#     try:
-#         m = register(m)
-#     except Exception as reg_err:
-#         log_to_queue(f"[fetch] [AIA] register failed: {reg_err}; continuing with unregistered map.")
-#     # Exposure normalization
-#     try:
-#         if hasattr(m, "exposure_time") and m.exposure_time is not None:
-#             data_norm = m.data / m.exposure_time.to(u.s).value
-#             m = Map(data_norm, m.meta)
-#     except Exception as norm_err:
-#         log_to_queue(f"[fetch] [AIA] Exposure normalization failed: {norm_err}")
-#     return Map(m.data, m.meta)
 
 @app.get("/debug/list_output")
 async def list_output():
@@ -1222,63 +1125,6 @@ async def list_output():
     root = Path(OUTPUT_DIR)
     files = sorted([str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()])
     return {"output_dir": OUTPUT_DIR, "files": files}
-
-
-# def aiaprep_new(smap):
-#     """
-#     Equivalent to aia_prep via aiapy: updates pointing, aligns to common plate scale,
-#     and north-up registers the map.
-
-#     Parameters
-#     ----------
-#     smap : sunpy.map.Map
-#         Input level-1 (or earlier) AIA map.
-
-#     Returns
-#     -------
-#     sunpy.map.Map
-#         Calibrated/registered map (level-1.5 equivalent).
-#     """
-#     from aiapy.calibrate.utils import get_pointing_table
-#     from aiapy.calibrate import update_pointing, register
-#     import astropy.units as u
-
-#     # Determine a time window to fetch pointing table: ±12h around observation time (as per docs example)
-#     obs_time = smap.date
-#     t0 = obs_time - 12 * u.hour
-#     t1 = obs_time + 12 * u.hour
-
-#     # Fetch pointing table
-#     pointing_table = get_pointing_table("JSOC", time_range=(t0, t1))
-
-#     # Update pointing metadata
-#     try:
-#         smap_updated = update_pointing(smap, pointing_table=pointing_table)
-#     except Exception as e:
-#         # Fallback: if update_pointing fails, log and use original map
-#         log_to_queue(f"[fetch][warn] update_pointing failed: {e}")
-#         smap_updated = smap
-
-#     # Register (rescale, derotate, north-up) to common grid
-#     try:
-#         smap_registered = register(smap_updated)
-#     except Exception as e:
-#         log_to_queue(f"[fetch][warn] register failed: {e}; returning unregistered map")
-#         smap_registered = smap_updated
-
-#     # Normalize exposure time if available
-#     try:
-#         exptime = smap_registered.meta.get("exptime")
-#         if exptime is not None:
-#             norm_data = smap_registered.data.astype(float) / float(exptime)
-#             from sunpy.map import Map as SunpyMap
-#             smap_registered = SunpyMap(norm_data, smap_registered.meta)
-#     except Exception as e:
-#         log_to_queue(f"[fetch][warn] exposure normalization failed: {e}")
-
-#     return smap_registered
-
-
 
 # --- Safe aiapy calibration import (handles version differences gracefully) ---
 try:

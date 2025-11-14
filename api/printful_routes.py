@@ -134,13 +134,27 @@ async def upload_to_printful(request: Request):
             raise Exception(f"Inner Upload failed: {response.text}")
 
         result = response.json()
+
+        # Extract file_id from new Printful schema
+        file_id = None
+        try:
+            file_id = result.get("data", {}).get("id")
+        except Exception:
+            file_id = None
+
+        # Log full success content
         log_to_queue(f"[printful][upload] Success: {result}")
-        return JSONResponse(content=result)
+
+        # Return standardized success response
+        return JSONResponse(content={
+            "success": True,
+            "file_id": file_id,
+            "printful": result
+        })
     except Exception as e:
         err = f"Upload failed: {e}"
         log_to_queue(err)
         return JSONResponse(status_code=500, content={"detail": err})
-
 
 
 # ────────────────────────────────────────────────
