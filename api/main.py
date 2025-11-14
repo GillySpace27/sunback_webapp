@@ -1,17 +1,19 @@
+import ssl
+import aiohttp
+import certifi
+from parfive import Downloader
+
+
 def _is_nasa_url(url: str) -> bool:
     return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
 
-# Helper: Return a parfive.Downloader with custom SSL context for NASA URLs (ignoring SSL errors)
-def make_downloader_for(url: str):
-    from parfive import Downloader
-    import ssl
-    if _is_nasa_url(url):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return Downloader(max_conn=15)
-    return Downloader(max_conn=15)
-import uuid
+def get_downloader():
+    """Return a Downloader with NASA SSL context applied via aiohttp connector."""
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE", certifi.where()))
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    connector = aiohttp.TCPConnector(ssl=ctx)
+    return Downloader(max_conn=11, progress=True, connector=connector)
 
 # Registry to track background tasks for /generate
 task_registry: dict = {}
@@ -172,19 +174,6 @@ print(f"[startup] SunPy config_dir={os.environ['SUNPY_CONFIGDIR']}", flush=True)
 print(f"[startup] SunPy download_dir={os.environ['SUNPY_DOWNLOADDIR']}", flush=True)
 print(f"[startup] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
 print(f"[startup] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
-
-
-
-# Synchronous fetch helper with clear log
-def fetch_sync_safe(query):
-    log_to_queue("[fetch] Fido.fetch (sync, max_conn=15, no progress)")
-    from parfive import Downloader
-    dl = Downloader(
-        max_conn=15,
-        progress=True,
-        overwrite=False
-    )
-    return Fido.fetch(query, downloader=dl)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -426,10 +415,10 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         from sunkit_image import radial
         # Apply RHEF with fallback
         try:
-            rhef_data = radial.rhef(smap_reduced).data
+            rhef_data = radial.rhef(smap_reduced, progress=True).data
         except Exception:
             log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
-            rhef_data = radial.rhef(smap_reduced.data).data
+            rhef_data = radial.rhef(smap_reduced.data, progress=True).data
         # Save PNG with color table
         cmap = plt.get_cmap(f"sdoaia{wl}")
         vmin = np.nanpercentile(rhef_data, 1)
@@ -455,15 +444,132 @@ async def generate_preview(req: PreviewRequest = Body(...)):
 
 from api import printful_routes
 app.include_router(printful_routes.router, prefix="/api")
-# --- Alias endpoint: /api/status/{job_id} ---
-@app.get("/api/status/{job_id}")
-async def get_status_by_path(job_id: str):
+
+# --- Asynchronous HQ generation endpoints ---
+from fastapi import BackgroundTasks, HTTPException, APIRouter
+import uuid, asyncio
+
+import threading
+# Simple in-memory task registry
+tasks = {}
+# Thread lock for status updates
+status_lock = threading.Lock()
+
+async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str):
     """
-    Convenience alias for /api/status?job_id={job_id}.
+    Actual HQ generation logic for async background task.
     """
-    if job_id in task_registry:
-        return task_registry[job_id]
-    raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        with status_lock:
+            tasks[task_id] = {"status": "started", "message": "HQ generation started"}
+            log_to_queue(f"[hq-task][{task_id}] Status: started")
+        # Convert date/wavelength types
+        dt = datetime.strptime(date, "%Y-%m-%d")
+        wl = int(wavelength)
+        # Run HQ generation in a thread to avoid blocking event loop
+        png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector)
+        # Check PNG existence
+        png_path = os.path.join(OUTPUT_DIR, os.path.basename(png_url.lstrip("/")))
+        if os.path.exists(png_path) and os.path.getsize(png_path) > 1000:
+            with status_lock:
+                tasks[task_id] = {
+                    "status": "completed",
+                    "message": "HQ image ready",
+                    "image_url": png_url
+                }
+                log_to_queue(f"[hq-task][{task_id}] Status: completed (HQ image ready at {png_url})")
+        else:
+            with status_lock:
+                tasks[task_id] = {
+                    "status": "completed",
+                    "message": "HQ generation completed (PNG reused from cache or already available)",
+                    "image_url": png_url
+                }
+                log_to_queue(f"[hq-task][{task_id}] Status: completed (HQ PNG reused/cached at {png_url})")
+    except Exception as e:
+        with status_lock:
+            tasks[task_id] = {"status": "failed", "message": str(e)}
+            log_to_queue(f"[hq-task][{task_id}] Status: failed ({e})")
+
+
+# Helper: HQ generation, sync version for to_thread usage
+def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str):
+    """
+    Generate a HQ PNG using the full RHEF pipeline, caching result if already exists.
+    Returns the /asset/... URL path to the PNG.
+    """
+    # Reassert SSL/NASA cert configuration inside thread
+    import ssl, certifi, os
+    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", certifi.where())
+    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", certifi.where())
+    ssl._create_default_https_context = ssl._create_unverified_context
+    # Compose output PNG path and URL
+    date_str = date.strftime("%Y%m%d")
+    out_name = f"hq_{mission}_{wavelength}_{date_str}.png"
+    out_path = os.path.join(OUTPUT_DIR, out_name)
+    url_path = f"/asset/{out_name}"
+    # If already exists and is non-empty, return its URL (cached)
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+        log_to_queue(f"[do_generate_sync] PNG already exists, using cached: {out_path}")
+        return url_path
+    # Fetch and process HQ map
+    log_to_queue(f"[do_generate_sync] Generating HQ PNG: {out_path}")
+    smap = fido_fetch_map(date, mission, wavelength, detector)
+    # Apply RHEF filter at full resolution
+    try:
+        rhef_map = rhef(smap, progress=True)
+        data = rhef_map.data
+    except Exception as e:
+        log_to_queue(f"[do_generate_sync][warn] RHEF failed on Map, falling back to array: {e}")
+        data = rhef(smap.data, progress=True).data
+    # Colorize and save PNG
+    import matplotlib.pyplot as plt
+    import numpy as np
+    cmap_name = f"sdoaia{wavelength}"
+    try:
+        cmap = plt.get_cmap(cmap_name)
+    except Exception:
+        cmap = plt.get_cmap("gray")
+    vmin = np.nanpercentile(data, 1)
+    vmax = np.nanpercentile(data, 99.7)
+    plt.figure(figsize=(10, 10), dpi=300)
+    plt.axis("off")
+    plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+    plt.tight_layout(pad=0)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+    plt.close()
+    # Ensure PNG is written and visible
+    import time
+    for _ in range(50):
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            break
+        time.sleep(0.05)
+    log_to_queue(f"[do_generate_sync] HQ PNG written: {out_path}")
+    return url_path
+
+@app.post("/api/generate")
+async def start_generate(background_tasks: BackgroundTasks, payload: dict):
+    """Start the HQ generation task asynchronously and return a task_id."""
+    date = payload.get("date")
+    wavelength = payload.get("wavelength")
+    mission = payload.get("mission", "SDO")
+    detector = payload.get("detector", "AIA")
+    if not date or not wavelength:
+        raise HTTPException(status_code=400, detail="Missing date or wavelength")
+    task_id = str(uuid.uuid4())
+    with status_lock:
+        tasks[task_id] = {"status": "queued", "message": "HQ generation queued"}
+    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector)
+    return {"task_id": task_id, "status_url": f"/api/status/{task_id}"}
+
+@app.get("/api/status/{task_id}")
+async def get_status(task_id: str):
+    """Poll generation task status."""
+    with status_lock:
+        task_status = tasks.get(task_id, {"status": "unknown", "message": "No such task"})
+    return JSONResponse(content=task_status)
+
 
 
 
@@ -581,61 +687,6 @@ async def clear_cache():
         raise HTTPException(status_code=500, detail=f"Failed to clear cache: {e}")
 
 
-@app.post("/upload_to_printful")
-async def upload_to_printful_redirect():
-    """
-    Legacy endpoint for uploading an image to Printful. Use /api/printful/upload instead.
-    This block implements robust error handling for Printful's /files API.
-    """
-    from fastapi import Request
-    try:
-        payload = await Request.json()
-        image_path = payload.get("image_path")
-        title = payload.get("title", os.path.basename(image_path) if image_path else "Solar Archive Image")
-
-        if not image_path:
-            return JSONResponse(status_code=400, content={"error": "image_path is required"})
-
-        if not os.path.isabs(image_path):
-            image_path = os.path.join("/tmp/output", image_path)
-
-        if not os.path.exists(image_path):
-            return JSONResponse(status_code=400, content={"error": f"File not found: {image_path}"})
-
-        size = os.path.getsize(image_path)
-
-        if not PRINTFUL_API_KEY:
-            return JSONResponse(status_code=500, content={"error": "Missing PRINTFUL_API_KEY in environment"})
-
-        with open(image_path, "rb") as f:
-            files = {"file": (os.path.basename(image_path), f, "image/png")}
-            data = {"purpose": "default", "filename": title}
-            headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}"}
-            response = requests.post(f"{PRINTFUL_BASE_URL}/files", headers=headers, files=files, data=data)
-
-        if response.status_code >= 400:
-            # Try JSON first
-            try:
-                err = response.json()
-            except Exception:
-                # Fallback: raw bytes repr (never decode as UTF‑8)
-                err = {"raw_error": repr(response.content[:200])}
-
-            log_to_queue(f"[upload] Printful upload failed: {response.status_code} {err}")
-            raise HTTPException(status_code=response.status_code, detail=err)
-
-        # Try JSON for success response
-        try:
-            result = response.json()
-        except Exception:
-            log_to_queue("[upload] Warning: non-JSON success payload from Printful")
-            result = {}
-
-        file_id = result.get("result", {}).get("id")
-        file_url = result.get("result", {}).get("url")
-        return {"status": "success", "file_id": file_id, "file_url": file_url, "raw": result}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"Upload failed: {e}"})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1003,7 +1054,7 @@ def debug_vso_download_test():
         )
         if len(qr) == 0:
             raise HTTPException(status_code=404, detail="No results found for VSO test query.")
-        dl = Downloader(max_conn=15, progress=False, overwrite=False)
+        dl = get_downloader()
         target_dir = os.environ.get("SUNPY_DOWNLOADDIR", "/tmp/output/data")
         files = client.fetch(qr, path=target_dir, downloader=dl)
         if files and len(files) > 0 and os.path.exists(str(files[0])):
@@ -1047,153 +1098,6 @@ class GenerateRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/generate — HQ render: use combined cache if exists, else fetch; apply RHEF, save PNG, return URL
 # ──────────────────────────────────────────────────────────────────────────────
-# ----------------------------
-# /api/generate — HQ render in background thread for responsiveness
-# ----------------------------
-from concurrent.futures import ThreadPoolExecutor
-executor = ThreadPoolExecutor(max_workers=2)
-
-def do_generate_sync(data):
-    """
-    Synchronous logic for HQ PNG generation.
-    """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from sunkit_image import radial
-    try:
-        req = GenerateRequest(**data)
-
-        # Ensure SSL environment and NASA certificates before VSO calls
-        try:
-            from api.main import ensure_nasa_cert
-            ensure_nasa_cert()
-        except Exception as e:
-            log_to_queue(f"[do_generate_sync][warn] Could not re-ensure NASA certs: {e}")
-        import certifi, os
-        os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
-        os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
-        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
-        log_to_queue(f"[do_generate_sync] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
-        log_to_queue(f"[do_generate_sync] Using VSO_URL={os.environ['VSO_URL']}")
-
-        dt = datetime.strptime(req.date, "%Y-%m-%d")
-        wl = int(req.wavelength or 171)
-        date_str = dt.strftime("%Y%m%d")
-        combined_npz = os.path.join(OUTPUT_DIR, f"temp_combined_SDO_{wl}_{date_str}.npz")
-        hq_png = os.path.join(OUTPUT_DIR, f"hq_SDO_{wl}_{date_str}.png")
-        png_url = f"/asset/hq_SDO_{wl}_{date_str}.png"
-        # Remove any low-res FITS files (e.g., from preview downloads) before proceeding
-        import glob
-        from astropy.io import fits
-        for f in glob.glob(os.path.join(OUTPUT_DIR, "*.fits")):
-            try:
-                with fits.open(f) as hdul:
-                    shape = hdul[0].data.shape
-                if shape[0] < 2000:
-                    os.remove(f)
-                    log_to_queue(f"[fetch][cleanup] Removed low-res FITS {f}")
-            except Exception:
-                continue
-        # If PNG already exists, return immediately
-        if os.path.exists(hq_png):
-            return {"png_url": png_url}
-        # Try to load combined cache if available
-        smap = None
-        if os.path.exists(combined_npz):
-            with np.load(combined_npz, allow_pickle=True) as npz:
-                combined_data = npz["data"]
-                combined_meta = npz["meta"].item()
-            from sunpy.map import Map
-            from sunpy.util.metadata import MetaDict
-            # Ensure meta is a MetaDict
-            if isinstance(combined_meta, dict):
-                combined_meta = MetaDict(combined_meta)
-            # Enforce correct instrument metadata for AIAMap
-            combined_meta["instrument"] = "AIA"
-            combined_meta["detector"] = "AIA"
-            # Convert numpy scalar types to Python primitives for all meta keys/values
-            for k, v in list(combined_meta.items()):
-                # Convert numpy scalars (e.g., np.int64, np.float64, np.str_) to Python types
-                if hasattr(v, "item"):
-                    try:
-                        combined_meta[k] = v.item()
-                    except Exception:
-                        pass
-            smap = Map(combined_data, combined_meta)
-            log_to_queue(f"[rhef][debug] Restored map from cache: {type(smap).__name__}, instrument={combined_meta.get('instrument')}")
-        else:
-            smap = fido_fetch_map(dt, "SDO", wl, "AIA")
-
-        # After obtaining smap, downsample to ~2048x2048 using block_reduce (nanmean)
-        # Import block_reduce here
-        from sunpy.map.sources.sdo import AIAMap
-        from skimage.measure import block_reduce
-        import numpy as np
-        h, w = smap.data.shape
-        block_size = max(1, int(np.ceil(h / 2048)))
-        if block_size > 1:
-            reduced = block_reduce(np.array(smap.data, dtype=np.float32), block_size=(block_size, block_size), func=np.nanmean)
-            from sunpy.util.metadata import MetaDict
-            meta = MetaDict(smap.meta.copy())
-            meta["cdelt1"] *= block_size
-            meta["cdelt2"] *= block_size
-            meta["crpix1"] /= block_size
-            meta["crpix2"] /= block_size
-            meta["naxis1"] = reduced.shape[1]
-            meta["naxis2"] = reduced.shape[0]
-            # Build as AIAMap
-            smap_reduced = AIAMap(reduced, meta)
-            log_to_queue(f"[rhef][downsample] Reduced map shape from {h}x{w} to {reduced.shape[0]}x{reduced.shape[1]} (block_size={block_size})")
-        else:
-            smap_reduced = smap
-            log_to_queue(f"[rhef][downsample] No reduction applied, shape is {h}x{w}")
-
-        # Apply RHEF with fallback
-        from sunkit_image import radial
-        try:
-            rhef_data = radial.rhef(smap_reduced, vignette=1.51 * u.R_sun).data
-        except Exception:
-            log_to_queue("[rhef][warn] HQ RHEF failed on Map — using array fallback.")
-            rhef_data = radial.rhef(smap_reduced.data).data
-        # Save PNG with color table
-        vmin = np.nanpercentile(rhef_data, 1)
-        vmax = np.nanpercentile(rhef_data, 99.7)
-        cmap = plt.get_cmap(f"sdoaia{wl}")
-        # Create figure object so we can make background fully transparent
-        fig = plt.figure(figsize=(10,10), dpi=300)
-        fig.patch.set_alpha(0)
-        ax = fig.gca()
-        ax.set_facecolor((0,0,0,0))
-        plt.axis("off")
-        # Construct per-pixel alpha mask for transparency (opaque for valid data, transparent for NaN)
-        alpha_mask = (~np.isnan(rhef_data)).astype(float)
-
-        plt.imshow(
-            rhef_data,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            interpolation="none",
-            origin="lower",
-            alpha=alpha_mask
-        )
-        plt.tight_layout(pad=0)
-        plt.savefig(hq_png, bbox_inches="tight", pad_inches=0, transparent=True)
-        plt.close()
-        return {"png_url": png_url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"HQ render failed: {e}")
-
-
-@app.post("/api/generate")
-async def generate(request: Request):
-    """
-    Handle HQ render asynchronously so preview serving remains responsive.
-    """
-    data = await request.json()
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(executor, lambda: do_generate_sync(data))
-    return result
 # Utility: pick mission by date
 # ──────────────────────────────────────────────────────────────────────────────
 def choose_mission(dt: datetime) -> str:
@@ -1519,13 +1423,23 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
         log_to_queue(f"[fetch] Using VSO for AIA data ({wl}Å)")
 
+        from sunpy.net import vso
+        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+        client = vso.VSOClient()
+        try:
+            nasa_ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE"))
+            nasa_ctx.check_hostname = True
+            nasa_ctx.verify_mode = ssl.CERT_REQUIRED
+            connector = aiohttp.TCPConnector(ssl=nasa_ctx)
+            dl = Downloader(max_conn=8, progress=True, connector=connector)
+            log_to_queue("[fetch][AIA] Using custom Downloader with NASA SSL context (modern VSOClient).")
+        except Exception as e:
+            log_to_queue(f"[fetch][AIA][warn] Failed to create NASA SSL connector: {e}")
+            dl = Downloader(max_conn=8, progress=True)
 
-
-        from sunpy.net.vso import VSOClient
+        # from sunpy.net.vso import VSOClient
 
         # Enforce HTTPS for VSO URL
-        os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
-        client = VSOClient()
 
         qr = client.search(
                 a.Time(dt, dt + timedelta(minutes=2)),
@@ -1546,9 +1460,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±10min. No fallback available.")
             raise HTTPException(status_code=502, detail="No VSO data available for this date.")
         log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
-        from parfive import Downloader
-        dl = make_downloader_for("https://sdo5.nascom.nasa.gov")
-        # Download to work_dir
+        # Download to work_dir using custom downloader
         files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
         try:
             files = list(map(str, files))
@@ -1704,8 +1616,8 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     for attempt in range(1, max_attempts + 1):
         try:
             log_to_queue(f"[fetch] Attempt {attempt} to fetch...")
-            from parfive import Downloader
-            dl = Downloader(max_conn=15, progress=False, overwrite=False  )
+            # from parfive import Downloader
+            dl = get_downloader()
             target_dir = os.environ["SUNPY_DOWNLOADDIR"]
             files = Fido.fetch(qr[0, 0], downloader=dl, path=target_dir)
             if files and len(files) > 0:

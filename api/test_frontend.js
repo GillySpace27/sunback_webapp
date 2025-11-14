@@ -55,9 +55,8 @@ function showImage(imgUrl) {
   }
 }
 
-// Helper: Poll status endpoint until ready or error
+// Helper: Poll status endpoint until ready or error, with improved logic for "completed" state
 async function pollStatus(statusUrl, onUpdate) {
-  // Use currentAbortController if exists, else create one
   if (!currentAbortController) currentAbortController = new AbortController();
   const { signal } = currentAbortController;
   while (true) {
@@ -65,7 +64,7 @@ async function pollStatus(statusUrl, onUpdate) {
     if (!resp.ok) throw new Error("Failed to poll status");
     const data = await resp.json();
     if (onUpdate) onUpdate(data);
-    if (data.status === "complete" || data.status === "error") {
+    if (data.status === "completed" || data.status === "failed") {
       return data;
     }
     await new Promise(r => setTimeout(r, 1000));
@@ -294,22 +293,39 @@ function initApp() {
         const date = dateInput.value;
         const wavelength = wavelengthInput.value;
         const apiBase = getApiBase();
+        // Start HQ generation, get task_id and status_url
         const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
-        setProgress(60); // HQ backend responded
-        if (hqRes.png_url) {
-          const resolved = normalizeUrl(hqRes.png_url);
-          const imgEl = document.getElementById("solar-image");
-          imgEl.src = resolved;
-          imgEl.style.display = "block";
-          setProgress(90); // image assigned
-          setStatus("HQ image loaded!", "green");
+        setProgress(30);
+        if (!hqRes.task_id || !hqRes.status_url) {
+          setStatus("HQ generation failed to start.", "red");
+          return;
+        }
+        // Poll for status using new logic
+        const statusData = await pollStatus(hqRes.status_url, data => {
+          if (data.status === "started" || data.status === "queued" || data.status === "processing") {
+            setStatus("HQ generation in progress...", "blue");
+            setProgress(50);
+          }
+        });
+        setProgress(80);
+        // New logic: treat "completed" as success regardless of PNG, and always re-enable HQ button
+        if (statusData.status === "completed") {
+          setStatus(statusData.message || "HQ render completed", "green");
           setProgress(100);
+          if (statusData.image_url) {
+            const resolved = normalizeUrl(statusData.image_url);
+            const imgEl = document.getElementById("solar-image");
+            imgEl.src = resolved;
+            imgEl.style.display = "block";
+          }
           if (uploadBtn) {
             uploadBtn.disabled = false;
             uploadAllowed = true; // allow exactly one upload per HQ generation
           }
+        } else if (statusData.status === "failed") {
+          setStatus("❌ HQ generation failed: " + (statusData.message || "Unknown error"), "red");
         } else {
-          setStatus("HQ generation returned no PNG.", "orange");
+          setStatus("⏳ " + (statusData.message || "Processing..."), "blue");
         }
       } catch (e) {
         setStatus("HQ generation failed: " + e.message, "red");
