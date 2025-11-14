@@ -3,15 +3,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Solar Archive — Test Frontend</title>
+  <title>Solar Archive Image Selection Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: system-ui, -apple-system, Arial, sans-serif; background:#f6f7fb; color:#111; margin:0; }
     .wrap { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
     .controls { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:1rem; }
     input, select, button { padding:.6rem .8rem; border-radius:8px; border:1px solid #ccc; }
-    #generate-btn { background:#111; color:#fff; border:none; cursor:pointer; }
+    #generate-btn { background:#090; color:#fff; border:none; cursor:pointer; }
+    #hq-btn { background:#33f; color:#fff; border:none; cursor:pointer; }
     #clearCacheBtn { background:#e05d44; color:#fff; border:none; cursor:pointer; }
+    #uploadPrintfulBtn {
+      background: rgb(97, 0, 166); /* enabled purple */
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s ease, opacity 0.2s ease;
+    }
+
+    #uploadPrintfulBtn:disabled {
+      background: #999;        /* grey when disabled */
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
     #solar-status { margin:.5rem 0 1rem; color:#444; }
     #solar-image { max-width:100%; display:none; background:#000; border-radius:8px; }
     #productPicker { display:flex; flex-wrap:wrap; gap:12px; margin-top: 16px; }
@@ -37,35 +51,39 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Solar Archive — Test Frontend</h1>
+    <h1>Solar Archive Image Selection Tool</h1>
     <div class="controls">
       <label>Date: <input type="date" id="solar-date" required></label>
       <label>Wavelength (Å):
         <select id="solar-wavelength" required style="margin:0.5em;">
           <option value="94">94 Å — Green — ~6.3 MK (hot flaring plasma)</option>
           <option value="131">131 Å — Teal — ~10 MK (flares) / ~0.4 MK (transition region)</option>
-          <option value="171">171 Å — Yellow — ~0.8 MK (quiet corona, loops)</option>
-          <option value="193">193 Å — Orange — ~1.5 MK (corona) / 20 MK (flares)</option>
+          <option value="171">171 Å — Golden — ~0.8 MK (quiet corona, loops)</option>
+          <option value="193">193 Å — Amber — ~1.5 MK (corona) / 20 MK (flares)</option>
           <option value="211">211 Å — Purple — ~2.0 MK (active regions)</option>
           <option value="304">304 Å — Red — ~0.05 MK (chromosphere, prominences)</option>
-          <option value="335">335 Å — Indigo — ~2.5 MK (active regions)</option>
+          <option value="335">335 Å — Blue — ~2.5 MK (active regions)</option>
         </select>
       </label>
-      <br><br>
+      <br>
+
+      <br>
       <div style="display:flex; flex-direction:column; gap:0.5rem;">
 
         <button id="generate-btn" style="width:200px;">Generate Preview</button>
 
         <button id="hq-btn" style="width:200px;">Generate HQ Proof</button>
 
-        <button id="clearCacheBtn" style="width:200px;">Clear / Reset</button>
-
       </div>
     </div>
+
+      <h5>AIA Imagery is available from 05/15/2025, EIT Data is available from 01/01/1996</h5>
+      <p>Preview the solar activity on any day at <a href = 'https://www.helioviewer.org' target="_blank">helioviewer.org</a></p>
+
     <div id="progress-container" style="width:100%; background:#eee; height:12px; border-radius:6px; margin-top:1em;">
       <div id="progress-bar" style="width:0%; height:100%; background:#4a90e2; border-radius:6px;"></div>
     </div>
-    <div id="solar-status">Waiting for input…</div>
+    <div id="solar-status">Waiting for selection...</div>
 
     <div class="grid">
       <div>
@@ -77,7 +95,10 @@
         <h3>Products</h3>
         <!-- <div id="productPicker"></div> -->
 
-        <h3 style="margin-top:1.5rem;">Manual Order (demo)</h3>
+        <br>
+        <button id="clearCacheBtn" style="width:200px;">Clear Cache</button>
+
+        <!-- <h3 style="margin-top:1.5rem;">Manual Order (demo)</h3>
         <form id="orderForm">
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.5rem;">
             <input name="variant_id" type="number" placeholder="Variant ID" required />
@@ -90,13 +111,14 @@
             <input name="email" type="email" placeholder="Email" required />
           </div>
           <button type="submit" style="margin-top:.75rem;">Place Order</button>
-        </form>
+        </form> -->
+
       </div>
     </div>
   </div>
 
   <!-- Load helpers and app logic -->
   <script src="/api/static/printful.js"></script>
-  <script src="/api/static/test_frontend.js"></script>
+  <script src="/api/static/frontend.js"></script>
 </body>
 </html>

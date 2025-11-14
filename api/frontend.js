@@ -154,14 +154,14 @@ function initApp() {
 
   let progressTimer = null;
 
-  function startProgressTimer() {
+  function startProgressTimer(fac=3, ms=1500) {
     if (progressTimer) return;
     progressTimer = setInterval(() => {
       // Slowly bump while waiting, but never reach 100
       if (globalProgress < 95) {
-        bumpProgress(1);
+        bumpProgress(fac);
       }
-    }, 1500); // bump every 1.5 seconds
+    }, ms); // bump every 1.5 seconds
   }
 
   function stopProgressTimer() {
@@ -173,9 +173,20 @@ function initApp() {
   const generateBtn = document.getElementById("generate-btn");
   const clearCacheBtn = document.getElementById("clearCacheBtn");
   const dateInput = document.getElementById("solar-date");
+  // Restrict selectable date range: max = 7 days ago, min = earliest EIT data (1996-01-01)
   if (dateInput) {
     const today = new Date();
-    today.setDate(today.getDate() - 4);
+    const maxDate = new Date(today);
+    maxDate.setDate(maxDate.getDate() - 7);
+    const formattedMax = maxDate.toISOString().split("T")[0];
+    const earliestEIT = "1996-01-01";  // earliest SOHO/EIT data
+
+    dateInput.max = formattedMax;
+    dateInput.min = earliestEIT;
+  }
+  if (dateInput) {
+    const today = new Date();
+    today.setDate(today.getDate() - 7);
     dateInput.value = today.toISOString().split("T")[0];
   }
   const wavelengthInput = document.getElementById("solar-wavelength");
@@ -202,7 +213,7 @@ function initApp() {
       }
       if (clearCacheBtn) clearCacheBtn.disabled = true;
       setProgress(0);
-      startProgressTimer();
+      startProgressTimer(4, 850);
       setStatus("Generating preview...", "blue");
       setProgress(10); // request sent
       try {
@@ -286,16 +297,17 @@ function initApp() {
       hqBtn.disabled = true;
       if (uploadBtn) uploadBtn.disabled = true;
       setProgress(0);
-      startProgressTimer();
+      stopProgressTimer();
+      startProgressTimer(1, 1000);
       setStatus("Generating HQ image...", "blue");
-      setProgress(10); // HQ request sent
+      setProgress(5); // HQ request sent
       try {
         const date = dateInput.value;
         const wavelength = wavelengthInput.value;
         const apiBase = getApiBase();
         // Start HQ generation, get task_id and status_url
         const hqRes = await postJSON(`${apiBase}/generate`, { date, wavelength, mission: "SDO", detector: "AIA" });
-        setProgress(30);
+        setProgress(10);
         if (!hqRes.task_id || !hqRes.status_url) {
           setStatus("HQ generation failed to start.", "red");
           return;
@@ -304,10 +316,10 @@ function initApp() {
         const statusData = await pollStatus(hqRes.status_url, data => {
           if (data.status === "started" || data.status === "queued" || data.status === "processing") {
             setStatus("HQ generation in progress...", "blue");
-            setProgress(50);
+            // setProgress(30);
           }
         });
-        setProgress(80);
+        // setProgress(80);
         // New logic: treat "completed" as success regardless of PNG, and always re-enable HQ button
         if (statusData.status === "completed") {
           setStatus(statusData.message || "HQ render completed", "green");
