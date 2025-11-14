@@ -39,7 +39,7 @@ from typing import Optional, Literal, Dict, Any
 import numpy as np
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 from pydantic import BaseModel, Field
@@ -941,6 +941,14 @@ async def redirect_to_shopify(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
+    """Redirect root URL to hosted frontend page."""
+    return RedirectResponse(url="https://solar-archive.onrender.com/api/test_frontend.html", status_code=302)
+
+
+# Serve the original cute Solar Archive landing page at /api
+@app.get("/api", response_class=HTMLResponse)
+async def api_root():
+    """Serve the original cute Solar Archive landing page at /api."""
     return """
     <html>
         <head><title>Solar Archive</title></head>
