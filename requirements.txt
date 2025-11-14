@@ -12,3 +12,4 @@ aiapy
 dotenv
 cryptography
 python-multipart
+psutil

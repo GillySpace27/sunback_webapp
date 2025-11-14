@@ -2,7 +2,7 @@ import ssl
 import aiohttp
 import certifi
 from parfive import Downloader
-
+import os
 
 def _is_nasa_url(url: str) -> bool:
     return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
@@ -18,7 +18,7 @@ def get_downloader():
 # Registry to track background tasks for /generate
 task_registry: dict = {}
 from urllib.parse import urlencode, quote_plus
-import os, sys
+import sys
 from dotenv import load_dotenv
 # Load environment variables from ../.env (backend startup)
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
@@ -29,7 +29,7 @@ try:
 except Exception:
     pass
 import io
-import os
+
 import json
 import hashlib
 import time
@@ -229,7 +229,7 @@ app = FastAPI(title=APP_NAME)
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import os
+
 
 from fastapi.staticfiles import StaticFiles
 # Serve all static files (HTML, JS, CSS) from /api/
@@ -299,7 +299,7 @@ def fetch_first_fits(dt, wl):
         ensure_nasa_cert()
     except Exception as e:
         print(f"[fetch_first_fits][warn] Could not re-ensure NASA certs: {e}", flush=True)
-    import certifi, os
+    import certifi
     os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
     os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
     os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
@@ -320,7 +320,7 @@ def fetch_first_fits(dt, wl):
     if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
     target_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-    dl = make_downloader_for("https://sdo5.nascom.nasa.gov")
+    dl = get_downloader()
     files = Fido.fetch(qr[0], downloader=dl, path=target_dir)
     if not files or len(files) == 0:
         raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
@@ -499,7 +499,7 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     Returns the /asset/... URL path to the PNG.
     """
     # Reassert SSL/NASA cert configuration inside thread
-    import ssl, certifi, os
+    import ssl, certifi
     os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", certifi.where())
     os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", certifi.where())
     ssl._create_default_https_context = ssl._create_unverified_context
@@ -1039,7 +1039,7 @@ def debug_vso_download_test():
     from sunpy.net import attrs as a
     from astropy import units as u
     from parfive import Downloader
-    import os
+
 
 
     # Enforce HTTPS for VSO URL
@@ -1478,82 +1478,95 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if not fits_files:
             log_to_queue("[fetch][AIA][warn] No full-res level-1 science FITS found after filtering.")
             raise HTTPException(status_code=502, detail="No full-res level-1 AIA FITS found.")
-        maps = []
-
+        # --- Memory-safe streaming AIA frame combination ---
+        import numpy as np
+        import gc
+        from sunpy.map import Map
+        n_frames = 0
+        sum_exp = 0.0
+        combined_data = None
+        ref_shape = None
+        ref_header = None
+        combined_meta = None
+        t_start = None
+        t_end = None
+        log_to_queue(f"[fetch][AIA] Streaming {len(fits_files)} FITS files for memory-safe combination...")
         for i, f in enumerate(tqdm(fits_files, desc="Prepping Files")):
-            # log_to_queue(f"{i}, {f} \n")
-
-            m = Map(f)
             try:
-                m_prep = None
+                m = Map(f)
                 try:
-
                     m_prep = manual_aiaprep(
                         m,
                         logger=lambda msg: log_to_queue(msg)
                     )
-                    # log_to_queue(m_prep)
                 except Exception as e:
                     log_to_queue(f"[fetch][warn] aiapy prep failed for {os.path.basename(f)}: {e}")
                     m_prep = m
-                maps.append(m_prep)
+                # On first valid frame, set reference shape and allocate accumulator
+                if ref_shape is None:
+                    ref_shape = m_prep.data.shape
+                    if ref_shape[0] < 2000:
+                        log_to_queue(f"[fetch][warn] Detected low-res reference map ({ref_shape}), will skip such frames.")
+                    if ref_shape[0] < 2000:
+                        # Don't use this frame, keep searching for a full-res frame
+                        del m, m_prep
+                        gc.collect()
+                        continue
+                    combined_data = np.zeros(ref_shape, dtype=np.float32)
+                    ref_header = m_prep.meta.copy()
+                    t_start = str(m_prep.date) if hasattr(m_prep, "date") else None
+                    t_end = t_start
+                    # Log memory usage
+                    import psutil
+                    mem = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+                    log_to_queue(f"[fetch][AIA][mem] Allocated accumulator array, memory used: {mem:.1f} MB")
+                # Only combine frames matching reference shape (full-res)
+                if m_prep.data.shape != ref_shape:
+                    log_to_queue(f"[fetch][warn] Skipping frame {i+1} ({os.path.basename(f)}), shape {m_prep.data.shape} != ref {ref_shape}")
+                    del m, m_prep
+                    gc.collect()
+                    continue
+                exptime = float(m_prep.meta.get("exptime", 1.0))
+                if not np.isfinite(exptime) or exptime <= 0:
+                    exptime = 1.0
+                combined_data += m_prep.data.astype(np.float32) * exptime
+                sum_exp += exptime
+                n_frames += 1
+                # Update t_end to last valid frame
+                t_end = str(m_prep.date) if hasattr(m_prep, "date") else t_end
+                log_to_queue(f"[fetch][AIA][progress] Processed frame {n_frames}: {os.path.basename(f)} (exp={exptime})")
+                del m, m_prep
+                gc.collect()
             except Exception as e:
-                log_to_queue(f"[fetch][warn] aiaprep failed for {os.path.basename(f)}: {e}")
-                maps.append(m)
-        # SHAPE CONSISTENCY CHECK BEFORE STACKING
-        if len(maps) == 0:
-            raise RuntimeError("No AIA frames loaded for combination.")
-        else:
-            # log_to_queue(maps)
-            ref_map = maps[0]
-            ref_shape = ref_map.data.shape
-
-        # Filter maps to only full-res frames
-        if ref_shape[0] < 2000:
-            log_to_queue(f"[fetch][warn] Detected low-res reference map ({ref_shape}), filtering full-res maps only.")
-            full_res_maps = [m for m in maps if m.data.shape[0] >= 2000]
-            if full_res_maps:
-                maps = full_res_maps
-                ref_shape = maps[0].data.shape
-            else:
-                raise RuntimeError("No full-resolution AIA maps found after filtering.")
-        valid_maps = [f for f in maps if f.data.shape == ref_shape]
-        if len(valid_maps) != len(maps):
-            log_to_queue(f"[fetch][warn] Skipping {len(maps) - len(valid_maps)} frames with inconsistent shapes.")
-        maps = valid_maps
-        if len(maps) < 2:
-            raise RuntimeError(f"Inconsistent AIA frame sizes. Expected {ref_shape}, got {set(f.data.shape for f in maps)}.")
-        log_to_queue(f"[fetch][align] Using {len(maps)} frames of shape {ref_shape} for combination.")
-
-
-        ref_wcs = maps[0].wcs if hasattr(maps[0], "wcs") else None
-        for i, m in enumerate(maps):
-            if ref_wcs is not None and hasattr(m, "wcs"):
-                if m.data.shape != maps[0].data.shape:
-                    log_to_queue(f"[fetch][warn] Frame {i+1} shape {m.data.shape} != ref {maps[0].data.shape}")
-        import numpy as np
-        exptimes = np.array([float(m.meta.get("exptime", 1.0)) for m in maps])
-        log_to_queue("[fetch][progress] Exposure-weighted combination")
-        data_stack = np.stack([m.data for m in maps])
-        weighted_sum = np.nansum(data_stack * exptimes[:, None, None], axis=0)
-        sum_exp = np.nansum(exptimes)
-        combined_data = weighted_sum / sum_exp
+                log_to_queue(f"[fetch][warn] Failed to process {os.path.basename(f)}: {e}")
+                gc.collect()
+                continue
+        if n_frames == 0:
+            raise RuntimeError("No full-resolution AIA frames loaded for combination.")
+        # Weighted average
+        combined_data = combined_data / max(sum_exp, 1e-8)
+        # SNR diagnostics
         try:
-            h, w = maps[0].data.shape
+            h, w = ref_shape
             x0, x1 = int(w // 2 - 128), int(w // 2 + 128)
             y0, y1 = int(h // 2 - 128), int(h // 2 + 128)
-            sigma_single = float(np.nanstd(maps[0].data[y0:y1, x0:x1] / max(exptimes[0], 1e-6)))
+            # For single-frame SNR, reload the first file
+            m_single = Map(fits_files[0])
+            m_single_prep = manual_aiaprep(m_single, logger=lambda msg: None)
+            sigma_single = float(np.nanstd(m_single_prep.data[y0:y1, x0:x1] / max(float(m_single_prep.meta.get("exptime", 1.0)), 1e-6)))
             sigma_comb = float(np.nanstd(combined_data[y0:y1, x0:x1]))
             snr_gain = (sigma_single / sigma_comb) if sigma_comb > 0 else float("nan")
-            log_to_queue(f"[fetch][snr] Central patch σ_single/σ_combined = {sigma_single:.3g}/{sigma_comb:.3g} → gain ≈ {snr_gain:.2f}× (expected ~{np.sqrt(len(maps)):.2f}×)")
+            log_to_queue(f"[fetch][snr] Central patch σ_single/σ_combined = {sigma_single:.3g}/{sigma_comb:.3g} → gain ≈ {snr_gain:.2f}× (expected ~{np.sqrt(n_frames):.2f}×)")
+            del m_single, m_single_prep
         except Exception as snr_err:
             log_to_queue(f"[fetch][snr][warn] Unable to compute SNR diagnostics: {snr_err}")
-        combined_meta = maps[0].meta.copy()
-        combined_meta["n_frames"] = len(maps)
-        combined_meta["t_start"] = str(maps[0].date)
-        combined_meta["t_end"] = str(maps[-1].date)
-        # Ensure combined_data and metadata are wrapped into a Map
-        import numpy as np
+        # Compose combined metadata
+        combined_meta = ref_header.copy() if ref_header else {}
+        combined_meta["n_frames"] = n_frames
+        if t_start:
+            combined_meta["t_start"] = t_start
+        if t_end:
+            combined_meta["t_end"] = t_end
         # Save combined .npz to OUTPUT_DIR (not to work_dir!)
         date_str = dt.strftime("%Y%m%d")
         try:
@@ -1563,14 +1576,17 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
         combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}.npz")
         np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
+        import psutil
+        mem = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
         log_to_queue(f"[cache] Saved combined map to {combined_cache_file}")
+        log_to_queue(f"[fetch][AIA][mem] Final memory usage: {mem:.1f} MB")
         # Delete all FITS files in work_dir (but not .npz or .png)
         for f in fits_files:
             try:
                 Path(f).unlink()
             except Exception:
                 pass
-        del maps
+        # del maps
         import gc
         gc.collect()
         log_to_queue(f"[fetch] Returning combined map ({combined_meta['n_frames']} frames).")
@@ -2125,7 +2141,7 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
     from astropy.nddata import block_reduce
     from datetime import datetime, timedelta
     import numpy as np
-    import os
+
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     t0 = dt
