@@ -90,7 +90,7 @@ async def upload_image(request: Request):
             headers=_headers(),
             json=payload,
             verify=certifi.where(),
-            timeout=30,
+            timeout=120,
         )
 
         _log(f"[printify][upload] Response {resp.status_code}: {resp.text[:500]}")
@@ -148,7 +148,7 @@ async def create_product(request: Request):
             headers=_headers(),
             json=body,
             verify=certifi.where(),
-            timeout=45,
+            timeout=120,
         )
 
         _log(f"[printify][product] Response {resp.status_code}: {resp.text[:500]}")
@@ -178,7 +178,7 @@ async def list_shops():
             f"{PRINTIFY_BASE}/shops.json",
             headers=_headers(),
             verify=certifi.where(),
-            timeout=15,
+            timeout=60,
         )
         resp.raise_for_status()
         return JSONResponse(content=resp.json())
@@ -197,7 +197,7 @@ async def list_blueprints():
             f"{PRINTIFY_BASE}/catalog/blueprints.json",
             headers=_headers(),
             verify=certifi.where(),
-            timeout=15,
+            timeout=60,
         )
         resp.raise_for_status()
         return JSONResponse(content=resp.json())
@@ -216,7 +216,7 @@ async def list_variants(blueprint_id: int, provider_id: int):
             f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
             headers=_headers(),
             verify=certifi.where(),
-            timeout=15,
+            timeout=60,
         )
         resp.raise_for_status()
         return JSONResponse(content=resp.json())
@@ -250,7 +250,7 @@ async def publish_product(product_id: str):
             headers=_headers(),
             json=payload,
             verify=certifi.where(),
-            timeout=30,
+            timeout=120,
         )
         _log(f"[printify][publish] Response {resp.status_code}: {resp.text[:500]}")
         if resp.status_code not in (200, 201):
