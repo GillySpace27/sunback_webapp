@@ -4,6 +4,7 @@ import certifi
 from parfive import Downloader
 import os
 
+
 def _is_nasa_url(url: str) -> bool:
     return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
 
@@ -441,8 +442,11 @@ async def generate_preview(req: PreviewRequest = Body(...)):
 
 
 
-from api import printful_routes
-app.include_router(printful_routes.router, prefix="/api")
+# from api import printful_routes
+# app.include_router(printful_routes.router, prefix="/api")
+
+from api import printify_routes
+app.include_router(printify_routes.router, prefix="/api")
 
 # --- Asynchronous HQ generation endpoints ---
 from fastapi import BackgroundTasks, HTTPException, APIRouter
