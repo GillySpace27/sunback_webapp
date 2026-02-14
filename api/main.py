@@ -254,11 +254,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Define allowed origins explicitly
 allowed_origins = [
-    # Public Shopify store
     "https://solar-archive.myshopify.com",
-    # Render deployment domain
     "https://solar-archive.onrender.com",
-    # Local testing
+    "https://poe.com",
+    "https://app.poe.com",
+    "https://preview.poe.com",
+    "https://pfst.cf2.poecdn.net",
+    "https://qph.cf2.poecdn.net",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
 ]
