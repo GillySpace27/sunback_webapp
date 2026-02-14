@@ -253,17 +253,17 @@ async def serve_frontend():
 from fastapi.middleware.cors import CORSMiddleware
 
 # Define allowed origins explicitly
-allowed_origins = [
-    "https://solar-archive.myshopify.com",
-    "https://solar-archive.onrender.com",
-    "https://poe.com",
-    "https://app.poe.com",
-    "https://preview.poe.com",
-    "https://pfst.cf2.poecdn.net",
-    "https://qph.cf2.poecdn.net",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-]
+# allowed_origins = [
+#     "https://solar-archive.myshopify.com",
+#     "https://solar-archive.onrender.com",
+#     "https://poe.com",
+#     "https://app.poe.com",
+#     "https://preview.poe.com",
+#     "https://pfst.cf2.poecdn.net",
+#     "https://qph.cf2.poecdn.net",
+#     "http://127.0.0.1:8000",
+#     "http://localhost:8000",
+# ]
 
 # Remove any old middleware before re-adding
 # (avoids duplicate middleware layers if app reloads)
@@ -275,14 +275,11 @@ for i, middleware in enumerate(app.user_middleware):
 # Add updated CORS policy
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"],          # Allow any origin (Poe, Shopify, etc.)
+    allow_credentials=False,       # Must be False when using wildcard
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-print("[startup] CORS configured for:", allowed_origins)
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/generate_preview — fast preview: single FITS, log10, color, no filtering
