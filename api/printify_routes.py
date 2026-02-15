@@ -40,6 +40,7 @@ def _headers():
     return {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "SolarArchive/1.0",
     }
 
 
@@ -53,15 +54,38 @@ def _shop_id():
     return sid
 
 
+def _post_with_retry(url, payload, timeout=120, max_retries=3):
+    """POST to Printify with retry on timeout/connection errors."""
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                url,
+                headers=_headers(),
+                json=payload,
+                verify=certifi.where(),
+                timeout=timeout,
+            )
+            return resp
+        except (requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError) as e:
+            last_err = e
+            wait = 3 * (attempt + 1)
+            _log(f"[printify] Retry {attempt+1}/{max_retries} after {type(e).__name__}, waiting {wait}s...")
+            if attempt < max_retries - 1:
+                time.sleep(wait)
+                continue
+            raise last_err
+
+
 # ────────────────────────────────────────────────
-# 1.  Upload image to Printify media library
+# 1a.  Upload image via URL
 # ────────────────────────────────────────────────
 @router.post("/upload")
 async def upload_image(request: Request):
     """
-    Proxies an image upload to Printify.
+    Proxies an image upload to Printify via URL.
     Expects JSON body: { "file_name": "...", "url": "https://..." }
-    Returns the Printify image object including its 'id'.
     """
     try:
         body = await request.json()
@@ -85,12 +109,11 @@ async def upload_image(request: Request):
         payload = {"file_name": file_name, "url": url}
         _log(f"[printify][upload] POST /v1/uploads/images.json  payload={payload}")
 
-        resp = requests.post(
+        resp = _post_with_retry(
             f"{PRINTIFY_BASE}/uploads/images.json",
-            headers=_headers(),
-            json=payload,
-            verify=certifi.where(),
+            payload,
             timeout=120,
+            max_retries=3,
         )
 
         _log(f"[printify][upload] Response {resp.status_code}: {resp.text[:500]}")
@@ -99,8 +122,6 @@ async def upload_image(request: Request):
             raise Exception(f"Printify upload failed ({resp.status_code}): {resp.text}")
 
         result = resp.json()
-
-        # result should contain { id, file_name, height, width, size, ... }
         if not result.get("id"):
             raise Exception("No 'id' in Printify upload response")
 
@@ -115,27 +136,68 @@ async def upload_image(request: Request):
 
 
 # ────────────────────────────────────────────────
+# 1b.  Upload image via base64 (more reliable)
+# ────────────────────────────────────────────────
+@router.post("/upload-base64")
+async def upload_image_base64(request: Request):
+    """
+    Proxies a base64 image upload to Printify.
+    Expects JSON body: { "file_name": "...", "contents": "<base64-string>" }
+    This avoids Printify needing to download from our server (which may be sleeping).
+    """
+    try:
+        body = await request.json()
+        contents = body.get("contents")
+        file_name = body.get("file_name") or "solar_image.png"
+
+        if not contents:
+            raise HTTPException(status_code=400, detail="Missing 'contents' field.")
+
+        approx_mb = len(contents) * 3 / 4 / 1024 / 1024
+        _log(f"[printify][upload-base64] file={file_name} ~{approx_mb:.1f}MB decoded")
+
+        if approx_mb > 20:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image too large for base64 upload (~{approx_mb:.0f}MB). Use URL upload instead."
+            )
+
+        payload = {"file_name": file_name, "contents": contents}
+
+        resp = _post_with_retry(
+            f"{PRINTIFY_BASE}/uploads/images.json",
+            payload,
+            timeout=180,
+            max_retries=2,
+        )
+
+        _log(f"[printify][upload-base64] Response {resp.status_code}: {resp.text[:500]}")
+
+        if resp.status_code not in (200, 201):
+            raise Exception(f"Printify base64 upload failed ({resp.status_code}): {resp.text}")
+
+        result = resp.json()
+        if not result.get("id"):
+            raise Exception("No 'id' in Printify upload response")
+
+        return JSONResponse(content=result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = f"Base64 upload failed: {e}"
+        _log(f"[printify][upload-base64] ERROR: {err}")
+        return JSONResponse(status_code=500, content={"detail": err})
+
+
+# ────────────────────────────────────────────────
 # 2.  Create a product in the Printify shop
 # ────────────────────────────────────────────────
 @router.post("/product")
 async def create_product(request: Request):
     """
     Creates a product in the merchant's Printify shop.
-    Expects JSON body matching the Printify product creation schema:
-    {
-        "title": "...",
-        "description": "...",
-        "blueprint_id": 68,
-        "print_provider_id": 16,
-        "variants": [ { "id": 17791, "price": 0, "is_enabled": true } ],
-        "print_areas": [ {
-            "variant_ids": [17791],
-            "placeholders": [ {
-                "position": "front",
-                "images": [ { "id": "...", "x": 0.5, "y": 0.5, "scale": 1, "angle": 0 } ]
-            }]
-        }]
-    }
+    Returns the product including generated mockup images.
     """
     try:
         body = await request.json()
@@ -143,12 +205,11 @@ async def create_product(request: Request):
 
         _log(f"[printify][product] POST /v1/shops/{shop_id}/products.json")
 
-        resp = requests.post(
+        resp = _post_with_retry(
             f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
-            headers=_headers(),
-            json=body,
-            verify=certifi.where(),
+            body,
             timeout=120,
+            max_retries=2,
         )
 
         _log(f"[printify][product] Response {resp.status_code}: {resp.text[:500]}")
@@ -168,11 +229,10 @@ async def create_product(request: Request):
 
 
 # ────────────────────────────────────────────────
-# 3.  List shops (helper to find shop_id)
+# 3.  List shops
 # ────────────────────────────────────────────────
 @router.get("/shops")
 async def list_shops():
-    """Returns all shops associated with the Printify API key."""
     try:
         resp = requests.get(
             f"{PRINTIFY_BASE}/shops.json",
@@ -187,11 +247,10 @@ async def list_shops():
 
 
 # ────────────────────────────────────────────────
-# 4.  List blueprints (catalog browser)
+# 4.  List blueprints
 # ────────────────────────────────────────────────
 @router.get("/blueprints")
 async def list_blueprints():
-    """Returns the full Printify blueprint catalog."""
     try:
         resp = requests.get(
             f"{PRINTIFY_BASE}/catalog/blueprints.json",
@@ -206,11 +265,10 @@ async def list_blueprints():
 
 
 # ────────────────────────────────────────────────
-# 5.  List variants for a blueprint + provider
+# 5.  List variants for blueprint + provider
 # ────────────────────────────────────────────────
 @router.get("/blueprints/{blueprint_id}/providers/{provider_id}/variants")
 async def list_variants(blueprint_id: int, provider_id: int):
-    """Returns all variants for a given blueprint + print provider combo."""
     try:
         resp = requests.get(
             f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
@@ -228,14 +286,31 @@ async def list_variants(blueprint_id: int, provider_id: int):
 
 
 # ────────────────────────────────────────────────
-# 6.  Publish a product to the connected store
+# 5b.  List print providers for a blueprint
+# ────────────────────────────────────────────────
+@router.get("/blueprints/{blueprint_id}/providers")
+async def list_providers(blueprint_id: int):
+    try:
+        resp = requests.get(
+            f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers.json",
+            headers=_headers(),
+            verify=certifi.where(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return JSONResponse(content=resp.json())
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Failed to list providers: {e}"},
+        )
+
+
+# ────────────────────────────────────────────────
+# 6.  Publish a product
 # ────────────────────────────────────────────────
 @router.post("/product/{product_id}/publish")
 async def publish_product(product_id: str):
-    """
-    Publishes a product that was created via the API.
-    This pushes it to the connected sales channel (e.g. Shopify).
-    """
     try:
         shop_id = _shop_id()
         payload = {
@@ -245,12 +320,11 @@ async def publish_product(product_id: str):
             "variants": True,
             "tags": True,
         }
-        resp = requests.post(
+        resp = _post_with_retry(
             f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}/publish.json",
-            headers=_headers(),
-            json=payload,
-            verify=certifi.where(),
+            payload,
             timeout=120,
+            max_retries=2,
         )
         _log(f"[printify][publish] Response {resp.status_code}: {resp.text[:500]}")
         if resp.status_code not in (200, 201):
