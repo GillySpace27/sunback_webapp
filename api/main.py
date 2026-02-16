@@ -61,7 +61,7 @@ from fastapi.responses import StreamingResponse
 from tqdm import tqdm
 
 # sunback/webapp/api/main.py
-# FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→(optional) Printful upload
+# FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→Printify product creation
 
 class PreviewRequest(BaseModel):
     date: str
@@ -198,10 +198,6 @@ print(f"{OUTPUT_DIR = }")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(PREVIEW_DIR, exist_ok=True)
 
-# Printful
-PRINTFUL_API_KEY = os.getenv("PRINTFUL_API_KEY", None)
-PRINTFUL_BASE_URL = os.getenv("PRINTFUL_BASE_URL", "https://api.printful.com")
-print(f"{PRINTFUL_API_KEY = }")
 
 
 # Defaults
@@ -244,8 +240,14 @@ app.mount("/asset/preview", StaticFiles(directory=PREVIEW_DIR), name="asset_prev
 
 @app.get("/api/frontend.html")
 async def serve_frontend():
-    """Serve the frontend.html page."""
-    return FileResponse(os.path.join("api", "frontend.html"))
+    """Serve the frontend page (legacy URL, redirects to /)."""
+    return RedirectResponse(url="/", status_code=302)
+
+
+@app.get("/api/index.html")
+async def serve_index_direct():
+    """Serve the main index.html page."""
+    return FileResponse(os.path.join("api", "index.html"))
 
 
 # ---------------------------------------------------------
@@ -442,9 +444,6 @@ async def generate_preview(req: PreviewRequest = Body(...)):
 
 
 
-# from api import printful_routes
-# app.include_router(printful_routes.router, prefix="/api")
-
 from api import printify_routes
 app.include_router(printify_routes.router, prefix="/api")
 
@@ -576,12 +575,8 @@ async def get_status(task_id: str):
 
 
 
-# Serve /api/frontend.html and other frontend assets
-# app.mount("/api", StaticFiles(directory="/Users/cgilbert/vscode/sunback/webapp/api"), name="api")
-
 from pathlib import Path
 app_dir = Path(__file__).parent
-# app.mount("/api", StaticFiles(directory=app_dir, html=True), name="api")
 app.mount("/static", StaticFiles(directory=app_dir, html=True), name="static")
 
 
@@ -696,244 +691,20 @@ async def clear_cache():
 # Shopify Launch & Redirect Endpoints
 # ──────────────────────────────────────────────────────────────────────────────
 
-@app.get("/shopify/launch", response_class=HTMLResponse)
+@app.get("/shopify/launch")
 async def shopify_launch():
-    """
-    Serve a dynamic HTML page for Shopify users to choose a date, generate a solar image,
-    preview it, and open it in the Shopify store.
-    """
-    html = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>Solar Archive — Shopify Launch</title>
-        <style>
-            body {
-                background: #181820;
-                color: #f0f0f0;
-                min-height: 100vh;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                font-family: 'Segoe UI', 'Arial', sans-serif;
-                margin: 0;
-            }
-            .container {
-                background: #23232e;
-                border-radius: 16px;
-                padding: 32px 24px 24px 24px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                max-width: 95vw;
-            }
-            img {
-                max-width: 80vw;
-                max-height: 60vh;
-                border-radius: 10px;
-                box-shadow: 0 2px 16px rgba(0,0,0,0.4);
-                margin-bottom: 1.5em;
-                background: #000;
-            }
-            .meta {
-                margin-top: 1em;
-                margin-bottom: 1em;
-                font-size: 1.1em;
-                color: #bdbde7;
-            }
-            .action-btn {
-                background: #6a6aff;
-                color: #fff;
-                padding: 0.7em 1.4em;
-                border: none;
-                border-radius: 8px;
-                font-size: 1.1em;
-                font-weight: 500;
-                cursor: pointer;
-                margin-bottom: 1em;
-                text-decoration: none;
-                transition: background 0.2s;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-            }
-            .action-btn:hover {
-                background: #3a3ae7;
-            }
-            .footer {
-                margin-top: 2em;
-                font-size: 0.95em;
-                color: #888;
-            }
-            #preview-section {
-                display: none;
-                flex-direction: column;
-                align-items: center;
-                margin-top: 2em;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h2>Solar Archive for Shopify</h2>
-            <form id="genform">
-                <label for="date">Choose a date:</label>
-                <input type="date" id="date" name="date" required>
-                <button type="submit" class="action-btn">Generate Solar Image</button>
-            </form>
-            <div id="preview-section">
-                <h3>Image Preview</h3>
-                <img id="preview-img" src="" alt="Solar image preview">
-                <div class="meta" id="preview-meta"></div>
-                <button id="shopify-btn" class="action-btn">Open in Shopify Store</button>
-                <button id="printful-btn" class="action-btn">Upload to Printful</button>
-            </div>
-            <div class="footer">
-                Images courtesy of NASA/SDO or ESA/NASA SOHO. Not affiliated; no endorsement implied.
-            </div>
-        </div>
-        <script>
-            const form = document.getElementById('genform');
-            const submitBtn = form.querySelector('button[type="submit"]');
-            const previewSection = document.getElementById('preview-section');
-            const previewImg = document.getElementById('preview-img');
-            const previewMeta = document.getElementById('preview-meta');
-            const shopifyBtn = document.getElementById('shopify-btn');
-            const printfulBtn = document.getElementById('printful-btn');
-            printfulBtn.style.display = "none";
-            let lastImageUrl = "";
-            let lastMeta = "";
-            form.addEventListener('submit', handleGenerate, { once: true });
-            async function handleGenerate(e) {
-                e.preventDefault();
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Generating...';
-                const date = document.getElementById('date').value;
-                if (!date) {
-                    alert("Please select a date.");
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Generate Preview';
-                    return;
-                }
-                previewSection.style.display = "none";
-                previewImg.src = "";
-                previewMeta.textContent = "";
-                lastImageUrl = "";
-                lastMeta = "";
-                shopifyBtn.disabled = true;
-                shopifyBtn.textContent = "Open in Shopify Store";
-                printfulBtn.style.display = "none";
-                // Call /generate endpoint (POST for more reliable parsing)
-                try {
-                    const payload = {
-                        date: date,
-                        mission: "SDO",
-                        dry_run: true,
-                        annotate: true
-                    };
-                    const res = await fetch('/generate', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(payload)
-                    });
-                    let responseText = await res.text();
-                    // Try to parse JSON, fallback to HTML
-                    let data = null;
-                    try {
-                        data = JSON.parse(responseText);
-                    } catch {
-                        // Not JSON, try to extract image URL from HTML
-                        let imgMatch = responseText.match(/<img[^>]+src="([^"]+)"/i);
-                        let dateMatch = responseText.match(/<div><b>Date:<\\/b>\\s*([^<]+)<\\/div>/i);
-                        let wlMatch = responseText.match(/<div><b>Wavelength:<\\/b>\\s*([^<]+) Å<\\/div>/i);
-                        if (imgMatch) {
-                            lastImageUrl = imgMatch[1];
-                        }
-                        if (dateMatch || wlMatch) {
-                            lastMeta = "";
-                            if (dateMatch) lastMeta += "Date: " + dateMatch[1] + " ";
-                            if (wlMatch) lastMeta += "Wavelength: " + wlMatch[1] + " Å";
-                        }
-                        data = null;
-                    }
-                    if (data && data.png_url) {
-                        lastImageUrl = data.png_url;
-                        lastMeta = `Date: ${data.date || date} Wavelength: ${data.meta && data.meta.wavelength ? data.meta.wavelength : ""} Å`;
-                    }
-                    if (lastImageUrl) {
-                        previewImg.src = lastImageUrl;
-                        previewMeta.textContent = lastMeta;
-                        previewSection.style.display = "flex";
-                        shopifyBtn.disabled = false;
-                        printfulBtn.style.display = "inline-block";
-                    } else {
-                        alert("Could not generate image. Please try again.");
-                    }
-                } catch (err) {
-                    alert("Error generating image: " + err);
-                }
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Generate Preview';
-            }
-            shopifyBtn.addEventListener('click', () => {
-                if (!lastImageUrl) {
-                    alert("No image to send to Shopify.");
-                    return;
-                }
-                // Redirect to /redirect_to_shopify with image_url param
-                const params = new URLSearchParams({ image_url: lastImageUrl });
-                window.location.href = "/redirect_to_shopify?" + params.toString();
-            });
-            printfulBtn.addEventListener('click', async () => {
-              if (!lastImageUrl) {
-                alert("No image to upload.");
-                return;
-              }
-              printfulBtn.disabled = true;
-              printfulBtn.textContent = "Uploading...";
-              try {
-                const payload = { image_path: lastImageUrl.split('/').pop(), title: "Solar Archive Image" };
-                const res = await fetch('/upload_to_printful', {
-                  method: 'POST',
-                  headers: {'Content-Type': 'application/json'},
-                  body: JSON.stringify(payload)
-                });
-                const result = await res.json();
-                if (res.ok) {
-                  alert("Upload successful! File ID: " + (result.file_id || "unknown"));
-                } else {
-                  alert("Upload failed: " + result.detail);
-                }
-              } catch (err) {
-                alert("Error uploading to Printful: " + err);
-              }
-              printfulBtn.disabled = false;
-              printfulBtn.textContent = "Upload to Printful";
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html)
+    """Redirect legacy Shopify launch URL to main frontend."""
+    return RedirectResponse(url="/", status_code=302)
 
 
 @app.get("/redirect_to_shopify")
 async def redirect_to_shopify(request: Request):
-    """
-    Redirects the user to the Shopify store app page with the image_url as a query parameter.
-    """
+    """Redirects the user to a Shopify product/collection URL."""
     image_url = request.query_params.get("image_url")
     if not image_url:
         raise HTTPException(status_code=400, detail="image_url parameter is required")
-    # Construct Shopify app URL
-    base_url = "https://solar-archive.myshopify.com"
-    # Use /apps/solar-render?image_url={encoded_image_url}
     encoded_image_url = quote_plus(image_url)
-    shopify_url = f"{base_url}/apps/solar-render?image_url={encoded_image_url}"
-    print(f"[shopify][redirect] Constructed Shopify URL: {shopify_url}", flush=True)
-    print(f"[shopify][redirect] Redirecting user to Shopify store...", flush=True)
-    from fastapi.responses import RedirectResponse
+    shopify_url = f"https://solar-archive.myshopify.com/apps/solar-render?image_url={encoded_image_url}"
     return RedirectResponse(url=shopify_url, status_code=302)
 
 
@@ -944,8 +715,8 @@ async def redirect_to_shopify(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Redirect root URL to hosted frontend page."""
-    return RedirectResponse(url="https://solar-archive.onrender.com/api/frontend.html", status_code=302)
+    """Serve the main customer-facing index.html."""
+    return FileResponse(os.path.join("api", "index.html"))
 
 
 # Serve the original cute Solar Archive landing page at /api
@@ -1097,13 +868,10 @@ class GenerateRequest(BaseModel):
     mission: Optional[Literal["SDO", "SOHO-EIT", "SOHO-LASCO"]] = "SDO"
     wavelength: Optional[int] = Field(None, description="Angstroms for AIA/EIT (e.g., 211 or 195)")
     detector: Optional[Literal["AIA", "C2", "C3"]] = "AIA"
-    upload_to_printful: bool = False
     dry_run: bool = False
     annotate: bool = True
     png_dpi: int = 300
     png_size_inches: float = 10.0  # square figure size; 10in at 300dpi → 3000px
-    # optional per-product metadata for Printful (kept generic)
-    printful_purpose: Optional[str] = "default"
     title: Optional[str] = None
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1856,113 +1624,6 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
     print(f"{url = }")
     return {"path": path, "url": url}
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Printful API (upload only; you can add mockups/orders later)
-# ──────────────────────────────────────────────────────────────────────────────
-def printful_upload(image_path: str, title: Optional[str], purpose: Optional[str]) -> Dict[str, Any]:
-    log_to_queue(f"[upload] Printful: {image_path}, title={title}, purpose={purpose}")
-    start_time = time.time()
-    # if not PRINTFUL_API_KEY:
-    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
-    if not PRINTFUL_API_KEY:
-        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
-    # Normalize purpose to allowed Printful options
-    allowed_purposes = {"default", "preview", "mockup"}
-    normalized_purpose = purpose if purpose in allowed_purposes else "default"
-    file_size = os.path.getsize(image_path)
-    log_to_queue(f"[upload][debug] Preparing upload ({file_size/1024/1024:.2f} MB)...")
-
-    # Compose the file_url for Printful API
-    asset_base = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "http://127.0.0.1:8000")
-    # Ensure a single trailing slash and append /asset/ if not already present
-    if not asset_base.rstrip("/").endswith("asset"):
-        asset_base = asset_base.rstrip("/") + "/asset/"
-    else:
-        asset_base = asset_base.rstrip("/") + "/"
-    file_url = f"{asset_base}{os.path.basename(image_path)}"
-    log_to_queue(f"[upload][debug] Using asset_base={asset_base}")
-    log_to_queue(f"[upload][debug] Final file_url={file_url}")
-    # Use correct JSON keys for Printful upload
-    json_data = {
-        "url": file_url,
-        "filename": title,
-        "type": normalized_purpose
-    }
-    log_to_queue("[upload][debug] Using JSON upload (url/type/filename)")
-    headers = {
-        "Authorization": f"Bearer {PRINTFUL_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    log_to_queue(f"[upload][debug] Uploading via JSON url={file_url}")
-    log_to_queue(f"[upload][debug] Full upload URL = {PRINTFUL_BASE_URL}/files")
-    log_to_queue(f"[upload][debug] Using PRINTFUL_BASE_URL={PRINTFUL_BASE_URL}")
-    r = requests.post(
-        f"{PRINTFUL_BASE_URL}/files",
-        headers=headers,
-        json=json_data,
-        timeout=90
-    )
-    end_time = time.time()
-    log_to_queue(f"[upload] Printful upload completed in {end_time - start_time:.2f}s")
-    try:
-        result = r.json()
-    except ValueError:
-        result = json.loads(r.text)
-    log_to_queue(str(result))
-    return result
-
-# Helper to create a Printful manual order from an uploaded printfile
-def printful_create_order(file_id: int, title: str, recipient_info: Optional[dict] = None):
-    """
-    Create a one-off Printful manual order using the uploaded printfile.
-    recipient_info: dict with keys like name, address1, city, country_code, zip, email.
-    If not provided, uses dummy defaults.
-    """
-
-    PRINTFUL_API_KEY = os.environ.get("PRINTFUL_API_KEY", None)
-    # print("PRINTFUL_API_KEY", flush=True)
-    if not PRINTFUL_API_KEY:
-        raise HTTPException(status_code=400, detail="PRINTFUL_API_KEY not configured.")
-    headers = {"Authorization": f"Bearer {PRINTFUL_API_KEY}", "Content-Type": "application/json"}
-    # Minimal recipient data for Printful orders
-    default_recipient = {
-        "name": "Solar Archive Test",
-        "address1": "123 Example St",
-        "city": "Boulder",
-        "state_code": "CO",
-        "country_code": "US",
-        "zip": "80301",
-        "email": "test@example.com"
-    }
-    recipient = recipient_info if recipient_info else default_recipient
-    # 12x18 poster variant (4011); you can adjust this as needed
-    items = [{
-        "variant_id": 4011,
-        "quantity": 1,
-        "files": [{"id": file_id}],
-        "name": title or "Solar Archive Poster"
-    }]
-    # Compose a safe, API-compliant external_id: short, alphanumeric, no dashes, max 32 chars
-    safe_external_id = f"SA{int(time.time())}{file_id}"[:32]
-    payload = {
-        "recipient": recipient,
-        "items": items,
-        "external_id": safe_external_id,
-    }
-    log_to_queue(f"[printful][order] Using external_id={safe_external_id}")
-    log_to_queue(f"[printful][order] Creating manual order for file_id={file_id}, title={title}")
-    r = requests.post(f"{PRINTFUL_BASE_URL}/orders", headers=headers, json=payload)
-    log_to_queue(f"[printful][order] {PRINTFUL_BASE_URL}/orders")
-    try:
-        result = r.json()
-    except Exception:
-        result = {"error": r.text}
-    if r.status_code >= 300:
-        log_to_queue(f"[printful][order][error] Order creation failed: {r.status_code} {r.text}")
-        raise HTTPException(status_code=r.status_code, detail=f"Order creation failed: {r.text}")
-    order_id = result.get("result", {}).get("id") or result.get("id")
-    log_to_queue(f"[printful][order] Order created with ID: {order_id}")
-    return result
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Endpoints
