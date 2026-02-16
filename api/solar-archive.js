@@ -53,386 +53,45 @@
   };
 
   // ── Product catalog (Printify blueprint/provider/variant model) ──
-  // blueprint_id = product type, print_provider_id = fulfiller,
-  // variantId = specific size/color combo, position = print area placement
-  // Product templates — blueprintId/printProviderId/variantId will be auto-resolved
-  // from the live Printify catalog. The "search" field helps match blueprints by name.
+  // IDs are pre-resolved from the live Printify catalog.
+  // blueprintId = product type, printProviderId = fulfiller,
+  // variantId = default size/color (customer picks final variant on Shopify).
   var PRODUCTS = [
     // ── Wall Art & Home Decor ──
-    {
-      id: "canvas_stretched",
-      name: "Stretched Canvas",
-      desc: "Gallery-wrapped canvas, 1.25\" bars",
-      icon: "fa-palette",
-      price: "From $29.99",
-      checkoutPrice: 2999,
-      search: ["stretched canvas"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "metal_sign",
-      name: "Metal Art Sign",
-      desc: "Vibrant aluminum print, ready to hang",
-      icon: "fa-shield-alt",
-      price: "From $24.99",
-      checkoutPrice: 2499,
-      search: ["metal art sign"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "acrylic_print",
-      name: "Acrylic Wall Art",
-      desc: "High-gloss acrylic panel with standoffs",
-      icon: "fa-gem",
-      price: "From $34.99",
-      checkoutPrice: 3499,
-      search: ["acrylic", "wall art", "panels"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "poster_matte",
-      name: "Matte Poster",
-      desc: "Museum-quality matte paper, multiple sizes",
-      icon: "fa-image",
-      price: "From $9.99",
-      checkoutPrice: 999,
-      search: ["matte", "vertical", "poster"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "framed_poster",
-      name: "Framed Poster",
-      desc: "Ready-to-hang framed museum print",
-      icon: "fa-square",
-      price: "From $29.99",
-      checkoutPrice: 2999,
-      search: ["framed", "vertical", "poster"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "wall_clock",
-      name: "Wall Clock",
-      desc: "Round acrylic clock — the Sun tells time",
-      icon: "fa-clock",
-      price: "From $29.99",
-      checkoutPrice: 2999,
-      search: ["wall clock"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "tapestry",
-      name: "Wall Tapestry",
-      desc: "Large-format indoor wall hanging",
-      icon: "fa-scroll",
-      price: "From $24.99",
-      checkoutPrice: 2499,
-      search: ["wall tapestry", "indoor"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
+    { id: "canvas_stretched",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas, 1.25\" bars",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front" },
+    { id: "metal_sign",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front" },
+    { id: "acrylic_print",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front" },
+    { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front" },
+    { id: "framed_poster",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $29.99", checkoutPrice: 2999, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front" },
+    { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front" },
+    { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front" },
     // ── Drinkware ──
-    {
-      id: "mug_15oz",
-      name: "Ceramic Mug — 15oz",
-      desc: "Large white ceramic mug, full-wrap print",
-      icon: "fa-mug-hot",
-      price: "From $14.99",
-      checkoutPrice: 1499,
-      search: ["mug", "15oz"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "tumbler_20oz",
-      name: "Tumbler — 20oz",
-      desc: "Insulated stainless steel with lid",
-      icon: "fa-glass-whiskey",
-      price: "From $19.99",
-      checkoutPrice: 1999,
-      search: ["tumbler", "20oz"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
+    { id: "mug_15oz",             name: "Ceramic Mug — 15oz",  desc: "Large white ceramic mug, full-wrap print",  icon: "fa-mug-hot",      price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front" },
+    { id: "tumbler_20oz",         name: "Tumbler — 20oz",      desc: "Insulated stainless steel with lid",        icon: "fa-glass-whiskey", price: "From $19.99", checkoutPrice: 1999, blueprintId: 353,  printProviderId: 1,   variantId: 44519, position: "front" },
     // ── Apparel ──
-    {
-      id: "tshirt_unisex",
-      name: "Unisex T-Shirt",
-      desc: "Bella+Canvas 3001 jersey tee, DTG print",
-      icon: "fa-tshirt",
-      price: "From $24.99",
-      checkoutPrice: 2499,
-      search: ["unisex", "jersey", "tee", "3001"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "hoodie_pullover",
-      name: "Pullover Hoodie",
-      desc: "Unisex heavy blend hooded sweatshirt",
-      icon: "fa-mitten",
-      price: "From $39.99",
-      checkoutPrice: 3999,
-      search: ["unisex", "heavy blend", "hooded sweatshirt"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "crewneck_sweatshirt",
-      name: "Crewneck Sweatshirt",
-      desc: "Unisex heavy blend crewneck",
-      icon: "fa-vest",
-      price: "From $34.99",
-      checkoutPrice: 3499,
-      search: ["unisex", "heavy blend", "crewneck sweatshirt"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "crew_socks",
-      name: "Crew Socks",
-      desc: "All-over sublimation print socks",
-      icon: "fa-socks",
-      price: "From $14.99",
-      checkoutPrice: 1499,
-      search: ["sublimation", "crew socks"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
+    { id: "tshirt_unisex",        name: "Unisex T-Shirt",      desc: "Bella+Canvas 3001 jersey tee, DTG print",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front" },
+    { id: "hoodie_pullover",      name: "Pullover Hoodie",     desc: "Unisex heavy blend hooded sweatshirt",      icon: "fa-mitten",       price: "From $39.99", checkoutPrice: 3999, blueprintId: 77,   printProviderId: 29,  variantId: 32878, position: "front" },
+    { id: "crewneck_sweatshirt",  name: "Crewneck Sweatshirt", desc: "Unisex heavy blend crewneck",               icon: "fa-vest",         price: "From $34.99", checkoutPrice: 3499, blueprintId: 49,   printProviderId: 29,  variantId: 25377, position: "front" },
+    { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front" },
     // ── Tech & Desk ──
-    {
-      id: "phone_case",
-      name: "Phone Case",
-      desc: "Tough snap case, glossy finish",
-      icon: "fa-mobile-alt",
-      price: "From $19.99",
-      checkoutPrice: 1999,
-      search: ["tough phone case"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "laptop_sleeve",
-      name: "Laptop Sleeve",
-      desc: "Padded neoprene sleeve, snug fit",
-      icon: "fa-laptop",
-      price: "From $24.99",
-      checkoutPrice: 2499,
-      search: ["laptop sleeve"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "mouse_pad",
-      name: "Mouse Pad",
-      desc: "Non-slip rubber base, smooth fabric top",
-      icon: "fa-mouse",
-      price: "From $11.99",
-      checkoutPrice: 1199,
-      search: ["mouse pad"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "desk_mat",
-      name: "Desk Mat",
-      desc: "Large-format mat for your workspace",
-      icon: "fa-desktop",
-      price: "From $24.99",
-      checkoutPrice: 2499,
-      search: ["desk mat"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
+    { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case, glossy finish",            icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front" },
+    { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front" },
+    { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front" },
+    { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front" },
     // ── Home & Living ──
-    {
-      id: "throw_pillow",
-      name: "Throw Pillow",
-      desc: "Spun polyester square pillow with insert",
-      icon: "fa-couch",
-      price: "From $22.99",
-      checkoutPrice: 2299,
-      search: ["spun polyester square pillow"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "sherpa_blanket",
-      name: "Sherpa Blanket",
-      desc: "Ultra-soft fleece with sherpa backing",
-      icon: "fa-cloud",
-      price: "From $44.99",
-      checkoutPrice: 4499,
-      search: ["sherpa", "fleece", "blanket"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "shower_curtain",
-      name: "Shower Curtain",
-      desc: "Polyester shower curtain, vibrant print",
-      icon: "fa-shower",
-      price: "From $34.99",
-      checkoutPrice: 3499,
-      search: ["shower curtain"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "puzzle_1000",
-      name: "Jigsaw Puzzle",
-      desc: "500 or 1000-piece puzzle in a tin box",
-      icon: "fa-puzzle-piece",
-      price: "From $24.99",
-      checkoutPrice: 2499,
-      search: ["jigsaw puzzle", "tin"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "coaster_set",
-      name: "Coaster Set",
-      desc: "4-pack corkwood coasters, glossy top",
-      icon: "fa-circle",
-      price: "From $14.99",
-      checkoutPrice: 1499,
-      search: ["corkwood coaster set"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
+    { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front" },
+    { id: "sherpa_blanket",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front" },
+    { id: "shower_curtain",       name: "Shower Curtain",      desc: "Polyester shower curtain, vibrant print",   icon: "fa-shower",       price: "From $34.99", checkoutPrice: 3499, blueprintId: 235,  printProviderId: 10,  variantId: 41653, position: "front" },
+    { id: "puzzle_1000",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front" },
+    { id: "coaster_set",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $14.99", checkoutPrice: 1499, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front" },
     // ── Accessories & Stationery ──
-    {
-      id: "sticker_kiss",
-      name: "Kiss-Cut Stickers",
-      desc: "Die-cut vinyl stickers, multiple sizes",
-      icon: "fa-sticky-note",
-      price: "From $2.99",
-      checkoutPrice: 299,
-      search: ["kiss-cut sticker"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "journal_hardcover",
-      name: "Hardcover Journal",
-      desc: "Matte hardcover, ruled pages",
-      icon: "fa-book",
-      price: "From $17.99",
-      checkoutPrice: 1799,
-      search: ["hardcover journal matte"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    },
-    {
-      id: "backpack",
-      name: "Backpack",
-      desc: "All-over print, padded straps",
-      icon: "fa-bag-shopping",
-      price: "From $44.99",
-      checkoutPrice: 4499,
-      search: ["backpack"],
-      blueprintId: null, printProviderId: null, variantId: null,
-      position: "front"
-    }
+    { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front" },
+    { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front" },
+    { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front" }
   ];
 
-  // ── Auto-resolve Printify IDs from live catalog ────────────
-  var catalogResolved = false;
-  function resolveCatalogIds() {
-    fetchWithTimeout(API_BASE + "/api/printify/blueprints", { method: "GET" }, 45000)
-    .then(function(r) { return r.ok ? r.json() : Promise.reject("Catalog fetch failed"); })
-    .then(function(blueprints) {
-      // For each product, find a matching blueprint by searching title
-      PRODUCTS.forEach(function(prod) {
-        if (prod.blueprintId) return; // already resolved
-        var terms = prod.search || [];
-        var match = null;
-        var bestScore = 0;
-        blueprints.forEach(function(bp) {
-          var title = (bp.title || "").toLowerCase();
-          var score = 0;
-          terms.forEach(function(term) {
-            if (title.indexOf(term.toLowerCase()) !== -1) score++;
-          });
-          if (score > bestScore) { bestScore = score; match = bp; }
-        });
-        if (match && bestScore > 0) {
-          prod.blueprintId = match.id;
-          prod._blueprintTitle = match.title;
-        }
-      });
-
-      // Now resolve providers and variants for matched blueprints
-      var resolveQueue = PRODUCTS.filter(function(p) { return p.blueprintId && !p.variantId; });
-      var COMMON_PROVIDERS = [16, 29, 99, 1, 6, 28, 27, 55, 58, 44, 3];
-
-      function resolveNext() {
-        if (resolveQueue.length === 0) {
-          catalogResolved = true;
-          renderProducts();
-          console.log("[catalog] Auto-resolved product IDs: " +
-            JSON.stringify(PRODUCTS.map(function(p) {
-              return { id: p.id, bp: p.blueprintId, prov: p.printProviderId, var: p.variantId };
-            })));
-          return;
-        }
-        var prod = resolveQueue.shift();
-
-        // Try fetching providers for this blueprint
-        fetchWithTimeout(
-          API_BASE + "/api/printify/blueprints/" + prod.blueprintId + "/providers/" + COMMON_PROVIDERS[0] + "/variants",
-          { method: "GET" }, 30000
-        )
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(data) {
-          if (data && data.variants && data.variants.length > 0) {
-            prod.printProviderId = COMMON_PROVIDERS[0];
-            prod.variantId = data.variants[0].id;
-            resolveNext();
-            return;
-          }
-          // Try other providers sequentially
-          return tryProviders(prod, COMMON_PROVIDERS.slice(1));
-        })
-        .then(function() { resolveNext(); })
-        .catch(function() { resolveNext(); });
-      }
-
-      function tryProviders(prod, providers) {
-        if (providers.length === 0 || prod.variantId) return Promise.resolve();
-        var pid = providers[0];
-        return fetchWithTimeout(
-          API_BASE + "/api/printify/blueprints/" + prod.blueprintId + "/providers/" + pid + "/variants",
-          { method: "GET" }, 15000
-        )
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(data) {
-          if (data && data.variants && data.variants.length > 0) {
-            prod.printProviderId = pid;
-            prod.variantId = data.variants[0].id;
-            return;
-          }
-          return tryProviders(prod, providers.slice(1));
-        })
-        .catch(function() {
-          return tryProviders(prod, providers.slice(1));
-        });
-      }
-
-      resolveNext();
-    })
-    .catch(function(err) {
-      console.log("[catalog] Could not auto-resolve IDs: " + err);
-    });
-  }
-
-  // Kick off catalog resolution when page loads (non-blocking)
-  setTimeout(resolveCatalogIds, 2000);
+  // All product IDs are pre-resolved. Mark catalog as ready immediately.
+  var catalogResolved = true;
 
   // ── DOM refs ─────────────────────────────────────────────────
   var $ = function(sel) { return document.querySelector(sel); };
