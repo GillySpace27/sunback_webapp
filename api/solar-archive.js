@@ -58,32 +58,108 @@
   // Product templates — blueprintId/printProviderId/variantId will be auto-resolved
   // from the live Printify catalog. The "search" field helps match blueprints by name.
   var PRODUCTS = [
+    // ── Wall Art & Home Decor ──
     {
-      id: "tote_bag",
-      name: "Tote Bag",
-      desc: "Sturdy cotton canvas tote, all-over print",
-      icon: "fa-shopping-bag",
-      price: "From $16.99",
-      checkoutPrice: 1699,
-      search: ["tote", "bag"],
-      blueprintId: null,
-      printProviderId: null,
-      variantId: null,
+      id: "canvas_stretched",
+      name: "Stretched Canvas",
+      desc: "Gallery-wrapped canvas, 1.25\" bars",
+      icon: "fa-palette",
+      price: "From $29.99",
+      checkoutPrice: 2999,
+      search: ["stretched canvas"],
+      blueprintId: null, printProviderId: null, variantId: null,
       position: "front"
     },
     {
+      id: "metal_sign",
+      name: "Metal Art Sign",
+      desc: "Vibrant aluminum print, ready to hang",
+      icon: "fa-shield-alt",
+      price: "From $24.99",
+      checkoutPrice: 2499,
+      search: ["metal art sign"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "acrylic_print",
+      name: "Acrylic Wall Art",
+      desc: "High-gloss acrylic panel with standoffs",
+      icon: "fa-gem",
+      price: "From $34.99",
+      checkoutPrice: 3499,
+      search: ["acrylic", "wall art", "panels"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "poster_matte",
+      name: "Matte Poster",
+      desc: "Museum-quality matte paper, multiple sizes",
+      icon: "fa-image",
+      price: "From $9.99",
+      checkoutPrice: 999,
+      search: ["matte", "vertical", "poster"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "framed_poster",
+      name: "Framed Poster",
+      desc: "Ready-to-hang framed museum print",
+      icon: "fa-square",
+      price: "From $29.99",
+      checkoutPrice: 2999,
+      search: ["framed", "vertical", "poster"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "wall_clock",
+      name: "Wall Clock",
+      desc: "Round acrylic clock — the Sun tells time",
+      icon: "fa-clock",
+      price: "From $29.99",
+      checkoutPrice: 2999,
+      search: ["wall clock"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "tapestry",
+      name: "Wall Tapestry",
+      desc: "Large-format indoor wall hanging",
+      icon: "fa-scroll",
+      price: "From $24.99",
+      checkoutPrice: 2499,
+      search: ["wall tapestry", "indoor"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    // ── Drinkware ──
+    {
       id: "mug_15oz",
-      name: "Coffee Mug — 15oz",
+      name: "Ceramic Mug — 15oz",
       desc: "Large white ceramic mug, full-wrap print",
       icon: "fa-mug-hot",
       price: "From $14.99",
       checkoutPrice: 1499,
       search: ["mug", "15oz"],
-      blueprintId: null,
-      printProviderId: null,
-      variantId: null,
+      blueprintId: null, printProviderId: null, variantId: null,
       position: "front"
     },
+    {
+      id: "tumbler_20oz",
+      name: "Tumbler — 20oz",
+      desc: "Insulated stainless steel with lid",
+      icon: "fa-glass-whiskey",
+      price: "From $19.99",
+      checkoutPrice: 1999,
+      search: ["tumbler", "20oz"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    // ── Apparel ──
     {
       id: "tshirt_unisex",
       name: "Unisex T-Shirt",
@@ -92,37 +168,43 @@
       price: "From $24.99",
       checkoutPrice: 2499,
       search: ["unisex", "jersey", "tee", "3001"],
-      blueprintId: null,
-      printProviderId: null,
-      variantId: null,
+      blueprintId: null, printProviderId: null, variantId: null,
       position: "front"
     },
     {
-      id: "poster_12x18",
-      name: 'Poster — 12×18"',
-      desc: "Premium matte, museum-quality print",
-      icon: "fa-image",
-      price: "From $9.99",
-      checkoutPrice: 999,
-      search: ["poster", "enhanced matte"],
-      blueprintId: null,
-      printProviderId: null,
-      variantId: null,
+      id: "hoodie_pullover",
+      name: "Pullover Hoodie",
+      desc: "Unisex heavy blend hooded sweatshirt",
+      icon: "fa-mitten",
+      price: "From $39.99",
+      checkoutPrice: 3999,
+      search: ["unisex", "heavy blend", "hooded sweatshirt"],
+      blueprintId: null, printProviderId: null, variantId: null,
       position: "front"
     },
     {
-      id: "candle",
-      name: "Scented Candle",
-      desc: "Soy wax candle with custom label",
-      icon: "fa-fire",
-      price: "From $18.99",
-      checkoutPrice: 1899,
-      search: ["candle", "soy"],
-      blueprintId: null,
-      printProviderId: null,
-      variantId: null,
+      id: "crewneck_sweatshirt",
+      name: "Crewneck Sweatshirt",
+      desc: "Unisex heavy blend crewneck",
+      icon: "fa-vest",
+      price: "From $34.99",
+      checkoutPrice: 3499,
+      search: ["unisex", "heavy blend", "crewneck sweatshirt"],
+      blueprintId: null, printProviderId: null, variantId: null,
       position: "front"
     },
+    {
+      id: "crew_socks",
+      name: "Crew Socks",
+      desc: "All-over sublimation print socks",
+      icon: "fa-socks",
+      price: "From $14.99",
+      checkoutPrice: 1499,
+      search: ["sublimation", "crew socks"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    // ── Tech & Desk ──
     {
       id: "phone_case",
       name: "Phone Case",
@@ -130,10 +212,131 @@
       icon: "fa-mobile-alt",
       price: "From $19.99",
       checkoutPrice: 1999,
-      search: ["phone case", "tough", "snap"],
-      blueprintId: null,
-      printProviderId: null,
-      variantId: null,
+      search: ["tough phone case"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "laptop_sleeve",
+      name: "Laptop Sleeve",
+      desc: "Padded neoprene sleeve, snug fit",
+      icon: "fa-laptop",
+      price: "From $24.99",
+      checkoutPrice: 2499,
+      search: ["laptop sleeve"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "mouse_pad",
+      name: "Mouse Pad",
+      desc: "Non-slip rubber base, smooth fabric top",
+      icon: "fa-mouse",
+      price: "From $11.99",
+      checkoutPrice: 1199,
+      search: ["mouse pad"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "desk_mat",
+      name: "Desk Mat",
+      desc: "Large-format mat for your workspace",
+      icon: "fa-desktop",
+      price: "From $24.99",
+      checkoutPrice: 2499,
+      search: ["desk mat"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    // ── Home & Living ──
+    {
+      id: "throw_pillow",
+      name: "Throw Pillow",
+      desc: "Spun polyester square pillow with insert",
+      icon: "fa-couch",
+      price: "From $22.99",
+      checkoutPrice: 2299,
+      search: ["spun polyester square pillow"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "sherpa_blanket",
+      name: "Sherpa Blanket",
+      desc: "Ultra-soft fleece with sherpa backing",
+      icon: "fa-cloud",
+      price: "From $44.99",
+      checkoutPrice: 4499,
+      search: ["sherpa", "fleece", "blanket"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "shower_curtain",
+      name: "Shower Curtain",
+      desc: "Polyester shower curtain, vibrant print",
+      icon: "fa-shower",
+      price: "From $34.99",
+      checkoutPrice: 3499,
+      search: ["shower curtain"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "puzzle_1000",
+      name: "Jigsaw Puzzle",
+      desc: "500 or 1000-piece puzzle in a tin box",
+      icon: "fa-puzzle-piece",
+      price: "From $24.99",
+      checkoutPrice: 2499,
+      search: ["jigsaw puzzle", "tin"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "coaster_set",
+      name: "Coaster Set",
+      desc: "4-pack corkwood coasters, glossy top",
+      icon: "fa-circle",
+      price: "From $14.99",
+      checkoutPrice: 1499,
+      search: ["corkwood coaster set"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    // ── Accessories & Stationery ──
+    {
+      id: "sticker_kiss",
+      name: "Kiss-Cut Stickers",
+      desc: "Die-cut vinyl stickers, multiple sizes",
+      icon: "fa-sticky-note",
+      price: "From $2.99",
+      checkoutPrice: 299,
+      search: ["kiss-cut sticker"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "journal_hardcover",
+      name: "Hardcover Journal",
+      desc: "Matte hardcover, ruled pages",
+      icon: "fa-book",
+      price: "From $17.99",
+      checkoutPrice: 1799,
+      search: ["hardcover journal matte"],
+      blueprintId: null, printProviderId: null, variantId: null,
+      position: "front"
+    },
+    {
+      id: "backpack",
+      name: "Backpack",
+      desc: "All-over print, padded straps",
+      icon: "fa-bag-shopping",
+      price: "From $44.99",
+      checkoutPrice: 4499,
+      search: ["backpack"],
+      blueprintId: null, printProviderId: null, variantId: null,
       position: "front"
     }
   ];
@@ -1343,7 +1546,7 @@
       mctx.clip();
       mctx.drawImage(solarCanvas, 0, 0, sw, sh, 45, 42, 70, 70);
       mctx.restore();
-    } else if (productId === "poster_12x18") {
+    } else if (productId === "poster_matte" || productId === "framed_poster") {
       // Poster with shadow and border
       var pL = 25, pT = 10, pW = 110, pH = 140;
       mctx.fillStyle = "rgba(0,0,0,0.4)";
@@ -1351,81 +1554,86 @@
       mctx.fillStyle = "#fff";
       mctx.fillRect(pL, pT, pW, pH);
       mctx.drawImage(solarCanvas, 0, 0, sw, sh, pL + 5, pT + 5, pW - 10, pH - 10);
-    } else if (productId === "tote_bag") {
-      // Tote bag silhouette with image on front
-      mctx.fillStyle = "#d4c9a8";
-      mctx.beginPath();
-      mctx.moveTo(30, 40);
-      mctx.lineTo(25, 145);
-      mctx.lineTo(135, 145);
-      mctx.lineTo(130, 40);
-      mctx.closePath();
-      mctx.fill();
-      // Handles
-      mctx.strokeStyle = "#b0a080";
-      mctx.lineWidth = 4;
-      mctx.lineCap = "round";
-      mctx.beginPath();
-      mctx.moveTo(50, 40);
-      mctx.quadraticCurveTo(50, 12, 65, 12);
-      mctx.quadraticCurveTo(80, 12, 80, 40);
-      mctx.stroke();
-      mctx.beginPath();
-      mctx.moveTo(80, 40);
-      mctx.quadraticCurveTo(80, 12, 95, 12);
-      mctx.quadraticCurveTo(110, 12, 110, 40);
-      mctx.stroke();
-      // Solar image on bag front
+      if (productId === "framed_poster") {
+        mctx.strokeStyle = "#333";
+        mctx.lineWidth = 4;
+        mctx.strokeRect(pL, pT, pW, pH);
+      }
+    } else if (productId === "canvas_stretched" || productId === "metal_sign" || productId === "acrylic_print") {
+      // Wall art — image with subtle shadow
+      var wL = 15, wT = 15, wW = 130, wH = 130;
+      mctx.fillStyle = "rgba(0,0,0,0.35)";
+      mctx.fillRect(wL + 5, wT + 5, wW, wH);
+      mctx.drawImage(solarCanvas, 0, 0, sw, sh, wL, wT, wW, wH);
+      if (productId === "canvas_stretched") {
+        mctx.strokeStyle = "#444";
+        mctx.lineWidth = 3;
+        mctx.strokeRect(wL, wT, wW, wH);
+      } else if (productId === "acrylic_print") {
+        // Glossy highlight
+        var grad = mctx.createLinearGradient(wL, wT, wL + wW, wT + wH);
+        grad.addColorStop(0, "rgba(255,255,255,0.18)");
+        grad.addColorStop(0.5, "rgba(255,255,255,0)");
+        grad.addColorStop(1, "rgba(255,255,255,0.08)");
+        mctx.fillStyle = grad;
+        mctx.fillRect(wL, wT, wW, wH);
+      }
+    } else if (productId === "wall_clock") {
+      // Round clock face with solar image
+      var cx = 80, cy = 80, r = 65;
       mctx.save();
       mctx.beginPath();
-      mctx.rect(40, 50, 80, 80);
+      mctx.arc(cx, cy, r, 0, Math.PI * 2);
       mctx.clip();
-      mctx.drawImage(solarCanvas, 0, 0, sw, sh, 40, 50, 80, 80);
+      mctx.drawImage(solarCanvas, 0, 0, sw, sh, cx - r, cy - r, r * 2, r * 2);
       mctx.restore();
-    } else if (productId === "candle") {
-      // Candle jar with label
-      var jL = 42, jT = 25, jW = 76, jH = 115, jr = 8;
-      // Jar body
-      mctx.fillStyle = "#f5f0e8";
+      mctx.strokeStyle = "#666";
+      mctx.lineWidth = 3;
       mctx.beginPath();
-      mctx.moveTo(jL + jr, jT);
-      mctx.lineTo(jL + jW - jr, jT);
-      mctx.quadraticCurveTo(jL + jW, jT, jL + jW, jT + jr);
-      mctx.lineTo(jL + jW, jT + jH - jr);
-      mctx.quadraticCurveTo(jL + jW, jT + jH, jL + jW - jr, jT + jH);
-      mctx.lineTo(jL + jr, jT + jH);
-      mctx.quadraticCurveTo(jL, jT + jH, jL, jT + jH - jr);
-      mctx.lineTo(jL, jT + jr);
-      mctx.quadraticCurveTo(jL, jT, jL + jr, jT);
-      mctx.closePath();
-      mctx.fill();
-      // Lid
-      mctx.fillStyle = "#8b7355";
-      mctx.fillRect(jL - 2, jT - 8, jW + 4, 12);
-      // Flame
-      mctx.fillStyle = "#f7a825";
+      mctx.arc(cx, cy, r, 0, Math.PI * 2);
+      mctx.stroke();
+      // Clock hands
+      mctx.strokeStyle = "#fff";
+      mctx.lineWidth = 2;
       mctx.beginPath();
-      mctx.moveTo(80, jT - 8);
-      mctx.quadraticCurveTo(74, jT - 22, 80, jT - 28);
-      mctx.quadraticCurveTo(86, jT - 22, 80, jT - 8);
-      mctx.fill();
-      mctx.fillStyle = "#ff5e3a";
+      mctx.moveTo(cx, cy);
+      mctx.lineTo(cx - 20, cy - 35);
+      mctx.stroke();
       mctx.beginPath();
-      mctx.moveTo(80, jT - 8);
-      mctx.quadraticCurveTo(77, jT - 16, 80, jT - 20);
-      mctx.quadraticCurveTo(83, jT - 16, 80, jT - 8);
-      mctx.fill();
-      // Solar image as label
+      mctx.moveTo(cx, cy);
+      mctx.lineTo(cx + 30, cy - 10);
+      mctx.stroke();
+    } else if (productId === "throw_pillow") {
+      // Square pillow with image
+      var pilL = 18, pilT = 18, pilW = 124, pilH = 124;
+      mctx.fillStyle = "rgba(0,0,0,0.2)";
+      mctx.fillRect(pilL + 4, pilT + 4, pilW, pilH);
       mctx.save();
       mctx.beginPath();
-      mctx.rect(jL + 6, jT + 20, jW - 12, jH - 35);
+      mctx.moveTo(pilL + 8, pilT);
+      mctx.lineTo(pilL + pilW - 8, pilT);
+      mctx.quadraticCurveTo(pilL + pilW, pilT, pilL + pilW, pilT + 8);
+      mctx.lineTo(pilL + pilW, pilT + pilH - 8);
+      mctx.quadraticCurveTo(pilL + pilW, pilT + pilH, pilL + pilW - 8, pilT + pilH);
+      mctx.lineTo(pilL + 8, pilT + pilH);
+      mctx.quadraticCurveTo(pilL, pilT + pilH, pilL, pilT + pilH - 8);
+      mctx.lineTo(pilL, pilT + 8);
+      mctx.quadraticCurveTo(pilL, pilT, pilL + 8, pilT);
+      mctx.closePath();
       mctx.clip();
-      mctx.drawImage(solarCanvas, 0, 0, sw, sh, jL + 6, jT + 20, jW - 12, jH - 35);
+      mctx.drawImage(solarCanvas, 0, 0, sw, sh, pilL, pilT, pilW, pilH);
       mctx.restore();
-      // Label border
-      mctx.strokeStyle = "rgba(0,0,0,0.15)";
+    } else if (productId === "puzzle_1000") {
+      // Puzzle grid overlay on image
+      mctx.drawImage(solarCanvas, 0, 0, sw, sh, 10, 10, 140, 140);
+      mctx.strokeStyle = "rgba(255,255,255,0.25)";
       mctx.lineWidth = 1;
-      mctx.strokeRect(jL + 6, jT + 20, jW - 12, jH - 35);
+      for (var px = 10; px <= 150; px += 28) {
+        mctx.beginPath(); mctx.moveTo(px, 10); mctx.lineTo(px, 150); mctx.stroke();
+      }
+      for (var py = 10; py <= 150; py += 28) {
+        mctx.beginPath(); mctx.moveTo(10, py); mctx.lineTo(150, py); mctx.stroke();
+      }
     } else if (productId === "phone_case") {
       // Phone case shape with image
       var phL = 42, phT = 8, phW = 76, phH = 144, rr = 14;
