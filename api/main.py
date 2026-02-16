@@ -35,6 +35,7 @@ import json
 import hashlib
 import time
 import subprocess
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Literal, Dict, Any
 import numpy as np
@@ -224,15 +225,9 @@ import threading
 app = FastAPI(title=APP_NAME)
 
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
-
-from fastapi.staticfiles import StaticFiles
+app_dir = Path(__file__).parent
 # Serve all static files (HTML, JS, CSS) from /api/
-app.mount("/api/static", StaticFiles(directory="api"), name="static")
-
-from fastapi.responses import FileResponse
+app.mount("/api/static", StaticFiles(directory=str(app_dir)), name="static")
 # Main asset mount: serves HQ/full-res images from OUTPUT_DIR (not including preview subdir)
 app.mount("/asset", StaticFiles(directory=OUTPUT_DIR), name="asset")
 # New: serve preview images from the preview subfolder
@@ -247,7 +242,7 @@ async def serve_frontend():
 @app.get("/api/index.html")
 async def serve_index_direct():
     """Serve the main index.html page."""
-    return FileResponse(os.path.join("api", "index.html"))
+    return FileResponse(Path(__file__).parent / "index.html")
 
 
 # ---------------------------------------------------------
@@ -575,9 +570,8 @@ async def get_status(task_id: str):
 
 
 
-from pathlib import Path
-app_dir = Path(__file__).parent
-app.mount("/static", StaticFiles(directory=app_dir, html=True), name="static")
+# Legacy /static mount (kept for backward compatibility)
+app.mount("/static", StaticFiles(directory=str(app_dir), html=True), name="static_legacy")
 
 
 
@@ -716,7 +710,7 @@ async def redirect_to_shopify(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve the main customer-facing index.html."""
-    return FileResponse(os.path.join("api", "index.html"))
+    return FileResponse(Path(__file__).parent / "index.html")
 
 
 # Serve the original cute Solar Archive landing page at /api
@@ -1737,7 +1731,6 @@ async def shopify_preview_options():
 # -------------------------------------------------------------------
 # Dedicated endpoint to serve image assets via FileResponse
 # -------------------------------------------------------------------
-from fastapi.responses import FileResponse
 @app.get("/asset/{subpath:path}")
 async def serve_asset(subpath: str):
     """Serve any file under /tmp/output, including previews and HQ renders."""
