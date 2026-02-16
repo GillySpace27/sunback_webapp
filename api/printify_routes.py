@@ -429,6 +429,10 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
     external_id = external.get("id")
 
     if handle:
+        # If handle is a full URL, extract just the product slug
+        if handle.startswith("http://") or handle.startswith("https://"):
+            # Extract slug from URL like "https://store.myshopify.com/products/my-product"
+            handle = handle.split("/products/")[-1] if "/products/" in handle else handle
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"}
     elif external_id:
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{external_id}"}
