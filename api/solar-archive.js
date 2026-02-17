@@ -204,7 +204,7 @@
   });
 
   // ── Wavelength thumbnail previews via Helioviewer ──────────
-  var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14 };
+  var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14, 1600: 15, 1700: 16 };
   var lastThumbDate = "";
 
   function loadWavelengthThumbnails() {
@@ -226,9 +226,9 @@
 
       var url = "https://api.helioviewer.org/v2/takeScreenshot/?" +
         "date=" + encodeURIComponent(isoDate) +
-        "&imageScale=9.6" +
+        "&imageScale=16" +
         "&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
-        "&x0=0&y0=0&width=128&height=128" +
+        "&x0=0&y0=0&width=256&height=256" +
         "&display=true&watermark=false";
 
       var img = new Image();
