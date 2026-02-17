@@ -309,9 +309,16 @@ def _do_checkout_sync(
         raise Exception("No variants found for this blueprint/provider")
 
     all_variant_ids = [v["id"] for v in all_variants]
-    _log(f"[checkout] Found {len(all_variant_ids)} variants")
+    _log(f"[checkout] Found {len(all_variant_ids)} total variants")
 
-    # ── Step 3: Create product with ALL variants ──
+    # Printify enforces a 100-variant limit per product.
+    # Keep the first 100 (they're typically ordered by popularity/size).
+    MAX_VARIANTS = 100
+    if len(all_variant_ids) > MAX_VARIANTS:
+        _log(f"[checkout] Capping variants from {len(all_variant_ids)} → {MAX_VARIANTS}")
+        all_variant_ids = all_variant_ids[:MAX_VARIANTS]
+
+    # ── Step 3: Create product with variants ──
     _log(f"[checkout] Step 3: creating product with {len(all_variant_ids)} variants")
     product_payload = {
         "title": title,
