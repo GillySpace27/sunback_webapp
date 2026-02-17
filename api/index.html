@@ -141,14 +141,7 @@
       </div>
       <div class="field-row">
         <span class="field-label-sm">Font</span>
-        <select id="textFontSelect">
-          <option value="Outfit">Outfit</option>
-          <option value="JetBrains Mono">JetBrains Mono</option>
-          <option value="Georgia">Georgia</option>
-          <option value="Impact">Impact</option>
-          <option value="Courier New">Courier New</option>
-          <option value="Arial Black">Arial Black</option>
-        </select>
+        <select id="textFontSelect"><!-- populated by JS from FONT_CATALOG --></select>
       </div>
       <div class="field-row">
         <span class="field-label-sm">Color</span>
@@ -158,6 +151,25 @@
         <span class="field-label-sm" style="min-width:30px;">W</span>
         <input type="range" id="textStrokeWidth" min="0" max="10" value="2" style="flex:1; max-width:100px;">
         <span class="slider-val" id="textStrokeVal" style="min-width:20px;">2</span>
+      </div>
+      <div class="field-row text-effect-row">
+        <span class="field-label-sm" style="min-width:50px;">Shadow</span>
+        <label class="toggle-label"><input type="checkbox" id="textShadowToggle"> On</label>
+        <input type="color" id="textShadowColor" value="#000000" title="Shadow color">
+        <span class="field-label-sm" style="min-width:24px;">Blur</span>
+        <input type="range" id="textShadowBlur" min="0" max="30" value="6" style="flex:1; max-width:80px;">
+        <span class="slider-val" id="textShadowBlurVal" style="min-width:20px;">6</span>
+      </div>
+      <div class="field-row text-effect-row">
+        <span class="field-label-sm" style="min-width:50px;">Arc</span>
+        <label class="toggle-label"><input type="checkbox" id="textArcToggle"> On</label>
+        <span class="field-label-sm" style="min-width:24px;">R</span>
+        <input type="range" id="textArcRadius" min="50" max="600" value="200" style="flex:1; max-width:120px;">
+        <span class="slider-val" id="textArcRadiusVal" style="min-width:30px;">200</span>
+      </div>
+      <div class="field-row text-effect-row">
+        <span class="field-label-sm" style="min-width:50px;">Outline</span>
+        <label class="toggle-label"><input type="checkbox" id="textOutlineToggle"> Stroke only (no fill)</label>
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button class="edit-btn" id="applyText" style="flex:1;justify-content:center;">
@@ -180,6 +192,9 @@
         <button class="crop-ratio-btn" data-ratio="4:3">4:3</button>
         <button class="crop-ratio-btn" data-ratio="3:2">3:2</button>
         <button class="crop-ratio-btn" data-ratio="16:9">16:9</button>
+        <button class="crop-ratio-btn product-crop-btn hidden" data-ratio="product" id="cropProductBtn">
+          <i class="fas fa-box" style="font-size:10px;"></i> Product
+        </button>
       </div>
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="edit-btn" id="applyCrop" style="flex:1;justify-content:center;">

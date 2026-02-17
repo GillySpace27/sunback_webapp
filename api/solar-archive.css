@@ -783,6 +783,19 @@
       color: var(--accent-corona);
     }
 
+    .product-crop-btn {
+      background: rgba(255,150,50,0.1);
+      border-color: var(--accent-sun);
+      color: var(--accent-sun);
+      font-size: 0.72rem;
+    }
+
+    .product-crop-btn.active {
+      background: rgba(255,150,50,0.2);
+      border-color: var(--accent-corona);
+      color: var(--accent-corona);
+    }
+
     /* Text tool panel */
     .text-tool-panel {
       background: var(--bg-elevated);
@@ -830,6 +843,37 @@
       color: var(--text-dim);
       min-width: 50px;
       flex-shrink: 0;
+    }
+
+    .text-effect-row {
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+
+    .toggle-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+      min-width: 50px;
+      white-space: nowrap;
+    }
+
+    .toggle-label input[type="checkbox"] {
+      accent-color: var(--accent-corona);
+      width: 16px;
+      height: 16px;
+    }
+
+    #textFontSelect optgroup {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 600;
+      color: var(--text-secondary);
+      font-size: 0.82rem;
+      padding: 4px 0;
     }
 
     .text-tool-hint {

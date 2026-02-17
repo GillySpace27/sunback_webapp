@@ -58,40 +58,107 @@
   // variantId = default size/color (customer picks final variant on Shopify).
   var PRODUCTS = [
     // ── Wall Art & Home Decor ──
-    { id: "canvas_stretched",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas, 1.25\" bars",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front" },
-    { id: "metal_sign",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front" },
-    { id: "acrylic_print",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front" },
-    { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front" },
-    { id: "framed_poster",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $29.99", checkoutPrice: 2999, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front" },
-    { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front" },
-    { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front" },
+    { id: "canvas_stretched",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas, 1.25\" bars",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "metal_sign",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "acrylic_print",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 } },
+    { id: "framed_poster",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $29.99", checkoutPrice: 2999, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front", aspectRatio: { w: 11, h: 14 } },
+    { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front", aspectRatio: { w: 1, h: 1 } },
     // ── Drinkware ──
-    { id: "mug_15oz",             name: "Ceramic Mug — 15oz",  desc: "Large white ceramic mug, full-wrap print",  icon: "fa-mug-hot",      price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front" },
-    { id: "tumbler_20oz",         name: "Tumbler — 20oz",      desc: "Insulated stainless steel with lid",        icon: "fa-glass-whiskey", price: "From $19.99", checkoutPrice: 1999, blueprintId: 353,  printProviderId: 1,   variantId: 44519, position: "front" },
+    { id: "mug_15oz",             name: "Ceramic Mug — 15oz",  desc: "Large white ceramic mug, full-wrap print",  icon: "fa-mug-hot",      price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front", aspectRatio: { w: 2, h: 1 } },
+    { id: "tumbler_20oz",         name: "Tumbler — 20oz",      desc: "Insulated stainless steel with lid",        icon: "fa-glass-whiskey", price: "From $19.99", checkoutPrice: 1999, blueprintId: 353,  printProviderId: 1,   variantId: 44519, position: "front", aspectRatio: { w: 2, h: 1 } },
     // ── Apparel ──
-    { id: "tshirt_unisex",        name: "Unisex T-Shirt",      desc: "Bella+Canvas 3001 jersey tee, DTG print",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front" },
-    { id: "hoodie_pullover",      name: "Pullover Hoodie",     desc: "Unisex heavy blend hooded sweatshirt",      icon: "fa-mitten",       price: "From $39.99", checkoutPrice: 3999, blueprintId: 77,   printProviderId: 29,  variantId: 32878, position: "front" },
-    { id: "crewneck_sweatshirt",  name: "Crewneck Sweatshirt", desc: "Unisex heavy blend crewneck",               icon: "fa-vest",         price: "From $34.99", checkoutPrice: 3499, blueprintId: 49,   printProviderId: 29,  variantId: 25377, position: "front" },
-    { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front" },
+    { id: "tshirt_unisex",        name: "Unisex T-Shirt",      desc: "Bella+Canvas 3001 jersey tee, DTG print",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "hoodie_pullover",      name: "Pullover Hoodie",     desc: "Unisex heavy blend hooded sweatshirt",      icon: "fa-mitten",       price: "From $39.99", checkoutPrice: 3999, blueprintId: 77,   printProviderId: 29,  variantId: 32878, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "crewneck_sweatshirt",  name: "Crewneck Sweatshirt", desc: "Unisex heavy blend crewneck",               icon: "fa-vest",         price: "From $34.99", checkoutPrice: 3499, blueprintId: 49,   printProviderId: 29,  variantId: 25377, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front", aspectRatio: { w: 1, h: 1 } },
     // ── Tech & Desk ──
-    { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case, glossy finish",            icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front" },
-    { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front" },
-    { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front" },
-    { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front" },
+    { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case, glossy finish",            icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front", aspectRatio: { w: 9, h: 19 } },
+    { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
+    { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front", aspectRatio: { w: 2, h: 1 } },
     // ── Home & Living ──
-    { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front" },
-    { id: "sherpa_blanket",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front" },
-    { id: "shower_curtain",       name: "Shower Curtain",      desc: "Polyester shower curtain, vibrant print",   icon: "fa-shower",       price: "From $34.99", checkoutPrice: 3499, blueprintId: 235,  printProviderId: 10,  variantId: 41653, position: "front" },
-    { id: "puzzle_1000",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front" },
-    { id: "coaster_set",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $14.99", checkoutPrice: 1499, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front" },
+    { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "sherpa_blanket",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "shower_curtain",       name: "Shower Curtain",      desc: "Polyester shower curtain, vibrant print",   icon: "fa-shower",       price: "From $34.99", checkoutPrice: 3499, blueprintId: 235,  printProviderId: 10,  variantId: 41653, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "puzzle_1000",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front", aspectRatio: { w: 1, h: 1 } },
+    { id: "coaster_set",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $14.99", checkoutPrice: 1499, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front", aspectRatio: { w: 1, h: 1 } },
     // ── Accessories & Stationery ──
-    { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front" },
-    { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front" },
-    { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front" }
+    { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: null },
+    { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front", aspectRatio: { w: 3, h: 4 } },
+    { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
   ];
 
   // All product IDs are pre-resolved. Mark catalog as ready immediately.
   var catalogResolved = true;
+
+  // ── Font catalog (lazy-loaded from Google Fonts) ────────────
+  var FONT_CATALOG = [
+    // Sans-Serif
+    { name: "Outfit",           category: "Sans-Serif",  gquery: "Outfit:wght@300;400;500;600;700;800" },
+    { name: "Inter",            category: "Sans-Serif",  gquery: "Inter:wght@400;500;700" },
+    { name: "Montserrat",       category: "Sans-Serif",  gquery: "Montserrat:wght@400;700;900" },
+    { name: "Raleway",          category: "Sans-Serif",  gquery: "Raleway:wght@400;700" },
+    { name: "Oswald",           category: "Sans-Serif",  gquery: "Oswald:wght@400;700" },
+    // Serif
+    { name: "Playfair Display", category: "Serif",       gquery: "Playfair+Display:wght@400;700;900" },
+    { name: "Merriweather",     category: "Serif",       gquery: "Merriweather:wght@400;700" },
+    { name: "Lora",             category: "Serif",       gquery: "Lora:wght@400;700" },
+    // Display
+    { name: "Bebas Neue",       category: "Display",     gquery: "Bebas+Neue" },
+    { name: "Righteous",        category: "Display",     gquery: "Righteous" },
+    { name: "Orbitron",         category: "Display",     gquery: "Orbitron:wght@400;700;900" },
+    { name: "Audiowide",        category: "Display",     gquery: "Audiowide" },
+    // Handwriting
+    { name: "Dancing Script",   category: "Handwriting", gquery: "Dancing+Script:wght@400;700" },
+    { name: "Caveat",           category: "Handwriting", gquery: "Caveat:wght@400;700" },
+    { name: "Pacifico",         category: "Handwriting", gquery: "Pacifico" },
+    // Monospace
+    { name: "JetBrains Mono",   category: "Monospace",   gquery: "JetBrains+Mono:wght@400;500;700" },
+    { name: "Fira Code",        category: "Monospace",   gquery: "Fira+Code:wght@400;700" },
+    { name: "Space Mono",       category: "Monospace",   gquery: "Space+Mono:wght@400;700" }
+  ];
+
+  var loadedFonts = { "Outfit": true, "JetBrains Mono": true }; // preloaded in HTML <link>
+
+  function loadGoogleFont(fontEntry) {
+    if (loadedFonts[fontEntry.name]) return Promise.resolve();
+    return new Promise(function(resolve) {
+      var link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://fonts.googleapis.com/css2?family=" + fontEntry.gquery + "&display=swap";
+      link.onload = function() {
+        loadedFonts[fontEntry.name] = true;
+        // Give the browser a moment to register the font face
+        setTimeout(resolve, 50);
+      };
+      link.onerror = function() { resolve(); }; // don't block on failure
+      document.head.appendChild(link);
+    });
+  }
+
+  function populateFontSelect() {
+    var sel = document.getElementById("textFontSelect");
+    if (!sel) return;
+    sel.innerHTML = "";
+    var categories = {};
+    FONT_CATALOG.forEach(function(f) {
+      if (!categories[f.category]) categories[f.category] = [];
+      categories[f.category].push(f);
+    });
+    Object.keys(categories).forEach(function(cat) {
+      var group = document.createElement("optgroup");
+      group.label = cat;
+      categories[cat].forEach(function(f) {
+        var opt = document.createElement("option");
+        opt.value = f.name;
+        opt.textContent = f.name;
+        group.appendChild(opt);
+      });
+      sel.appendChild(group);
+    });
+  }
 
   // ── DOM refs ─────────────────────────────────────────────────
   var $ = function(sel) { return document.querySelector(sel); };
@@ -631,7 +698,7 @@
         g = gray + sat * (g - gray);
         b = gray + sat * (b - gray);
 
-        // Vignette — fade to black outside radius
+        // Vignette — fade to transparent outside radius
         if (applyVignette) {
           var px = (i / 4) % cw;
           var py = Math.floor((i / 4) / cw);
@@ -645,9 +712,7 @@
             var t = fadeLen > 0.5 ? Math.min((dist - vigR) / fadeLen, 1.0) : 1.0;
             // Smooth cubic falloff (smoothstep)
             t = t * t * (3 - 2 * t);
-            r *= (1 - t);
-            g *= (1 - t);
-            b *= (1 - t);
+            d[i + 3] = d[i + 3] * (1 - t);  // fade alpha, not RGB
           }
         }
 
@@ -663,17 +728,34 @@
     if (state.textOverlay && state.textOverlay.text) {
       var tov = state.textOverlay;
       ctx.save();
-      ctx.font = "bold " + tov.size + "px " + tov.font;
+      ctx.font = "bold " + tov.size + "px '" + tov.font + "', sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      if (tov.strokeWidth > 0) {
-        ctx.strokeStyle = tov.strokeColor;
-        ctx.lineWidth = tov.strokeWidth * 2;
-        ctx.lineJoin = "round";
-        ctx.strokeText(tov.text, tov.x, tov.y);
+
+      // Shadow effect
+      if (tov.shadow && tov.shadow.enabled) {
+        ctx.shadowColor = tov.shadow.color;
+        ctx.shadowBlur = tov.shadow.blur;
+        ctx.shadowOffsetX = tov.shadow.offsetX;
+        ctx.shadowOffsetY = tov.shadow.offsetY;
       }
-      ctx.fillStyle = tov.color;
-      ctx.fillText(tov.text, tov.x, tov.y);
+
+      if (tov.arc && tov.arc.enabled) {
+        // ── Arc/Curved text ──
+        drawArcText(ctx, tov);
+      } else {
+        // ── Straight text ──
+        if (tov.strokeWidth > 0) {
+          ctx.strokeStyle = tov.strokeColor;
+          ctx.lineWidth = tov.strokeWidth * 2;
+          ctx.lineJoin = "round";
+          ctx.strokeText(tov.text, tov.x, tov.y);
+        }
+        if (!tov.outlined) {
+          ctx.fillStyle = tov.color;
+          ctx.fillText(tov.text, tov.x, tov.y);
+        }
+      }
       ctx.restore();
     }
   }
@@ -758,6 +840,9 @@
   var textStrokePicker = $("#textStrokePicker");
   var textStrokeWidthSlider = $("#textStrokeWidth");
   var textStrokeVal = $("#textStrokeVal");
+
+  // Populate font dropdown from catalog
+  populateFontSelect();
   var textDragging = false;
   var textDragOffsetX = 0;
   var textDragOffsetY = 0;
@@ -777,7 +862,10 @@
         font: textFontSelect.value,
         color: textColorPicker.value,
         strokeColor: textStrokePicker.value,
-        strokeWidth: parseInt(textStrokeWidthSlider.value, 10)
+        strokeWidth: parseInt(textStrokeWidthSlider.value, 10),
+        shadow: { enabled: false, offsetX: 3, offsetY: 3, blur: 6, color: "#000000" },
+        arc: { enabled: false, radius: 200 },
+        outlined: false
       };
       if (!textInput.value) textInput.value = "Hello Sun";
     }
@@ -812,13 +900,100 @@
     textSizeVal.textContent = textSizeSlider.value;
     syncTextOverlay();
   });
-  textFontSelect.addEventListener("change", syncTextOverlay);
+  textFontSelect.addEventListener("change", function() {
+    var entry = FONT_CATALOG.find(function(f) { return f.name === textFontSelect.value; });
+    if (entry && !loadedFonts[entry.name]) {
+      loadGoogleFont(entry).then(function() { syncTextOverlay(); });
+    } else {
+      syncTextOverlay();
+    }
+  });
   textColorPicker.addEventListener("input", syncTextOverlay);
   textStrokePicker.addEventListener("input", syncTextOverlay);
   textStrokeWidthSlider.addEventListener("input", function() {
     textStrokeVal.textContent = textStrokeWidthSlider.value;
     syncTextOverlay();
   });
+
+  // ── Text effect controls ───────────────────────────────────
+  var textShadowToggle = $("#textShadowToggle");
+  var textShadowColor = $("#textShadowColor");
+  var textShadowBlur = $("#textShadowBlur");
+  var textShadowBlurVal = $("#textShadowBlurVal");
+  var textArcToggle = $("#textArcToggle");
+  var textArcRadius = $("#textArcRadius");
+  var textArcRadiusVal = $("#textArcRadiusVal");
+  var textOutlineToggle = $("#textOutlineToggle");
+
+  textShadowToggle.addEventListener("change", function() {
+    if (state.textOverlay) state.textOverlay.shadow.enabled = textShadowToggle.checked;
+    syncTextOverlay();
+  });
+  textShadowColor.addEventListener("input", function() {
+    if (state.textOverlay) state.textOverlay.shadow.color = textShadowColor.value;
+    syncTextOverlay();
+  });
+  textShadowBlur.addEventListener("input", function() {
+    textShadowBlurVal.textContent = textShadowBlur.value;
+    if (state.textOverlay) state.textOverlay.shadow.blur = parseInt(textShadowBlur.value, 10);
+    syncTextOverlay();
+  });
+  textArcToggle.addEventListener("change", function() {
+    if (state.textOverlay) state.textOverlay.arc.enabled = textArcToggle.checked;
+    syncTextOverlay();
+  });
+  textArcRadius.addEventListener("input", function() {
+    textArcRadiusVal.textContent = textArcRadius.value;
+    if (state.textOverlay) state.textOverlay.arc.radius = parseInt(textArcRadius.value, 10);
+    syncTextOverlay();
+  });
+  textOutlineToggle.addEventListener("change", function() {
+    if (state.textOverlay) state.textOverlay.outlined = textOutlineToggle.checked;
+    syncTextOverlay();
+  });
+
+  // ── Arc text renderer ──────────────────────────────────────
+  function drawArcText(ctx, tov) {
+    var text = tov.text;
+    var radius = tov.arc.radius;
+    var centerX = tov.x;
+    var centerY = tov.y + radius; // arc center is below the text anchor
+
+    // Measure each character for proper angular spacing
+    var chars = text.split("");
+    var charWidths = chars.map(function(c) { return ctx.measureText(c).width; });
+    var totalWidth = charWidths.reduce(function(a, b) { return a + b; }, 0);
+
+    // Total angle the text spans; start centered
+    var totalAngle = totalWidth / radius;
+    var currentAngle = -Math.PI / 2 - totalAngle / 2; // start at top, centered
+
+    chars.forEach(function(ch, i) {
+      var halfChar = charWidths[i] / 2;
+      currentAngle += halfChar / radius;
+
+      ctx.save();
+      ctx.translate(
+        centerX + radius * Math.cos(currentAngle),
+        centerY + radius * Math.sin(currentAngle)
+      );
+      ctx.rotate(currentAngle + Math.PI / 2);
+
+      if (tov.strokeWidth > 0) {
+        ctx.strokeStyle = tov.strokeColor;
+        ctx.lineWidth = tov.strokeWidth * 2;
+        ctx.lineJoin = "round";
+        ctx.strokeText(ch, 0, 0);
+      }
+      if (!tov.outlined) {
+        ctx.fillStyle = tov.color;
+        ctx.fillText(ch, 0, 0);
+      }
+
+      ctx.restore();
+      currentAngle += halfChar / radius;
+    });
+  }
 
   // Apply text (burn into image permanently)
   $("#applyText").addEventListener("click", function() {
@@ -854,9 +1029,20 @@
   function isInsideText(canvasX, canvasY) {
     if (!state.textOverlay || !state.textOverlay.text) return false;
     var tov = state.textOverlay;
+
+    // Arc mode: use circular bounding region
+    if (tov.arc && tov.arc.enabled) {
+      var arcCenterY = tov.y + tov.arc.radius;
+      var dx = canvasX - tov.x;
+      var dy = canvasY - arcCenterY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      return Math.abs(dist - tov.arc.radius) < tov.size * 1.2;
+    }
+
+    // Straight text: rectangle hit test
     var ctx = solarCanvas.getContext("2d");
     ctx.save();
-    ctx.font = "bold " + tov.size + "px " + tov.font;
+    ctx.font = "bold " + tov.size + "px '" + tov.font + "', sans-serif";
     var metrics = ctx.measureText(tov.text);
     ctx.restore();
     var hw = metrics.width / 2;
@@ -916,6 +1102,19 @@
   // ── Crop mode ────────────────────────────────────────────────
   var cropDragging = false;
 
+  function updateProductCropButton() {
+    var btn = document.getElementById("cropProductBtn");
+    if (!btn) return;
+    var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+    if (product && product.aspectRatio) {
+      btn.classList.remove("hidden");
+      btn.innerHTML = '<i class="fas fa-box" style="font-size:10px;"></i> ' +
+        product.aspectRatio.w + ":" + product.aspectRatio.h + " " + product.name;
+    } else {
+      btn.classList.add("hidden");
+    }
+  }
+
   function enterCropMode() {
     state.cropping = true;
     cropControls.classList.remove("hidden");
@@ -923,6 +1122,18 @@
     state.cropStart = null;
     state.cropEnd = null;
     cropOverlay.classList.add("hidden");
+
+    // Show product crop button and auto-select if a product is selected
+    updateProductCropButton();
+    if (state.selectedProduct) {
+      var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+      if (product && product.aspectRatio) {
+        state.cropRatio = product.aspectRatio.w + ":" + product.aspectRatio.h;
+        cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
+        var productBtn = document.getElementById("cropProductBtn");
+        if (productBtn) productBtn.classList.add("active");
+      }
+    }
   }
 
   function exitCropMode() {
@@ -938,7 +1149,15 @@
     if (ratioBtn) {
       cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
       ratioBtn.classList.add("active");
-      state.cropRatio = ratioBtn.dataset.ratio;
+      var ratio = ratioBtn.dataset.ratio;
+      if (ratio === "product") {
+        var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+        state.cropRatio = (product && product.aspectRatio)
+          ? product.aspectRatio.w + ":" + product.aspectRatio.h
+          : "free";
+      } else {
+        state.cropRatio = ratio;
+      }
       state.cropStart = null;
       state.cropEnd = null;
       cropOverlay.classList.add("hidden");
@@ -1381,6 +1600,21 @@
         card.querySelector(".product-preview").innerHTML = "";
         card.querySelector(".product-preview").appendChild(miniCanvas);
       }
+
+      // Highlight selected product for crop suggestion
+      if (state.selectedProduct === p.id) card.classList.add("selected");
+
+      card.addEventListener("click", function(e) {
+        // Don't interfere with buy button
+        if (e.target.closest(".product-buy-btn")) return;
+        state.selectedProduct = p.id;
+        productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
+        card.classList.add("selected");
+        updateProductCropButton();
+        if (p.aspectRatio) {
+          showToast("Crop tip: use " + p.aspectRatio.w + ":" + p.aspectRatio.h + " for " + p.name);
+        }
+      });
 
       productGrid.appendChild(card);
     });
