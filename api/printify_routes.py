@@ -263,12 +263,15 @@ def _do_checkout_sync(
     description: str,
     blueprint_id: int,
     print_provider_id: int,
-    variant_id: int,
     price: int,
     position: str,
     tags: list,
 ) -> dict:
-    """Blocking checkout logic — runs in a thread via run_in_threadpool."""
+    """Blocking checkout logic — runs in a thread via run_in_threadpool.
+
+    Creates a Printify product with ALL available variants for the given
+    blueprint/provider, so the customer can pick size/color on Shopify.
+    """
     shop_id = _shop_id()
 
     # ── Step 1: Upload image ──
@@ -289,19 +292,39 @@ def _do_checkout_sync(
         raise Exception("No image ID in upload response")
     _log(f"[checkout] Image uploaded: {image_id}")
 
-    # ── Step 2: Create product ──
-    _log(f"[checkout] Step 2: creating product (blueprint={blueprint_id}, provider={print_provider_id})")
+    # ── Step 2: Fetch all variants for this blueprint/provider ──
+    _log(f"[checkout] Step 2: fetching variants (blueprint={blueprint_id}, provider={print_provider_id})")
+    variants_resp = requests.get(
+        f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json",
+        headers=_headers(),
+        verify=certifi.where(),
+        timeout=30,
+    )
+    if variants_resp.status_code != 200:
+        raise Exception(f"Failed to fetch variants ({variants_resp.status_code}): {variants_resp.text[:300]}")
+
+    variants_data = variants_resp.json()
+    all_variants = variants_data.get("variants", variants_data) if isinstance(variants_data, dict) else variants_data
+    if not all_variants:
+        raise Exception("No variants found for this blueprint/provider")
+
+    all_variant_ids = [v["id"] for v in all_variants]
+    _log(f"[checkout] Found {len(all_variant_ids)} variants")
+
+    # ── Step 3: Create product with ALL variants ──
+    _log(f"[checkout] Step 3: creating product with {len(all_variant_ids)} variants")
     product_payload = {
         "title": title,
         "description": description,
         "blueprint_id": blueprint_id,
         "print_provider_id": print_provider_id,
         "variants": [
-            {"id": variant_id, "price": price, "is_enabled": True}
+            {"id": vid, "price": price, "is_enabled": True}
+            for vid in all_variant_ids
         ],
         "print_areas": [
             {
-                "variant_ids": [variant_id],
+                "variant_ids": all_variant_ids,
                 "placeholders": [
                     {
                         "position": position,
@@ -335,10 +358,10 @@ def _do_checkout_sync(
     product_id = product_data.get("id")
     if not product_id:
         raise Exception("No product ID in creation response")
-    _log(f"[checkout] Product created: {product_id}")
+    _log(f"[checkout] Product created: {product_id} ({len(all_variant_ids)} variants)")
 
-    # ── Step 3: Publish to Shopify ──
-    _log(f"[checkout] Step 3: publishing product {product_id}")
+    # ── Step 4: Publish to Shopify ──
+    _log(f"[checkout] Step 4: publishing product {product_id}")
     publish_resp = requests.post(
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}/publish.json",
         headers=_headers(),
@@ -355,10 +378,11 @@ def _do_checkout_sync(
     if publish_resp.status_code not in (200, 201):
         _log(f"[checkout] Publish warning ({publish_resp.status_code}): {publish_resp.text[:300]}")
 
-    _log(f"[checkout] Complete: product={product_id}, image={image_id}")
+    _log(f"[checkout] Complete: product={product_id}, image={image_id}, variants={len(all_variant_ids)}")
     return {
         "printify_product_id": product_id,
         "printify_image_id": image_id,
+        "variant_count": len(all_variant_ids),
         "status": "published",
     }
 
@@ -366,7 +390,8 @@ def _do_checkout_sync(
 @router.post("/checkout")
 async def checkout(request: Request):
     """
-    All-in-one checkout: uploads image, creates product, publishes to Shopify.
+    All-in-one checkout: uploads image, creates product with ALL variants,
+    publishes to Shopify. Customer picks size/color on Shopify.
     Blocking Printify API calls are offloaded to a thread pool.
     """
     try:
@@ -378,20 +403,19 @@ async def checkout(request: Request):
         description = body.get("description", "")
         blueprint_id = body.get("blueprint_id")
         print_provider_id = body.get("print_provider_id")
-        variant_id = body.get("variant_id")
         price = body.get("price", 0)
         position = body.get("position", "front")
         tags = body.get("tags", [])
 
         if not image_base64:
             raise HTTPException(status_code=400, detail="Missing image_base64")
-        if not blueprint_id or not print_provider_id or not variant_id:
-            raise HTTPException(status_code=400, detail="Missing blueprint_id, print_provider_id, or variant_id")
+        if not blueprint_id or not print_provider_id:
+            raise HTTPException(status_code=400, detail="Missing blueprint_id or print_provider_id")
 
         result = await run_in_threadpool(
             _do_checkout_sync,
             image_base64, file_name, title, description,
-            blueprint_id, print_provider_id, variant_id,
+            blueprint_id, print_provider_id,
             price, position, tags,
         )
         return JSONResponse(content=result)

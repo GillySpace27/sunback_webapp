@@ -1345,8 +1345,8 @@
         ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
         : (state.originalImage ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> ' : '');
 
-      // Determine if this product can be purchased (needs resolved IDs + HQ image)
-      var canBuy = state.hqReady && p.blueprintId && p.printProviderId && p.variantId;
+      // Determine if this product can be purchased (needs blueprint + provider + HQ image)
+      var canBuy = state.hqReady && p.blueprintId && p.printProviderId;
       var buyLabel = !state.hqReady
         ? '<i class="fas fa-lock"></i> Generate HQ first'
         : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving…' : '<i class="fas fa-shopping-cart"></i> Buy · ' + p.price);
@@ -1578,7 +1578,8 @@
   }
 
   function addCatalogProduct(bpId, bpName, providerId, variantId) {
-    var newId = "catalog_" + bpId + "_" + providerId + "_" + variantId;
+    // Product ID is per blueprint+provider (all variants are included at checkout)
+    var newId = "catalog_" + bpId + "_" + providerId;
 
     // Check if already in PRODUCTS
     var existing = PRODUCTS.find(function(p) { return p.id === newId; });
@@ -1586,12 +1587,12 @@
       PRODUCTS.push({
         id: newId,
         name: bpName,
-        desc: "Provider #" + providerId + " · Variant #" + variantId,
+        desc: "All sizes & colors included",
         icon: "fa-box",
         price: "Catalog",
+        checkoutPrice: 2999,
         blueprintId: bpId,
         printProviderId: providerId,
-        variantId: variantId,
         position: "front"
       });
     }
@@ -1755,20 +1756,18 @@
       showInfo("HQ Image Required", "Please generate the HQ print-ready image first using the button in Step 2, then come back here to buy.");
       return;
     }
-    if (!product.blueprintId || !product.printProviderId || !product.variantId) {
+    if (!product.blueprintId || !product.printProviderId) {
       showInfo("Product Not Ready", "This product's print details are still being resolved. Please wait a moment and try again.");
       return;
     }
 
-    var priceStr = "$" + (product.checkoutPrice / 100).toFixed(2);
-
     showModal(
       "Buy " + product.name,
-      "This will create your custom <strong>" + product.name + "</strong> with your solar image and list it on our Shopify store at <strong>" + priceStr + "</strong>.<br><br>" +
-        "You'll be redirected to Shopify to complete your purchase with secure checkout.<br><br>" +
+      "This will create your custom <strong>" + product.name + "</strong> with your solar image and list it on Shopify with <strong>all available sizes and colors</strong>.<br><br>" +
+        "You'll pick your exact size, color, and options on Shopify's secure checkout.<br><br>" +
         "Make sure you're happy with your image edits before proceeding!",
       function() { doCheckout(product); },
-      "Create & Buy — " + priceStr
+      "Create on Shopify"
     );
   }
 
@@ -1783,7 +1782,7 @@
         '<i class="fas fa-spinner fa-spin"></i> <span>Uploading your solar image…</span>' +
       '</div>' +
       '<div class="checkout-step" id="ckStep2">' +
-        '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Creating product on Printify</span>' +
+        '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Creating product with all variants</span>' +
       '</div>' +
       '<div class="checkout-step" id="ckStep3">' +
         '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Publishing to Shopify</span>' +
@@ -1817,7 +1816,6 @@
         description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with Solar Archive.",
         blueprint_id: product.blueprintId,
         print_provider_id: product.printProviderId,
-        variant_id: product.variantId,
         price: product.checkoutPrice,
         position: product.position || "front",
         tags: ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()]
@@ -1831,8 +1829,9 @@
       if (!data.printify_product_id) throw new Error("No product ID returned");
 
       // Mark steps 1-3 as done
+      var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
       markCheckoutStep("ckStep1", "done", "Image uploaded");
-      markCheckoutStep("ckStep2", "done", "Product created on Printify");
+      markCheckoutStep("ckStep2", "done", "Product created" + vcMsg);
       markCheckoutStep("ckStep3", "done", "Published to Shopify");
       markCheckoutStep("ckStep4", "active", "Waiting for Shopify product link…");
 
@@ -1847,7 +1846,7 @@
           '<div style="font-size:48px;margin-bottom:8px;">🎉</div>' +
           '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">Your product is live on Shopify!</div>' +
           '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
-            'Click below to complete your purchase with secure Shopify checkout.' +
+            'Choose your size, color, and options on Shopify, then complete your purchase.' +
           '</p>' +
           '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
             '<i class="fab fa-shopify"></i> Complete Purchase on Shopify' +
@@ -1881,7 +1880,7 @@
       productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) {
         var pid = btn.dataset.productId;
         var prod = PRODUCTS.find(function(p) { return p.id === pid; });
-        if (prod && state.hqReady && prod.blueprintId && prod.printProviderId && prod.variantId) {
+        if (prod && state.hqReady && prod.blueprintId && prod.printProviderId) {
           btn.disabled = false;
         }
       });
