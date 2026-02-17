@@ -205,9 +205,15 @@
     /* Wavelength cards */
     .wavelength-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       margin-top: 10px;
+    }
+
+    @media (max-width: 500px) {
+      .wavelength-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
     }
 
     .wl-card {
@@ -236,6 +242,8 @@
     .wl-card[data-wl="211"]::before { background: #9b59b6; }
     .wl-card[data-wl="304"]::before { background: #e74c3c; }
     .wl-card[data-wl="335"]::before { background: #3498db; }
+    .wl-card[data-wl="1600"]::before { background: #f0c040; }
+    .wl-card[data-wl="1700"]::before { background: #f5deb3; }
 
     .wl-card:hover {
       border-color: var(--text-dim);
@@ -249,8 +257,8 @@
     }
 
     .wl-thumb {
-      width: 64px;
-      height: 64px;
+      width: 80px;
+      height: 80px;
       margin: 0 auto 6px;
       border-radius: 50%;
       overflow: hidden;
