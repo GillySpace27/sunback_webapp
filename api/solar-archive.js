@@ -203,6 +203,53 @@
     state.wavelength = parseInt(card.dataset.wl, 10);
   });
 
+  // ── Wavelength thumbnail previews via Helioviewer ──────────
+  var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14 };
+  var lastThumbDate = "";
+
+  function loadWavelengthThumbnails() {
+    var dateVal = dateInput.value;
+    if (!dateVal || dateVal === lastThumbDate) return;
+    lastThumbDate = dateVal;
+
+    var isoDate = dateVal + "T12:00:00Z";
+    var thumbDivs = document.querySelectorAll(".wl-thumb");
+
+    thumbDivs.forEach(function(div) {
+      var wl = parseInt(div.dataset.wl, 10);
+      var sourceId = HELIO_SOURCE_IDS[wl];
+      if (!sourceId) return;
+
+      // Show loading state
+      div.innerHTML = '<div class="wl-thumb-spinner"></div>';
+      div.classList.remove("loaded");
+
+      var url = "https://api.helioviewer.org/v2/takeScreenshot/?" +
+        "date=" + encodeURIComponent(isoDate) +
+        "&imageScale=9.6" +
+        "&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
+        "&x0=0&y0=0&width=128&height=128" +
+        "&display=true&watermark=false";
+
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function() {
+        div.innerHTML = "";
+        div.appendChild(img);
+        div.classList.add("loaded");
+      };
+      img.onerror = function() {
+        div.innerHTML = "";  // silently fail, just hide spinner
+      };
+      img.src = url;
+    });
+  }
+
+  // Load thumbnails on date change and on initial page load
+  dateInput.addEventListener("change", loadWavelengthThumbnails);
+  // Defer initial load to after the page renders
+  setTimeout(loadWavelengthThumbnails, 500);
+
   // ── Toast ────────────────────────────────────────────────────
   var toastTimer = null;
   function showToast(msg, type) {
@@ -1555,6 +1602,98 @@
     }
   }
 
+  // ── Variant info panel ───────────────────────────────────────
+  var variantCache = {};  // keyed by "blueprintId_printProviderId"
+
+  function showVariantPanel(product, card) {
+    // Hide all other variant panels
+    productGrid.querySelectorAll(".variant-panel").forEach(function(vp) {
+      if (vp.dataset.productId !== product.id) vp.classList.add("hidden");
+    });
+
+    var panel = card.querySelector(".variant-panel");
+    if (!panel) return;
+
+    // Toggle if already visible
+    if (!panel.classList.contains("hidden")) {
+      panel.classList.add("hidden");
+      return;
+    }
+
+    var cacheKey = product.blueprintId + "_" + product.printProviderId;
+
+    if (variantCache[cacheKey]) {
+      renderVariantPanel(panel, product, variantCache[cacheKey]);
+      panel.classList.remove("hidden");
+      return;
+    }
+
+    // Show loading
+    panel.innerHTML = '<div class="variant-loading"><div class="spinner" style="width:16px;height:16px;"></div> Loading sizes &amp; colors…</div>';
+    panel.classList.remove("hidden");
+
+    fetchWithTimeout(
+      API_BASE + "/api/printify/blueprints/" + product.blueprintId + "/providers/" + product.printProviderId + "/variants",
+      {}, 30000
+    )
+      .then(function(r) {
+        if (!r.ok) throw new Error("status " + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        var variants = data.variants || data;
+        if (!Array.isArray(variants)) variants = [];
+        variantCache[cacheKey] = variants;
+        renderVariantPanel(panel, product, variants);
+      })
+      .catch(function() {
+        panel.innerHTML = '<div class="variant-loading" style="color:var(--text-dim);">Could not load variants</div>';
+      });
+  }
+
+  function renderVariantPanel(panel, product, variants) {
+    if (!variants.length) {
+      panel.innerHTML = '<div class="variant-loading" style="color:var(--text-dim);">No variant info available</div>';
+      return;
+    }
+
+    // Extract unique sizes and colors
+    var sizes = [];
+    var colors = [];
+    var sizeSet = {};
+    var colorSet = {};
+
+    variants.forEach(function(v) {
+      var opts = v.options || {};
+      var size = opts.size || "";
+      var color = opts.color || "";
+      if (size && !sizeSet[size]) { sizeSet[size] = true; sizes.push(size); }
+      if (color && !colorSet[color]) { colorSet[color] = true; colors.push(color); }
+    });
+
+    var html = '<div class="variant-summary">';
+    html += '<span class="variant-count">' + variants.length + ' variants</span>';
+
+    if (sizes.length > 0) {
+      html += '<div class="variant-group"><span class="variant-group-label">Sizes:</span> ';
+      html += sizes.map(function(s) { return '<span class="variant-tag">' + s + '</span>'; }).join(" ");
+      html += '</div>';
+    }
+
+    if (colors.length > 0) {
+      // Show first 12 colors, then "+N more"
+      var shown = colors.slice(0, 12);
+      var extra = colors.length - shown.length;
+      html += '<div class="variant-group"><span class="variant-group-label">Colors:</span> ';
+      html += shown.map(function(c) { return '<span class="variant-tag variant-color">' + c + '</span>'; }).join(" ");
+      if (extra > 0) html += ' <span class="variant-more">+' + extra + ' more</span>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    panel.innerHTML = html;
+  }
+
   function renderProducts() {
     productGrid.innerHTML = "";
     PRODUCTS.forEach(function(p) {
@@ -1577,6 +1716,7 @@
           '<div class="product-name">' + statusDot + p.name + "</div>" +
           '<div class="product-desc">' + p.desc + "</div>" +
           '<div class="product-price">' + p.price + "</div>" +
+          '<div class="variant-panel hidden" data-product-id="' + p.id + '"></div>' +
           '<button class="product-buy-btn" data-product-id="' + p.id + '"' +
             (canBuy ? '' : ' disabled') + '>' + buyLabel + '</button>' +
         "</div>";
@@ -1614,6 +1754,8 @@
         if (p.aspectRatio) {
           showToast("Crop tip: use " + p.aspectRatio.w + ":" + p.aspectRatio.h + " for " + p.name);
         }
+        // Show variant info panel
+        showVariantPanel(p, card);
       });
 
       productGrid.appendChild(card);
@@ -2024,6 +2166,9 @@
       '<div class="checkout-step" id="ckStep4">' +
         '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Waiting for Shopify product link</span>' +
       '</div>';
+
+    // Scroll checkout progress into view
+    checkoutProgress.scrollIntoView({ behavior: "smooth", block: "center" });
 
     // Disable all buy buttons during checkout
     productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) { btn.disabled = true; });
