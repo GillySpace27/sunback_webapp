@@ -232,7 +232,8 @@
         "&display=true&watermark=false";
 
       var img = new Image();
-      img.crossOrigin = "anonymous";
+      // No crossOrigin — Helioviewer doesn't send CORS headers,
+      // but we only need display (not canvas access) for thumbnails.
       img.onload = function() {
         div.innerHTML = "";
         div.appendChild(img);
