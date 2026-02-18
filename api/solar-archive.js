@@ -214,48 +214,79 @@
   });
 
   /**
-   * Fetch a medium-resolution (1024×1024) Helioviewer image via our CORS proxy,
+   * Fetch a medium-resolution Helioviewer image via our CORS proxy,
    * apply RHE if the current thumbFilter is "rhef", then load it as state.originalImage.
+   * Tries image_scale=4,size=512 first; falls back to image_scale=12,size=256 on error.
    */
   function loadHelioviewerPreview(wl, dateVal) {
     var isoDate = dateVal + "T12:00:00Z";
-    var url = API_BASE + "/api/helioviewer_thumb?date=" +
-      encodeURIComponent(isoDate) + "&wavelength=" + wl +
-      "&image_scale=4&size=1024";
 
     setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
     setProgress(20);
 
-    var img = new Image();
-    img.crossOrigin = "anonymous";
+    // Try higher-res first, fall back to thumbnail params on failure
+    var attempts = [
+      { image_scale: 4, size: 512 },
+      { image_scale: 12, size: 256 }
+    ];
 
-    img.onload = function() {
-      // Draw to offscreen canvas so we can apply RHE if needed
-      var c = document.createElement("canvas");
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      c.getContext("2d").drawImage(img, 0, 0);
-
-      if (thumbFilter === "rhef") {
-        setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
-        setProgress(60);
-        try { applyRHE(c); } catch (_e) { /* ignore */ }
+    function tryLoad(idx) {
+      if (idx >= attempts.length) {
+        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Could not load Helioviewer preview — check your date selection.', false);
+        hideProgress();
+        return;
       }
+      var p = attempts[idx];
+      var url = API_BASE + "/api/helioviewer_thumb?date=" +
+        encodeURIComponent(isoDate) + "&wavelength=" + wl +
+        "&image_scale=" + p.image_scale + "&size=" + p.size;
 
-      // Convert canvas → Image so renderCanvas() can use it
-      var outImg = new Image();
-      outImg.onload = function() {
-        _installPreviewImage(outImg, wl, dateVal);
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+
+      img.onload = function() {
+        if (!img.naturalWidth || !img.naturalHeight) {
+          // Helioviewer returned something but it wasn't a valid image
+          tryLoad(idx + 1);
+          return;
+        }
+
+        // Draw raw into offscreen canvas
+        var c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext("2d").drawImage(img, 0, 0);
+
+        var wantRHEF = thumbFilter === "rhef";
+        if (wantRHEF) {
+          setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
+          setProgress(60);
+        }
+
+        // Run RHE asynchronously so the UI doesn't freeze on large images
+        setTimeout(function() {
+          if (wantRHEF) {
+            try { applyRHE(c); } catch (e) { /* non-fatal — use raw */ }
+          }
+
+          // Convert canvas → Image for renderCanvas()
+          var outImg = new Image();
+          outImg.onload = function() {
+            _installPreviewImage(outImg, wl, dateVal);
+          };
+          outImg.src = c.toDataURL("image/png");
+        }, 0);
       };
-      outImg.src = c.toDataURL("image/png");
-    };
 
-    img.onerror = function() {
-      setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Could not load Helioviewer preview', false);
-      hideProgress();
-    };
+      img.onerror = function() {
+        // This resolution failed — try the next fallback
+        tryLoad(idx + 1);
+      };
 
-    img.src = url;
+      img.src = url;
+    }
+
+    tryLoad(0);
   }
 
   /**
