@@ -226,7 +226,7 @@
 
       var url = "https://api.helioviewer.org/v2/takeScreenshot/?" +
         "date=" + encodeURIComponent(isoDate) +
-        "&imageScale=25" +
+        "&imageScale=12" +
         "&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
         "&x0=0&y0=0&width=256&height=256" +
         "&display=true&watermark=false";
