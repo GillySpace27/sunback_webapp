@@ -1626,6 +1626,30 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
 
 
 
+@app.get("/api/helioviewer_thumb")
+async def helioviewer_thumb(date: str, wavelength: int, image_scale: float = 12, size: int = 256):
+    """Proxy Helioviewer takeScreenshot for wavelength thumbnails (adds CORS)."""
+    import urllib.parse
+    url = (
+        f"https://api.helioviewer.org/v2/takeScreenshot/?"
+        f"date={urllib.parse.quote(date)}"
+        f"&imageScale={image_scale}"
+        f"&layers=[SDO,AIA,AIA,{wavelength},1,100]"
+        f"&x0=0&y0=0&width={size}&height={size}"
+        f"&display=true&watermark=false"
+    )
+    try:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Helioviewer error: {exc}")
+    return StreamingResponse(
+        io.BytesIO(resp.content),
+        media_type="image/png",
+        headers=CORS_HEADERS,
+    )
+
+
 @app.get("/api/status")
 async def status(job_id: Optional[str] = None):
     if job_id and job_id in task_registry:

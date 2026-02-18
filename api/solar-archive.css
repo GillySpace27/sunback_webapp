@@ -278,7 +278,8 @@
       box-shadow: 0 0 12px rgba(0,0,0,0.4);
     }
 
-    .wl-thumb img {
+    .wl-thumb img,
+    .wl-thumb canvas {
       width: 100%;
       height: 100%;
       object-fit: cover;
