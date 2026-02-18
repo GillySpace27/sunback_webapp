@@ -111,19 +111,21 @@
       </div>
     </div>
 
-    <button class="btn-generate" id="btnGenerate">
-      <i class="fas fa-sun"></i> Generate Preview
+    <button class="btn-generate hidden" id="btnGenerate">
+      <i class="fas fa-rocket"></i> Make Products
     </button>
 
     <div class="progress-track" id="progressTrack">
       <div class="progress-fill" id="progressFill"></div>
     </div>
 
-    <div class="status-msg" id="statusMsg"></div>
+    <div class="status-msg" id="statusMsg">
+      Select a date, then click a wavelength tile to load your solar image.
+    </div>
 
     <div class="info-row">
       <i class="fas fa-info-circle"></i>
-      <span>AIA imagery available from May 2010. Preview at <a href="https://www.helioviewer.org" target="_blank" rel="noopener">helioviewer.org</a></span>
+      <span>AIA imagery available from May 2010. Click any tile to instantly preview. <a href="https://www.helioviewer.org" target="_blank" rel="noopener">helioviewer.org</a></span>
     </div>
   </div>
 
@@ -269,7 +271,7 @@
     </div>
 
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Preview how your solar image looks on different products. When you're happy with your edits, click <strong>Buy</strong> on any product to create it on Shopify and complete your purchase.
+      Preview how your solar image looks on different products. Click <strong>Make Products</strong> to generate mockups and start the HQ render in the background — then click <strong>Buy</strong> on any product to complete your purchase on Shopify.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -284,7 +286,7 @@
     <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
-      Generate an image above, then click Buy on any product to purchase.
+      Select a wavelength tile to load your image, edit it, then click Make Products.
     </div>
 
     <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">

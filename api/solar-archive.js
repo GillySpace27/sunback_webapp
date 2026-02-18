@@ -49,7 +49,10 @@
     textMode: false,
     textOverlay: null,  // { text, x, y, size, font, color, strokeColor, strokeWidth }
     mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
-    uploadedPrintifyId: null  // reusable image ID from Printify upload
+    uploadedPrintifyId: null,  // reusable image ID from Printify upload
+    hqImageUrl: null,   // URL of completed HQ PNG (separate from originalImage)
+    hqTaskId: null,     // running HQ background task ID
+    helioPreviewLoaded: false  // true once a Helioviewer image is in the canvas
   };
 
   // ── Product catalog (Printify blueprint/provider/variant model) ──
@@ -194,14 +197,126 @@
     dateInput.max = maxD.toISOString().split("T")[0];
   })();
 
-  // ── Wavelength selection ─────────────────────────────────────
+  // ── Wavelength selection + instant Helioviewer preview ───────
   wlGrid.addEventListener("click", function(e) {
     var card = e.target.closest(".wl-card");
     if (!card) return;
     wlGrid.querySelectorAll(".wl-card").forEach(function(c) { c.classList.remove("selected"); });
     card.classList.add("selected");
     state.wavelength = parseInt(card.dataset.wl, 10);
+
+    if (!dateInput.value) {
+      showToast("Select a date first", "error");
+      return;
+    }
+
+    loadHelioviewerPreview(state.wavelength, dateInput.value);
   });
+
+  /**
+   * Fetch a medium-resolution (1024×1024) Helioviewer image via our CORS proxy,
+   * apply RHE if the current thumbFilter is "rhef", then load it as state.originalImage.
+   */
+  function loadHelioviewerPreview(wl, dateVal) {
+    var isoDate = dateVal + "T12:00:00Z";
+    var url = API_BASE + "/api/helioviewer_thumb?date=" +
+      encodeURIComponent(isoDate) + "&wavelength=" + wl +
+      "&image_scale=4&size=1024";
+
+    setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
+    setProgress(20);
+
+    var img = new Image();
+    img.crossOrigin = "anonymous";
+
+    img.onload = function() {
+      // Draw to offscreen canvas so we can apply RHE if needed
+      var c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0);
+
+      if (thumbFilter === "rhef") {
+        setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
+        setProgress(60);
+        try { applyRHE(c); } catch (_e) { /* ignore */ }
+      }
+
+      // Convert canvas → Image so renderCanvas() can use it
+      var outImg = new Image();
+      outImg.onload = function() {
+        _installPreviewImage(outImg, wl, dateVal);
+      };
+      outImg.src = c.toDataURL("image/png");
+    };
+
+    img.onerror = function() {
+      setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Could not load Helioviewer preview', false);
+      hideProgress();
+    };
+
+    img.src = url;
+  }
+
+  /**
+   * Install a loaded Image object as the working preview, reset editing state,
+   * and reveal the edit / product sections. Called both from Helioviewer click
+   * and (legacy path) from the NASA preview flow.
+   */
+  function _installPreviewImage(img, wl, dateVal) {
+    state.originalImage = img;
+    state.rotation = 0;
+    state.flipH = false;
+    state.flipV = false;
+    state.inverted = false;
+    state.brightness = 0;
+    state.contrast = 0;
+    state.saturation = 100;
+    state.vignette = 16;
+    state.vignetteWidth = 0;
+    state.textOverlay = null;
+    state.textMode = false;
+    state.mockups = {};
+    state.uploadedPrintifyId = null;
+    state.hqReady = false;
+    state.hqImageUrl = null;
+    state.hqTaskId = null;
+    state.helioPreviewLoaded = true;
+
+    if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
+
+    // Reset slider UI
+    $("#brightnessSlider").value = 0;
+    $("#contrastSlider").value = 0;
+    $("#saturationSlider").value = 100;
+    $("#vignetteSlider").value = 16;
+    $("#vigWidthSlider").value = 0;
+    $("#brightnessVal").textContent = "0";
+    $("#contrastVal").textContent = "0";
+    $("#saturationVal").textContent = "100";
+    $("#vignetteVal").textContent = "16";
+    $("#vigWidthVal").textContent = "0";
+    if ($("#textToolPanel")) $("#textToolPanel").classList.add("hidden");
+    var textToolBtn = document.querySelector('[data-tool="text"]');
+    if (textToolBtn) textToolBtn.classList.remove("active");
+    if (solarCanvas) solarCanvas.classList.remove("text-dragging");
+    if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
+
+    renderCanvas();
+    setProgress(100);
+    var filterLabel = thumbFilter === "rhef" ? " (RHEF)" : "";
+    setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å preview ready' + filterLabel + ' — edit below, then click <strong>Make Products</strong>');
+    showToast(wl + " Å loaded!");
+
+    editSection.classList.remove("hidden");
+    imageStage.classList.remove("empty");
+    btnGenerate.classList.remove("hidden");
+    productSection.classList.remove("hidden");
+    renderProducts();
+    if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
+
+    setTimeout(hideProgress, 1200);
+  }
 
   // ── Wavelength thumbnail previews via Helioviewer (proxied + client RHE) ──
   var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14, 1600: 15, 1700: 16 };
@@ -663,14 +778,12 @@
     });
   }
 
-  // ── Generate Preview ─────────────────────────────────────────
+  // ── "Make Products" button — fires HQ generation + mockups in parallel ───
   btnGenerate.addEventListener("click", function() {
-    var date = dateInput.value;
-    if (!date) {
-      showInfo("Missing Date", "Please select a date before generating.");
+    if (!state.originalImage) {
+      showInfo("No Image", "Click a wavelength tile to load the solar image first.");
       return;
     }
-
     if (!state.backendOnline) {
       showInfo("Backend Offline",
         "The backend server is not responding. Please wait for it to come online, " +
@@ -681,116 +794,90 @@
       return;
     }
 
+    var date = dateInput.value;
+    if (!date) {
+      showInfo("Missing Date", "Please select a date before generating.");
+      return;
+    }
+
+    // Reset HQ state if restarting
+    state.hqReady = false;
+    state.hqImageUrl = null;
+    state.hqTaskId = null;
+
+    // Disable button while HQ is running, show status
     btnGenerate.disabled = true;
-    setProgress(5);
-    setStatus("Connecting to backend...", true);
+    btnGenerate.innerHTML = '<div class="spinner" style="border-top-color:#fff;display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> HQ generating…';
 
-    // Preview generation can take 30–60s if NASA's VSO is slow
+    setStatus('<i class="fas fa-rocket"></i> Starting HQ rendering + mockups in parallel…', true);
     setProgress(10);
-    setStatus("Requesting solar image from NASA/SDO via backend... (this may take 30–60s)", true);
 
-    postJSON(API_BASE + "/api/generate_preview", {
-      date: date,
-      wavelength: state.wavelength,
-      mission: "SDO"
-    }, FETCH_TIMEOUT_MS).then(function(res) {
-      setProgress(60);
-      var previewUrl = res.preview_url || res.png_url;
-      if (!previewUrl) throw new Error("No preview URL returned");
+    // ── Track A: Start mockups immediately from current canvas ──
+    state.mockups = {};
+    state.uploadedPrintifyId = null;
+    productSection.classList.remove("hidden");
+    renderProducts();
+    setTimeout(autoGenerateMockups, 300);
 
-      // Resolve URL
-      var fullUrl;
-      if (previewUrl.startsWith("/")) {
-        fullUrl = API_BASE + previewUrl;
-      } else {
-        fullUrl = previewUrl;
-      }
-
-      state.lastImageUrl = fullUrl;
-      setStatus("Loading image...", true);
-      setProgress(80);
-
-      return loadImage(fullUrl);
-    }).then(function(img) {
-      state.originalImage = img;
-      state.rotation = 0;
-      state.flipH = false;
-      state.flipV = false;
-      state.inverted = false;
-      state.brightness = 0;
-      state.contrast = 0;
-      state.saturation = 100;
-      state.vignette = 16;
-      state.vignetteWidth = 0;
-      state.textOverlay = null;
-      state.textMode = false;
-      state.mockups = {};
-      state.uploadedPrintifyId = null;
-      state.hqReady = false;
-      if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
-      $("#brightnessSlider").value = 0;
-      $("#contrastSlider").value = 0;
-      $("#saturationSlider").value = 100;
-      $("#vignetteSlider").value = 16;
-      $("#vigWidthSlider").value = 0;
-      $("#brightnessVal").textContent = "0";
-      $("#contrastVal").textContent = "0";
-      $("#saturationVal").textContent = "100";
-      $("#vignetteVal").textContent = "16";
-      $("#vigWidthVal").textContent = "0";
-      if ($("#textToolPanel")) $("#textToolPanel").classList.add("hidden");
-      var textToolBtn = document.querySelector('[data-tool="text"]');
-      if (textToolBtn) textToolBtn.classList.remove("active");
-      if (solarCanvas) solarCanvas.classList.remove("text-dragging");
-      if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
-
-      renderCanvas();
-      setProgress(100);
-      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> Preview ready!');
-      showToast("Solar image loaded!");
-
-      editSection.classList.remove("hidden");
-      imageStage.classList.remove("empty");
-      btnHQ.classList.remove("hidden");
-      productSection.classList.remove("hidden");
-      renderProducts();
-
-      // Auto-generate real Printify mockups in the background
-      state.mockups = {};
-      state.uploadedPrintifyId = null;
-      setTimeout(autoGenerateMockups, 500);
-
-      setTimeout(hideProgress, 1000);
-    }).catch(function(err) {
-      setProgress(0);
-      hideProgress();
-
-      // Decide which error UI to show
-      var msg = err.message || String(err);
-      if (msg.indexOf("Cannot reach backend") !== -1 || msg.indexOf("timed out") !== -1) {
-        setStatus(
-          '<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
-          '<strong>Backend unreachable.</strong> ' + msg + '<br>' +
-          '<button class="edit-btn" style="margin-top:8px;" onclick="document.getElementById(\'btnGenerate\').click();">' +
-          '<i class="fas fa-redo"></i> Retry</button>',
-          false
-        );
-        // Recheck health
-        state.backendOnline = false;
-        healthRetries = 0;
-        checkBackendHealth();
-      } else {
-        setStatus(
-          '<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
-          'Error: ' + msg,
-          false
-        );
-      }
-      showToast("Failed: " + msg, "error");
-    }).finally(function() {
+    // ── Track B: Start HQ generation in background ──────────────
+    startHqGeneration(date, state.wavelength).then(function(hqUrl) {
+      state.hqImageUrl = hqUrl;
+      state.hqReady = true;
+      updateSendToPrintifyButton();
       btnGenerate.disabled = false;
+      btnGenerate.innerHTML = '<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ Ready · Make Again';
+      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ image ready — buy buttons are live!');
+      showToast("HQ print image ready!", "success");
+      setTimeout(hideProgress, 1200);
+    }).catch(function(err) {
+      btnGenerate.disabled = false;
+      btnGenerate.innerHTML = '<i class="fas fa-redo"></i> Retry HQ';
+      setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> HQ failed: ' + (err.message || err), false);
+      showToast("HQ failed: " + (err.message || err), "error");
+      hideProgress();
     });
   });
+
+  /**
+   * Start a background HQ generation task and poll until done.
+   * Returns a Promise that resolves with the absolute HQ image URL.
+   */
+  function startHqGeneration(date, wavelength) {
+    // Check client-side cache first
+    var cacheKey = date + "_" + wavelength;
+    var cached = hqCache[cacheKey];
+    if (cached && cached.url) {
+      state.hqImageUrl = cached.url;
+      return Promise.resolve(cached.url);
+    }
+
+    return postJSON(API_BASE + "/api/generate", {
+      date: date,
+      wavelength: wavelength,
+      mission: "SDO",
+      detector: "AIA"
+    }, 120000).then(function(res) {
+      if (!res.task_id || !res.status_url) throw new Error("HQ task failed to start");
+      state.hqTaskId = res.task_id;
+
+      var statusUrl = API_BASE + res.status_url;
+      setProgress(30);
+      return pollStatus(statusUrl, function(data) {
+        if (data.status === "started" || data.status === "processing") {
+          setStatus('<i class="fas fa-spinner fa-spin"></i> HQ rendering in background… mockups generating below', true);
+          setProgress(50);
+        }
+      });
+    }).then(function(result) {
+      if (result.status === "completed" && result.image_url) {
+        var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
+        hqCache[cacheKey] = { url: hqUrl, imageObj: null };
+        setProgress(90);
+        return hqUrl;
+      }
+      throw new Error(result.message || "HQ generation failed");
+    });
+  }
 
   // ── Load image with CORS proxy fallback ──────────────────────
   function loadImage(url) {
@@ -1460,83 +1547,11 @@
 
   $("#cancelCrop").addEventListener("click", exitCropMode);
 
-  // ── HQ Generation (with client-side cache) ──────────────────
+  // ── HQ cache (used by startHqGeneration called from Make Products) ─
   var hqCache = {}; // key: "date_wavelength" => { url, imageObj }
 
-  function getHqCacheKey() {
-    return dateInput.value + "_" + state.wavelength;
-  }
-
-  btnHQ.addEventListener("click", function() {
-    var date = dateInput.value;
-    if (!date) return;
-
-    // Check client-side cache first
-    var cacheKey = getHqCacheKey();
-    var cached = hqCache[cacheKey];
-    if (cached) {
-      state.lastImageUrl = cached.url;
-      state.hqReady = true;
-      updateSendToPrintifyButton();
-      if (cached.imageObj) {
-        state.originalImage = cached.imageObj;
-        renderCanvas();
-      }
-      showToast("HQ image loaded from cache!");
-      btnHQ.innerHTML = '<i class="fas fa-check"></i> HQ Ready (cached)';
-      setTimeout(function() {
-        btnHQ.innerHTML = '<i class="fas fa-star"></i> Generate HQ Print-Ready Image';
-      }, 2000);
-      return;
-    }
-
-    btnHQ.disabled = true;
-    btnHQ.innerHTML = '<div class="spinner" style="border-top-color:#fff;"></div> Generating HQ...';
-
-    postJSON(API_BASE + "/api/generate", {
-      date: date,
-      wavelength: state.wavelength,
-      mission: "SDO",
-      detector: "AIA"
-    }, 120000).then(function(res) {
-      if (!res.task_id || !res.status_url) throw new Error("HQ task failed to start");
-
-      var statusUrl = API_BASE + res.status_url;
-      return pollStatus(statusUrl, function(data) {
-        if (data.status === "started" || data.status === "processing") {
-          btnHQ.innerHTML = '<div class="spinner" style="border-top-color:#fff;"></div> Processing...';
-        }
-      });
-    }).then(function(result) {
-      if (result.status === "completed" && result.image_url) {
-        var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
-        state.lastImageUrl = hqUrl;
-        state.hqReady = true;
-        updateSendToPrintifyButton();
-
-        // Cache the URL immediately
-        hqCache[cacheKey] = { url: hqUrl, imageObj: null };
-
-        showToast("HQ image ready! Print quality enabled.");
-
-        return loadImage(hqUrl).then(function(img) {
-          state.originalImage = img;
-          // Cache the image object too
-          hqCache[cacheKey].imageObj = img;
-          renderCanvas();
-        }).catch(function() {
-          // Image loaded but couldn't be drawn with CORS — still store the URL
-        });
-      } else if (result.status === "failed") {
-        throw new Error(result.message || "HQ generation failed");
-      }
-    }).catch(function(err) {
-      showToast("HQ error: " + err.message, "error");
-    }).finally(function() {
-      btnHQ.disabled = false;
-      btnHQ.innerHTML = '<i class="fas fa-star"></i> Generate HQ Print-Ready Image';
-    });
-  });
+  // btnHQ is now hidden; HQ fires automatically when Make Products is clicked.
+  if (btnHQ) btnHQ.classList.add("hidden");
 
   // ── Products ─────────────────────────────────────────────────
   // ── Product mockup drawing ──────────────────────────────────
@@ -1833,11 +1848,14 @@
         ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
         : (state.originalImage ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> ' : '');
 
-      // Determine if this product can be purchased (needs blueprint + provider + HQ image)
-      var canBuy = state.hqReady && p.blueprintId && p.printProviderId;
-      var buyLabel = !state.hqReady
-        ? '<i class="fas fa-lock"></i> Generate HQ first'
-        : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving…' : '<i class="fas fa-shopping-cart"></i> Buy · ' + p.price);
+      // Buy requires a preview image + blueprint; HQ can still be generating
+      var canBuy = !!state.originalImage && p.blueprintId && p.printProviderId;
+      var hqBadge = state.hqReady
+        ? ' <span style="font-size:9px;color:#3ddc84;vertical-align:middle;" title="HQ print image ready">★HQ</span>'
+        : (state.hqTaskId ? ' <span style="font-size:9px;color:#ff9800;vertical-align:middle;" title="HQ rendering…">⟳HQ</span>' : '');
+      var buyLabel = !state.originalImage
+        ? '<i class="fas fa-lock"></i> Select wavelength first'
+        : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving…' : '<i class="fas fa-shopping-cart"></i> Buy · ' + p.price + hqBadge);
 
       card.className = "product-card";
       card.innerHTML =
@@ -2249,17 +2267,23 @@
     // Re-render product buy buttons when HQ state changes
     renderProducts();
     if (state.hqReady) {
-      sendHint.textContent = "HQ image ready — click Buy on any product to purchase.";
+      sendHint.textContent = "★ HQ print image ready — buy buttons are live!";
       sendHint.style.color = "var(--accent-cool)";
+    } else if (state.hqTaskId) {
+      sendHint.textContent = "HQ image is rendering in the background — you can buy now and it will be used automatically.";
+      sendHint.style.color = "var(--accent-sun)";
+    } else if (state.originalImage) {
+      sendHint.textContent = "Click Make Products to start HQ rendering and generate mockups.";
+      sendHint.style.color = "var(--text-dim)";
     } else {
-      sendHint.textContent = "Generate the HQ print-ready image first (Step 2), then Buy buttons will activate.";
+      sendHint.textContent = "Select a date and click a wavelength to load your solar image.";
       sendHint.style.color = "var(--text-dim)";
     }
   }
 
   function startCheckout(product) {
-    if (!state.hqReady) {
-      showInfo("HQ Image Required", "Please generate the HQ print-ready image first using the button in Step 2, then come back here to buy.");
+    if (!state.originalImage) {
+      showInfo("No Image", "Select a wavelength tile to load the solar image first.");
       return;
     }
     if (!product.blueprintId || !product.printProviderId) {
@@ -2267,11 +2291,17 @@
       return;
     }
 
+    var hqNote = state.hqReady
+      ? "The full NASA/SDO HQ image is ready and will be used for printing. 🌟"
+      : (state.hqTaskId
+          ? "The HQ image is still rendering — checkout will wait for it automatically before uploading to Printify."
+          : "The preview image will be used. Click <strong>Make Products</strong> first for full HQ quality.");
+
     showModal(
       "Buy " + product.name,
       "This will create your custom <strong>" + product.name + "</strong> with your solar image and list it on Shopify with <strong>all available sizes and colors</strong>.<br><br>" +
-        "You'll pick your exact size, color, and options on Shopify's secure checkout.<br><br>" +
-        "Make sure you're happy with your image edits before proceeding!",
+        hqNote + "<br><br>" +
+        "You'll pick your exact size, color, and options on Shopify's secure checkout.",
       function() { doCheckout(product); },
       "Create on Shopify"
     );
@@ -2303,74 +2333,67 @@
     // Disable all buy buttons during checkout
     productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) { btn.disabled = true; });
 
-    // Build the solar image title
     var dateStr = dateInput.value || "custom";
     var wlStr = state.wavelength + "Å";
     var title = "Solar " + wlStr + " — " + dateStr + " · " + product.name;
     var fname = "solar_" + dateStr + "_" + state.wavelength + "_hq.png";
-    var base64Data = getCanvasBase64();
 
-    // Update step 1 to show upload size
-    var sizeKB = Math.round(base64Data.length / 1024);
-    var step1 = document.getElementById("ckStep1");
-    if (step1) step1.querySelector("span").textContent = "Uploading solar image (" + sizeKB + " KB)…";
+    // Resolve HQ image then composite user edits on top before uploading
+    _getCheckoutImageBase64(dateStr).then(function(base64Data) {
+      // Update step 1 to show upload size
+      var sizeKB = Math.round(base64Data.length / 1024);
+      var step1 = document.getElementById("ckStep1");
+      if (step1) step1.querySelector("span").textContent = "Uploading solar image (" + sizeKB + " KB)…";
 
-    fetchWithTimeout(API_BASE + "/api/printify/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image_base64: base64Data,
-        file_name: fname,
-        title: title,
-        description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with Solar Archive.",
-        blueprint_id: product.blueprintId,
-        print_provider_id: product.printProviderId,
-        price: product.checkoutPrice,
-        position: product.position || "front",
-        tags: ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()]
+      return fetchWithTimeout(API_BASE + "/api/printify/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_base64: base64Data,
+          file_name: fname,
+          title: title,
+          description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with Solar Archive.",
+          blueprint_id: product.blueprintId,
+          print_provider_id: product.printProviderId,
+          price: product.checkoutPrice,
+          position: product.position || "front",
+          tags: ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()]
+        })
+      }, 180000)
+      .then(function(r) {
+        if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+        return r.json();
       })
-    }, 180000)
-    .then(function(r) {
-      if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
-      return r.json();
-    })
-    .then(function(data) {
-      if (!data.printify_product_id) throw new Error("No product ID returned");
-
-      // Mark steps 1-3 as done
-      var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
-      markCheckoutStep("ckStep1", "done", "Image uploaded");
-      markCheckoutStep("ckStep2", "done", "Product created" + vcMsg);
-      markCheckoutStep("ckStep3", "done", "Published to Shopify");
-      markCheckoutStep("ckStep4", "active", "Waiting for Shopify product link…");
-
-      // Now poll for the Shopify URL
-      return pollShopifyUrl(data.printify_product_id);
-    })
-    .then(function(shopifyUrl) {
-      markCheckoutStep("ckStep4", "done", "Shopify product ready!");
-
-      checkoutProgress.innerHTML +=
-        '<div style="margin-top:16px;">' +
-          '<div style="font-size:48px;margin-bottom:8px;">🎉</div>' +
-          '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">Your product is live on Shopify!</div>' +
-          '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
-            'Choose your size, color, and options on Shopify, then complete your purchase.' +
-          '</p>' +
-          '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
-            '<i class="fab fa-shopify"></i> Complete Purchase on Shopify' +
-          '</a>' +
-          '<div style="margin-top:10px;">' +
-            '<button class="edit-btn" onclick="document.getElementById(\'checkoutProgress\').classList.add(\'hidden\');" style="margin:0 auto;">' +
-              '<i class="fas fa-times"></i> Dismiss' +
-            '</button>' +
-          '</div>' +
-        '</div>';
-
-      showToast("Product created! Redirecting to Shopify…");
-
-      // Auto-open Shopify in a new tab after a short delay
-      setTimeout(function() { window.open(shopifyUrl, "_blank"); }, 1500);
+      .then(function(data) {
+        if (!data.printify_product_id) throw new Error("No product ID returned");
+        var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
+        markCheckoutStep("ckStep1", "done", "Image uploaded");
+        markCheckoutStep("ckStep2", "done", "Product created" + vcMsg);
+        markCheckoutStep("ckStep3", "done", "Published to Shopify");
+        markCheckoutStep("ckStep4", "active", "Waiting for Shopify product link…");
+        return pollShopifyUrl(data.printify_product_id);
+      })
+      .then(function(shopifyUrl) {
+        markCheckoutStep("ckStep4", "done", "Shopify product ready!");
+        checkoutProgress.innerHTML +=
+          '<div style="margin-top:16px;">' +
+            '<div style="font-size:48px;margin-bottom:8px;">🎉</div>' +
+            '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">Your product is live on Shopify!</div>' +
+            '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
+              'Choose your size, color, and options on Shopify, then complete your purchase.' +
+            '</p>' +
+            '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
+              '<i class="fab fa-shopify"></i> Complete Purchase on Shopify' +
+            '</a>' +
+            '<div style="margin-top:10px;">' +
+              '<button class="edit-btn" onclick="document.getElementById(\'checkoutProgress\').classList.add(\'hidden\');" style="margin:0 auto;">' +
+                '<i class="fas fa-times"></i> Dismiss' +
+              '</button>' +
+            '</div>' +
+          '</div>';
+        showToast("Product created! Redirecting to Shopify…");
+        setTimeout(function() { window.open(shopifyUrl, "_blank"); }, 1500);
+      });
     })
     .catch(function(err) {
       var msg = err.message || String(err);
@@ -2389,10 +2412,75 @@
       productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) {
         var pid = btn.dataset.productId;
         var prod = PRODUCTS.find(function(p) { return p.id === pid; });
-        if (prod && state.hqReady && prod.blueprintId && prod.printProviderId) {
+        if (prod && state.originalImage && prod.blueprintId && prod.printProviderId) {
           btn.disabled = false;
         }
       });
+    });
+  }
+
+  /**
+   * Get a base64 PNG for Printify upload.
+   * If HQ is ready: load HQ image, render canvas with current edits on top, export.
+   * If HQ is still generating: wait for it (polling hqCache), then do same.
+   * If no HQ task: just export the current canvas (Helioviewer preview + edits).
+   */
+  function _getCheckoutImageBase64(dateStr) {
+    // No HQ task running — use current canvas as-is
+    if (!state.hqTaskId && !state.hqReady) {
+      return Promise.resolve(getCanvasBase64());
+    }
+
+    // HQ already done — load it, rerender with edits, export
+    if (state.hqReady && state.hqImageUrl) {
+      return _loadHqAndExport(state.hqImageUrl);
+    }
+
+    // HQ is still generating — poll until it appears in hqCache
+    markCheckoutStep("ckStep1", "active", "Waiting for HQ image to finish rendering…");
+    var cacheKey = dateStr + "_" + state.wavelength;
+    return new Promise(function(resolve, reject) {
+      var attempts = 0;
+      var maxAttempts = 120; // up to 4 minutes
+      function checkCache() {
+        attempts++;
+        var cached = hqCache[cacheKey];
+        if (state.hqReady && state.hqImageUrl) {
+          _loadHqAndExport(state.hqImageUrl).then(resolve).catch(reject);
+        } else if (cached && cached.url) {
+          state.hqImageUrl = cached.url;
+          state.hqReady = true;
+          _loadHqAndExport(cached.url).then(resolve).catch(reject);
+        } else if (attempts >= maxAttempts) {
+          // Timed out — fall back to current canvas
+          resolve(getCanvasBase64());
+        } else {
+          setTimeout(checkCache, 2000);
+        }
+      }
+      checkCache();
+    });
+  }
+
+  /**
+   * Load the HQ image URL into a temp canvas, apply all current user edits
+   * (brightness, contrast, saturation, vignette, text overlay, crop etc.),
+   * and export as base64 PNG.
+   */
+  function _loadHqAndExport(hqUrl) {
+    return loadImage(hqUrl).then(function(hqImg) {
+      // Swap originalImage to HQ, render with all edits, export, then restore
+      var prevImg = state.originalImage;
+      state.originalImage = hqImg;
+      renderCanvas();
+      var b64 = getCanvasBase64();
+      // Restore — user keeps editing the preview canvas
+      state.originalImage = prevImg;
+      renderCanvas();
+      return b64;
+    }).catch(function() {
+      // If HQ can't be loaded (CORS etc), fall back to current canvas
+      return getCanvasBase64();
     });
   }
 
