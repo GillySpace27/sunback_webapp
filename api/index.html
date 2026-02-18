@@ -56,7 +56,13 @@
       </div>
     </div>
 
-    <span class="field-label" style="display:block; margin-top:16px;">Wavelength</span>
+    <div style="display:flex; align-items:center; gap:16px; margin-top:16px;">
+      <span class="field-label" style="margin:0;">Wavelength</span>
+      <div class="filter-toggle" id="filterToggle">
+        <label class="filter-opt"><input type="radio" name="thumbFilter" value="raw" checked> Raw</label>
+        <label class="filter-opt"><input type="radio" name="thumbFilter" value="rhef"> RHEF</label>
+      </div>
+    </div>
     <div class="wavelength-grid" id="wlGrid">
       <div class="wl-card" data-wl="94">
         <div class="wl-thumb" data-wl="94"></div>

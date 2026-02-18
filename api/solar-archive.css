@@ -216,6 +216,37 @@
       }
     }
 
+    .filter-toggle {
+      display: inline-flex;
+      gap: 2px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px;
+    }
+
+    .filter-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .filter-opt:has(input:checked) {
+      background: var(--accent-corona);
+      color: #fff;
+    }
+
+    .filter-opt input[type="radio"] {
+      display: none;
+    }
+
     .wl-card {
       background: var(--bg-elevated);
       border: 2px solid var(--border);

@@ -206,6 +206,8 @@
   // ── Wavelength thumbnail previews via Helioviewer (proxied + client RHE) ──
   var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14, 1600: 15, 1700: 16 };
   var lastThumbDate = "";
+  var thumbCache = {};  // { "wl": { raw: <canvas>, rhef: <canvas> } }
+  var thumbFilter = "raw";  // "raw" or "rhef"
 
   /**
    * Client-side Radial Histogram Equalization.
@@ -236,15 +238,13 @@
       }
     }
 
-    // For each annulus, rank-normalise luminances
     for (var r = 0; r <= maxR; r++) {
       var ring = annuli[r];
       if (ring.length < 2) continue;
       ring.sort(function(a, b) { return a.lum - b.lum; });
       for (var j = 0; j < ring.length; j++) {
-        var rank = j / (ring.length - 1);  // 0..1
+        var rank = j / (ring.length - 1);
         var idx = ring[j].idx;
-        // Preserve colour ratios: scale RGB by (rank / originalLum)
         var origLum = ring[j].lum;
         if (origLum > 0.5) {
           var scale = (rank * 255) / origLum;
@@ -252,7 +252,6 @@
           d[idx + 1] = Math.min(255, d[idx + 1] * scale);
           d[idx + 2] = Math.min(255, d[idx + 2] * scale);
         } else {
-          // Near-black pixel — just assign grey rank
           var v = rank * 255;
           d[idx] = v; d[idx + 1] = v; d[idx + 2] = v;
         }
@@ -262,10 +261,34 @@
     ctx.putImageData(imageData, 0, 0);
   }
 
+  /** Clone a canvas element */
+  function cloneCanvas(src) {
+    var c = document.createElement("canvas");
+    c.width = src.width;
+    c.height = src.height;
+    c.getContext("2d").drawImage(src, 0, 0);
+    return c;
+  }
+
+  /** Show the cached canvas (raw or rhef) for each thumbnail */
+  function showThumbFilter() {
+    document.querySelectorAll(".wl-thumb").forEach(function(div) {
+      var wl = div.dataset.wl;
+      var entry = thumbCache[wl];
+      if (!entry) return;
+      var src = (thumbFilter === "rhef" && entry.rhef) ? entry.rhef : entry.raw;
+      if (!src) return;
+      div.innerHTML = "";
+      div.appendChild(cloneCanvas(src));
+      div.classList.add("loaded");
+    });
+  }
+
   function loadWavelengthThumbnails() {
     var dateVal = dateInput.value;
     if (!dateVal || dateVal === lastThumbDate) return;
     lastThumbDate = dateVal;
+    thumbCache = {};  // clear cache for new date
 
     var isoDate = dateVal + "T12:00:00Z";
     var thumbDivs = document.querySelectorAll(".wl-thumb");
@@ -274,11 +297,10 @@
       var wl = parseInt(div.dataset.wl, 10);
       if (!HELIO_SOURCE_IDS[wl]) return;
 
-      // Show loading state
       div.innerHTML = '<div class="wl-thumb-spinner"></div>';
       div.classList.remove("loaded");
 
-      // Use our backend proxy (adds CORS headers so we can read pixels)
+      // Use backend proxy (adds CORS headers for canvas pixel access)
       var url = API_BASE + "/api/helioviewer_thumb?date=" +
         encodeURIComponent(isoDate) + "&wavelength=" + wl +
         "&image_scale=12&size=256";
@@ -286,27 +308,36 @@
       var img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = function() {
-        // Draw to offscreen canvas, apply RHE, then display
-        var c = document.createElement("canvas");
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        var ctx = c.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-        try {
-          applyRHE(c);
-        } catch (e) {
-          // If RHE fails (e.g. tainted canvas), still show original
-        }
+        // Build raw canvas
+        var rawC = document.createElement("canvas");
+        rawC.width = img.naturalWidth;
+        rawC.height = img.naturalHeight;
+        rawC.getContext("2d").drawImage(img, 0, 0);
+
+        // Build RHEF canvas
+        var rhefC = cloneCanvas(rawC);
+        try { applyRHE(rhefC); } catch (e) { /* keep raw copy on failure */ }
+
+        // Cache both
+        thumbCache[wl] = { raw: rawC, rhef: rhefC };
+
+        // Display whichever is selected
+        var src = (thumbFilter === "rhef") ? rhefC : rawC;
         div.innerHTML = "";
-        div.appendChild(c);
+        div.appendChild(cloneCanvas(src));
         div.classList.add("loaded");
       };
       img.onerror = function() {
-        // Fall back to direct Helioviewer (no RHE, no CORS)
+        // Fall back to direct Helioviewer (no CORS, no RHE)
         var fallback = new Image();
         fallback.onload = function() {
+          var rawC = document.createElement("canvas");
+          rawC.width = fallback.naturalWidth || 256;
+          rawC.height = fallback.naturalHeight || 256;
+          rawC.getContext("2d").drawImage(fallback, 0, 0);
+          thumbCache[wl] = { raw: rawC, rhef: null };
           div.innerHTML = "";
-          div.appendChild(fallback);
+          div.appendChild(cloneCanvas(rawC));
           div.classList.add("loaded");
         };
         fallback.onerror = function() { div.innerHTML = ""; };
@@ -318,6 +349,14 @@
       img.src = url;
     });
   }
+
+  // Filter toggle: Raw ↔ RHEF (instant swap from cache)
+  document.getElementById("filterToggle").addEventListener("change", function(e) {
+    if (e.target.name === "thumbFilter") {
+      thumbFilter = e.target.value;
+      showThumbFilter();
+    }
+  });
 
   // Load thumbnails on date change and on initial page load
   dateInput.addEventListener("change", loadWavelengthThumbnails);
