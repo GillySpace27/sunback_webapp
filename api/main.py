@@ -1630,6 +1630,8 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
 async def helioviewer_thumb(date: str, wavelength: int, image_scale: float = 12, size: int = 256):
     """Proxy Helioviewer takeScreenshot for wavelength thumbnails (adds CORS)."""
     import urllib.parse
+    # Clamp size to Helioviewer's practical limits
+    size = max(64, min(size, 1920))
     url = (
         f"https://api.helioviewer.org/v2/takeScreenshot/?"
         f"date={urllib.parse.quote(date)}"
@@ -1640,9 +1642,14 @@ async def helioviewer_thumb(date: str, wavelength: int, image_scale: float = 12,
     )
     try:
         resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Helioviewer error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Helioviewer connection error: {exc}")
+    # Validate we got a PNG back (Helioviewer sometimes returns JSON errors with 200 status)
+    content_type = resp.headers.get("content-type", "")
+    is_png = resp.content[:4] == b'\x89PNG'
+    if resp.status_code != 200 or ("image" not in content_type and not is_png):
+        detail = resp.text[:200] if resp.content else f"HTTP {resp.status_code}"
+        raise HTTPException(status_code=502, detail=f"Helioviewer returned non-image: {detail}")
     return StreamingResponse(
         io.BytesIO(resp.content),
         media_type="image/png",
