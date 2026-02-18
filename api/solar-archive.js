@@ -203,9 +203,64 @@
     state.wavelength = parseInt(card.dataset.wl, 10);
   });
 
-  // ── Wavelength thumbnail previews via Helioviewer ──────────
+  // ── Wavelength thumbnail previews via Helioviewer (proxied + client RHE) ──
   var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14, 1600: 15, 1700: 16 };
   var lastThumbDate = "";
+
+  /**
+   * Client-side Radial Histogram Equalization.
+   * For each 1-pixel-wide annulus centred on (cx,cy), sort pixel
+   * luminances, replace each with its normalised rank, then write
+   * back. This flattens the radial intensity fall-off and reveals
+   * coronal structure.
+   */
+  function applyRHE(canvas) {
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    var imageData = ctx.getImageData(0, 0, w, h);
+    var d = imageData.data;
+    var cx = w / 2, cy = h / 2;
+    var maxR = Math.ceil(Math.sqrt(cx * cx + cy * cy));
+
+    // Build annulus buckets: for each integer radius, collect {index, luminance}
+    var annuli = new Array(maxR + 1);
+    for (var r = 0; r <= maxR; r++) annuli[r] = [];
+
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        var lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        var dist = Math.round(Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)));
+        if (dist > maxR) dist = maxR;
+        annuli[dist].push({ idx: i, lum: lum });
+      }
+    }
+
+    // For each annulus, rank-normalise luminances
+    for (var r = 0; r <= maxR; r++) {
+      var ring = annuli[r];
+      if (ring.length < 2) continue;
+      ring.sort(function(a, b) { return a.lum - b.lum; });
+      for (var j = 0; j < ring.length; j++) {
+        var rank = j / (ring.length - 1);  // 0..1
+        var idx = ring[j].idx;
+        // Preserve colour ratios: scale RGB by (rank / originalLum)
+        var origLum = ring[j].lum;
+        if (origLum > 0.5) {
+          var scale = (rank * 255) / origLum;
+          d[idx]     = Math.min(255, d[idx] * scale);
+          d[idx + 1] = Math.min(255, d[idx + 1] * scale);
+          d[idx + 2] = Math.min(255, d[idx + 2] * scale);
+        } else {
+          // Near-black pixel — just assign grey rank
+          var v = rank * 255;
+          d[idx] = v; d[idx + 1] = v; d[idx + 2] = v;
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
 
   function loadWavelengthThumbnails() {
     var dateVal = dateInput.value;
@@ -217,30 +272,48 @@
 
     thumbDivs.forEach(function(div) {
       var wl = parseInt(div.dataset.wl, 10);
-      var sourceId = HELIO_SOURCE_IDS[wl];
-      if (!sourceId) return;
+      if (!HELIO_SOURCE_IDS[wl]) return;
 
       // Show loading state
       div.innerHTML = '<div class="wl-thumb-spinner"></div>';
       div.classList.remove("loaded");
 
-      var url = "https://api.helioviewer.org/v2/takeScreenshot/?" +
-        "date=" + encodeURIComponent(isoDate) +
-        "&imageScale=12" +
-        "&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
-        "&x0=0&y0=0&width=256&height=256" +
-        "&display=true&watermark=false";
+      // Use our backend proxy (adds CORS headers so we can read pixels)
+      var url = API_BASE + "/api/helioviewer_thumb?date=" +
+        encodeURIComponent(isoDate) + "&wavelength=" + wl +
+        "&image_scale=12&size=256";
 
       var img = new Image();
-      // No crossOrigin — Helioviewer doesn't send CORS headers,
-      // but we only need display (not canvas access) for thumbnails.
+      img.crossOrigin = "anonymous";
       img.onload = function() {
+        // Draw to offscreen canvas, apply RHE, then display
+        var c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        var ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        try {
+          applyRHE(c);
+        } catch (e) {
+          // If RHE fails (e.g. tainted canvas), still show original
+        }
         div.innerHTML = "";
-        div.appendChild(img);
+        div.appendChild(c);
         div.classList.add("loaded");
       };
       img.onerror = function() {
-        div.innerHTML = "";  // silently fail, just hide spinner
+        // Fall back to direct Helioviewer (no RHE, no CORS)
+        var fallback = new Image();
+        fallback.onload = function() {
+          div.innerHTML = "";
+          div.appendChild(fallback);
+          div.classList.add("loaded");
+        };
+        fallback.onerror = function() { div.innerHTML = ""; };
+        fallback.src = "https://api.helioviewer.org/v2/takeScreenshot/?" +
+          "date=" + encodeURIComponent(isoDate) +
+          "&imageScale=12&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
+          "&x0=0&y0=0&width=256&height=256&display=true&watermark=false";
       };
       img.src = url;
     });
@@ -248,7 +321,6 @@
 
   // Load thumbnails on date change and on initial page load
   dateInput.addEventListener("change", loadWavelengthThumbnails);
-  // Defer initial load to after the page renders
   setTimeout(loadWavelengthThumbnails, 500);
 
   // ── Toast ────────────────────────────────────────────────────
