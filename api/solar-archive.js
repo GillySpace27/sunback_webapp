@@ -227,71 +227,86 @@
    */
   function loadHelioviewerPreview(wl, dateVal) {
     setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
-    setProgress(20);
+    setProgress(10);
 
-    // ── Path 1: reuse thumbnail already in cache (instant) ──────
+    // Get raw canvas from thumbCache or fetch fresh
     var cached = thumbCache[String(wl)];
     if (cached && cached.raw) {
-      var wantRHEF = thumbFilter === "rhef";
+      _startPreviewFromCanvas(cached.raw, cached, wl, dateVal);
+    } else {
+      // Fetch thumbnail via proxy and then proceed
+      var isoDate = dateVal + "T12:00:00Z";
+      var url = API_BASE + "/api/helioviewer_thumb?date=" +
+        encodeURIComponent(isoDate) + "&wavelength=" + wl +
+        "&image_scale=12&size=256";
 
-      // Make sure RHEF canvas exists if needed
-      if (wantRHEF && !cached.rhef) {
-        setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
-        setProgress(60);
-        setTimeout(function() {
-          cached.rhef = cloneCanvas(cached.raw);
-          try { applyRHE(cached.rhef); } catch (e) { cached.rhef = null; }
-          _canvasToPreview(wantRHEF && cached.rhef ? cached.rhef : cached.raw, wl, dateVal);
-        }, 0);
-      } else {
-        var src = wantRHEF && cached.rhef ? cached.rhef : cached.raw;
-        _canvasToPreview(src, wl, dateVal);
-      }
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function() {
+        var rawC = document.createElement("canvas");
+        rawC.width = img.naturalWidth || 256;
+        rawC.height = img.naturalHeight || 256;
+        rawC.getContext("2d").drawImage(img, 0, 0);
+        var entry = { raw: rawC, rhef: null };
+        thumbCache[String(wl)] = entry;
+        _startPreviewFromCanvas(rawC, entry, wl, dateVal);
+      };
+      img.onerror = function() {
+        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
+          'Preview failed — check date and backend status.', false);
+        hideProgress();
+      };
+      img.src = url;
+    }
+  }
+
+  /**
+   * Once we have a raw canvas, install the preview.
+   * If RHEF is toggled on: first install the raw image immediately so the user
+   * sees something, then run progressive RHE directly on the visible solarCanvas.
+   */
+  function _startPreviewFromCanvas(rawCanvas, cacheEntry, wl, dateVal) {
+    var wantRHEF = thumbFilter === "rhef";
+
+    // If RHEF already cached, use it immediately
+    if (wantRHEF && cacheEntry && cacheEntry.rhef) {
+      _canvasToPreview(cacheEntry.rhef, wl, dateVal);
       return;
     }
 
-    // ── Path 2: fetch via proxy (thumbnail not cached yet) ───────
-    var isoDate = dateVal + "T12:00:00Z";
-    var url = API_BASE + "/api/helioviewer_thumb?date=" +
-      encodeURIComponent(isoDate) + "&wavelength=" + wl +
-      "&image_scale=12&size=256";
+    // Install raw image first so the user sees it right away
+    var rawImg = new Image();
+    rawImg.onload = function() {
+      _installPreviewImage(rawImg, wl, dateVal);
 
-    var img = new Image();
-    img.crossOrigin = "anonymous";
+      if (!wantRHEF) return; // done!
 
-    img.onload = function() {
-      var rawC = document.createElement("canvas");
-      rawC.width = img.naturalWidth || 256;
-      rawC.height = img.naturalHeight || 256;
-      rawC.getContext("2d").drawImage(img, 0, 0);
+      // Now run progressive RHE directly on the visible solar canvas
+      setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
+      setProgress(15);
 
-      var wantRHEF = thumbFilter === "rhef";
-      if (wantRHEF) {
-        setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
-        setProgress(60);
-      }
-
-      setTimeout(function() {
-        var outC = rawC;
-        if (wantRHEF) {
-          outC = cloneCanvas(rawC);
-          try { applyRHE(outC); } catch (e) { outC = rawC; }
-        }
-        // Populate cache while we're here
-        if (!thumbCache[String(wl)]) {
-          thumbCache[String(wl)] = { raw: rawC, rhef: wantRHEF ? outC : null };
-        }
-        _canvasToPreview(outC, wl, dateVal);
-      }, 0);
+      applyRHEProgressive(solarCanvas, function(frac) {
+        setProgress(15 + Math.round(frac * 80));
+      }).then(function() {
+        // Cache the RHEF result back into thumbCache
+        if (cacheEntry) cacheEntry.rhef = cloneCanvas(solarCanvas);
+        // Snapshot the canvas into state.originalImage so edits work on RHEF version
+        var finalImg = new Image();
+        finalImg.onload = function() {
+          state.originalImage = finalImg;
+          setProgress(100);
+          setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' +
+            wl + ' Å RHEF preview ready — edit below, then click <strong>Make Products</strong>');
+          setTimeout(hideProgress, 1200);
+        };
+        finalImg.src = solarCanvas.toDataURL("image/png");
+      }).catch(function(e) {
+        console.error("[RHEF preview] Failed:", e);
+        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> RHEF failed — using raw image.', false);
+        hideProgress();
+      });
     };
-
-    img.onerror = function() {
-      setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
-        'Preview failed — make sure a date is selected and the backend is online.', false);
-      hideProgress();
-    };
-
-    img.src = url;
+    rawImg.src = rawCanvas.toDataURL("image/png");
   }
 
   /** Convert an offscreen canvas to a data-URL Image and install as preview. */
@@ -370,11 +385,8 @@
   var thumbFilter = "raw";  // "raw" or "rhef"
 
   /**
-   * Client-side Radial Histogram Equalization.
-   * For each 1-pixel-wide annulus centred on (cx,cy), sort pixel
-   * luminances, replace each with its normalised rank, then write
-   * back. This flattens the radial intensity fall-off and reveals
-   * coronal structure.
+   * Client-side Radial Histogram Equalization — synchronous version.
+   * Used only as a fallback. Prefer applyRHEProgressive for UI responsiveness.
    */
   function applyRHE(canvas) {
     var ctx = canvas.getContext("2d");
@@ -384,41 +396,125 @@
     var cx = w / 2, cy = h / 2;
     var maxR = Math.ceil(Math.sqrt(cx * cx + cy * cy));
 
-    // Build annulus buckets: for each integer radius, collect {index, luminance}
     var annuli = new Array(maxR + 1);
     for (var r = 0; r <= maxR; r++) annuli[r] = [];
-
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        var i = (y * w + x) * 4;
-        var lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        var idx = (y * w + x) * 4;
+        var lum = 0.2126 * d[idx] + 0.7152 * d[idx + 1] + 0.0722 * d[idx + 2];
         var dist = Math.round(Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)));
         if (dist > maxR) dist = maxR;
-        annuli[dist].push({ idx: i, lum: lum });
+        annuli[dist].push({ idx: idx, lum: lum });
       }
     }
-
     for (var r = 0; r <= maxR; r++) {
       var ring = annuli[r];
       if (ring.length < 2) continue;
       ring.sort(function(a, b) { return a.lum - b.lum; });
       for (var j = 0; j < ring.length; j++) {
         var rank = j / (ring.length - 1);
-        var idx = ring[j].idx;
+        var pidx = ring[j].idx;
         var origLum = ring[j].lum;
         if (origLum > 0.5) {
           var scale = (rank * 255) / origLum;
-          d[idx]     = Math.min(255, d[idx] * scale);
-          d[idx + 1] = Math.min(255, d[idx + 1] * scale);
-          d[idx + 2] = Math.min(255, d[idx + 2] * scale);
+          d[pidx]     = Math.min(255, d[pidx] * scale);
+          d[pidx + 1] = Math.min(255, d[pidx + 1] * scale);
+          d[pidx + 2] = Math.min(255, d[pidx + 2] * scale);
         } else {
           var v = rank * 255;
-          d[idx] = v; d[idx + 1] = v; d[idx + 2] = v;
+          d[pidx] = v; d[pidx + 1] = v; d[pidx + 2] = v;
         }
       }
     }
-
     ctx.putImageData(imageData, 0, 0);
+  }
+
+  /**
+   * Progressive RHE: pre-builds all annuli in one pass, then processes in chunks,
+   * yielding to the browser between each chunk so the UI stays responsive.
+   * Calls onProgress(fraction) after each chunk.
+   * Paints intermediate results to `canvas` for the "expanding circle" effect.
+   * Returns a Promise that resolves when done.
+   */
+  function applyRHEProgressive(canvas, onProgress) {
+    return new Promise(function(resolve, reject) {
+      var ctx;
+      try {
+        ctx = canvas.getContext("2d");
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      var w = canvas.width, h = canvas.height;
+      var imageData;
+      try {
+        imageData = ctx.getImageData(0, 0, w, h);
+      } catch (e) {
+        console.error("[RHEF] Canvas tainted — cannot read pixels:", e);
+        reject(e);
+        return;
+      }
+      var d = imageData.data;
+      var cx = w / 2, cy = h / 2;
+      var maxR = Math.ceil(Math.sqrt(cx * cx + cy * cy));
+
+      // Phase 1: Build all annulus buckets in one pass (fast)
+      var annuli = new Array(maxR + 1);
+      for (var r = 0; r <= maxR; r++) annuli[r] = [];
+
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var idx = (y * w + x) * 4;
+          var lum = 0.2126 * d[idx] + 0.7152 * d[idx + 1] + 0.0722 * d[idx + 2];
+          var dist = Math.round(Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)));
+          if (dist > maxR) dist = maxR;
+          annuli[dist].push({ idx: idx, lum: lum });
+        }
+      }
+
+      // Phase 2: Process annuli in chunks, yielding between each
+      var CHUNK = Math.max(2, Math.ceil(maxR / 30)); // ~30 visual updates
+      var curR = 0;
+
+      function processChunk() {
+        var endR = Math.min(curR + CHUNK, maxR);
+
+        for (var r = curR; r <= endR; r++) {
+          var ring = annuli[r];
+          if (ring.length < 2) continue;
+          ring.sort(function(a, b) { return a.lum - b.lum; });
+          for (var j = 0; j < ring.length; j++) {
+            var rank = j / (ring.length - 1);
+            var pidx = ring[j].idx;
+            var origLum = ring[j].lum;
+            if (origLum > 0.5) {
+              var scale = (rank * 255) / origLum;
+              d[pidx]     = Math.min(255, d[pidx] * scale);
+              d[pidx + 1] = Math.min(255, d[pidx + 1] * scale);
+              d[pidx + 2] = Math.min(255, d[pidx + 2] * scale);
+            } else {
+              var v = rank * 255;
+              d[pidx] = v; d[pidx + 1] = v; d[pidx + 2] = v;
+            }
+          }
+        }
+
+        // Paint partial result — reveals processed annuli from center outward
+        ctx.putImageData(imageData, 0, 0);
+
+        curR = endR + 1;
+        var frac = Math.min(1, curR / (maxR + 1));
+        if (onProgress) onProgress(frac);
+
+        if (curR <= maxR) {
+          setTimeout(processChunk, 0);
+        } else {
+          resolve();
+        }
+      }
+
+      processChunk();
+    });
   }
 
   /** Clone a canvas element */
@@ -430,23 +526,42 @@
     return c;
   }
 
-  /** Show the cached canvas (raw or rhef) for each thumbnail */
+  /** Show the cached canvas (raw or rhef) for each thumbnail.
+   *  If RHEF is selected and not yet computed, runs progressive RHE with animation. */
   function showThumbFilter() {
     document.querySelectorAll(".wl-thumb").forEach(function(div) {
       var wl = div.dataset.wl;
       var entry = thumbCache[wl];
       if (!entry || !entry.raw) return;
 
-      // Compute RHEF on demand if not yet available
-      if (thumbFilter === "rhef" && !entry.rhef) {
-        entry.rhef = cloneCanvas(entry.raw);
-        try { applyRHE(entry.rhef); } catch (e) { entry.rhef = null; }
-      }
+      if (thumbFilter === "raw") {
+        // Swap to raw immediately
+        div.innerHTML = "";
+        div.appendChild(cloneCanvas(entry.raw));
+        div.classList.add("loaded");
+      } else if (thumbFilter === "rhef" && entry.rhef) {
+        // Already computed — swap instantly
+        div.innerHTML = "";
+        div.appendChild(cloneCanvas(entry.rhef));
+        div.classList.add("loaded");
+      } else if (thumbFilter === "rhef") {
+        // Need to compute — show progressive RHE directly in the thumb div
+        var liveCanvas = cloneCanvas(entry.raw);
+        liveCanvas.style.width = "100%";
+        liveCanvas.style.height = "100%";
+        liveCanvas.style.borderRadius = "50%";
+        liveCanvas.style.objectFit = "cover";
+        div.innerHTML = "";
+        div.appendChild(liveCanvas);
+        div.classList.add("loaded");
 
-      var src = (thumbFilter === "rhef" && entry.rhef) ? entry.rhef : entry.raw;
-      div.innerHTML = "";
-      div.appendChild(cloneCanvas(src));
-      div.classList.add("loaded");
+        applyRHEProgressive(liveCanvas, null).then(function() {
+          // Cache the finished RHEF canvas
+          entry.rhef = cloneCanvas(liveCanvas);
+        }).catch(function(e) {
+          console.error("[RHEF] Failed on wl=" + wl + ":", e);
+        });
+      }
     });
   }
 
@@ -480,17 +595,12 @@
         rawC.height = img.naturalHeight;
         rawC.getContext("2d").drawImage(img, 0, 0);
 
-        // Build RHEF canvas
-        var rhefC = cloneCanvas(rawC);
-        try { applyRHE(rhefC); } catch (e) { /* keep raw copy on failure */ }
+        // Cache raw only — RHEF computed lazily on demand when toggled
+        thumbCache[wl] = { raw: rawC, rhef: null };
 
-        // Cache both
-        thumbCache[wl] = { raw: rawC, rhef: rhefC };
-
-        // Display whichever is selected
-        var src = (thumbFilter === "rhef") ? rhefC : rawC;
+        // Display raw (RHEF is applied on demand via showThumbFilter)
         div.innerHTML = "";
-        div.appendChild(cloneCanvas(src));
+        div.appendChild(cloneCanvas(rawC));
         div.classList.add("loaded");
       };
       img.onerror = function() {
