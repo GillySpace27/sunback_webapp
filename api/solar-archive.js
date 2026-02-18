@@ -214,79 +214,93 @@
   });
 
   /**
-   * Fetch a medium-resolution Helioviewer image via our CORS proxy,
-   * apply RHE if the current thumbFilter is "rhef", then load it as state.originalImage.
-   * Tries image_scale=4,size=512 first; falls back to image_scale=12,size=256 on error.
+   * Load a Helioviewer image into the preview canvas when a tile is clicked.
+   *
+   * Strategy (fastest-first):
+   *   1. Reuse the already-loaded thumbnail canvas from thumbCache (instant, no network).
+   *      Apply RHEF from cache if toggled, or compute on demand.
+   *   2. If thumbnail not yet cached, fetch via proxy at image_scale=12, size=256
+   *      (same params that work for the thumbnail grid).
+   *
+   * In both cases the canvas is exported to a data-URL and installed as state.originalImage
+   * so all editing tools work normally on it.
    */
   function loadHelioviewerPreview(wl, dateVal) {
-    var isoDate = dateVal + "T12:00:00Z";
-
     setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
     setProgress(20);
 
-    // Try higher-res first, fall back to thumbnail params on failure
-    var attempts = [
-      { image_scale: 4, size: 512 },
-      { image_scale: 12, size: 256 }
-    ];
+    // ── Path 1: reuse thumbnail already in cache (instant) ──────
+    var cached = thumbCache[String(wl)];
+    if (cached && cached.raw) {
+      var wantRHEF = thumbFilter === "rhef";
 
-    function tryLoad(idx) {
-      if (idx >= attempts.length) {
-        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Could not load Helioviewer preview — check your date selection.', false);
-        hideProgress();
-        return;
-      }
-      var p = attempts[idx];
-      var url = API_BASE + "/api/helioviewer_thumb?date=" +
-        encodeURIComponent(isoDate) + "&wavelength=" + wl +
-        "&image_scale=" + p.image_scale + "&size=" + p.size;
-
-      var img = new Image();
-      img.crossOrigin = "anonymous";
-
-      img.onload = function() {
-        if (!img.naturalWidth || !img.naturalHeight) {
-          // Helioviewer returned something but it wasn't a valid image
-          tryLoad(idx + 1);
-          return;
-        }
-
-        // Draw raw into offscreen canvas
-        var c = document.createElement("canvas");
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        c.getContext("2d").drawImage(img, 0, 0);
-
-        var wantRHEF = thumbFilter === "rhef";
-        if (wantRHEF) {
-          setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
-          setProgress(60);
-        }
-
-        // Run RHE asynchronously so the UI doesn't freeze on large images
+      // Make sure RHEF canvas exists if needed
+      if (wantRHEF && !cached.rhef) {
+        setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
+        setProgress(60);
         setTimeout(function() {
-          if (wantRHEF) {
-            try { applyRHE(c); } catch (e) { /* non-fatal — use raw */ }
-          }
-
-          // Convert canvas → Image for renderCanvas()
-          var outImg = new Image();
-          outImg.onload = function() {
-            _installPreviewImage(outImg, wl, dateVal);
-          };
-          outImg.src = c.toDataURL("image/png");
+          cached.rhef = cloneCanvas(cached.raw);
+          try { applyRHE(cached.rhef); } catch (e) { cached.rhef = null; }
+          _canvasToPreview(wantRHEF && cached.rhef ? cached.rhef : cached.raw, wl, dateVal);
         }, 0);
-      };
-
-      img.onerror = function() {
-        // This resolution failed — try the next fallback
-        tryLoad(idx + 1);
-      };
-
-      img.src = url;
+      } else {
+        var src = wantRHEF && cached.rhef ? cached.rhef : cached.raw;
+        _canvasToPreview(src, wl, dateVal);
+      }
+      return;
     }
 
-    tryLoad(0);
+    // ── Path 2: fetch via proxy (thumbnail not cached yet) ───────
+    var isoDate = dateVal + "T12:00:00Z";
+    var url = API_BASE + "/api/helioviewer_thumb?date=" +
+      encodeURIComponent(isoDate) + "&wavelength=" + wl +
+      "&image_scale=12&size=256";
+
+    var img = new Image();
+    img.crossOrigin = "anonymous";
+
+    img.onload = function() {
+      var rawC = document.createElement("canvas");
+      rawC.width = img.naturalWidth || 256;
+      rawC.height = img.naturalHeight || 256;
+      rawC.getContext("2d").drawImage(img, 0, 0);
+
+      var wantRHEF = thumbFilter === "rhef";
+      if (wantRHEF) {
+        setStatus('<i class="fas fa-spinner fa-spin"></i> Applying RHEF…', true);
+        setProgress(60);
+      }
+
+      setTimeout(function() {
+        var outC = rawC;
+        if (wantRHEF) {
+          outC = cloneCanvas(rawC);
+          try { applyRHE(outC); } catch (e) { outC = rawC; }
+        }
+        // Populate cache while we're here
+        if (!thumbCache[String(wl)]) {
+          thumbCache[String(wl)] = { raw: rawC, rhef: wantRHEF ? outC : null };
+        }
+        _canvasToPreview(outC, wl, dateVal);
+      }, 0);
+    };
+
+    img.onerror = function() {
+      setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
+        'Preview failed — make sure a date is selected and the backend is online.', false);
+      hideProgress();
+    };
+
+    img.src = url;
+  }
+
+  /** Convert an offscreen canvas to a data-URL Image and install as preview. */
+  function _canvasToPreview(canvas, wl, dateVal) {
+    var outImg = new Image();
+    outImg.onload = function() {
+      _installPreviewImage(outImg, wl, dateVal);
+    };
+    outImg.src = canvas.toDataURL("image/png");
   }
 
   /**
