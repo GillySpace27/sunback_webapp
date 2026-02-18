@@ -275,9 +275,15 @@
     document.querySelectorAll(".wl-thumb").forEach(function(div) {
       var wl = div.dataset.wl;
       var entry = thumbCache[wl];
-      if (!entry) return;
+      if (!entry || !entry.raw) return;
+
+      // Compute RHEF on demand if not yet available
+      if (thumbFilter === "rhef" && !entry.rhef) {
+        entry.rhef = cloneCanvas(entry.raw);
+        try { applyRHE(entry.rhef); } catch (e) { entry.rhef = null; }
+      }
+
       var src = (thumbFilter === "rhef" && entry.rhef) ? entry.rhef : entry.raw;
-      if (!src) return;
       div.innerHTML = "";
       div.appendChild(cloneCanvas(src));
       div.classList.add("loaded");
@@ -351,12 +357,24 @@
   }
 
   // Filter toggle: Raw ↔ RHEF (instant swap from cache)
-  document.getElementById("filterToggle").addEventListener("change", function(e) {
-    if (e.target.name === "thumbFilter") {
-      thumbFilter = e.target.value;
-      showThumbFilter();
-    }
+  // Use click on labels (more reliable than change on hidden radio inputs)
+  var filterToggleEl = document.getElementById("filterToggle");
+  filterToggleEl.addEventListener("click", function(e) {
+    var label = e.target.closest(".filter-opt");
+    if (!label) return;
+    var radio = label.querySelector("input[type=radio]");
+    if (!radio) return;
+    radio.checked = true;
+    thumbFilter = radio.value;
+    // Update active class (fallback for browsers without :has())
+    filterToggleEl.querySelectorAll(".filter-opt").forEach(function(opt) {
+      opt.classList.remove("active");
+    });
+    label.classList.add("active");
+    showThumbFilter();
   });
+  // Set initial active class
+  filterToggleEl.querySelector(".filter-opt:first-child").classList.add("active");
 
   // Load thumbnails on date change and on initial page load
   dateInput.addEventListener("change", loadWavelengthThumbnails);

@@ -238,7 +238,8 @@
       white-space: nowrap;
     }
 
-    .filter-opt:has(input:checked) {
+    .filter-opt:has(input:checked),
+    .filter-opt.active {
       background: var(--accent-corona);
       color: #fff;
     }
