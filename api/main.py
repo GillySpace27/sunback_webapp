@@ -432,55 +432,47 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
     log_to_queue(f"[generate_preview] SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
 
     client = VSOClient()
-    # Step 1: try a narrow ±1 minute window (ideal — DRMS returns a single small record)
-    # Step 2: if gap day, walk outward one day at a time (each using a narrow 2-min window)
-    # This avoids huge multi-record DRMS ranges that cause 408 timeouts on wide windows.
-    qr = []
-    log_to_queue(f"[generate_preview] Searching VSO ±1min...")
-    qr = client.search(
-        a.Time(dt, dt + timedelta(minutes=1)),
-        a.Detector("AIA"),
-        a.Wavelength(wl * u.angstrom),
-        a.Source("SDO"),
-    )
-    if sum(len(r) for r in qr) == 0:
-        # Walk outward day by day (up to 5 days each direction), keeping narrow window
-        log_to_queue(f"[generate_preview] No data on exact day, scanning nearby days...")
-        for offset in range(1, 6):
-            for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
-                qr = client.search(
-                    a.Time(candidate, candidate + timedelta(minutes=2)),
-                    a.Detector("AIA"),
-                    a.Wavelength(wl * u.angstrom),
-                    a.Source("SDO"),
-                )
-                n = sum(len(r) for r in qr)
-                if n > 0:
-                    log_to_queue(f"[generate_preview] Found {n} records on {candidate.date()} (offset {offset:+}d)")
-                    break
-            else:
-                continue
-            break
-    total = sum(len(r) for r in qr)
-    log_to_queue(f"[generate_preview] Final search total: {total} records")
-    if not qr or total == 0:
-        raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
-
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
     downloader = get_downloader()
-    # DRMS export on sdo7.nascom.nasa.gov is intermittently flaky (500/timeout).
-    # Try each response set in qr until one succeeds.
-    fits_path = None
-    for attempt, qr_set in enumerate(qr):
-        if len(qr_set) == 0:
-            continue
-        log_to_queue(f"[generate_preview] Download attempt {attempt+1}/{len(qr)}: {qr_set[0]}")
-        result = Fido.fetch(qr_set, path=download_dir, downloader=downloader)
-        if result and len(result) > 0:
-            fits_path = str(result[0])
-            log_to_queue(f"[generate_preview] Downloaded {os.path.basename(fits_path)}")
-            break
-        log_to_queue(f"[generate_preview] Attempt {attempt+1} failed, trying next record set...")
+
+    def _try_download(candidate_dt, label):
+        """Search ±2min around candidate_dt, then try each response set until one downloads."""
+        qr = client.search(
+            a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
+            a.Detector("AIA"),
+            a.Wavelength(wl * u.angstrom),
+            a.Source("SDO"),
+        )
+        total = sum(len(r) for r in qr)
+        if total == 0:
+            return None, qr
+        log_to_queue(f"[generate_preview] {label}: {total} records found, attempting download...")
+        for attempt, qr_set in enumerate(qr):
+            if len(qr_set) == 0:
+                continue
+            result = Fido.fetch(qr_set, path=download_dir, downloader=downloader)
+            if result and len(result) > 0:
+                path = str(result[0])
+                log_to_queue(f"[generate_preview] Downloaded: {os.path.basename(path)}")
+                return path, qr
+            if attempt < 2:  # log first few failures, then give up on this day
+                err = str(result.errors[0])[:80] if hasattr(result, 'errors') and result.errors else "unknown"
+                log_to_queue(f"[generate_preview]   attempt {attempt+1} failed: {err}")
+            else:
+                break  # DRMS broken for this day's records, try next day
+        return None, qr
+
+    # Try exact day first, then walk outward day-by-day (handles SDO gaps AND broken DRMS records)
+    fits_path, qr = _try_download(dt, f"exact day {dt.date()}")
+    if not fits_path:
+        log_to_queue(f"[generate_preview] Exact day failed, scanning nearby days...")
+        for offset in range(1, 8):
+            for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
+                fits_path, qr = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
+                if fits_path:
+                    break
+            if fits_path:
+                break
     if not fits_path:
         raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
     from sunpy.map import Map
