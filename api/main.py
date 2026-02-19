@@ -41,7 +41,7 @@ from typing import Optional, Literal, Dict, Any
 import numpy as np
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse, Response
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 from pydantic import BaseModel, Field
@@ -279,6 +279,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /api/health — lightweight liveness check (no heavy imports); used by frontend for "Backend online"
+# ──────────────────────────────────────────────────────────────────────────────
+@app.get("/api/health")
+async def api_health():
+    """Return 200 as soon as the server can respond. Frontend uses this instead of /docs for status."""
+    return JSONResponse(content={"status": "ok"}, headers=CORS_HEADERS)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /api/helioviewer_thumb — proxy Helioviewer takeScreenshot for wavelength tiles + canvas
+# ──────────────────────────────────────────────────────────────────────────────
+HELIOVIEWER_BASE = "https://api.helioviewer.org/v2/takeScreenshot"
+
+def _fetch_helioviewer_screenshot(url: str):
+    """Sync fetch so we can run in executor; returns (content, content_type) or raises.
+    Skip SSL verify for this request only: the app sets SSL_CERT_FILE to a NASA bundle
+    which breaks verification for api.helioviewer.org (public CA). We only GET public
+    read-only image URLs here.
+    """
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    r = requests.get(url, timeout=25, verify=False)
+    r.raise_for_status()
+    ct = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    if "json" in ct:
+        try:
+            err = r.json()
+            msg = err.get("message", err.get("error", r.text[:200]))
+            raise requests.RequestException(f"Helioviewer error: {msg}")
+        except ValueError:
+            raise requests.RequestException(f"Helioviewer returned JSON: {r.text[:200]}")
+    if len(r.content) < 100:
+        raise requests.RequestException(f"Helioviewer returned tiny body ({len(r.content)} bytes)")
+    return r.content, r.headers.get("Content-Type", "image/png")
+
+@app.get("/api/helioviewer_thumb")
+async def helioviewer_thumb(
+    date: str = Query(..., description="ISO date-time e.g. 2026-02-10T12:00:00Z"),
+    wavelength: int = Query(..., description="AIA wavelength in Å e.g. 171"),
+    image_scale: float = Query(12, description="Helioviewer imageScale (arcsec/pixel)"),
+    size: int = Query(256, description="Width and height in pixels"),
+):
+    """Proxy Helioviewer screenshot API so the frontend can load tiles/canvas without CORS."""
+    # When frontend sends 12, frame out to 1.5 solar radii (~3000 arcsec) so off-limb corona is visible.
+    if image_scale == 12:
+        scale = 3000.0 / max(size, 64)  # arcsec/pixel so FOV = size * scale ≈ 3000 (1.5 R_sun)
+    else:
+        scale = float(image_scale)
+    url = (
+        f"{HELIOVIEWER_BASE}/?"
+        f"date={requests.utils.quote(date)}"
+        f"&imageScale={scale}"
+        f"&layers=[SDO,AIA,AIA,{wavelength},1,100]"
+        f"&x0=0&y0=0&width={size}&height={size}&display=true&watermark=false"
+    )
+    try:
+        loop = asyncio.get_event_loop()
+        content, media_type = await loop.run_in_executor(None, lambda: _fetch_helioviewer_screenshot(url))
+        return Response(content=content, media_type=media_type, headers=CORS_HEADERS)
+    except requests.RequestException as e:
+        print(f"[helioviewer_thumb] {url[:120]}... -> {e}", flush=True)
+        raise HTTPException(status_code=502, detail=f"Helioviewer proxy failed: {e}")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/generate_preview — fast preview: single FITS, log10, color, no filtering
 # ──────────────────────────────────────────────────────────────────────────────
@@ -308,12 +374,14 @@ def fetch_first_fits(dt, wl):
     from parfive import Downloader
     # Enforce HTTPS for VSO URL
     client = VSOClient()
-    qr = client.search(
+    attrs = [
         a.Time(dt, dt + timedelta(minutes=1)),
         a.Detector("AIA"),
         a.Wavelength(wl * u.angstrom),
         a.Source("SDO"),
-    )
+    ]
+    print(f"[fetch_first_fits] Search attrs: {attrs}", flush=True)
+    qr = client.search(*attrs)
     if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
     target_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
@@ -324,118 +392,129 @@ def fetch_first_fits(dt, wl):
     return str(files[0])
 
 
+def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
+    """Blocking FITS fetch + RHEF + PNG. Run in thread so server can still serve /docs etc."""
+    from sunpy.net import Fido, attrs as a
+    from sunpy.net.vso import VSOClient
+    import astropy.units as u
+    from datetime import timedelta
+    client = VSOClient()
+    qr = client.search(
+        a.Time(dt, dt + timedelta(minutes=1)),
+        a.Detector("AIA"),
+        a.Wavelength(wl * u.angstrom),
+        a.Source("SDO"),
+    )
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
+    download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
+    def make_downloader_for(url, verify_ssl=True):
+        from parfive import Downloader
+        import ssl
+        if _is_nasa_url(url):
+            if not verify_ssl:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                import ssl as _ssl_mod
+                _ssl_mod._create_default_https_context = lambda: ctx
+                return Downloader(max_conn=15)
+            return Downloader(max_conn=15)
+        return Downloader(max_conn=15)
+    downloader = make_downloader_for("https://sdo5.nascom.nasa.gov", verify_ssl=False)
+    log_to_queue("[generate_preview] Using same downloader as main generator")
+    result = Fido.fetch(qr[0], path=download_dir, downloader=downloader)
+    if not result or len(result) == 0:
+        raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
+    fits_path = str(result[0])
+    from sunpy.map import Map
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from skimage.measure import block_reduce
+    smap = Map(fits_path)
+    data = np.array(smap.data, dtype=np.float32)
+    data[data <= 0] = np.nan
+    h, w = data.shape
+    block_size = max(1, int(np.ceil(h / 512)))
+    reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
+    from sunpy.map.sources.sdo import AIAMap
+    from sunpy.util.metadata import MetaDict
+    meta = MetaDict(smap.meta.copy())
+    if "cdelt1" in meta and "cdelt2" in meta:
+        meta["cdelt1"] = meta["cdelt1"] * block_size
+        meta["cdelt2"] = meta["cdelt2"] * block_size
+        meta["crpix1"] = meta["crpix1"] / block_size
+        meta["crpix2"] = meta["crpix2"] / block_size
+    meta["naxis1"] = reduced.shape[1]
+    meta["naxis2"] = reduced.shape[0]
+    smap_reduced = AIAMap(reduced, meta)
+    from sunkit_image import radial
+    try:
+        rhef_data = radial.rhef(smap_reduced, progress=True).data
+    except Exception:
+        log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
+        rhef_data = radial.rhef(smap_reduced.data, progress=True).data
+    cmap = plt.get_cmap(f"sdoaia{wl}")
+    vmin = np.nanpercentile(rhef_data, 1)
+    vmax = np.nanpercentile(rhef_data, 99.7)
+    plt.figure(figsize=(8, 8), dpi=100)
+    plt.axis("off")
+    plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+    plt.tight_layout(pad=0)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+    plt.close()
+    import time
+    for _ in range(50):
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            break
+        time.sleep(0.05)
+    return url_path
+
+
+# Cache of (date_str, wl) for which preview generation already failed (e.g. no VSO data)
+# so we return 200 with preview_url=null instead of 202 again and avoid repeated failing tasks.
+_preview_failed: set = set()
+
+
 @app.post("/api/generate_preview")
 async def generate_preview(req: PreviewRequest = Body(...)):
     """
-    Fast preview: fetch only first FITS, downsample, apply RHEF, color, PNG.
-    Returns: {"preview_url": "/asset/preview/preview_SDO_<wl>_<date>.png"}
+    Warm the science-image cache: if preview PNG exists return it; if we already know
+    this date/wl has no data, return preview_url=null; otherwise run FITS+RHEF in background.
     """
     try:
-        # Parse date/wavelength
         dt = datetime.strptime(req.date, "%Y-%m-%d")
         wl = int(req.wavelength)
         date_str = dt.strftime("%Y%m%d")
+        key = (date_str, wl)
         out_path = os.path.join(PREVIEW_DIR, f"preview_SDO_{wl}_{date_str}.png")
         url_path = f"/asset/preview/preview_SDO_{wl}_{date_str}.png"
-        # If already exists, return immediately
         if os.path.exists(out_path):
             return {"preview_url": url_path}
-
-        # --- Custom Fido.fetch: use downloader with verify_ssl=False ---
-        from sunpy.net import Fido, attrs as a
-        from parfive import Downloader
-        from sunpy.net.vso import VSOClient
-        import astropy.units as u
-        from datetime import timedelta
-        # Compose VSO query for first frame
-        client = VSOClient()
-        qr = client.search(
-            a.Time(dt, dt + timedelta(minutes=1)),
-            a.Detector("AIA"),
-            a.Wavelength(wl * u.angstrom),
-            a.Source("SDO"),
+        if key in _preview_failed:
+            return JSONResponse(
+                status_code=200,
+                content={"preview_url": None, "error": "No VSO AIA data for this date/wavelength"},
+                headers=CORS_HEADERS,
+            )
+        # Run in background so client gets 202 immediately
+        async def run():
+            try:
+                await asyncio.to_thread(
+                    _generate_preview_sync, dt, wl, date_str, out_path, url_path
+                )
+            except Exception as e:
+                _preview_failed.add(key)
+                print(f"[generate_preview] background failed: {e}", flush=True)
+        asyncio.create_task(run())
+        return JSONResponse(
+            status_code=202,
+            content={"status": "accepted", "preview_url": None},
+            headers=CORS_HEADERS,
         )
-        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
-        download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-        # Create downloader with SSL validation bypassed
-        def make_downloader_for(url, verify_ssl=True):
-            from parfive import Downloader
-            import ssl
-            if _is_nasa_url(url):
-                if not verify_ssl:
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    import ssl as _ssl_mod
-                    _ssl_mod._create_default_https_context = lambda: ctx
-                    return Downloader(max_conn=15)
-                else:
-                    return Downloader(max_conn=15)
-            return Downloader(max_conn=15)
-        downloader = make_downloader_for("https://sdo5.nascom.nasa.gov", verify_ssl=False)
-        log_to_queue("[generate_preview] Using same downloader as main generator")
-        # Fetch with downloader
-        result = Fido.fetch(qr[0], path=download_dir, downloader=downloader)
-        if not result or len(result) == 0:
-            raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
-        fits_path = str(result[0])
-
-        # Load Map, then downsample, apply RHEF, color
-        from sunpy.map import Map
-        import numpy as np
-        import matplotlib.pyplot as plt
-        # Import block_reduce only here
-        from skimage.measure import block_reduce
-        smap = Map(fits_path)
-        # Downsample to ~512x512 using block_reduce (nanmean)
-        data = np.array(smap.data, dtype=np.float32)
-        data[data <= 0] = np.nan
-        h, w = data.shape
-        block_size = max(1, int(np.ceil(h / 512)))
-        reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
-        # Rebuild Map with reduced data and original metadata (approximate WCS)
-        from sunpy.map.sources.sdo import AIAMap
-        from sunpy.util.metadata import MetaDict
-        meta = MetaDict(smap.meta.copy())
-        # Adjust pixel size (cdelt1/cdelt2) if present
-        if "cdelt1" in meta and "cdelt2" in meta:
-            meta["cdelt1"] = meta["cdelt1"] * block_size
-            meta["cdelt2"] = meta["cdelt2"] * block_size
-            meta["crpix1"] = meta["crpix1"] / block_size
-            meta["crpix2"] = meta["crpix2"] / block_size
-        # Optionally adjust NAXIS1/2
-        meta["naxis1"] = reduced.shape[1]
-        meta["naxis2"] = reduced.shape[0]
-        # Build as AIAMap to preserve correct subclass and WCS
-        smap_reduced = AIAMap(reduced, meta)
-        from sunkit_image import radial
-        # Apply RHEF with fallback
-        try:
-            rhef_data = radial.rhef(smap_reduced, progress=True).data
-        except Exception:
-            log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
-            rhef_data = radial.rhef(smap_reduced.data, progress=True).data
-        # Save PNG with color table
-        cmap = plt.get_cmap(f"sdoaia{wl}")
-        vmin = np.nanpercentile(rhef_data, 1)
-        vmax = np.nanpercentile(rhef_data, 99.7)
-        plt.figure(figsize=(8,8), dpi=100)
-        plt.axis("off")
-        plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
-        plt.tight_layout(pad=0)
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
-        plt.close()
-        # Ensure file is written and visible before returning
-        import time
-        for _ in range(50):
-            if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
-                break
-            time.sleep(0.05)
-        return {"preview_url": url_path}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Preview failed: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 
@@ -1076,8 +1155,19 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 a.Wavelength(wl * u.angstrom),
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            log_to_queue(f"[fetch] [AIA] No VSO results found in ±10min. No fallback available.")
-            raise HTTPException(status_code=502, detail="No VSO data available for this date.")
+            log_to_queue(f"[fetch] [AIA] No VSO results in ±10min, retrying ±1 day...")
+            qr = Fido.search(
+                a.Time(dt - timedelta(days=1), dt + timedelta(days=1)),
+                a.Detector("AIA"), a.Provider("VSO"),
+                a.Source("SDO"),
+                a.Wavelength(wl * u.angstrom),
+            )
+        if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+            log_to_queue(f"[fetch] [AIA] No VSO results in ±1 day. SDO/AIA coverage: 2010-06 to present.")
+            raise HTTPException(
+                status_code=502,
+                detail="No VSO data available for this date. SDO/AIA coverage is from mid-2010 to present; try a date in that range.",
+            )
         log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
         # Download to work_dir using custom downloader
         files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
@@ -1626,37 +1716,6 @@ def local_path_and_url(filename: str) -> Dict[str, str]:
 
 
 
-@app.get("/api/helioviewer_thumb")
-async def helioviewer_thumb(date: str, wavelength: int, image_scale: float = 12, size: int = 256):
-    """Proxy Helioviewer takeScreenshot for wavelength thumbnails (adds CORS)."""
-    import urllib.parse
-    # Clamp size to Helioviewer's practical limits
-    size = max(64, min(size, 1920))
-    url = (
-        f"https://api.helioviewer.org/v2/takeScreenshot/?"
-        f"date={urllib.parse.quote(date)}"
-        f"&imageScale={image_scale}"
-        f"&layers=[SDO,AIA,AIA,{wavelength},1,100]"
-        f"&x0=0&y0=0&width={size}&height={size}"
-        f"&display=true&watermark=false"
-    )
-    try:
-        resp = requests.get(url, timeout=30)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Helioviewer connection error: {exc}")
-    # Validate we got a PNG back (Helioviewer sometimes returns JSON errors with 200 status)
-    content_type = resp.headers.get("content-type", "")
-    is_png = resp.content[:4] == b'\x89PNG'
-    if resp.status_code != 200 or ("image" not in content_type and not is_png):
-        detail = resp.text[:200] if resp.content else f"HTTP {resp.status_code}"
-        raise HTTPException(status_code=502, detail=f"Helioviewer returned non-image: {detail}")
-    return StreamingResponse(
-        io.BytesIO(resp.content),
-        media_type="image/png",
-        headers=CORS_HEADERS,
-    )
-
-
 @app.get("/api/status")
 async def status(job_id: Optional[str] = None):
     if job_id and job_id in task_registry:
@@ -1760,12 +1819,40 @@ async def shopify_preview_options():
     return JSONResponse({}, headers=CORS_HEADERS)
 
 # -------------------------------------------------------------------
-# Dedicated endpoint to serve image assets via FileResponse
+# Dedicated endpoint to serve image assets (preview RHE + HQ) so Render serves correctly
 # -------------------------------------------------------------------
+@app.get("/asset/preview/{filename:path}")
+async def serve_preview_asset(filename: str):
+    """Serve RHE preview PNGs from PREVIEW_DIR. Used when StaticFiles mount is not enough (e.g. Render)."""
+    safe_path = os.path.normpath(filename)
+    if ".." in safe_path or os.path.isabs(safe_path):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    file_path = os.path.join(PREVIEW_DIR, safe_path)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Preview not found")
+    return FileResponse(
+        file_path,
+        media_type="image/png",
+        headers={**CORS_HEADERS, "Cache-Control": "public, max-age=300"},
+    )
+
+
 @app.get("/asset/{subpath:path}")
 async def serve_asset(subpath: str):
-    """Serve any file under /tmp/output, including previews and HQ renders."""
-    file_path = os.path.join("/tmp/output", subpath)
-    if not os.path.exists(file_path):
-        return JSONResponse(status_code=404, content={"error": f"File not found: {file_path}"})
-    return FileResponse(file_path, media_type="image/png", headers={"Cache-Control": "no-cache"})
+    """Serve any file under OUTPUT_DIR, including previews and HQ renders."""
+    file_path = os.path.join(OUTPUT_DIR, subpath)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, media_type="image/png", headers={**CORS_HEADERS, "Cache-Control": "no-cache"})
+
+
+# -------------------------------------------------------------------
+# Local dev: serve frontend assets at exact paths so /docs and /api/* are not shadowed.
+# -------------------------------------------------------------------
+@app.get("/solar-archive.js")
+async def serve_js():
+    return FileResponse(Path(__file__).parent / "solar-archive.js", media_type="application/javascript")
+
+@app.get("/solar-archive.css")
+async def serve_css():
+    return FileResponse(Path(__file__).parent / "solar-archive.css", media_type="text/css")
