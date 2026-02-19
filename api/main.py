@@ -411,31 +411,28 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
     log_to_queue(f"[generate_preview] SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
 
     client = VSOClient()
-    # Primary search: ±1 minute
-    qr = client.search(
-        a.Time(dt, dt + timedelta(minutes=1)),
-        a.Detector("AIA"),
-        a.Wavelength(wl * u.angstrom),
-        a.Source("SDO"),
-    )
-    # Retry with wider window if no results (same pattern as fido_fetch_map)
-    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-        log_to_queue(f"[generate_preview] No results in ±1min, retrying ±10min...")
-        qr = Fido.search(
-            a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
-            a.Detector("AIA"), a.Provider("VSO"),
-            a.Source("SDO"),
+    # Search with progressively wider windows — always use VSOClient.search (not Fido.search,
+    # which behaves differently with Provider attr and returns 0 results for recent dates)
+    search_windows = [
+        (dt, dt + timedelta(minutes=1), "±1min"),
+        (dt - timedelta(minutes=10), dt + timedelta(minutes=10), "±10min"),
+        (dt - timedelta(days=3), dt + timedelta(days=3), "±3days"),
+    ]
+    qr = []
+    for t0, t1, label in search_windows:
+        log_to_queue(f"[generate_preview] Searching VSO {label}...")
+        qr = client.search(
+            a.Time(t0, t1),
+            a.Detector("AIA"),
             a.Wavelength(wl * u.angstrom),
-        )
-    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-        log_to_queue(f"[generate_preview] No results in ±10min, retrying ±1 day...")
-        qr = Fido.search(
-            a.Time(dt - timedelta(days=1), dt + timedelta(days=1)),
-            a.Detector("AIA"), a.Provider("VSO"),
             a.Source("SDO"),
-            a.Wavelength(wl * u.angstrom),
         )
-    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        total = sum(len(r) for r in qr)
+        if total > 0:
+            log_to_queue(f"[generate_preview] Found {total} records in {label} window")
+            break
+        log_to_queue(f"[generate_preview] No results in {label}, widening...")
+    if not qr or all(len(resp) == 0 for resp in qr):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
 
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
