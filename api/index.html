@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +7,7 @@
   <title>Solar Archive — Your Sun, Your Day</title>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-  <link href="/api/static/solar-archive.css" rel="stylesheet">
+  <link href="solar-archive.css" rel="stylesheet">
 </head>
 <body>
 <div class="app-container">
@@ -56,51 +57,61 @@
       </div>
     </div>
 
-    <span class="field-label" style="display:block; margin-top:16px;">Wavelength</span>
     <div class="wavelength-grid" id="wlGrid">
       <div class="wl-card" data-wl="94">
+        <div class="wl-thumb" data-wl="94"></div>
         <div class="wl-value">94 Å</div>
         <div class="wl-label">Green · 6.3MK<br>Hot flaring plasma</div>
       </div>
       <div class="wl-card" data-wl="131">
+        <div class="wl-thumb" data-wl="131"></div>
         <div class="wl-value">131 Å</div>
         <div class="wl-label">Teal · 10MK<br>Flares / transition</div>
       </div>
       <div class="wl-card selected" data-wl="171">
+        <div class="wl-thumb" data-wl="171"></div>
         <div class="wl-value">171 Å</div>
         <div class="wl-label">Golden · 0.8MK<br>Quiet corona, loops</div>
       </div>
       <div class="wl-card" data-wl="193">
+        <div class="wl-thumb" data-wl="193"></div>
         <div class="wl-value">193 Å</div>
         <div class="wl-label">Amber · 1.5MK<br>Corona / flares</div>
       </div>
       <div class="wl-card" data-wl="211">
+        <div class="wl-thumb" data-wl="211"></div>
         <div class="wl-value">211 Å</div>
         <div class="wl-label">Purple · 2.0MK<br>Active regions</div>
       </div>
       <div class="wl-card" data-wl="304">
+        <div class="wl-thumb" data-wl="304"></div>
         <div class="wl-value">304 Å</div>
         <div class="wl-label">Red · 0.05MK<br>Chromosphere</div>
       </div>
       <div class="wl-card" data-wl="335">
+        <div class="wl-thumb" data-wl="335"></div>
         <div class="wl-value">335 Å</div>
         <div class="wl-label">Blue · 2.5MK<br>Active regions</div>
       </div>
+      <div class="wl-card" data-wl="1600">
+        <div class="wl-thumb" data-wl="1600"></div>
+        <div class="wl-value">1600 Å</div>
+        <div class="wl-label">UV · 0.1MK<br>Transition region</div>
+      </div>
+      <div class="wl-card" data-wl="1700">
+        <div class="wl-thumb" data-wl="1700"></div>
+        <div class="wl-value">1700 Å</div>
+        <div class="wl-label">UV · 5000K<br>Photosphere</div>
+      </div>
     </div>
 
-    <button class="btn-generate" id="btnGenerate">
-      <i class="fas fa-sun"></i> Generate Preview
-    </button>
-
-    <div class="progress-track" id="progressTrack">
-      <div class="progress-fill" id="progressFill"></div>
+    <div class="status-msg" id="statusMsg">
+      Select a date, then click a wavelength tile to load your solar image.
     </div>
-
-    <div class="status-msg" id="statusMsg"></div>
 
     <div class="info-row">
       <i class="fas fa-info-circle"></i>
-      <span>AIA imagery available from May 2010. Preview at <a href="https://www.helioviewer.org" target="_blank" rel="noopener">helioviewer.org</a></span>
+      <span>AIA imagery available from May 2010. Click any tile to instantly preview. <a href="https://www.helioviewer.org" target="_blank" rel="noopener">helioviewer.org</a></span>
     </div>
   </div>
 
@@ -119,6 +130,11 @@
 
     <!-- Edit Tools -->
     <div class="edit-toolbar">
+      <div class="filter-toggle editor-filter" id="editorFilterToggle">
+        <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
+        <label class="filter-opt"><input type="radio" name="editorFilter" value="raw" checked> Raw</label>
+        <label class="filter-opt"><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
+      </div>
       <button class="edit-btn" data-tool="crop" title="Crop"><i class="fas fa-crop-alt"></i> Crop</button>
       <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
       <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
@@ -141,14 +157,7 @@
       </div>
       <div class="field-row">
         <span class="field-label-sm">Font</span>
-        <select id="textFontSelect">
-          <option value="Outfit">Outfit</option>
-          <option value="JetBrains Mono">JetBrains Mono</option>
-          <option value="Georgia">Georgia</option>
-          <option value="Impact">Impact</option>
-          <option value="Courier New">Courier New</option>
-          <option value="Arial Black">Arial Black</option>
-        </select>
+        <select id="textFontSelect"><!-- populated by JS from FONT_CATALOG --></select>
       </div>
       <div class="field-row">
         <span class="field-label-sm">Color</span>
@@ -158,6 +167,25 @@
         <span class="field-label-sm" style="min-width:30px;">W</span>
         <input type="range" id="textStrokeWidth" min="0" max="10" value="2" style="flex:1; max-width:100px;">
         <span class="slider-val" id="textStrokeVal" style="min-width:20px;">2</span>
+      </div>
+      <div class="field-row text-effect-row">
+        <span class="field-label-sm" style="min-width:50px;">Shadow</span>
+        <label class="toggle-label"><input type="checkbox" id="textShadowToggle"> On</label>
+        <input type="color" id="textShadowColor" value="#000000" title="Shadow color">
+        <span class="field-label-sm" style="min-width:24px;">Blur</span>
+        <input type="range" id="textShadowBlur" min="0" max="30" value="6" style="flex:1; max-width:80px;">
+        <span class="slider-val" id="textShadowBlurVal" style="min-width:20px;">6</span>
+      </div>
+      <div class="field-row text-effect-row">
+        <span class="field-label-sm" style="min-width:50px;">Arc</span>
+        <label class="toggle-label"><input type="checkbox" id="textArcToggle"> On</label>
+        <span class="field-label-sm" style="min-width:24px;">R</span>
+        <input type="range" id="textArcRadius" min="50" max="600" value="200" style="flex:1; max-width:120px;">
+        <span class="slider-val" id="textArcRadiusVal" style="min-width:30px;">200</span>
+      </div>
+      <div class="field-row text-effect-row">
+        <span class="field-label-sm" style="min-width:50px;">Outline</span>
+        <label class="toggle-label"><input type="checkbox" id="textOutlineToggle"> Stroke only (no fill)</label>
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button class="edit-btn" id="applyText" style="flex:1;justify-content:center;">
@@ -180,6 +208,9 @@
         <button class="crop-ratio-btn" data-ratio="4:3">4:3</button>
         <button class="crop-ratio-btn" data-ratio="3:2">3:2</button>
         <button class="crop-ratio-btn" data-ratio="16:9">16:9</button>
+        <button class="crop-ratio-btn product-crop-btn hidden" data-ratio="product" id="cropProductBtn">
+          <i class="fas fa-box" style="font-size:10px;"></i> Product
+        </button>
       </div>
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="edit-btn" id="applyCrop" style="flex:1;justify-content:center;">
@@ -218,6 +249,14 @@
       <span class="slider-val" id="vigWidthVal">0</span>
     </div>
 
+    <div class="progress-track" id="progressTrack">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <button class="btn-generate hidden" id="btnGenerate">
+      <i class="fas fa-rocket"></i> Make Products
+    </button>
+
     <button class="btn-hq hidden" id="btnHQ">
       <i class="fas fa-star"></i> Generate HQ Print-Ready Image
     </button>
@@ -231,7 +270,7 @@
     </div>
 
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Preview how your solar image looks on different products. When you're happy with your edits, click <strong>Buy</strong> on any product to create it on Shopify and complete your purchase.
+      Preview how your solar image looks on different products. Click <strong>Make Products</strong> to generate mockups and start the HQ render in the background — then click <strong>Buy</strong> on any product to complete your purchase on Shopify.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -246,7 +285,7 @@
     <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
-      Generate an image above, then click Buy on any product to purchase.
+      Select a wavelength tile to load your image, edit it, then click Make Products.
     </div>
 
     <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
@@ -264,6 +303,7 @@
   <div class="app-footer">
     Images courtesy of NASA/SDO. Not affiliated; no endorsement implied.<br>
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
+    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">v2da2ca3</span>
   </div>
 </div>
 
@@ -273,6 +313,6 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script src="/api/static/solar-archive.js"></script>
+<script src="solar-archive.js"></script>
 </body>
 </html>
