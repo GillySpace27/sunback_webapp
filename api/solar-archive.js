@@ -186,6 +186,7 @@
     var dateInput = $("#solarDate");
     var wlGrid = $("#wlGrid");
     var btnGenerate = $("#btnGenerate");
+    var btnPreview = $("#btnPreview");
     var progressTrack = $("#progressTrack");
     var progressFill = $("#progressFill");
     var statusMsg = $("#statusMsg");
@@ -397,6 +398,7 @@
 
       editSection.classList.remove("hidden");
       imageStage.classList.remove("empty");
+      if (btnPreview) btnPreview.classList.remove("hidden");
       btnGenerate.classList.remove("hidden");
       productSection.classList.remove("hidden");
       renderProducts();
@@ -648,6 +650,8 @@
     var editorFilterToggleEl = document.getElementById("editorFilterToggle");
     if (editorFilterToggleEl) {
       editorFilterToggleEl.addEventListener("click", function(e) {
+        // Ignore synthetic click fired on the radio input itself — the label click handles it
+        if (e.target.tagName === "INPUT") return;
         var label = e.target.closest(".filter-opt");
         if (!label) return;
         var radio = label.querySelector("input[type=radio]");
@@ -1064,6 +1068,21 @@
             })
             .catch(reject);
         })();
+      });
+    }
+
+    // ── "Preview Products" button — refreshes all canvas mockups from current canvas ──
+    if (btnPreview) {
+      btnPreview.addEventListener("click", function() {
+        if (!state.originalImage) {
+          showInfo("No Image", "Click a wavelength tile to load the solar image first.");
+          return;
+        }
+        // Clear Printify mockups so canvas-drawn previews show immediately
+        state.mockups = {};
+        productSection.classList.remove("hidden");
+        renderProducts();
+        showToast("Product previews updated!");
       });
     }
 
@@ -2045,14 +2064,51 @@
 
     // ── Products ─────────────────────────────────────────────────
     // ── Product mockup drawing ──────────────────────────────────
+
+    /**
+     * Compute a center-crop source rect so the solar canvas fills a destination
+     * area with the correct aspect ratio (no stretching, no letterboxing).
+     * Returns { sx, sy, sw, sh } to pass as the source slice of drawImage().
+     */
+    function _cropSrcForDst(srcW, srcH, dstW, dstH) {
+      var srcAR = srcW / srcH;
+      var dstAR = dstW / dstH;
+      var sx, sy, sw, sh;
+      if (srcAR > dstAR) {
+        // source is wider — crop sides
+        sh = srcH;
+        sw = srcH * dstAR;
+        sx = (srcW - sw) / 2;
+        sy = 0;
+      } else {
+        // source is taller — crop top/bottom
+        sw = srcW;
+        sh = srcW / dstAR;
+        sx = 0;
+        sy = (srcH - sh) / 2;
+      }
+      return { sx: sx, sy: sy, sw: sw, sh: sh };
+    }
+
     function drawProductMockup(mctx, productId, sw, sh) {
       var W = 160, H = 160;
       mctx.fillStyle = "#1a1a2e";
       mctx.fillRect(0, 0, W, H);
 
-      if (productId === "mug_15oz") {
-        // Draw a mug body with image wrapped around it
+      // Helper: draw solarCanvas into a destination rect with proper aspect-ratio center-crop
+      function drawCropped(dstX, dstY, dstW, dstH) {
+        var c = _cropSrcForDst(sw, sh, dstW, dstH);
+        mctx.drawImage(solarCanvas, c.sx, c.sy, c.sw, c.sh, dstX, dstY, dstW, dstH);
+      }
+
+      if (productId === "mug_15oz" || productId === "tumbler_20oz" || productId === "desk_mat") {
+        // Wide 2:1 products — mug body / wide rectangle
         var bodyL = 30, bodyR = 120, bodyT = 35, bodyB = 130;
+        if (productId === "desk_mat") {
+          bodyL = 5; bodyR = 155; bodyT = 45; bodyB = 115;
+        } else if (productId === "tumbler_20oz") {
+          bodyL = 38; bodyR = 112; bodyT = 28; bodyB = 138;
+        }
         mctx.save();
         mctx.beginPath();
         mctx.moveTo(bodyL, bodyT + 8);
@@ -2065,16 +2121,18 @@
         mctx.quadraticCurveTo(bodyL, bodyB, bodyL - 2, bodyB - 10);
         mctx.closePath();
         mctx.clip();
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, bodyL, bodyT, bodyR - bodyL, bodyB - bodyT);
+        drawCropped(bodyL, bodyT, bodyR - bodyL, bodyB - bodyT);
         mctx.restore();
-        // Handle
-        mctx.strokeStyle = "#aaa";
-        mctx.lineWidth = 4;
-        mctx.beginPath();
-        mctx.moveTo(bodyR, 50);
-        mctx.quadraticCurveTo(bodyR + 28, 50, bodyR + 28, 80);
-        mctx.quadraticCurveTo(bodyR + 28, 115, bodyR, 115);
-        mctx.stroke();
+        if (productId !== "desk_mat") {
+          // Handle
+          mctx.strokeStyle = "#aaa";
+          mctx.lineWidth = 4;
+          mctx.beginPath();
+          mctx.moveTo(bodyR, bodyT + 15);
+          mctx.quadraticCurveTo(bodyR + 28, bodyT + 15, bodyR + 28, (bodyT + bodyB) / 2);
+          mctx.quadraticCurveTo(bodyR + 28, bodyB - 15, bodyR, bodyB - 15);
+          mctx.stroke();
+        }
         // Rim highlight
         mctx.strokeStyle = "rgba(255,255,255,0.3)";
         mctx.lineWidth = 2;
@@ -2082,55 +2140,57 @@
         mctx.moveTo(bodyL + 2, bodyT);
         mctx.lineTo(bodyR - 2, bodyT);
         mctx.stroke();
-      } else if (productId === "tshirt_unisex") {
-        // T-shirt silhouette with image on chest
-        mctx.fillStyle = "#e8e8e8";
+      } else if (productId === "tshirt_unisex" || productId === "hoodie_pullover" || productId === "crewneck_sweatshirt") {
+        // Apparel silhouette with image on chest (1:1 print area)
+        mctx.fillStyle = productId === "tshirt_unisex" ? "#e8e8e8" : "#d0d0d0";
         mctx.beginPath();
-        // Neckline + shoulders
         mctx.moveTo(60, 18);
         mctx.quadraticCurveTo(80, 28, 100, 18);
         mctx.lineTo(130, 30);
-        mctx.lineTo(155, 55); // right sleeve
+        mctx.lineTo(155, 55);
         mctx.lineTo(130, 60);
         mctx.lineTo(128, 145);
         mctx.lineTo(32, 145);
         mctx.lineTo(30, 60);
-        mctx.lineTo(5, 55); // left sleeve
+        mctx.lineTo(5, 55);
         mctx.lineTo(30, 30);
         mctx.closePath();
         mctx.fill();
-        // Solar image on chest area
+        if (productId === "hoodie_pullover") {
+          // Kangaroo pocket
+          mctx.fillStyle = "rgba(0,0,0,0.1)";
+          mctx.fillRect(52, 105, 56, 35);
+        }
         mctx.save();
         mctx.beginPath();
         mctx.rect(45, 42, 70, 70);
         mctx.clip();
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, 45, 42, 70, 70);
+        drawCropped(45, 42, 70, 70);
         mctx.restore();
       } else if (productId === "poster_matte" || productId === "framed_poster") {
-        // Poster with shadow and border
+        // Poster 11:14 — taller than wide
         var pL = 25, pT = 10, pW = 110, pH = 140;
         mctx.fillStyle = "rgba(0,0,0,0.4)";
         mctx.fillRect(pL + 4, pT + 4, pW, pH);
         mctx.fillStyle = "#fff";
         mctx.fillRect(pL, pT, pW, pH);
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, pL + 5, pT + 5, pW - 10, pH - 10);
+        drawCropped(pL + 5, pT + 5, pW - 10, pH - 10);
         if (productId === "framed_poster") {
           mctx.strokeStyle = "#333";
           mctx.lineWidth = 4;
           mctx.strokeRect(pL, pT, pW, pH);
         }
       } else if (productId === "canvas_stretched" || productId === "metal_sign" || productId === "acrylic_print") {
-        // Wall art — image with subtle shadow
+        // Square wall art
         var wL = 15, wT = 15, wW = 130, wH = 130;
         mctx.fillStyle = "rgba(0,0,0,0.35)";
         mctx.fillRect(wL + 5, wT + 5, wW, wH);
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, wL, wT, wW, wH);
+        drawCropped(wL, wT, wW, wH);
         if (productId === "canvas_stretched") {
           mctx.strokeStyle = "#444";
           mctx.lineWidth = 3;
           mctx.strokeRect(wL, wT, wW, wH);
         } else if (productId === "acrylic_print") {
-          // Glossy highlight
           var grad = mctx.createLinearGradient(wL, wT, wL + wW, wT + wH);
           grad.addColorStop(0, "rgba(255,255,255,0.18)");
           grad.addColorStop(0.5, "rgba(255,255,255,0)");
@@ -2139,20 +2199,19 @@
           mctx.fillRect(wL, wT, wW, wH);
         }
       } else if (productId === "wall_clock") {
-        // Round clock face with solar image
+        // Round clock — 1:1 circle
         var cx = 80, cy = 80, r = 65;
         mctx.save();
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
         mctx.clip();
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, cx - r, cy - r, r * 2, r * 2);
+        drawCropped(cx - r, cy - r, r * 2, r * 2);
         mctx.restore();
         mctx.strokeStyle = "#666";
         mctx.lineWidth = 3;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
         mctx.stroke();
-        // Clock hands
         mctx.strokeStyle = "#fff";
         mctx.lineWidth = 2;
         mctx.beginPath();
@@ -2163,8 +2222,9 @@
         mctx.moveTo(cx, cy);
         mctx.lineTo(cx + 30, cy - 10);
         mctx.stroke();
-      } else if (productId === "throw_pillow") {
-        // Square pillow with image
+      } else if (productId === "throw_pillow" || productId === "mouse_pad" || productId === "sherpa_blanket" ||
+                 productId === "shower_curtain" || productId === "tapestry" || productId === "crew_socks") {
+        // Square-ish products
         var pilL = 18, pilT = 18, pilW = 124, pilH = 124;
         mctx.fillStyle = "rgba(0,0,0,0.2)";
         mctx.fillRect(pilL + 4, pilT + 4, pilW, pilH);
@@ -2181,11 +2241,11 @@
         mctx.quadraticCurveTo(pilL, pilT, pilL + 8, pilT);
         mctx.closePath();
         mctx.clip();
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, pilL, pilT, pilW, pilH);
+        drawCropped(pilL, pilT, pilW, pilH);
         mctx.restore();
       } else if (productId === "puzzle_1000") {
-        // Puzzle grid overlay on image
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, 10, 10, 140, 140);
+        // Square puzzle with grid overlay
+        drawCropped(10, 10, 140, 140);
         mctx.strokeStyle = "rgba(255,255,255,0.25)";
         mctx.lineWidth = 1;
         for (var px = 10; px <= 150; px += 28) {
@@ -2195,7 +2255,7 @@
           mctx.beginPath(); mctx.moveTo(10, py); mctx.lineTo(150, py); mctx.stroke();
         }
       } else if (productId === "phone_case") {
-        // Phone case shape with image
+        // Phone 9:19 — tall portrait
         var phL = 42, phT = 8, phW = 76, phH = 144, rr = 14;
         mctx.save();
         mctx.beginPath();
@@ -2210,9 +2270,8 @@
         mctx.quadraticCurveTo(phL, phT, phL + rr, phT);
         mctx.closePath();
         mctx.clip();
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, phL, phT, phW, phH);
+        drawCropped(phL, phT, phW, phH);
         mctx.restore();
-        // Phone bezel outline
         mctx.strokeStyle = "#888";
         mctx.lineWidth = 2.5;
         mctx.beginPath();
@@ -2226,14 +2285,34 @@
         mctx.lineTo(phL, phT + rr);
         mctx.quadraticCurveTo(phL, phT, phL + rr, phT);
         mctx.stroke();
-        // Camera hole
         mctx.fillStyle = "#222";
         mctx.beginPath();
         mctx.arc(phL + phW - 16, phT + 18, 6, 0, Math.PI * 2);
         mctx.fill();
+      } else if (productId === "laptop_sleeve") {
+        // Laptop 4:3 — wide landscape
+        var lapL = 8, lapT = 28, lapW = 144, lapH = 108, lapR = 8;
+        mctx.save();
+        mctx.beginPath();
+        mctx.moveTo(lapL + lapR, lapT);
+        mctx.lineTo(lapL + lapW - lapR, lapT);
+        mctx.quadraticCurveTo(lapL + lapW, lapT, lapL + lapW, lapT + lapR);
+        mctx.lineTo(lapL + lapW, lapT + lapH - lapR);
+        mctx.quadraticCurveTo(lapL + lapW, lapT + lapH, lapL + lapW - lapR, lapT + lapH);
+        mctx.lineTo(lapL + lapR, lapT + lapH);
+        mctx.quadraticCurveTo(lapL, lapT + lapH, lapL, lapT + lapH - lapR);
+        mctx.lineTo(lapL, lapT + lapR);
+        mctx.quadraticCurveTo(lapL, lapT, lapL + lapR, lapT);
+        mctx.closePath();
+        mctx.clip();
+        drawCropped(lapL, lapT, lapW, lapH);
+        mctx.restore();
+        mctx.strokeStyle = "#666";
+        mctx.lineWidth = 2;
+        mctx.strokeRect(lapL, lapT, lapW, lapH);
       } else {
-        // Generic: just draw the image
-        mctx.drawImage(solarCanvas, 0, 0, sw, sh, 10, 10, 140, 140);
+        // Generic square fallback
+        drawCropped(10, 10, 140, 140);
       }
     }
 
