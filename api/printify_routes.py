@@ -55,16 +55,34 @@ def _shop_id():
     return sid
 
 
+def _printify_request(method: str, url: str, **kwargs):
+    """Run a requests call to Printify using system/certifi CAs. The app sets
+    REQUESTS_CA_BUNDLE/SSL_CERT_FILE to a NASA-only bundle, which breaks
+    verification for api.printify.com; we temporarily use certifi so the
+    request succeeds.
+    """
+    saved_ca = os.environ.pop("REQUESTS_CA_BUNDLE", None)
+    saved_ssl = os.environ.pop("SSL_CERT_FILE", None)
+    try:
+        kwargs.setdefault("verify", certifi.where())
+        return requests.request(method, url, **kwargs)
+    finally:
+        if saved_ca is not None:
+            os.environ["REQUESTS_CA_BUNDLE"] = saved_ca
+        if saved_ssl is not None:
+            os.environ["SSL_CERT_FILE"] = saved_ssl
+
+
 # ────────────────────────────────────────────────
 # 1.  Upload image to Printify media library
 # ────────────────────────────────────────────────
 def _upload_image_sync(payload: dict) -> dict:
     """Blocking upload — runs in a thread via run_in_threadpool."""
-    resp = requests.post(
+    resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/uploads/images.json",
         headers=_headers(),
         json=payload,
-        verify=certifi.where(),
         timeout=120,
     )
     _log(f"[printify][upload] Response {resp.status_code}: {resp.text[:500]}")
@@ -128,11 +146,11 @@ def _create_product_sync(body: dict) -> dict:
     """Blocking product creation — runs in a thread via run_in_threadpool."""
     shop_id = _shop_id()
     _log(f"[printify][product] POST /v1/shops/{shop_id}/products.json")
-    resp = requests.post(
+    resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
         headers=_headers(),
         json=body,
-        verify=certifi.where(),
         timeout=120,
     )
     _log(f"[printify][product] Response {resp.status_code}: {resp.text[:500]}")
@@ -160,7 +178,7 @@ async def create_product(request: Request):
 # 3.  List shops (helper to find shop_id)
 # ────────────────────────────────────────────────
 def _list_shops_sync() -> list:
-    resp = requests.get(f"{PRINTIFY_BASE}/shops.json", headers=_headers(), verify=certifi.where(), timeout=60)
+    resp = _printify_request("GET", f"{PRINTIFY_BASE}/shops.json", headers=_headers(), timeout=60)
     resp.raise_for_status()
     return resp.json()
 
@@ -179,7 +197,7 @@ async def list_shops():
 # 4.  List blueprints (catalog browser)
 # ────────────────────────────────────────────────
 def _list_blueprints_sync() -> list:
-    resp = requests.get(f"{PRINTIFY_BASE}/catalog/blueprints.json", headers=_headers(), verify=certifi.where(), timeout=60)
+    resp = _printify_request("GET", f"{PRINTIFY_BASE}/catalog/blueprints.json", headers=_headers(), timeout=60)
     resp.raise_for_status()
     return resp.json()
 
@@ -198,9 +216,11 @@ async def list_blueprints():
 # 5.  List variants for a blueprint + provider
 # ────────────────────────────────────────────────
 def _list_variants_sync(blueprint_id: int, provider_id: int) -> dict:
-    resp = requests.get(
+    resp = _printify_request(
+        "GET",
         f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
-        headers=_headers(), verify=certifi.where(), timeout=60,
+        headers=_headers(),
+        timeout=60,
     )
     resp.raise_for_status()
     return resp.json()
@@ -222,9 +242,12 @@ async def list_variants(blueprint_id: int, provider_id: int):
 def _publish_product_sync(product_id: str) -> None:
     shop_id = _shop_id()
     payload = {"title": True, "description": True, "images": True, "variants": True, "tags": True}
-    resp = requests.post(
+    resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}/publish.json",
-        headers=_headers(), json=payload, verify=certifi.where(), timeout=120,
+        headers=_headers(),
+        json=payload,
+        timeout=120,
     )
     _log(f"[printify][publish] Response {resp.status_code}: {resp.text[:500]}")
     if resp.status_code not in (200, 201):
@@ -273,11 +296,11 @@ def _do_checkout_sync(
 
     # ── Step 1: Upload image ──
     _log(f"[checkout] Step 1: uploading image ({len(image_base64)} chars)")
-    upload_resp = requests.post(
+    upload_resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/uploads/images.json",
         headers=_headers(),
         json={"file_name": file_name, "contents": image_base64},
-        verify=certifi.where(),
         timeout=120,
     )
     if upload_resp.status_code not in (200, 201):
@@ -321,11 +344,11 @@ def _do_checkout_sync(
         "tags": tags,
     }
 
-    create_resp = requests.post(
+    create_resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
         headers=_headers(),
         json=product_payload,
-        verify=certifi.where(),
         timeout=120,
     )
     if create_resp.status_code not in (200, 201):
@@ -339,7 +362,8 @@ def _do_checkout_sync(
 
     # ── Step 3: Publish to Shopify ──
     _log(f"[checkout] Step 3: publishing product {product_id}")
-    publish_resp = requests.post(
+    publish_resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}/publish.json",
         headers=_headers(),
         json={
@@ -349,7 +373,6 @@ def _do_checkout_sync(
             "variants": True,
             "tags": True,
         },
-        verify=certifi.where(),
         timeout=120,
     )
     if publish_resp.status_code not in (200, 201):
@@ -414,10 +437,10 @@ _PRINTIFY_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 def _fetch_shopify_url_sync(product_id: str) -> dict:
     """Blocking lookup — runs in a thread via run_in_threadpool."""
     shop_id = _shop_id()
-    resp = requests.get(
+    resp = _printify_request(
+        "GET",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
         headers=_headers(),
-        verify=certifi.where(),
         timeout=30,
     )
     if resp.status_code != 200:
