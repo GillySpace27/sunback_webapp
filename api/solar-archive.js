@@ -60,8 +60,17 @@
       hqImageUrl: null,   // URL of completed HQ PNG (separate from originalImage)
       hqTaskId: null,     // running HQ background task ID
       helioPreviewLoaded: false,  // true once a Helioviewer image is in the canvas
-      editorFilter: "raw",       // "raw" | "rhef" — only in editor, not on tiles
-      rhefImage: null            // RHE-processed image when editorFilter is "rhef", computed on demand
+      editorFilter: "raw",       // "raw" | "rhef" | "hq" — only in editor, not on tiles
+      rhefImage: null,           // RHE-processed image when editorFilter is "rhef"
+      rhefFetching: false,       // true while background RHEF fetch is in-flight
+      rhefFetchPromise: null,    // Promise for in-flight RHEF fetch (deduplication)
+      hqFilterImage: null,       // loaded HQ filtered Image object
+      hqFetching: false,         // true while HQ generation is in progress
+      mockupsRaw: {},            // cached mockups for raw version
+      mockupsFiltered: {},       // cached mockups for filtered (RHEF/HQ) version
+      uploadedPrintifyIdRaw: null,      // Printify upload ID for raw canvas
+      uploadedPrintifyIdFiltered: null, // Printify upload ID for filtered canvas
+      transitionInProgress: false       // prevents toggle spam during wipe animation
     };
 
     // ── Product catalog (Printify blueprint/provider/variant model) ──
@@ -243,18 +252,18 @@
       if (cached && cached.canvas1024) {
         _startPreviewFromCanvas(cached.canvas1024, cached, wl, dateVal);
       } else {
-        // Fetch higher-res preview for main canvas (1024) so crop/edit look good
+        // Fetch highest-res unfiltered preview for main canvas (2048px)
         var isoDate = dateVal + "T12:00:00Z";
         var url = API_BASE + "/api/helioviewer_thumb?date=" +
           encodeURIComponent(isoDate) + "&wavelength=" + wl +
-          "&image_scale=12&size=1024";
+          "&image_scale=6&size=2048";
 
         var img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = function() {
           var rawC = document.createElement("canvas");
-          rawC.width = img.naturalWidth || 1024;
-          rawC.height = img.naturalHeight || 1024;
+          rawC.width = img.naturalWidth || 2048;
+          rawC.height = img.naturalHeight || 2048;
           rawC.getContext("2d").drawImage(img, 0, 0);
           var entry = thumbCache[String(wl)] || { raw: null, rhef: null, canvas1024: null };
           entry.canvas1024 = rawC;
@@ -303,19 +312,61 @@
       state.textOverlay = null;
       state.textMode = false;
       state.mockups = {};
+      state.mockupsRaw = {};
+      state.mockupsFiltered = {};
       state.uploadedPrintifyId = null;
+      state.uploadedPrintifyIdRaw = null;
+      state.uploadedPrintifyIdFiltered = null;
       state.hqReady = false;
       state.hqImageUrl = null;
       state.hqTaskId = null;
+      state.hqFilterImage = null;
+      state.hqFetching = false;
+      state.rhefFetching = false;
+      state.rhefFetchPromise = null;
+      state.transitionInProgress = false;
       state.helioPreviewLoaded = true;
 
-      // Warm the science-image cache: request backend to generate FITS→RHEF PNG for this date/wl
+      // Reset filter toggle UI to Raw
+      _syncFilterToggleUI("raw");
+
+      // Auto-fetch RHEF in background and switch to it when ready
       if (API_BASE && dateVal && wl) {
-        fetch(API_BASE + "/api/generate_preview", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date: dateVal, wavelength: wl, mission: "SDO" })
-        }).catch(function() {});
+        // Check thumbCache for an already-cached RHEF image for this wavelength
+        var cachedEntry = thumbCache[String(wl)];
+        if (cachedEntry && cachedEntry.rhef) {
+          state.rhefImage = cachedEntry.rhef;
+          // Defer auto-switch until after canvas is rendered
+          setTimeout(function() {
+            transitionToFilter("rhef", function() {
+              showToast("Filtered version loaded! Click Raw to switch back.", "info");
+            });
+          }, 800);
+        } else {
+          state.rhefFetching = true;
+          updateFilterStatusLine("Generating filtered version\u2026", "loading");
+          state.rhefFetchPromise = fetchBackendRHEPreview(dateVal, wl, function(pct, msg) {
+            updateFilterStatusLine(msg || "Generating filtered version\u2026", "loading");
+          }).then(function(rhefImg) {
+            state.rhefImage = rhefImg;
+            state.rhefFetching = false;
+            state.rhefFetchPromise = null;
+            // Cache in thumbCache
+            var entry = thumbCache[String(wl)] || {};
+            entry.rhef = rhefImg;
+            thumbCache[String(wl)] = entry;
+            updateFilterStatusLine("Filtered version ready!", "success");
+            // Auto-switch to RHEF with radial wipe
+            transitionToFilter("rhef", function() {
+              showToast("Filtered version loaded! Click Raw to switch back.", "info");
+            });
+          }).catch(function(err) {
+            console.error("[RHEF] Background fetch failed:", err);
+            state.rhefFetching = false;
+            state.rhefFetchPromise = null;
+            updateFilterStatusLine("", "hidden");
+          });
+        }
       }
 
       if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
@@ -355,7 +406,7 @@
     // ── Wavelength thumbnail previews via Helioviewer (proxied + client RHE) ──
     var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14, 1600: 15, 1700: 16 };
     var lastThumbDate = "";
-    var thumbCache = {};  // { "wl": { raw: <canvas>, canvas1024: <canvas> } } — tiles always raw
+    var thumbCache = {};  // { "wl": { raw: <canvas>, canvas1024: <canvas>, rhef: <Image> } } — tiles show raw
 
     /** Clone a canvas element */
     function cloneCanvas(src) {
@@ -415,7 +466,7 @@
         tileImg.style.objectFit = "cover";
         tileImg.style.borderRadius = "50%";
         tileImg.onload = function() {
-          thumbCache[wl] = { raw: null, canvas1024: null };
+          thumbCache[wl] = { raw: null, canvas1024: null, rhef: null };
           div.classList.add("loaded");
           console.log("[tiles] loaded", wl);
         };
@@ -493,7 +544,96 @@
         });
     }
 
-    // Editor filter: Raw ↔ RHEF (only affects main canvas); RHE from backend FITS when available
+    // ── Radial outward wipe transition ─────────────────────────
+    function transitionToFilter(newFilter, onComplete) {
+      if (state.transitionInProgress) return;
+      if (newFilter === state.editorFilter) {
+        if (onComplete) onComplete();
+        return;
+      }
+
+      state.transitionInProgress = true;
+
+      // Capture current canvas state
+      var fromCanvas = document.createElement("canvas");
+      fromCanvas.width = solarCanvas.width;
+      fromCanvas.height = solarCanvas.height;
+      fromCanvas.getContext("2d").drawImage(solarCanvas, 0, 0);
+
+      // Switch filter and render target
+      state.editorFilter = newFilter;
+      renderCanvas();
+
+      // Capture target canvas state
+      var toCanvas = document.createElement("canvas");
+      toCanvas.width = solarCanvas.width;
+      toCanvas.height = solarCanvas.height;
+      toCanvas.getContext("2d").drawImage(solarCanvas, 0, 0);
+
+      // Animate radial wipe from center outward
+      var ctx = solarCanvas.getContext("2d");
+      var centerX = solarCanvas.width / 2;
+      var centerY = solarCanvas.height / 2;
+      var maxRadius = Math.sqrt(centerX * centerX + centerY * centerY);
+      var startTime = performance.now();
+      var duration = 600;
+
+      function animate(time) {
+        var elapsed = time - startTime;
+        var t = Math.min(elapsed / duration, 1);
+        // Ease-out cubic for smooth deceleration
+        var progress = 1 - Math.pow(1 - t, 3);
+        var radius = progress * maxRadius;
+
+        ctx.clearRect(0, 0, solarCanvas.width, solarCanvas.height);
+        ctx.drawImage(fromCanvas, 0, 0);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(toCanvas, 0, 0);
+        ctx.restore();
+
+        if (t < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          state.transitionInProgress = false;
+          renderCanvas();
+          // Update radio button active states
+          _syncFilterToggleUI(newFilter);
+          updateMockupDisplay();
+          if (onComplete) onComplete();
+        }
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    function _syncFilterToggleUI(filterValue) {
+      var toggleEl = document.getElementById("editorFilterToggle");
+      if (!toggleEl) return;
+      var radio = toggleEl.querySelector('input[value="' + filterValue + '"]');
+      if (radio) radio.checked = true;
+      toggleEl.querySelectorAll(".filter-opt").forEach(function(opt) {
+        opt.classList.remove("active");
+      });
+      var activeLabel = radio && radio.closest(".filter-opt");
+      if (activeLabel) activeLabel.classList.add("active");
+    }
+
+    // ── Mockup display switching ────────────────────────────────
+    function updateMockupDisplay() {
+      if (state.editorFilter === "raw") {
+        state.mockups = state.mockupsRaw;
+      } else {
+        state.mockups = Object.keys(state.mockupsFiltered).length > 0
+          ? state.mockupsFiltered : state.mockupsRaw;
+      }
+      if (typeof renderProducts === "function") renderProducts();
+    }
+
+    // ── Editor filter: Raw ↔ RHEF ↔ HQ (only affects main canvas) ──
     var editorFilterToggleEl = document.getElementById("editorFilterToggle");
     if (editorFilterToggleEl) {
       editorFilterToggleEl.addEventListener("click", function(e) {
@@ -501,42 +641,74 @@
         if (!label) return;
         var radio = label.querySelector("input[type=radio]");
         if (!radio) return;
-        radio.checked = true;
         var newFilter = radio.value;
-        if (newFilter === state.editorFilter) return;
-        state.editorFilter = newFilter;
-        if (newFilter === "rhef" && !state.rhefImage && state.originalImage) {
-          var dateVal = dateInput ? dateInput.value : "";
-          if (API_BASE && dateVal) {
-            setProgress(5);
-            setStatus('<i class="fas fa-spinner fa-spin"></i> Requesting RHE…', true);
-            fetchBackendRHEPreview(dateVal, state.wavelength, function(pct, msg) {
-              setProgress(pct);
-              setStatus((msg ? '<i class="fas fa-spinner fa-spin"></i> ' + msg : ''), true);
-            }).then(function(img) {
-              state.rhefImage = img;
-              hideProgress();
-              setStatus('', false);
-              renderCanvas();
-            }).catch(function(err) {
-              console.error("[RHEF] Backend preview unavailable:", err);
-              hideProgress();
-              state.editorFilter = "raw";
-              setStatus('RHE not available for this date — using raw.', false);
-              renderCanvas();
-            });
+        if (newFilter === state.editorFilter || state.transitionInProgress) return;
+
+        if (newFilter === "hq") {
+          // HQ filter: cached → instant transition; otherwise modal warning
+          if (state.hqFilterImage) {
+            radio.checked = true;
+            transitionToFilter("hq");
           } else {
-            state.editorFilter = "raw";
-            setStatus('RHE requires a backend and date — using raw.', false);
-            renderCanvas();
+            // Revert radio to current
+            editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+            if (state.hqFetching) {
+              showToast("HQ is generating, please wait\u2026", "info");
+              return;
+            }
+            showModal(
+              "High-Quality Filter",
+              "This will generate a full-resolution filtered image (3000\u00d73000px, 300 DPI). " +
+              "It may take about a minute. Continue?",
+              function() {
+                startHqFilterGeneration(dateInput.value, state.wavelength);
+              },
+              "Generate HQ"
+            );
           }
-        } else {
-          renderCanvas();
+          return;
         }
-        editorFilterToggleEl.querySelectorAll(".filter-opt").forEach(function(opt) {
-          opt.classList.remove("active");
-        });
-        label.classList.add("active");
+
+        if (newFilter === "rhef") {
+          if (state.rhefImage) {
+            // Cached → instant transition
+            radio.checked = true;
+            transitionToFilter("rhef");
+          } else if (state.rhefFetching) {
+            showToast("Filtered version is generating, please wait\u2026", "info");
+            editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+          } else {
+            // Kick off fetch
+            var dateVal = dateInput ? dateInput.value : "";
+            if (API_BASE && dateVal) {
+              editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+              state.rhefFetching = true;
+              updateFilterStatusLine("Requesting RHEF\u2026", "loading");
+              fetchBackendRHEPreview(dateVal, state.wavelength, function(pct, msg) {
+                updateFilterStatusLine(msg || "Generating filtered version\u2026", "loading");
+              }).then(function(img) {
+                state.rhefImage = img;
+                state.rhefFetching = false;
+                updateFilterStatusLine("Filtered version ready!", "success");
+                transitionToFilter("rhef", function() {
+                  showToast("Filtered version loaded! Click Raw to switch back.", "info");
+                });
+              }).catch(function(err) {
+                console.error("[RHEF] Fetch failed:", err);
+                state.rhefFetching = false;
+                updateFilterStatusLine("RHEF unavailable for this date", "error");
+              });
+            } else {
+              editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+              showToast("RHEF requires backend and date.", "error");
+            }
+          }
+          return;
+        }
+
+        // "raw" selected — instant from cache
+        radio.checked = true;
+        transitionToFilter("raw");
       });
       var firstFilterOpt = editorFilterToggleEl && editorFilterToggleEl.querySelector(".filter-opt:first-child");
       if (firstFilterOpt) firstFilterOpt.classList.add("active");
@@ -615,6 +787,29 @@
 
     function setStatus(msg, loading) {
       statusMsg.innerHTML = (loading ? '<div class="spinner"></div>' : "") + msg;
+    }
+
+    // ── Filter status line (console output under toggle) ────────
+    var _filterStatusTimer = null;
+    function updateFilterStatusLine(msg, type) {
+      var el = document.getElementById("filterStatusLine");
+      if (!el) return;
+      clearTimeout(_filterStatusTimer);
+      if (!msg || type === "hidden") {
+        el.style.display = "none";
+        el.textContent = "";
+        el.className = "filter-status-line";
+        return;
+      }
+      var prefix = type === "loading" ? "\u23f3 " : type === "success" ? "\u2713 " : type === "error" ? "\u26a0 " : "";
+      el.textContent = prefix + msg;
+      el.className = "filter-status-line " + (type || "");
+      el.style.display = "block";
+      if (type === "success") {
+        _filterStatusTimer = setTimeout(function() {
+          el.style.display = "none";
+        }, 4000);
+      }
     }
 
     // ── Backend Health Check ─────────────────────────────────────
@@ -897,10 +1092,21 @@
 
       // ── Track A: Start mockups immediately from current canvas ──
       state.mockups = {};
+      state.mockupsRaw = {};
+      state.mockupsFiltered = {};
       state.uploadedPrintifyId = null;
+      state.uploadedPrintifyIdRaw = null;
+      state.uploadedPrintifyIdFiltered = null;
       productSection.classList.remove("hidden");
       renderProducts();
-      setTimeout(autoGenerateMockups, 300);
+      // Generate raw mockups first
+      setTimeout(function() {
+        autoGenerateMockups("raw");
+        // If filtered image is available, also generate filtered mockups
+        if (state.rhefImage || state.hqFilterImage) {
+          setTimeout(function() { autoGenerateMockups("filtered"); }, 500);
+        }
+      }, 300);
 
       // ── Track B: Start HQ generation in background ──────────────
       startHqGeneration(date, state.wavelength).then(function(hqUrl) {
@@ -962,6 +1168,68 @@
       });
     }
 
+    /**
+     * Start HQ filtered image generation (3000px, 300dpi).
+     * Shows progress in filter status line, transitions to HQ on completion.
+     */
+    function startHqFilterGeneration(date, wavelength) {
+      var cacheKey = date + "_" + wavelength + "_hq";
+      var cached = hqCache[cacheKey];
+      if (cached && cached.imageObj) {
+        state.hqFilterImage = cached.imageObj;
+        transitionToFilter("hq", function() {
+          showToast("HQ filtered image ready!", "success");
+        });
+        return Promise.resolve(cached.imageObj);
+      }
+
+      state.hqFetching = true;
+      setProgress(10);
+      updateFilterStatusLine("HQ generation in progress (may take ~60s)\u2026", "loading");
+
+      return postJSON(API_BASE + "/api/generate", {
+        date: date,
+        wavelength: wavelength,
+        mission: "SDO",
+        detector: "AIA"
+      }, 180000).then(function(res) {
+        if (!res.task_id || !res.status_url) throw new Error("HQ task failed to start");
+        var statusUrl = API_BASE + res.status_url;
+        setProgress(30);
+        return pollStatus(statusUrl, function(data) {
+          if (data.status === "started" || data.status === "processing") {
+            setProgress(50);
+            updateFilterStatusLine("HQ rendering in progress\u2026", "loading");
+          }
+        });
+      }).then(function(result) {
+        if (result.status === "completed" && result.image_url) {
+          var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
+          setProgress(85);
+          updateFilterStatusLine("Loading HQ image\u2026", "loading");
+          return loadImage(hqUrl).then(function(img) {
+            state.hqFilterImage = img;
+            state.hqFetching = false;
+            hqCache[cacheKey] = { url: hqUrl, imageObj: img };
+            setProgress(100);
+            hideProgress();
+            updateFilterStatusLine("HQ filter ready!", "success");
+            transitionToFilter("hq", function() {
+              showToast("HQ filtered image ready!", "success");
+            });
+            return img;
+          });
+        }
+        throw new Error(result.message || "HQ generation failed");
+      }).catch(function(err) {
+        state.hqFetching = false;
+        hideProgress();
+        updateFilterStatusLine("HQ generation failed: " + err.message, "error");
+        showToast("HQ failed: " + (err.message || err), "error");
+        return Promise.reject(err);
+      });
+    }
+
     // ── Load image with CORS proxy fallback ──────────────────────
     function loadImage(url) {
       return new Promise(function(resolve, reject) {
@@ -982,7 +1250,10 @@
     // ── Canvas rendering ─────────────────────────────────────────
     function renderCanvas() {
       if (!state.originalImage) return;
-      var img = (state.editorFilter === "rhef" && state.rhefImage) ? state.rhefImage : state.originalImage;
+      var img;
+      if (state.editorFilter === "hq" && state.hqFilterImage) img = state.hqFilterImage;
+      else if (state.editorFilter === "rhef" && state.rhefImage) img = state.rhefImage;
+      else img = state.originalImage;
       var ctx = solarCanvas.getContext("2d");
 
       // Compute dimensions with rotation
@@ -1618,6 +1889,33 @@
       var newImg = new Image();
       newImg.onload = function() {
         state.originalImage = newImg;
+
+        // Also crop RHEF and HQ filter images if they exist
+        var cropRect = {
+          x: Math.max(0, Math.round(x1)),
+          y: Math.max(0, Math.round(y1)),
+          w: Math.min(Math.round(w), solarCanvas.width - Math.round(x1)),
+          h: Math.min(Math.round(h), solarCanvas.height - Math.round(y1))
+        };
+        if (state.rhefImage) {
+          _cropFilterImage(state.rhefImage, cropRect, function(croppedImg) {
+            state.rhefImage = croppedImg;
+          });
+        }
+        if (state.hqFilterImage) {
+          _cropFilterImage(state.hqFilterImage, cropRect, function(croppedImg) {
+            state.hqFilterImage = croppedImg;
+          });
+        }
+
+        // Invalidate mockup caches since image changed
+        state.mockupsRaw = {};
+        state.mockupsFiltered = {};
+        state.mockups = {};
+        state.uploadedPrintifyIdRaw = null;
+        state.uploadedPrintifyIdFiltered = null;
+        state.uploadedPrintifyId = null;
+
         state.rotation = 0;
         state.flipH = false;
         state.flipV = false;
@@ -1627,6 +1925,91 @@
       };
       newImg.src = tempCanvas.toDataURL("image/png");
     });
+
+    /**
+     * Crop a filter image using the same transforms as the main canvas.
+     * Renders the source image with current rotation/flip/pixel adjustments,
+     * extracts the same crop region, and calls back with the cropped Image.
+     */
+    function _cropFilterImage(sourceImg, cropRect, callback) {
+      // Render source with the same transforms that were active when user drew the crop
+      var sw = sourceImg.naturalWidth;
+      var sh = sourceImg.naturalHeight;
+      var rotated = (state.rotation % 180 !== 0);
+      var cw = rotated ? sh : sw;
+      var ch = rotated ? sw : sh;
+
+      var tmpCanvas = document.createElement("canvas");
+      tmpCanvas.width = cw;
+      tmpCanvas.height = ch;
+      var tctx = tmpCanvas.getContext("2d");
+
+      tctx.save();
+      tctx.translate(cw / 2, ch / 2);
+      tctx.rotate((state.rotation * Math.PI) / 180);
+      tctx.scale(state.flipH ? -1 : 1, state.flipV ? -1 : 1);
+      tctx.drawImage(sourceImg, -sw / 2, -sh / 2, sw, sh);
+      tctx.restore();
+
+      // Apply pixel adjustments (brightness, contrast, saturation, vignette, invert)
+      var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
+                           state.saturation !== 100 || state.inverted || state.vignette > 0;
+      if (needsPixelWork) {
+        var imageData = tctx.getImageData(0, 0, cw, ch);
+        var d = imageData.data;
+        var br = state.brightness;
+        var co = state.contrast / 100;
+        var factor = (259 * (co * 255 + 255)) / (255 * (259 - co * 255));
+        var sat = state.saturation / 100;
+        var applyVignette = state.vignette > 0;
+        var cx = cw / 2, cy = ch / 2;
+        var maxR = Math.sqrt(cx * cx + cy * cy);
+        var radiusFactor = 1.0 - (state.vignette / 100) * 0.9;
+        var vigR = maxR * radiusFactor;
+        var vigWidthFactor = state.vignetteWidth / 100;
+
+        for (var i = 0; i < d.length; i += 4) {
+          var r = d[i], g = d[i + 1], b = d[i + 2];
+          if (state.inverted) { r = 255 - r; g = 255 - g; b = 255 - b; }
+          r += br; g += br; b += br;
+          r = factor * (r - 128) + 128;
+          g = factor * (g - 128) + 128;
+          b = factor * (b - 128) + 128;
+          var gray = 0.2989 * r + 0.587 * g + 0.114 * b;
+          r = gray + sat * (r - gray);
+          g = gray + sat * (g - gray);
+          b = gray + sat * (b - gray);
+          if (applyVignette) {
+            var px = (i / 4) % cw;
+            var py = Math.floor((i / 4) / cw);
+            var dx = px - cx, dy = py - cy;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > vigR) {
+              var maxFade = maxR - vigR;
+              var fadeLen = maxFade * vigWidthFactor;
+              var t = fadeLen > 0.5 ? Math.min((dist - vigR) / fadeLen, 1.0) : 1.0;
+              t = t * t * (3 - 2 * t);
+              d[i + 3] = d[i + 3] * (1 - t);
+            }
+          }
+          d[i] = Math.max(0, Math.min(255, r));
+          d[i + 1] = Math.max(0, Math.min(255, g));
+          d[i + 2] = Math.max(0, Math.min(255, b));
+        }
+        tctx.putImageData(imageData, 0, 0);
+      }
+
+      // Extract crop region
+      var croppedData = tctx.getImageData(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+      var cropCanvas = document.createElement("canvas");
+      cropCanvas.width = cropRect.w;
+      cropCanvas.height = cropRect.h;
+      cropCanvas.getContext("2d").putImageData(croppedData, 0, 0);
+
+      var croppedImg = new Image();
+      croppedImg.onload = function() { callback(croppedImg); };
+      croppedImg.src = cropCanvas.toDataURL("image/png");
+    }
 
     $("#cancelCrop").addEventListener("click", exitCropMode);
 
@@ -2236,25 +2619,55 @@
     // ── Auto-generate Printify mockups after preview ───────────
     var mockupStatus = $("#mockupStatus");
 
-    function autoGenerateMockups() {
-      // Only run if we have an image and resolved product IDs
+    /**
+     * Generate Printify mockups.
+     * @param {string} variant - "raw" or "filtered". Determines which cache + upload ID to use.
+     */
+    function autoGenerateMockups(variant) {
+      variant = variant || "raw";
+      var isFiltered = (variant !== "raw");
+      var targetCache = isFiltered ? state.mockupsFiltered : state.mockupsRaw;
+      var uploadIdKey = isFiltered ? "uploadedPrintifyIdFiltered" : "uploadedPrintifyIdRaw";
+
       var ready = PRODUCTS.filter(function(p) { return p.blueprintId && p.printProviderId && p.variantId; });
       if (ready.length === 0 || !state.originalImage) return;
 
-      // Skip products already mocked
-      var needsMockup = ready.filter(function(p) { return !state.mockups[p.id]; });
-      if (needsMockup.length === 0) return;
-
-      // Step 1: Upload preview image (or reuse existing upload)
-      if (state.uploadedPrintifyId) {
-        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Generating ' + needsMockup.length + ' mockup(s)…';
-        runMockupQueue(needsMockup);
+      var needsMockup = ready.filter(function(p) { return !targetCache[p.id]; });
+      if (needsMockup.length === 0) {
+        // Already fully mocked for this variant; just update display
+        updateMockupDisplay();
         return;
       }
 
-      var fname = "solar_" + (dateInput.value || "image") + "_" + state.wavelength + "_preview.png";
+      // Reuse existing upload if available
+      if (state[uploadIdKey]) {
+        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Generating ' + needsMockup.length + ' ' + variant + ' mockup(s)\u2026';
+        runMockupQueue(needsMockup, targetCache, state[uploadIdKey], variant);
+        return;
+      }
+
+      // For filtered mockups, temporarily render with the filtered image
+      var prevFilter = state.editorFilter;
+      if (isFiltered && state.editorFilter === "raw") {
+        if (state.rhefImage) {
+          state.editorFilter = "rhef";
+          renderCanvas();
+        } else if (state.hqFilterImage) {
+          state.editorFilter = "hq";
+          renderCanvas();
+        }
+      }
+
+      var fname = "solar_" + (dateInput.value || "image") + "_" + state.wavelength + "_" + variant + ".png";
       var base64Data = getCanvasBase64();
-      mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Uploading for mockups (' + Math.round(base64Data.length / 1024) + ' KB)…';
+
+      // Restore filter state if we changed it
+      if (state.editorFilter !== prevFilter) {
+        state.editorFilter = prevFilter;
+        renderCanvas();
+      }
+
+      mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Uploading ' + variant + ' for mockups (' + Math.round(base64Data.length / 1024) + ' KB)\u2026';
 
       fetchWithTimeout(API_BASE + "/api/printify/upload", {
         method: "POST",
@@ -2267,29 +2680,39 @@
       })
       .then(function(data) {
         if (!data.id) throw new Error("No image ID returned");
-        state.uploadedPrintifyId = data.id;
+        state[uploadIdKey] = data.id;
+        // Also set the legacy key for backward compat
+        if (!isFiltered) state.uploadedPrintifyId = data.id;
         var unmocked = PRODUCTS.filter(function(p) {
-          return p.blueprintId && p.printProviderId && p.variantId && !state.mockups[p.id];
+          return p.blueprintId && p.printProviderId && p.variantId && !targetCache[p.id];
         });
-        runMockupQueue(unmocked);
+        runMockupQueue(unmocked, targetCache, data.id, variant);
       })
       .catch(function(err) {
         mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockups unavailable: ' + err.message + '</span>';
       });
     }
 
-    function runMockupQueue(queue) {
+    /**
+     * Process mockup creation queue.
+     * @param {Array} queue - products to mock up
+     * @param {Object} targetCache - state.mockupsRaw or state.mockupsFiltered
+     * @param {string} printifyImageId - uploaded image ID
+     * @param {string} variant - "raw" or "filtered"
+     */
+    function runMockupQueue(queue, targetCache, printifyImageId, variant) {
       var total = queue.length;
       var done = 0;
 
       function createNext() {
         if (queue.length === 0) {
-          mockupStatus.innerHTML = '<span style="color:#3ddc84;font-size:12px;"><i class="fas fa-check-circle"></i> All ' + total + ' mockup(s) ready</span>';
+          mockupStatus.innerHTML = '<span style="color:#3ddc84;font-size:12px;"><i class="fas fa-check-circle"></i> All ' + total + ' ' + (variant || '') + ' mockup(s) ready</span>';
+          updateMockupDisplay();
           return;
         }
         var product = queue.shift();
         done++;
-        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Mockup ' + done + '/' + total + ': ' + product.name + '…';
+        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Mockup ' + done + '/' + total + ': ' + product.name + '\u2026';
 
         var payload = {
           title: "[MOCKUP] Solar Preview — " + product.name,
@@ -2301,7 +2724,7 @@
             variant_ids: [product.variantId],
             placeholders: [{
               position: product.position || "front",
-              images: [{ id: state.uploadedPrintifyId, x: 0.5, y: 0.5, scale: 1, angle: 0 }]
+              images: [{ id: printifyImageId, x: 0.5, y: 0.5, scale: 1, angle: 0 }]
             }]
           }]
         };
@@ -2318,6 +2741,8 @@
         .then(function(prodData) {
           var images = prodData.images || [];
           if (images.length > 0) {
+            targetCache[product.id] = { images: images, printifyProductId: prodData.id };
+            // Also update active mockups for display
             state.mockups[product.id] = { images: images, printifyProductId: prodData.id };
           }
           renderProducts();
