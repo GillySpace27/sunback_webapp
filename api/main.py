@@ -394,35 +394,54 @@ def fetch_first_fits(dt, wl):
 
 def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
     """Blocking FITS fetch + RHEF + PNG. Run in thread so server can still serve /docs etc."""
+    import ssl as _ssl
+    import certifi
     from sunpy.net import Fido, attrs as a
     from sunpy.net.vso import VSOClient
     import astropy.units as u
     from datetime import timedelta
+
+    # Reassert SSL/NASA cert config inside thread (same as do_generate_sync + fido_fetch_map)
+    _ssl._create_default_https_context = _ssl._create_unverified_context
+    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
+    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
+    # Force HTTPS for VSO (same as fido_fetch_map line 1125)
+    os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
+    log_to_queue(f"[generate_preview] VSO_URL={os.environ['VSO_URL']}")
+    log_to_queue(f"[generate_preview] SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
+
     client = VSOClient()
+    # Primary search: ±1 minute
     qr = client.search(
         a.Time(dt, dt + timedelta(minutes=1)),
         a.Detector("AIA"),
         a.Wavelength(wl * u.angstrom),
         a.Source("SDO"),
     )
+    # Retry with wider window if no results (same pattern as fido_fetch_map)
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        log_to_queue(f"[generate_preview] No results in ±1min, retrying ±10min...")
+        qr = Fido.search(
+            a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
+            a.Detector("AIA"), a.Provider("VSO"),
+            a.Source("SDO"),
+            a.Wavelength(wl * u.angstrom),
+        )
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        log_to_queue(f"[generate_preview] No results in ±10min, retrying ±1 day...")
+        qr = Fido.search(
+            a.Time(dt - timedelta(days=1), dt + timedelta(days=1)),
+            a.Detector("AIA"), a.Provider("VSO"),
+            a.Source("SDO"),
+            a.Wavelength(wl * u.angstrom),
+        )
     if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
+
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-    def make_downloader_for(url, verify_ssl=True):
-        from parfive import Downloader
-        import ssl
-        if _is_nasa_url(url):
-            if not verify_ssl:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                import ssl as _ssl_mod
-                _ssl_mod._create_default_https_context = lambda: ctx
-                return Downloader(max_conn=15)
-            return Downloader(max_conn=15)
-        return Downloader(max_conn=15)
-    downloader = make_downloader_for("https://sdo5.nascom.nasa.gov", verify_ssl=False)
-    log_to_queue("[generate_preview] Using same downloader as main generator")
+    # Use the same aiohttp-SSL-context downloader as fido_fetch_map
+    downloader = get_downloader()
+    log_to_queue("[generate_preview] Using NASA SSL downloader (same as HQ generator)")
     result = Fido.fetch(qr[0], path=download_dir, downloader=downloader)
     if not result or len(result) == 0:
         raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
@@ -475,6 +494,18 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
 # Cache of (date_str, wl) for which preview generation already failed (e.g. no VSO data)
 # so we return 200 with preview_url=null instead of 202 again and avoid repeated failing tasks.
 _preview_failed: set = set()
+
+
+@app.post("/api/clear_preview_failed")
+async def clear_preview_failed():
+    """Clear the in-memory set of failed preview keys so they can be retried."""
+    count = len(_preview_failed)
+    _preview_failed.clear()
+    return JSONResponse(
+        status_code=200,
+        content={"cleared": count, "message": f"Cleared {count} failed preview cache entries"},
+        headers=CORS_HEADERS,
+    )
 
 
 @app.post("/api/generate_preview")
