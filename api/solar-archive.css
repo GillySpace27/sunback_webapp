@@ -248,6 +248,28 @@ input[type="date"]:focus, select:focus {
   display: none;
 }
 
+.filter-status-line {
+  font-size: 0.7rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  padding: 3px 12px;
+  margin-top: 4px;
+  border-radius: 4px;
+  line-height: 1.4;
+  transition: opacity 0.3s ease;
+}
+.filter-status-line.loading {
+  background: rgba(255, 165, 0, 0.12);
+  color: var(--accent-sun, #ffa500);
+}
+.filter-status-line.success {
+  background: rgba(61, 220, 132, 0.12);
+  color: #3ddc84;
+}
+.filter-status-line.error {
+  background: rgba(255, 87, 51, 0.12);
+  color: var(--accent-flare, #ff5733);
+}
+
 .wl-card {
   background: var(--bg-elevated);
   border: 2px solid var(--border);
