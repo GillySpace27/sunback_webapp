@@ -8,7 +8,7 @@ import os
 def _is_nasa_url(url: str) -> bool:
     return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
 
-def get_downloader():
+def get_downloader(total_timeout=600, connect_timeout=60, sock_read_timeout=300):
     """Return a parfive Downloader that skips SSL verification for NASA hosts.
 
     parfive 2.2.0 uses SessionConfig; the old connector= kwarg is gone.
@@ -23,7 +23,11 @@ def get_downloader():
     def _make_session(cfg):
         # ssl=False: skip cert verification — NASA NASCOM uses a non-standard CA
         connector = aiohttp.TCPConnector(ssl=False)
-        timeout = aiohttp.ClientTimeout(total=600, connect=60, sock_read=300)
+        timeout = aiohttp.ClientTimeout(
+            total=total_timeout,
+            connect=connect_timeout,
+            sock_read=sock_read_timeout,
+        )
         return aiohttp.ClientSession(
             connector=connector,
             timeout=timeout,
@@ -32,7 +36,11 @@ def get_downloader():
         )
 
     config = SessionConfig(
-        timeouts=aiohttp.ClientTimeout(total=600, connect=60, sock_read=300),
+        timeouts=aiohttp.ClientTimeout(
+            total=total_timeout,
+            connect=connect_timeout,
+            sock_read=sock_read_timeout,
+        ),
         aiohttp_session_generator=_make_session,
     )
     return Downloader(max_conn=8, progress=True, config=config)
@@ -433,10 +441,12 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
 
     client = VSOClient()
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-    downloader = get_downloader()
+    # Use a short timeout for probe attempts so broken days fail fast
+    fast_downloader = get_downloader(total_timeout=45, connect_timeout=15, sock_read_timeout=30)
+    full_downloader = get_downloader(total_timeout=600, connect_timeout=60, sock_read_timeout=300)
 
     def _try_download(candidate_dt, label):
-        """Search ±2min around candidate_dt, then try each response set until one downloads."""
+        """Search ±2min around candidate_dt, probe with fast timeout, then download fully."""
         qr = client.search(
             a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
             a.Detector("AIA"),
@@ -446,26 +456,27 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
         total = sum(len(r) for r in qr)
         if total == 0:
             return None, qr
-        log_to_queue(f"[generate_preview] {label}: {total} records found, attempting download...")
-        for attempt, qr_set in enumerate(qr):
-            if len(qr_set) == 0:
-                continue
-            result = Fido.fetch(qr_set, path=download_dir, downloader=downloader)
-            if result and len(result) > 0:
-                path = str(result[0])
-                log_to_queue(f"[generate_preview] Downloaded: {os.path.basename(path)}")
-                return path, qr
-            if attempt < 2:  # log first few failures, then give up on this day
-                err = str(result.errors[0])[:80] if hasattr(result, 'errors') and result.errors else "unknown"
-                log_to_queue(f"[generate_preview]   attempt {attempt+1} failed: {err}")
-            else:
-                break  # DRMS broken for this day's records, try next day
+        log_to_queue(f"[generate_preview] {label}: {total} records, probing download...")
+        # All response sets for the same day share the same fileid/DRMS record.
+        # Use fast_downloader to detect broken records quickly (45s timeout).
+        # If first attempt succeeds, switch to full_downloader isn't needed (file is done).
+        # If it fails, no point retrying — DRMS is broken for this day.
+        first_set = next((r for r in qr if len(r) > 0), None)
+        if first_set is None:
+            return None, qr
+        result = Fido.fetch(first_set, path=download_dir, downloader=fast_downloader)
+        if result and len(result) > 0:
+            path = str(result[0])
+            log_to_queue(f"[generate_preview] Downloaded: {os.path.basename(path)}")
+            return path, qr
+        err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown error"
+        log_to_queue(f"[generate_preview] {label}: download failed ({err}), skipping day.")
         return None, qr
 
-    # Try exact day first, then walk outward day-by-day (handles SDO gaps AND broken DRMS records)
+    # Try exact day first, then walk outward day-by-day
     fits_path, qr = _try_download(dt, f"exact day {dt.date()}")
     if not fits_path:
-        log_to_queue(f"[generate_preview] Exact day failed, scanning nearby days...")
+        log_to_queue(f"[generate_preview] Scanning nearby days...")
         for offset in range(1, 8):
             for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
                 fits_path, qr = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
