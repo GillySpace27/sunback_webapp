@@ -9,16 +9,31 @@ def _is_nasa_url(url: str) -> bool:
     return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
 
 def get_downloader():
-    """Return a parfive Downloader with non-zero timeouts.
+    """Return a parfive Downloader that skips SSL verification for NASA hosts.
 
-    ssl._create_default_https_context is already set to _create_unverified_context
-    at startup, so parfive's default session handles NASA HTTPS correctly.
-    parfive 2.2.0 removed the `connector` kwarg; use SessionConfig.timeouts instead.
-    aiohttp 3.12 requires ssl_handshake_timeout > 0, which means ClientTimeout.total > 0.
+    parfive 2.2.0 uses SessionConfig; the old connector= kwarg is gone.
+    aiohttp 3.12 requires ssl_handshake_timeout > 0 (derived from ClientTimeout.total).
+    NASA's sdo*.nascom.nasa.gov certs are not in the standard bundle, so we disable
+    verification via ssl=False on a TCPConnector created inside the async session
+    generator (which is called inside parfive's running event loop, where aiohttp
+    can safely construct the connector).
     """
     from parfive.config import SessionConfig
+
+    def _make_session(cfg):
+        # ssl=False: skip cert verification — NASA NASCOM uses a non-standard CA
+        connector = aiohttp.TCPConnector(ssl=False)
+        timeout = aiohttp.ClientTimeout(total=600, connect=60, sock_read=300)
+        return aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+            headers=cfg.headers,
+            requote_redirect_url=False,
+        )
+
     config = SessionConfig(
         timeouts=aiohttp.ClientTimeout(total=600, connect=60, sock_read=300),
+        aiohttp_session_generator=_make_session,
     )
     return Downloader(max_conn=8, progress=True, config=config)
 
