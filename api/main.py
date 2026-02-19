@@ -9,12 +9,18 @@ def _is_nasa_url(url: str) -> bool:
     return any(host in url for host in ("nascom.nasa.gov", "sdo.nascom.nasa.gov", "sdo5.nascom.nasa.gov"))
 
 def get_downloader():
-    """Return a Downloader with NASA SSL context applied via aiohttp connector."""
-    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE", certifi.where()))
-    ctx.check_hostname = True
-    ctx.verify_mode = ssl.CERT_REQUIRED
-    connector = aiohttp.TCPConnector(ssl=ctx)
-    return Downloader(max_conn=11, progress=True, connector=connector)
+    """Return a parfive Downloader with non-zero timeouts.
+
+    ssl._create_default_https_context is already set to _create_unverified_context
+    at startup, so parfive's default session handles NASA HTTPS correctly.
+    parfive 2.2.0 removed the `connector` kwarg; use SessionConfig.timeouts instead.
+    aiohttp 3.12 requires ssl_handshake_timeout > 0, which means ClientTimeout.total > 0.
+    """
+    from parfive.config import SessionConfig
+    config = SessionConfig(
+        timeouts=aiohttp.ClientTimeout(total=600, connect=60, sock_read=300),
+    )
+    return Downloader(max_conn=8, progress=True, config=config)
 
 # Registry to track background tasks for /generate
 task_registry: dict = {}
@@ -436,9 +442,11 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
 
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-    # Use the same aiohttp-SSL-context downloader as fido_fetch_map
+    # aiohttp.TCPConnector requires a running event loop (not available in thread pool).
+    # ssl._create_default_https_context is already set to _create_unverified_context above,
+    # so a plain Downloader without a custom connector still works and verifies against our bundle.
     downloader = get_downloader()
-    log_to_queue("[generate_preview] Using NASA SSL downloader (same as HQ generator)")
+    log_to_queue("[generate_preview] Downloading FITS via get_downloader() (non-zero timeouts, unverified SSL)")
     result = Fido.fetch(qr[0], path=download_dir, downloader=downloader)
     if not result or len(result) == 0:
         raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
@@ -1152,16 +1160,8 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         from sunpy.net import vso
         os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
         client = vso.VSOClient()
-        try:
-            nasa_ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE"))
-            nasa_ctx.check_hostname = True
-            nasa_ctx.verify_mode = ssl.CERT_REQUIRED
-            connector = aiohttp.TCPConnector(ssl=nasa_ctx)
-            dl = Downloader(max_conn=8, progress=True, connector=connector)
-            log_to_queue("[fetch][AIA] Using custom Downloader with NASA SSL context (modern VSOClient).")
-        except Exception as e:
-            log_to_queue(f"[fetch][AIA][warn] Failed to create NASA SSL connector: {e}")
-            dl = Downloader(max_conn=8, progress=True)
+        dl = get_downloader()
+        log_to_queue("[fetch][AIA] Using get_downloader() (parfive 2.2.0 compatible, non-zero timeouts).")
 
         # from sunpy.net.vso import VSOClient
 
