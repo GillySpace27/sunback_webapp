@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +7,7 @@
   <title>Solar Archive — Your Sun, Your Day</title>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-  <link href="/api/static/solar-archive.css" rel="stylesheet">
+  <link href="solar-archive.css" rel="stylesheet">
 </head>
 <body>
 <div class="app-container">
@@ -56,13 +57,6 @@
       </div>
     </div>
 
-    <div style="display:flex; align-items:center; gap:16px; margin-top:16px;">
-      <span class="field-label" style="margin:0;">Wavelength</span>
-      <div class="filter-toggle" id="filterToggle">
-        <label class="filter-opt"><input type="radio" name="thumbFilter" value="raw" checked> Raw</label>
-        <label class="filter-opt"><input type="radio" name="thumbFilter" value="rhef"> RHEF</label>
-      </div>
-    </div>
     <div class="wavelength-grid" id="wlGrid">
       <div class="wl-card" data-wl="94">
         <div class="wl-thumb" data-wl="94"></div>
@@ -111,14 +105,6 @@
       </div>
     </div>
 
-    <button class="btn-generate hidden" id="btnGenerate">
-      <i class="fas fa-rocket"></i> Make Products
-    </button>
-
-    <div class="progress-track" id="progressTrack">
-      <div class="progress-fill" id="progressFill"></div>
-    </div>
-
     <div class="status-msg" id="statusMsg">
       Select a date, then click a wavelength tile to load your solar image.
     </div>
@@ -144,6 +130,11 @@
 
     <!-- Edit Tools -->
     <div class="edit-toolbar">
+      <div class="filter-toggle editor-filter" id="editorFilterToggle">
+        <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
+        <label class="filter-opt"><input type="radio" name="editorFilter" value="raw" checked> Raw</label>
+        <label class="filter-opt"><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
+      </div>
       <button class="edit-btn" data-tool="crop" title="Crop"><i class="fas fa-crop-alt"></i> Crop</button>
       <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
       <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
@@ -258,6 +249,14 @@
       <span class="slider-val" id="vigWidthVal">0</span>
     </div>
 
+    <div class="progress-track" id="progressTrack">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <button class="btn-generate hidden" id="btnGenerate">
+      <i class="fas fa-rocket"></i> Make Products
+    </button>
+
     <button class="btn-hq hidden" id="btnHQ">
       <i class="fas fa-star"></i> Generate HQ Print-Ready Image
     </button>
@@ -304,7 +303,7 @@
   <div class="app-footer">
     Images courtesy of NASA/SDO. Not affiliated; no endorsement implied.<br>
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
-    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">v66ce36a</span>
+    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">vf06b1cf</span>
   </div>
 </div>
 
@@ -314,6 +313,6 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script src="/api/static/solar-archive.js"></script>
+<script src="solar-archive.js"></script>
 </body>
 </html>

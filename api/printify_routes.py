@@ -55,16 +55,34 @@ def _shop_id():
     return sid
 
 
+def _printify_request(method: str, url: str, **kwargs):
+    """Run a requests call to Printify using system/certifi CAs. The app sets
+    REQUESTS_CA_BUNDLE/SSL_CERT_FILE to a NASA-only bundle, which breaks
+    verification for api.printify.com; we temporarily use certifi so the
+    request succeeds.
+    """
+    saved_ca = os.environ.pop("REQUESTS_CA_BUNDLE", None)
+    saved_ssl = os.environ.pop("SSL_CERT_FILE", None)
+    try:
+        kwargs.setdefault("verify", certifi.where())
+        return requests.request(method, url, **kwargs)
+    finally:
+        if saved_ca is not None:
+            os.environ["REQUESTS_CA_BUNDLE"] = saved_ca
+        if saved_ssl is not None:
+            os.environ["SSL_CERT_FILE"] = saved_ssl
+
+
 # ────────────────────────────────────────────────
 # 1.  Upload image to Printify media library
 # ────────────────────────────────────────────────
 def _upload_image_sync(payload: dict) -> dict:
     """Blocking upload — runs in a thread via run_in_threadpool."""
-    resp = requests.post(
+    resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/uploads/images.json",
         headers=_headers(),
         json=payload,
-        verify=certifi.where(),
         timeout=120,
     )
     _log(f"[printify][upload] Response {resp.status_code}: {resp.text[:500]}")
@@ -128,11 +146,11 @@ def _create_product_sync(body: dict) -> dict:
     """Blocking product creation — runs in a thread via run_in_threadpool."""
     shop_id = _shop_id()
     _log(f"[printify][product] POST /v1/shops/{shop_id}/products.json")
-    resp = requests.post(
+    resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
         headers=_headers(),
         json=body,
-        verify=certifi.where(),
         timeout=120,
     )
     _log(f"[printify][product] Response {resp.status_code}: {resp.text[:500]}")
@@ -160,7 +178,7 @@ async def create_product(request: Request):
 # 3.  List shops (helper to find shop_id)
 # ────────────────────────────────────────────────
 def _list_shops_sync() -> list:
-    resp = requests.get(f"{PRINTIFY_BASE}/shops.json", headers=_headers(), verify=certifi.where(), timeout=60)
+    resp = _printify_request("GET", f"{PRINTIFY_BASE}/shops.json", headers=_headers(), timeout=60)
     resp.raise_for_status()
     return resp.json()
 
@@ -179,7 +197,7 @@ async def list_shops():
 # 4.  List blueprints (catalog browser)
 # ────────────────────────────────────────────────
 def _list_blueprints_sync() -> list:
-    resp = requests.get(f"{PRINTIFY_BASE}/catalog/blueprints.json", headers=_headers(), verify=certifi.where(), timeout=60)
+    resp = _printify_request("GET", f"{PRINTIFY_BASE}/catalog/blueprints.json", headers=_headers(), timeout=60)
     resp.raise_for_status()
     return resp.json()
 
@@ -198,9 +216,11 @@ async def list_blueprints():
 # 5.  List variants for a blueprint + provider
 # ────────────────────────────────────────────────
 def _list_variants_sync(blueprint_id: int, provider_id: int) -> dict:
-    resp = requests.get(
+    resp = _printify_request(
+        "GET",
         f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
-        headers=_headers(), verify=certifi.where(), timeout=60,
+        headers=_headers(),
+        timeout=60,
     )
     resp.raise_for_status()
     return resp.json()
@@ -222,9 +242,12 @@ async def list_variants(blueprint_id: int, provider_id: int):
 def _publish_product_sync(product_id: str) -> None:
     shop_id = _shop_id()
     payload = {"title": True, "description": True, "images": True, "variants": True, "tags": True}
-    resp = requests.post(
+    resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}/publish.json",
-        headers=_headers(), json=payload, verify=certifi.where(), timeout=120,
+        headers=_headers(),
+        json=payload,
+        timeout=120,
     )
     _log(f"[printify][publish] Response {resp.status_code}: {resp.text[:500]}")
     if resp.status_code not in (200, 201):
@@ -263,24 +286,21 @@ def _do_checkout_sync(
     description: str,
     blueprint_id: int,
     print_provider_id: int,
+    variant_id: int,
     price: int,
     position: str,
     tags: list,
 ) -> dict:
-    """Blocking checkout logic — runs in a thread via run_in_threadpool.
-
-    Creates a Printify product with ALL available variants for the given
-    blueprint/provider, so the customer can pick size/color on Shopify.
-    """
+    """Blocking checkout logic — runs in a thread via run_in_threadpool."""
     shop_id = _shop_id()
 
     # ── Step 1: Upload image ──
     _log(f"[checkout] Step 1: uploading image ({len(image_base64)} chars)")
-    upload_resp = requests.post(
+    upload_resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/uploads/images.json",
         headers=_headers(),
         json={"file_name": file_name, "contents": image_base64},
-        verify=certifi.where(),
         timeout=120,
     )
     if upload_resp.status_code not in (200, 201):
@@ -292,46 +312,19 @@ def _do_checkout_sync(
         raise Exception("No image ID in upload response")
     _log(f"[checkout] Image uploaded: {image_id}")
 
-    # ── Step 2: Fetch all variants for this blueprint/provider ──
-    _log(f"[checkout] Step 2: fetching variants (blueprint={blueprint_id}, provider={print_provider_id})")
-    variants_resp = requests.get(
-        f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json",
-        headers=_headers(),
-        verify=certifi.where(),
-        timeout=30,
-    )
-    if variants_resp.status_code != 200:
-        raise Exception(f"Failed to fetch variants ({variants_resp.status_code}): {variants_resp.text[:300]}")
-
-    variants_data = variants_resp.json()
-    all_variants = variants_data.get("variants", variants_data) if isinstance(variants_data, dict) else variants_data
-    if not all_variants:
-        raise Exception("No variants found for this blueprint/provider")
-
-    all_variant_ids = [v["id"] for v in all_variants]
-    _log(f"[checkout] Found {len(all_variant_ids)} total variants")
-
-    # Printify enforces a 100-variant limit per product.
-    # Keep the first 100 (they're typically ordered by popularity/size).
-    MAX_VARIANTS = 100
-    if len(all_variant_ids) > MAX_VARIANTS:
-        _log(f"[checkout] Capping variants from {len(all_variant_ids)} → {MAX_VARIANTS}")
-        all_variant_ids = all_variant_ids[:MAX_VARIANTS]
-
-    # ── Step 3: Create product with variants ──
-    _log(f"[checkout] Step 3: creating product with {len(all_variant_ids)} variants")
+    # ── Step 2: Create product ──
+    _log(f"[checkout] Step 2: creating product (blueprint={blueprint_id}, provider={print_provider_id})")
     product_payload = {
         "title": title,
         "description": description,
         "blueprint_id": blueprint_id,
         "print_provider_id": print_provider_id,
         "variants": [
-            {"id": vid, "price": price, "is_enabled": True}
-            for vid in all_variant_ids
+            {"id": variant_id, "price": price, "is_enabled": True}
         ],
         "print_areas": [
             {
-                "variant_ids": all_variant_ids,
+                "variant_ids": [variant_id],
                 "placeholders": [
                     {
                         "position": position,
@@ -351,11 +344,11 @@ def _do_checkout_sync(
         "tags": tags,
     }
 
-    create_resp = requests.post(
+    create_resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
         headers=_headers(),
         json=product_payload,
-        verify=certifi.where(),
         timeout=120,
     )
     if create_resp.status_code not in (200, 201):
@@ -365,11 +358,12 @@ def _do_checkout_sync(
     product_id = product_data.get("id")
     if not product_id:
         raise Exception("No product ID in creation response")
-    _log(f"[checkout] Product created: {product_id} ({len(all_variant_ids)} variants)")
+    _log(f"[checkout] Product created: {product_id}")
 
-    # ── Step 4: Publish to Shopify ──
-    _log(f"[checkout] Step 4: publishing product {product_id}")
-    publish_resp = requests.post(
+    # ── Step 3: Publish to Shopify ──
+    _log(f"[checkout] Step 3: publishing product {product_id}")
+    publish_resp = _printify_request(
+        "POST",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}/publish.json",
         headers=_headers(),
         json={
@@ -379,17 +373,15 @@ def _do_checkout_sync(
             "variants": True,
             "tags": True,
         },
-        verify=certifi.where(),
         timeout=120,
     )
     if publish_resp.status_code not in (200, 201):
         _log(f"[checkout] Publish warning ({publish_resp.status_code}): {publish_resp.text[:300]}")
 
-    _log(f"[checkout] Complete: product={product_id}, image={image_id}, variants={len(all_variant_ids)}")
+    _log(f"[checkout] Complete: product={product_id}, image={image_id}")
     return {
         "printify_product_id": product_id,
         "printify_image_id": image_id,
-        "variant_count": len(all_variant_ids),
         "status": "published",
     }
 
@@ -397,8 +389,7 @@ def _do_checkout_sync(
 @router.post("/checkout")
 async def checkout(request: Request):
     """
-    All-in-one checkout: uploads image, creates product with ALL variants,
-    publishes to Shopify. Customer picks size/color on Shopify.
+    All-in-one checkout: uploads image, creates product, publishes to Shopify.
     Blocking Printify API calls are offloaded to a thread pool.
     """
     try:
@@ -410,19 +401,20 @@ async def checkout(request: Request):
         description = body.get("description", "")
         blueprint_id = body.get("blueprint_id")
         print_provider_id = body.get("print_provider_id")
+        variant_id = body.get("variant_id")
         price = body.get("price", 0)
         position = body.get("position", "front")
         tags = body.get("tags", [])
 
         if not image_base64:
             raise HTTPException(status_code=400, detail="Missing image_base64")
-        if not blueprint_id or not print_provider_id:
-            raise HTTPException(status_code=400, detail="Missing blueprint_id or print_provider_id")
+        if not blueprint_id or not print_provider_id or not variant_id:
+            raise HTTPException(status_code=400, detail="Missing blueprint_id, print_provider_id, or variant_id")
 
         result = await run_in_threadpool(
             _do_checkout_sync,
             image_base64, file_name, title, description,
-            blueprint_id, print_provider_id,
+            blueprint_id, print_provider_id, variant_id,
             price, position, tags,
         )
         return JSONResponse(content=result)
@@ -445,10 +437,10 @@ _PRINTIFY_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 def _fetch_shopify_url_sync(product_id: str) -> dict:
     """Blocking lookup — runs in a thread via run_in_threadpool."""
     shop_id = _shop_id()
-    resp = requests.get(
+    resp = _printify_request(
+        "GET",
         f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
         headers=_headers(),
-        verify=certifi.where(),
         timeout=30,
     )
     if resp.status_code != 200:
@@ -460,10 +452,6 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
     external_id = external.get("id")
 
     if handle:
-        # If handle is a full URL, extract just the product slug
-        if handle.startswith("http://") or handle.startswith("https://"):
-            # Extract slug from URL like "https://store.myshopify.com/products/my-product"
-            handle = handle.split("/products/")[-1] if "/products/" in handle else handle
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"}
     elif external_id:
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{external_id}"}
