@@ -467,15 +467,22 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
 
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-    # aiohttp.TCPConnector requires a running event loop (not available in thread pool).
-    # ssl._create_default_https_context is already set to _create_unverified_context above,
-    # so a plain Downloader without a custom connector still works and verifies against our bundle.
     downloader = get_downloader()
-    log_to_queue("[generate_preview] Downloading FITS via get_downloader() (non-zero timeouts, unverified SSL)")
-    result = Fido.fetch(qr[0], path=download_dir, downloader=downloader)
-    if not result or len(result) == 0:
-        raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
-    fits_path = str(result[0])
+    # DRMS export on sdo7.nascom.nasa.gov is intermittently flaky (500/timeout).
+    # Try each response set in qr until one succeeds.
+    fits_path = None
+    for attempt, qr_set in enumerate(qr):
+        if len(qr_set) == 0:
+            continue
+        log_to_queue(f"[generate_preview] Download attempt {attempt+1}/{len(qr)}: {qr_set[0]}")
+        result = Fido.fetch(qr_set, path=download_dir, downloader=downloader)
+        if result and len(result) > 0:
+            fits_path = str(result[0])
+            log_to_queue(f"[generate_preview] Downloaded {os.path.basename(fits_path)}")
+            break
+        log_to_queue(f"[generate_preview] Attempt {attempt+1} failed, trying next record set...")
+    if not fits_path:
+        raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
     from sunpy.map import Map
     import numpy as np
     import matplotlib.pyplot as plt
