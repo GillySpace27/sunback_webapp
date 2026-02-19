@@ -252,18 +252,18 @@
       if (cached && cached.canvas1024) {
         _startPreviewFromCanvas(cached.canvas1024, cached, wl, dateVal);
       } else {
-        // Fetch highest-res unfiltered preview for main canvas (2048px)
+        // Fetch high-res unfiltered preview for main canvas (1024px, image_scale=12 → 1.5 R_sun FOV)
         var isoDate = dateVal + "T12:00:00Z";
         var url = API_BASE + "/api/helioviewer_thumb?date=" +
           encodeURIComponent(isoDate) + "&wavelength=" + wl +
-          "&image_scale=6&size=2048";
+          "&image_scale=12&size=1024";
 
         var img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = function() {
           var rawC = document.createElement("canvas");
-          rawC.width = img.naturalWidth || 2048;
-          rawC.height = img.naturalHeight || 2048;
+          rawC.width = img.naturalWidth || 1024;
+          rawC.height = img.naturalHeight || 1024;
           rawC.getContext("2d").drawImage(img, 0, 0);
           var entry = thumbCache[String(wl)] || { raw: null, rhef: null, canvas1024: null };
           entry.canvas1024 = rawC;
@@ -382,6 +382,8 @@
       $("#saturationVal").textContent = "100";
       $("#vignetteVal").textContent = "16";
       $("#vigWidthVal").textContent = "0";
+      if ($("#zoomSlider")) { $("#zoomSlider").value = 100; $("#zoomVal").textContent = "100%"; }
+      if (solarCanvas) solarCanvas.style.transform = "";
       if ($("#textToolPanel")) $("#textToolPanel").classList.add("hidden");
       var textToolBtn = document.querySelector('[data-tool="text"]');
       if (textToolBtn) textToolBtn.classList.remove("active");
@@ -502,8 +504,8 @@
           if (result.status === 202) {
             return new Promise(function(resolve, reject) {
               var attempts = 0;
-              var maxAttempts = 45;
-              (function poll() {
+              var maxAttempts = 60; // 2 minutes at 2s intervals
+              function poll() {
                 if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Generating RHE from science data…");
                 fetch(API_BASE + "/api/generate_preview", {
                   method: "POST",
@@ -522,11 +524,13 @@
                       return;
                     }
                     attempts++;
-                    if (attempts >= maxAttempts) reject(new Error("RHE preview timed out"));
-                    else setTimeout(poll, 2000);
+                    if (attempts >= maxAttempts) reject(new Error("RHE preview timed out after 2 minutes"));
+                    else setTimeout(poll, 3000);
                   })
                   .catch(reject);
-              })();
+              }
+              // Give the background task a head-start before first poll
+              setTimeout(poll, 3000);
             });
           }
           return Promise.reject(new Error(result.data.error || result.data.detail || "No preview_url"));
@@ -534,11 +538,18 @@
         .then(function(url) {
           return new Promise(function(resolve, reject) {
             var img = new Image();
+            img.crossOrigin = "anonymous";
             img.onload = function() {
               if (onProgress) onProgress(100, "Done");
               resolve(img);
             };
-            img.onerror = function() { reject(new Error("Failed to load RHE image")); };
+            img.onerror = function() {
+              // Retry without crossOrigin in case server doesn't send CORS headers
+              var img2 = new Image();
+              img2.onload = function() { resolve(img2); };
+              img2.onerror = function() { reject(new Error("Failed to load RHE image")); };
+              img2.src = url;
+            };
             img.src = url;
           });
         });
@@ -1419,6 +1430,8 @@
         $("#saturationVal").textContent = "100";
         $("#vignetteVal").textContent = "16";
         $("#vigWidthVal").textContent = "0";
+        if ($("#zoomSlider")) { $("#zoomSlider").value = 100; $("#zoomVal").textContent = "100%"; }
+        solarCanvas.style.transform = "";
         document.querySelector('[data-tool="invert"]').classList.remove("active");
         document.querySelector('[data-tool="text"]').classList.remove("active");
         $("#textToolPanel").classList.add("hidden");
@@ -1447,6 +1460,17 @@
     setupSlider("saturationSlider", "saturationVal", "saturation");
     setupSlider("vignetteSlider", "vignetteVal", "vignette");
     setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth");
+
+    // ── Zoom slider (CSS transform only — does not modify pixel data) ──
+    var zoomSlider = $("#zoomSlider");
+    var zoomVal = $("#zoomVal");
+    if (zoomSlider) {
+      zoomSlider.addEventListener("input", function() {
+        var pct = parseInt(zoomSlider.value, 10);
+        zoomVal.textContent = pct + "%";
+        solarCanvas.style.transform = "scale(" + (pct / 100) + ")";
+      });
+    }
 
     // ── Text tool ───────────────────────────────────────────────
     var textToolPanel = $("#textToolPanel");
