@@ -229,34 +229,31 @@
     setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
     setProgress(10);
 
-    // Get raw canvas from thumbCache or fetch fresh
+    // Get raw canvas from thumbCache
     var cached = thumbCache[String(wl)];
     if (cached && cached.raw) {
+      // Already cached — use it instantly
       _startPreviewFromCanvas(cached.raw, cached, wl, dateVal);
     } else {
-      // Fetch thumbnail via proxy and then proceed
-      var isoDate = dateVal + "T12:00:00Z";
-      var url = API_BASE + "/api/helioviewer_thumb?date=" +
-        encodeURIComponent(isoDate) + "&wavelength=" + wl +
-        "&image_scale=12&size=256";
+      // Not cached yet. The thumbnails are loading in parallel via loadWavelengthThumbnails().
+      // Poll the cache for up to 8 seconds instead of fetching fresh (avoids Render timeout).
+      var pollCount = 0;
+      var pollInterval = setInterval(function() {
+        var entry = thumbCache[String(wl)];
+        pollCount++;
 
-      var img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = function() {
-        var rawC = document.createElement("canvas");
-        rawC.width = img.naturalWidth || 256;
-        rawC.height = img.naturalHeight || 256;
-        rawC.getContext("2d").drawImage(img, 0, 0);
-        var entry = { raw: rawC, rhef: null };
-        thumbCache[String(wl)] = entry;
-        _startPreviewFromCanvas(rawC, entry, wl, dateVal);
-      };
-      img.onerror = function() {
-        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
-          'Preview failed — check date and backend status.', false);
-        hideProgress();
-      };
-      img.src = url;
+        if (entry && entry.raw) {
+          // Thumbnail loaded! Use it.
+          clearInterval(pollInterval);
+          _startPreviewFromCanvas(entry.raw, entry, wl, dateVal);
+        } else if (pollCount > 80) {
+          // 8 seconds elapsed (80 * 100ms), give up
+          clearInterval(pollInterval);
+          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
+            'Preview timeout — thumbnail failed to load.', false);
+          hideProgress();
+        }
+      }, 100); // Poll every 100ms
     }
   }
 
