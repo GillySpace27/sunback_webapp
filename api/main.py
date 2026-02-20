@@ -421,9 +421,9 @@ def fetch_first_fits(dt, wl):
     return str(files[0])
 
 
-def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, url_path_raw, url_path_filtered):
-    """Blocking FITS fetch + raw and RHEF-filtered PNGs. Run in thread so server can still serve /docs etc.
-    Writes preview_SDO_{wl}_{date_str}_raw.png and _filtered.png so the UI can toggle between them."""
+def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, out_path_jpg, url_path_raw, url_path_filtered, url_path_jpg):
+    """Blocking FITS fetch + raw and RHEF-filtered PNGs. Also fetches Helioviewer instant preview as JPG.
+    Writes preview_SDO_{wl}_{date_str}_raw.png, _filtered.png, and _jpg.png (Helioviewer) for the UI."""
     import ssl as _ssl
     import certifi
     from sunpy.net import Fido, attrs as a
@@ -443,6 +443,26 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ur
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", os.path.join(OUTPUT_DIR, "data"))
     os.makedirs(download_dir, exist_ok=True)
     log_to_queue(f"[generate_preview] download_dir={download_dir}")
+
+    # Fetch Helioviewer instant preview first (JPG option = helioviewer-derived)
+    os.makedirs(os.path.dirname(out_path_jpg), exist_ok=True)
+    try:
+        hv_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+        hv_date_str = hv_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        scale = 3000.0 / 1024.0
+        url = (
+            f"{HELIOVIEWER_BASE}/?"
+            f"date={requests.utils.quote(hv_date_str)}"
+            f"&imageScale={scale}"
+            f"&layers=[SDO,AIA,AIA,{wl},1,100]"
+            f"&x0=0&y0=0&width=1024&height=1024&display=true&watermark=false"
+        )
+        content, _ = _fetch_helioviewer_screenshot(url)
+        with open(out_path_jpg, "wb") as f:
+            f.write(content)
+        log_to_queue(f"[generate_preview] Helioviewer JPG saved: {os.path.basename(out_path_jpg)}")
+    except Exception as e:
+        log_to_queue(f"[generate_preview] Helioviewer JPG failed (continuing): {e}")
 
     # Check if we already have a FITS for this date/wavelength cached locally
     import glob as _glob
@@ -545,8 +565,11 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ur
                 os.makedirs(os.path.dirname(out_path_filtered), exist_ok=True)
                 with open(out_path_filtered, "wb") as f:
                     f.write(content)
+                if not os.path.exists(out_path_jpg) or os.path.getsize(out_path_jpg) < 100:
+                    with open(out_path_jpg, "wb") as f:
+                        f.write(content)
                 log_to_queue(f"[generate_preview] Helioviewer fallback saved: {os.path.basename(out_path_filtered)}")
-                return (url_path_filtered, url_path_filtered)
+                return (url_path_filtered, url_path_filtered, url_path_jpg)
             except Exception as e:
                 log_to_queue(f"[generate_preview] Helioviewer fallback failed: {e}")
                 if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
@@ -604,7 +627,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ur
         if os.path.exists(out_path_filtered) and os.path.getsize(out_path_filtered) > 1000:
             break
         time.sleep(0.05)
-    return (url_path_raw, url_path_filtered)
+    return (url_path_raw, url_path_filtered, url_path_jpg)
 
 
 # Cache of (date_str, wl) for which preview generation already failed (e.g. no VSO data)
@@ -644,11 +667,14 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         base = f"preview_SDO_{wl}_{date_str}"
         out_path_raw = os.path.join(PREVIEW_DIR, f"{base}_raw.png")
         out_path_filtered = os.path.join(PREVIEW_DIR, f"{base}_filtered.png")
+        out_path_jpg = os.path.join(PREVIEW_DIR, f"{base}_jpg.png")
         url_path_raw = f"/asset/preview/{base}_raw.png"
         url_path_filtered = f"/asset/preview/{base}_filtered.png"
+        url_path_jpg = f"/asset/preview/{base}_jpg.png"
         if os.path.exists(out_path_filtered):
             raw_url = url_path_raw if os.path.exists(out_path_raw) else None
-            return {"preview_url": url_path_filtered, "preview_raw_url": raw_url}
+            jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
+            return {"preview_url": url_path_filtered, "preview_raw_url": raw_url, "preview_jpg_url": jpg_url}
         if key in _preview_failed:
             return JSONResponse(
                 status_code=200,
@@ -668,7 +694,8 @@ async def generate_preview(req: PreviewRequest = Body(...)):
             try:
                 await asyncio.to_thread(
                     _generate_preview_sync, dt, wl, date_str,
-                    out_path_raw, out_path_filtered, url_path_raw, url_path_filtered
+                    out_path_raw, out_path_filtered, out_path_jpg,
+                    url_path_raw, url_path_filtered, url_path_jpg
                 )
             except Exception as e:
                 _preview_failed.add(key)
@@ -699,9 +726,10 @@ tasks = {}
 # Thread lock for status updates
 status_lock = threading.Lock()
 
-async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str):
+async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str, format_type: str = "rhef"):
     """
     Actual HQ generation logic for async background task.
+    format_type: 'jpg' | 'raw' | 'rhef'. Currently only rhef is implemented.
     """
     try:
         with status_lock:
@@ -710,7 +738,7 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         # Convert date/wavelength types
         dt = datetime.strptime(date, "%Y-%m-%d")
         wl = int(wavelength)
-        # Run HQ generation in a thread to avoid blocking event loop
+        # Run HQ generation in a thread (format_type ignored for now; only RHEF is produced)
         png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector)
         # Check PNG existence
         png_path = os.path.join(OUTPUT_DIR, os.path.basename(png_url.lstrip("/")))
@@ -794,17 +822,19 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
 
 @app.post("/api/generate")
 async def start_generate(background_tasks: BackgroundTasks, payload: dict):
-    """Start the HQ generation task asynchronously and return a task_id."""
+    """Start the HQ generation task asynchronously and return a task_id.
+    Optional 'format': 'jpg' | 'raw' | 'rhef' (default rhef). Currently only rhef is implemented."""
     date = payload.get("date")
     wavelength = payload.get("wavelength")
     mission = payload.get("mission", "SDO")
     detector = payload.get("detector", "AIA")
+    format_type = payload.get("format", "rhef")
     if not date or not wavelength:
         raise HTTPException(status_code=400, detail="Missing date or wavelength")
     task_id = str(uuid.uuid4())
     with status_lock:
         tasks[task_id] = {"status": "queued", "message": "HQ generation queued"}
-    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector)
+    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector, format_type)
     return {"task_id": task_id, "status_url": f"/api/status/{task_id}"}
 
 @app.get("/api/status/{task_id}")

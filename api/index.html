@@ -130,13 +130,29 @@
 
     <!-- Edit Tools -->
     <div class="edit-toolbar">
-      <div class="filter-toggle editor-filter" id="editorFilterToggle">
-        <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
-        <label class="filter-opt"><input type="radio" name="editorFilter" value="raw" checked> Raw</label>
-        <label class="filter-opt"><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
-        <label class="filter-opt"><input type="radio" name="editorFilter" value="hq"> HQ</label>
+      <div class="edit-toolbar-row">
+        <div class="filter-toggle editor-filter" id="editorFilterToggle">
+          <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
+          <label class="filter-opt"><input type="radio" name="editorFilter" value="jpg"> JPG</label>
+          <label class="filter-opt"><input type="radio" name="editorFilter" value="raw" checked> Raw</label>
+          <label class="filter-opt"><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
+          <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
+        </div>
+        <div class="filter-toggle vignette-fade-toggle" id="vignetteFadeToggle">
+          <span class="field-label" style="margin:0; margin-right:8px;">Background</span>
+          <label class="filter-opt active"><input type="radio" name="vignetteFade" value="transparent" checked> Transparent</label>
+          <label class="filter-opt"><input type="radio" name="vignetteFade" value="black"> Black</label>
+          <label class="filter-opt"><input type="radio" name="vignetteFade" value="white"> White</label>
+          <label class="filter-opt filter-opt-mode" title="Use the most common color in the image so the vignette matches the canvas"><input type="radio" name="vignetteFade" value="mode"> Match</label>
+          <label class="filter-opt filter-opt-color" title="Custom color">
+            <input type="radio" name="vignetteFade" value="custom">
+            <input type="color" id="vignetteFadeColorPicker" value="#000000" class="vignette-fade-color-picker" title="Vignette fade color">
+            <span class="filter-opt-color-label">Custom</span>
+          </label>
+        </div>
       </div>
       <div class="filter-status-line" id="filterStatusLine" style="display:none;"></div>
+      <div class="edit-toolbar-break"></div>
       <button class="edit-btn" data-tool="crop" title="Crop"><i class="fas fa-crop-alt"></i> Crop</button>
       <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
       <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
@@ -248,23 +264,13 @@
     <!-- Sliders (Crop, Vignette, Vig. Edge) -->
     <div class="slider-row">
       <label>Crop</label>
-      <input type="range" id="cropSlider" min="50" max="300" value="100" step="1">
+      <input type="range" id="cropSlider" min="100" max="300" value="100" step="1">
       <span class="slider-val" id="cropVal">100%</span>
     </div>
     <div class="slider-row">
       <label>Vignette</label>
-      <input type="range" id="vignetteSlider" min="0" max="100" value="84">
-      <span class="slider-val" id="vignetteVal">16</span>
-    </div>
-    <div class="vignette-fade-row">
-      <div class="filter-toggle vignette-fade-toggle" id="vignetteFadeToggle">
-        <label class="filter-opt active"><input type="radio" name="vignetteFade" value="transparent" checked> Transparent</label>
-        <label class="filter-opt"><input type="radio" name="vignetteFade" value="black"> Black</label>
-        <label class="filter-opt"><input type="radio" name="vignetteFade" value="white"> White</label>
-        <label class="filter-opt"><input type="radio" name="vignetteFade" value="color"> Color</label>
-      </div>
-      <span class="field-label-sm vignette-fade-color-label">Fade color</span>
-      <input type="color" id="vignetteFadeColorPicker" value="#000000" title="Vignette fade color" class="vignette-color-input">
+      <input type="range" id="vignetteSlider" min="0" max="100" value="76">
+      <span class="slider-val" id="vignetteVal">24</span>
     </div>
     <div class="slider-row">
       <label>Vig. Edge</label>
@@ -281,15 +287,15 @@
       <div class="progress-fill" id="progressFill"></div>
     </div>
 
-    <button class="btn-preview hidden" id="btnPreview">
-      <i class="fas fa-eye"></i> Preview Products
+    <button class="btn-preview hidden" id="btnPreview" title="Reset product previews to canvas-only mockups so you can iterate on position quickly.">
+      <i class="fas fa-sync-alt"></i> 1. Reset to Mock Mockups
     </button>
-    <button class="btn-generate hidden" id="btnGenerate">
-      <i class="fas fa-rocket"></i> Make Products
+    <button class="btn-generate hidden" id="btnGenerate" title="Upload image to Printify and generate real product mockups; also starts HQ RHEF production. Required before Buy.">
+      <i class="fas fa-rocket"></i> 2. Generate HQ Mockups
     </button>
 
-    <button class="btn-hq hidden" id="btnHQ">
-      <i class="fas fa-star"></i> Generate HQ Print-Ready Image
+    <button class="btn-hq hidden" id="btnHQ" title="Generate the full-resolution HQ RHEF print image only (if not already made). Does not create mockups.">
+      <i class="fas fa-star"></i> 3. Generate HQ RHEF
     </button>
   </div>
 
@@ -301,7 +307,9 @@
     </div>
 
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Preview how your solar image looks on different products. Click <strong>Make Products</strong> to generate mockups and start the HQ render in the background — then click <strong>Buy</strong> on any product to complete your purchase on Shopify.
+      <strong>1. Reset to Mock Mockups</strong> — Show canvas-drawn previews only (no upload). Use this if positioning gets out of sync so you can pan/crop and try again.<br>
+      <strong>2. Generate HQ Mockups</strong> — Upload to Printify, create real mockup images, and start HQ RHEF production. Do this when you’re happy with the position.<br>
+      <strong>3. Generate HQ RHEF</strong> — Build the full-resolution print image only (if it hasn’t been made yet). Buy buttons go live once HQ is ready.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -316,7 +324,7 @@
     <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
-      Select a wavelength tile to load your image, edit it, then click Make Products.
+      Load an image (wavelength tile), edit position, then click <strong>2. Generate HQ Mockups</strong> to create mockups and HQ. Use <strong>1. Reset to Mock Mockups</strong> if you need to re-adjust position.
     </div>
 
     <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
@@ -334,7 +342,7 @@
   <div class="app-footer">
     Images courtesy of NASA/SDO. Not affiliated; no endorsement implied.<br>
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
-    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">ve585be3</span>
+    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">v2d99dcd</span>
   </div>
 </div>
 
