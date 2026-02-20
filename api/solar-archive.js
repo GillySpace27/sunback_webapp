@@ -54,9 +54,9 @@
       hqReady: false,
       lastImageUrl: "",
       backendOnline: false,
-      vignette: 16,
+      vignette: 24,
       vignetteWidth: 0,
-      vignetteFade: "transparent",  // "transparent" | "black" | "white" | "color"
+      vignetteFade: "transparent",  // "transparent" | "black" | "white" | "mode" | "custom"
       vignetteFadeColor: "#000000",
       cropEdgeFeather: 0,          // 0–100: feather at edges of crop viewport
       textMode: false,
@@ -66,12 +66,14 @@
       hqImageUrl: null,   // URL of completed HQ PNG (separate from originalImage)
       hqTaskId: null,     // running HQ background task ID
       helioPreviewLoaded: false,  // true once a Helioviewer image is in the canvas
-      editorFilter: "raw",       // "raw" | "rhef" | "hq" — only in editor, not on tiles
-      rhefImage: null,           // RHE-processed image when editorFilter is "rhef"
+      editorFilter: "raw",       // "jpg" | "raw" | "rhef" — preview only; HQ is separate button
+      jpgImage: null,            // JPG = Helioviewer-derived from backend; distinct from raw and RHEF
+      rhefImage: null,            // RHE-processed preview image
       rawBackendImage: null,     // backend raw preview (no RHEF) for toggling with rhefImage
       rhefFetching: false,       // true while background RHEF fetch is in-flight
       rhefFetchPromise: null,    // Promise for in-flight RHEF fetch (deduplication)
-      hqFilterImage: null,       // loaded HQ filtered Image object
+      hqFilterImage: null,       // loaded HQ full-res Image object
+      hqFormat: null,            // "jpg" | "raw" | "rhef" — which format the current hqFilterImage is
       hqFetching: false,         // true while HQ generation is in progress
       mockupsRaw: {},            // cached mockups for raw version
       mockupsFiltered: {},       // cached mockups for filtered (RHEF/HQ) version
@@ -316,7 +318,7 @@
       state.brightness = 0;
       state.contrast = 0;
       state.saturation = 100;
-      state.vignette = 16;
+      state.vignette = 24;
       state.vignetteWidth = 0;
       state.vignetteFade = "transparent";
       state.vignetteFadeColor = "#000000";
@@ -333,8 +335,10 @@
       state.hqImageUrl = null;
       state.hqTaskId = null;
       state.hqFilterImage = null;
+      state.hqFormat = null;
       state.hqFetching = false;
-      state.rhefFetching = false;
+      state.jpgImage = null;
+      state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
       state.rhefFetchPromise = null;
       state.transitionInProgress = false;
       state.helioPreviewLoaded = true;
@@ -349,32 +353,33 @@
         if (cachedEntry && cachedEntry.rhef) {
           state.rhefImage = cachedEntry.rhef;
           state.rawBackendImage = cachedEntry.rawBackend || null;
+          state.jpgImage = cachedEntry.jpg || null;
           setTimeout(function() {
             applyFilterInstant("rhef");
             showToast("Filtered version loaded! Click Raw to switch back.", "info");
           }, 100);
         } else {
-          state.rhefFetching = true;
-          updateFilterStatusLine("Generating filtered version\u2026", "loading");
+          state.rhefFetching = true; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+          updateFilterStatusLine("Generating preview images\u2026", "loading");
           state.rhefFetchPromise = fetchBackendRHEPreview(dateVal, wl, function(pct, msg) {
-            updateFilterStatusLine(msg || "Generating filtered version\u2026", "loading");
+            updateFilterStatusLine(msg || "Generating preview images\u2026", "loading");
           }).then(function(ob) {
-            var rhefImg = ob.filteredImg;
-            state.rhefImage = rhefImg;
+            state.rhefImage = ob.filteredImg;
             state.rawBackendImage = ob.rawImg || null;
-            state.rhefFetching = false;
+            state.jpgImage = ob.jpgImg || null;
+            state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
             state.rhefFetchPromise = null;
-            // Cache in thumbCache
             var entry = thumbCache[String(wl)] || {};
-            entry.rhef = rhefImg;
+            entry.rhef = state.rhefImage;
             entry.rawBackend = state.rawBackendImage;
+            entry.jpg = state.jpgImage;
             thumbCache[String(wl)] = entry;
-            updateFilterStatusLine("Filtered version ready!", "success");
-            applyFilterInstant("rhef");
-            showToast("Filtered version loaded! Click Raw to switch back.", "info");
+            updateFilterStatusLine("Preview ready!", "success");
+            applyFilterWithRadialWipe("rhef", function() {});
+            showToast("Preview loaded! Switch JPG/Raw/RHEF in the filter.", "info");
           }).catch(function(err) {
             console.error("[RHEF] Background fetch failed:", err);
-            state.rhefFetching = false;
+            state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
             state.rhefFetchPromise = null;
             updateFilterStatusLine("", "hidden");
           });
@@ -387,12 +392,12 @@
       $("#brightnessSlider").value = 0;
       $("#contrastSlider").value = 0;
       $("#saturationSlider").value = 100;
-      $("#vignetteSlider").value = 100 - 16;
+      $("#vignetteSlider").value = 100 - 24;
       $("#vigWidthSlider").value = 0;
       $("#brightnessVal").textContent = "0";
       $("#contrastVal").textContent = "0";
       $("#saturationVal").textContent = "100";
-      $("#vignetteVal").textContent = "16";
+      $("#vignetteVal").textContent = "24";
       $("#vigWidthVal").textContent = "0";
       if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
       state.cropZoom = 100;
@@ -410,13 +415,14 @@
 
       renderCanvas();
       setProgress(100);
-      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — edit below (use Raw/RHEF in toolbar), then click <strong>Make Products</strong>');
+      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — edit below (use Raw/RHEF in toolbar), then click <strong>2. Generate HQ Mockups</strong> when ready.');
       showToast(wl + " Å loaded!");
 
       editSection.classList.remove("hidden");
       imageStage.classList.remove("empty");
       if (btnPreview) btnPreview.classList.remove("hidden");
       btnGenerate.classList.remove("hidden");
+      if (btnHQ) btnHQ.classList.remove("hidden");
       productSection.classList.remove("hidden");
       renderProducts();
       if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
@@ -518,7 +524,9 @@
         .then(function(result) {
           if (result.data.preview_url) {
             if (onProgress) onProgress(85, "Loading preview images…");
-            return { filteredUrl: API_BASE + result.data.preview_url, rawUrl: result.data.preview_raw_url ? API_BASE + result.data.preview_raw_url : null };
+            var rawUrl = result.data.preview_raw_url ? API_BASE + result.data.preview_raw_url : null;
+            var jpgUrl = result.data.preview_jpg_url ? API_BASE + result.data.preview_jpg_url : null;
+            return { filteredUrl: API_BASE + result.data.preview_url, rawUrl: rawUrl, jpgUrl: jpgUrl };
           }
           if (result.status === 202) {
             return new Promise(function(resolve, reject) {
@@ -535,7 +543,9 @@
                     var d = pollResult.data;
                     if (d.preview_url) {
                       if (onProgress) onProgress(85, "Loading preview images…");
-                      resolve({ filteredUrl: API_BASE + d.preview_url, rawUrl: d.preview_raw_url ? API_BASE + d.preview_raw_url : null });
+                      var rawU = d.preview_raw_url ? API_BASE + d.preview_raw_url : null;
+                      var jpgU = d.preview_jpg_url ? API_BASE + d.preview_jpg_url : null;
+                      resolve({ filteredUrl: API_BASE + d.preview_url, rawUrl: rawU, jpgUrl: jpgU });
                       return;
                     }
                     if (pollResult.status === 200 && !d.preview_url) {
@@ -558,12 +568,13 @@
           return new Promise(function(resolve, reject) {
             var filteredImg = new Image();
             var rawImg = urls.rawUrl ? new Image() : null;
+            var jpgImg = urls.jpgUrl ? new Image() : null;
+            var need = 1 + (rawImg ? 1 : 0) + (jpgImg ? 1 : 0);
             var done = 0;
-            var need = rawImg ? 2 : 1;
             function maybeResolve() {
               if (++done >= need) {
                 if (onProgress) onProgress(100, "Done");
-                resolve({ filteredImg: filteredImg, rawImg: rawImg });
+                resolve({ filteredImg: filteredImg, rawImg: rawImg, jpgImg: jpgImg });
               }
             }
             filteredImg.crossOrigin = "anonymous";
@@ -581,6 +592,12 @@
               rawImg.onerror = function() { rawImg = null; maybeResolve(); };
               rawImg.src = urls.rawUrl;
             }
+            if (jpgImg && urls.jpgUrl) {
+              jpgImg.crossOrigin = "anonymous";
+              jpgImg.onload = maybeResolve;
+              jpgImg.onerror = function() { jpgImg = null; maybeResolve(); };
+              jpgImg.src = urls.jpgUrl;
+            }
           });
         });
     }
@@ -595,6 +612,60 @@
       renderCanvas();
       _syncFilterToggleUI(newFilter);
       updateMockupDisplay();
+    }
+
+    /**
+     * Apply RHEF filter with a radial-outwards wipe from center. Used when RHEF has just loaded.
+     */
+    function applyFilterWithRadialWipe(newFilter, done) {
+      if (newFilter !== "rhef" || !solarCanvas) {
+        if (done) done();
+        return;
+      }
+      var cw = solarCanvas.width;
+      var ch = solarCanvas.height;
+      if (cw <= 0 || ch <= 0) {
+        applyFilterInstant("rhef");
+        if (done) done();
+        return;
+      }
+      var dataUrlA = solarCanvas.toDataURL("image/png");
+      state.editorFilter = "rhef";
+      renderCanvas();
+      var dataUrlB = solarCanvas.toDataURL("image/png");
+      var imgA = new Image();
+      var imgB = new Image();
+      var loaded = 0;
+      function maybeStart() {
+        if (++loaded < 2) return;
+        var ctx = solarCanvas.getContext("2d");
+        var cx = cw / 2, cy = ch / 2;
+        var maxR = Math.sqrt(cx * cx + cy * cy) * 1.05;
+        var dur = 400;
+        var start = performance.now();
+        function frame(t) {
+          var elapsed = t - start;
+          var r = elapsed >= dur ? maxR : (elapsed / dur) * maxR;
+          ctx.drawImage(imgA, 0, 0);
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+          ctx.clip();
+          ctx.drawImage(imgB, 0, 0);
+          ctx.restore();
+          if (r < maxR) requestAnimationFrame(frame);
+          else {
+            _syncFilterToggleUI("rhef");
+            updateMockupDisplay();
+            if (done) done();
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+      imgA.onload = maybeStart;
+      imgB.onload = maybeStart;
+      imgA.src = dataUrlA;
+      imgB.src = dataUrlB;
     }
 
     function _syncFilterToggleUI(filterValue) {
@@ -620,72 +691,67 @@
       if (typeof renderProducts === "function") renderProducts();
     }
 
-    // ── Editor filter: Raw ↔ RHEF ↔ HQ (radio: only one selected; instant when cached) ──
+    // ── Editor filter: JPG | Raw | RHEF (all from preview); HQ is separate button ──
     var editorFilterToggleEl = document.getElementById("editorFilterToggle");
+    function ensurePreviewFetchedThenApply(filterValue, preferWipe) {
+      var dateVal = dateInput ? dateInput.value : "";
+      if (!API_BASE || !dateVal) {
+        editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+        showToast("Preview requires backend and date.", "error");
+        return;
+      }
+      if (state.rhefFetching) {
+        showToast("Preview images are generating, please wait\u2026", "info");
+        editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+        return;
+      }
+      if (state.rhefFetchPromise) {
+        state.rhefFetchPromise.then(function() {
+          if (filterValue === "rhef" && preferWipe) applyFilterWithRadialWipe("rhef", function() {});
+          else applyFilterInstant(filterValue);
+        });
+        return;
+      }
+      state.rhefFetching = true; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+      updateFilterStatusLine("Requesting preview\u2026", "loading");
+      state.rhefFetchPromise = fetchBackendRHEPreview(dateVal, state.wavelength, function(pct, msg) {
+        updateFilterStatusLine(msg || "Generating preview\u2026", "loading");
+      }).then(function(ob) {
+        state.rhefImage = ob.filteredImg;
+        state.rawBackendImage = ob.rawImg || null;
+        state.jpgImage = ob.jpgImg || null;
+        state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+        state.rhefFetchPromise = null;
+        var entry = thumbCache[String(state.wavelength)] || {};
+        entry.rhef = state.rhefImage; entry.rawBackend = state.rawBackendImage; entry.jpg = state.jpgImage;
+        thumbCache[String(state.wavelength)] = entry;
+        updateFilterStatusLine("Preview ready!", "success");
+        if (filterValue === "rhef" && preferWipe) applyFilterWithRadialWipe("rhef", function() {});
+        else applyFilterInstant(filterValue);
+      }).catch(function(err) {
+        console.error("[Preview] Fetch failed:", err);
+        state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+        state.rhefFetchPromise = null;
+        editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
+        updateFilterStatusLine("Preview unavailable: " + (err.message || err), "error");
+      });
+    }
     if (editorFilterToggleEl) {
       editorFilterToggleEl.addEventListener("change", function(e) {
         var radio = e.target;
         if (radio.name !== "editorFilter" || radio.type !== "radio") return;
         var newFilter = radio.value;
         if (newFilter === state.editorFilter) return;
-
-        if (newFilter === "hq") {
-          if (state.hqFilterImage) {
-            applyFilterInstant("hq");
-          } else {
-            editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
-            if (state.hqFetching) {
-              showToast("HQ is generating, please wait\u2026", "info");
-              return;
-            }
-            showModal(
-              "High-Quality Filter",
-              "This will generate a full-resolution filtered image (3000\u00d73000px, 300 DPI). " +
-              "It may take about a minute. Continue?",
-              function() {
-                startHqFilterGeneration(dateInput.value, state.wavelength);
-              },
-              "Generate HQ"
-            );
-          }
+        if (newFilter === "jpg") {
+          if (state.jpgImage) applyFilterInstant("jpg");
+          else ensurePreviewFetchedThenApply("jpg", false);
           return;
         }
-
         if (newFilter === "rhef") {
-          if (state.rhefImage) {
-            applyFilterInstant("rhef");
-          } else if (state.rhefFetching) {
-            showToast("Filtered version is generating, please wait\u2026", "info");
-            editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
-          } else {
-            var dateVal = dateInput ? dateInput.value : "";
-            if (API_BASE && dateVal) {
-              editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
-              state.rhefFetching = true;
-              updateFilterStatusLine("Requesting RHEF\u2026", "loading");
-              fetchBackendRHEPreview(dateVal, state.wavelength, function(pct, msg) {
-                updateFilterStatusLine(msg || "Generating filtered version\u2026", "loading");
-              }).then(function(ob) {
-                state.rhefImage = ob.filteredImg;
-                state.rawBackendImage = ob.rawImg || null;
-                state.rhefFetching = false;
-                updateFilterStatusLine("Filtered version ready!", "success");
-                applyFilterInstant("rhef");
-                showToast("Filtered version loaded! Click Raw to switch back.", "info");
-              }).catch(function(err) {
-                console.error("[RHEF] Fetch failed:", err);
-                state.rhefFetching = false;
-                updateFilterStatusLine("RHEF unavailable for this date", "error");
-              });
-            } else {
-              editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
-              showToast("RHEF requires backend and date.", "error");
-            }
-          }
+          if (state.rhefImage) applyFilterInstant("rhef");
+          else ensurePreviewFetchedThenApply("rhef", true);
           return;
         }
-
-        // "raw" selected — always instant (originalImage or rawBackendImage)
         applyFilterInstant("raw");
       });
       _syncFilterToggleUI(state.editorFilter);
@@ -787,6 +853,13 @@
           el.style.display = "none";
         }, 4000);
       }
+    }
+
+    function updateRhefLoadingUI() {
+      var el = document.getElementById("filterLoadingIndicator");
+      if (!el) return;
+      if (state.rhefFetching) el.classList.remove("hidden");
+      else el.classList.add("hidden");
     }
 
     // ── Backend Health Check ─────────────────────────────────────
@@ -1033,20 +1106,13 @@
       });
     }
 
-    // ── "Preview Products" button — generate real Printify mockups from current canvas as-is ──
+    // ── "1. Reset to Mock Mockups" — clear Printify mockups so product grid shows canvas-drawn previews only; lets user iterate on position quickly ──
     if (btnPreview) {
       btnPreview.addEventListener("click", function() {
         if (!state.originalImage) {
           showInfo("No Image", "Click a wavelength tile to load the solar image first.");
           return;
         }
-        if (!state.backendOnline) {
-          showInfo("Backend Offline",
-            "The backend is needed to upload the image and generate mockups. Please wait for it to come online."
-          );
-          return;
-        }
-        // Clear caches so we upload current canvas and create fresh mockups (no HQ required)
         state.mockups = {};
         state.mockupsRaw = {};
         state.mockupsFiltered = {};
@@ -1054,14 +1120,13 @@
         state.uploadedPrintifyIdRaw = null;
         state.uploadedPrintifyIdFiltered = null;
         productSection.classList.remove("hidden");
-        renderProducts();
         if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
-        showToast("Generating real mockups from current canvas…");
-        autoGenerateMockups("raw");
+        renderProducts();
+        showToast("Reset to mock mockups — adjust position, then click Generate HQ Mockups when ready.");
       });
     }
 
-    // ── "Make Products" button — fires HQ generation + mockups in parallel ───
+    // ── "2. Generate HQ Mockups" — upload to Printify, generate real mockups, and trigger HQ RHEF production ───
     btnGenerate.addEventListener("click", function() {
       if (!state.originalImage) {
         showInfo("No Image", "Click a wavelength tile to load the solar image first.");
@@ -1119,7 +1184,7 @@
         state.hqReady = true;
         updateSendToPrintifyButton();
         btnGenerate.disabled = false;
-        btnGenerate.innerHTML = '<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ Ready · Make Again';
+        btnGenerate.innerHTML = '<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ Ready · Generate Again';
         setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ image ready — buy buttons are live!');
         showToast("HQ print image ready!", "success");
         setTimeout(hideProgress, 1200);
@@ -1174,28 +1239,31 @@
     }
 
     /**
-     * Start HQ filtered image generation (3000px, 300dpi).
-     * Shows progress in filter status line, transitions to HQ on completion.
+     * Start full-resolution image generation for the given format (jpg, raw, or rhef).
+     * format defaults to state.editorFilter. On completion, sets hqFilterImage and hqFormat.
      */
-    function startHqFilterGeneration(date, wavelength) {
-      var cacheKey = date + "_" + wavelength + "_hq";
+    function startHqFilterGeneration(date, wavelength, format) {
+      format = format || state.editorFilter || "rhef";
+      var cacheKey = date + "_" + wavelength + "_hq_" + format;
       var cached = hqCache[cacheKey];
       if (cached && cached.imageObj) {
         state.hqFilterImage = cached.imageObj;
-        applyFilterInstant("hq");
-        showToast("HQ filtered image ready!", "success");
+        state.hqFormat = format;
+        applyFilterInstant(format);
+        showToast("Full-resolution " + format.toUpperCase() + " ready!", "success");
         return Promise.resolve(cached.imageObj);
       }
 
       state.hqFetching = true;
       setProgress(10);
-      updateFilterStatusLine("HQ generation in progress (may take ~60s)\u2026", "loading");
+      updateFilterStatusLine("Full-res " + format.toUpperCase() + " generation (may take ~60s)\u2026", "loading");
 
       return postJSON(API_BASE + "/api/generate", {
         date: date,
         wavelength: wavelength,
         mission: "SDO",
-        detector: "AIA"
+        detector: "AIA",
+        format: format
       }, 180000).then(function(res) {
         if (!res.task_id || !res.status_url) throw new Error("HQ task failed to start");
         var statusUrl = API_BASE + res.status_url;
@@ -1203,23 +1271,24 @@
         return pollStatus(statusUrl, function(data) {
           if (data.status === "started" || data.status === "processing") {
             setProgress(50);
-            updateFilterStatusLine("HQ rendering in progress\u2026", "loading");
+            updateFilterStatusLine("Full-res rendering\u2026", "loading");
           }
         });
       }).then(function(result) {
         if (result.status === "completed" && result.image_url) {
           var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
           setProgress(85);
-          updateFilterStatusLine("Loading HQ image\u2026", "loading");
+          updateFilterStatusLine("Loading full-res image\u2026", "loading");
           return loadImage(hqUrl).then(function(img) {
             state.hqFilterImage = img;
+            state.hqFormat = format;
             state.hqFetching = false;
             hqCache[cacheKey] = { url: hqUrl, imageObj: img };
             setProgress(100);
             hideProgress();
-            updateFilterStatusLine("HQ filter ready!", "success");
-            applyFilterInstant("hq");
-            showToast("HQ filtered image ready!", "success");
+            updateFilterStatusLine("Full-res " + format.toUpperCase() + " ready!", "success");
+            applyFilterInstant(format);
+            showToast("Full-resolution " + format.toUpperCase() + " ready!", "success");
             return img;
           });
         }
@@ -1251,30 +1320,45 @@
     }
 
     // ── Canvas rendering ─────────────────────────────────────────
+    // Canvas size is always derived from the reference image (originalImage) so that toggling
+    // JPG / Raw / RHEF keeps the same crop and overlay; other images are drawn scaled to cover.
     function renderCanvas() {
       if (!state.originalImage) return;
       var img;
-      if (state.editorFilter === "hq" && state.hqFilterImage) img = state.hqFilterImage;
-      else if (state.editorFilter === "rhef" && state.rhefImage) img = state.rhefImage;
-      else if (state.editorFilter === "raw" && state.rawBackendImage) img = state.rawBackendImage;
+      var fmt = state.editorFilter;
+      if (fmt === "jpg" && state.hqFilterImage && state.hqFormat === "jpg") img = state.hqFilterImage;
+      else if (fmt === "jpg") img = state.jpgImage || state.originalImage;
+      else if (fmt === "raw" && state.hqFilterImage && state.hqFormat === "raw") img = state.hqFilterImage;
+      else if (fmt === "raw" && state.rawBackendImage) img = state.rawBackendImage;
+      else if (fmt === "rhef" && state.hqFilterImage && state.hqFormat === "rhef") img = state.hqFilterImage;
+      else if (fmt === "rhef" && state.rhefImage) img = state.rhefImage;
       else img = state.originalImage;
       var ctx = solarCanvas.getContext("2d");
 
-      // Compute dimensions with rotation
-      var w = img.naturalWidth;
-      var h = img.naturalHeight;
+      // Fix canvas size from reference image so JPG/Raw/RHEF overlay
+      var ref = state.originalImage;
+      var refW = ref.naturalWidth;
+      var refH = ref.naturalHeight;
       var rotated = (state.rotation % 180 !== 0);
-      var cw = rotated ? h : w;
-      var ch = rotated ? w : h;
+      var cw = rotated ? refH : refW;
+      var ch = rotated ? refW : refH;
 
       solarCanvas.width = cw;
       solarCanvas.height = ch;
+      ctx.clearRect(0, 0, cw, ch);
+
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      // Scale image to cover canvas so all filters align (handles JPG with letterboxing / different size)
+      var scale = Math.max(cw / iw, ch / ih);
+      var drawW = iw * scale;
+      var drawH = ih * scale;
 
       ctx.save();
       ctx.translate(cw / 2, ch / 2);
       ctx.rotate((state.rotation * Math.PI) / 180);
       ctx.scale(state.flipH ? -1 : 1, state.flipV ? -1 : 1);
-      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
       ctx.restore();
 
       // Apply brightness/contrast/saturation via pixel manipulation
@@ -1300,6 +1384,45 @@
         // vignetteWidth: 0 = hard crop (no feather), 100 = full smooth feather
         var vigWidthFactor = state.vignetteWidth / 100;
 
+        // Mode (match canvas): always compute from displayed pixels (excluding black/white) for Match button preview and for vignette when selected
+        if (needsPixelWork) {
+          var step = 8;
+          var buckets = {};
+          var maxCount = 0;
+          var maxKey = "16,16,16";
+          var blackThresh = 25;
+          var whiteThresh = 230;
+          for (var si = 0; si < d.length; si += 4 * step) {
+            var ar = d[si], ag = d[si + 1], ab = d[si + 2], aa = d[si + 3];
+            if (aa < 128) continue;
+            if (state.inverted) { ar = 255 - ar; ag = 255 - ag; ab = 255 - ab; }
+            ar += br; ag += br; ab += br;
+            ar = factor * (ar - 128) + 128;
+            ag = factor * (ag - 128) + 128;
+            ab = factor * (ab - 128) + 128;
+            var gray = 0.2989 * ar + 0.587 * ag + 0.114 * ab;
+            ar = gray + sat * (ar - gray);
+            ag = gray + sat * (ag - gray);
+            ab = gray + sat * (ab - gray);
+            var rr = Math.max(0, Math.min(255, ar));
+            var gg = Math.max(0, Math.min(255, ag));
+            var bb = Math.max(0, Math.min(255, ab));
+            if (rr <= blackThresh && gg <= blackThresh && bb <= blackThresh) continue;
+            if (rr >= whiteThresh && gg >= whiteThresh && bb >= whiteThresh) continue;
+            var rq = (rr >> 3);
+            var gq = (gg >> 3);
+            var bq = (bb >> 3);
+            var key = rq + "," + gq + "," + bq;
+            buckets[key] = (buckets[key] || 0) + 1;
+            if (buckets[key] > maxCount) { maxCount = buckets[key]; maxKey = key; }
+          }
+          var parts = maxKey.split(",");
+          state._vignetteModeR = (parseInt(parts[0], 10) << 3) + 4;
+          state._vignetteModeG = (parseInt(parts[1], 10) << 3) + 4;
+          state._vignetteModeB = (parseInt(parts[2], 10) << 3) + 4;
+          if (typeof updateMatchButtonColor === "function") updateMatchButtonColor();
+        }
+
         for (var i = 0; i < d.length; i += 4) {
           var r = d[i], g = d[i + 1], b = d[i + 2];
 
@@ -1320,7 +1443,7 @@
           g = gray + sat * (g - gray);
           b = gray + sat * (b - gray);
 
-          // Vignette — fade to transparent / black / white / color outside radius
+          // Vignette — fade to transparent / black / white / color / mode outside radius
           if (applyVignette) {
             var px = (i / 4) % cw;
             var py = Math.floor((i / 4) / cw);
@@ -1343,7 +1466,7 @@
                 r = r * (1 - t) + 255 * t;
                 g = g * (1 - t) + 255 * t;
                 b = b * (1 - t) + 255 * t;
-              } else if (fade === "color") {
+              } else if (fade === "custom") {
                 var hex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
                 var fr = parseInt(hex.substr(0, 2), 16);
                 var fg = parseInt(hex.substr(2, 2), 16);
@@ -1351,6 +1474,13 @@
                 r = r * (1 - t) + fr * t;
                 g = g * (1 - t) + fg * t;
                 b = b * (1 - t) + fb * t;
+              } else if (fade === "mode") {
+                var modeR = state._vignetteModeR !== undefined ? state._vignetteModeR : 0;
+                var modeG = state._vignetteModeG !== undefined ? state._vignetteModeG : 0;
+                var modeB = state._vignetteModeB !== undefined ? state._vignetteModeB : 0;
+                r = r * (1 - t) + modeR * t;
+                g = g * (1 - t) + modeG * t;
+                b = b * (1 - t) + modeB * t;
               }
             }
           }
@@ -1427,7 +1557,7 @@
         state.brightness = 0;
         state.contrast = 0;
         state.saturation = 100;
-        state.vignette = 16;
+        state.vignette = 24;
         state.vignetteWidth = 0;
         state.vignetteFade = "transparent";
         state.vignetteFadeColor = "#000000";
@@ -1438,13 +1568,13 @@
         $("#brightnessSlider").value = 0;
         $("#contrastSlider").value = 0;
         $("#saturationSlider").value = 100;
-        $("#vignetteSlider").value = 100 - 16;
+        $("#vignetteSlider").value = 100 - 24;
         $("#vigWidthSlider").value = 0;
         if ($("#cropEdgeSlider")) { $("#cropEdgeSlider").value = 0; $("#cropEdgeVal").textContent = "0"; }
         $("#brightnessVal").textContent = "0";
         $("#contrastVal").textContent = "0";
         $("#saturationVal").textContent = "100";
-        $("#vignetteVal").textContent = "16";
+        $("#vignetteVal").textContent = "24";
         $("#vigWidthVal").textContent = "0";
         if (typeof applyCropEdgeMask === "function") applyCropEdgeMask();
         if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
@@ -1520,7 +1650,22 @@
     }
     setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth", true);
 
-    // ── Vignette fade: filter-style toggle (transparent / black / white / color) ──
+    // ── Vignette fade: filter-style toggle (transparent / black / white / mode / custom) ──
+    function updateMatchButtonColor() {
+      var modeOpt = document.querySelector(".filter-opt-mode");
+      if (!modeOpt) return;
+      if (modeOpt.classList.contains("active") || (modeOpt.querySelector('input[name="vignetteFade"]') && modeOpt.querySelector('input[name="vignetteFade"]').checked)) {
+        modeOpt.style.background = "";
+        modeOpt.style.color = "";
+        return;
+      }
+      var r = state._vignetteModeR !== undefined ? state._vignetteModeR : 128;
+      var g = state._vignetteModeG !== undefined ? state._vignetteModeG : 128;
+      var b = state._vignetteModeB !== undefined ? state._vignetteModeB : 128;
+      var lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      modeOpt.style.background = "rgb(" + r + "," + g + "," + b + ")";
+      modeOpt.style.color = lum < 0.5 ? "#fff" : "#000";
+    }
     function syncVignetteFadeUI() {
       var toggle = document.getElementById("vignetteFadeToggle");
       if (!toggle) return;
@@ -1534,6 +1679,15 @@
       });
       var picker = $("#vignetteFadeColorPicker");
       if (picker) picker.value = state.vignetteFadeColor || "#000000";
+      var colorOpt = toggle.querySelector(".filter-opt-color");
+      if (colorOpt) {
+        var hex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
+        colorOpt.style.background = "#" + hex;
+        var r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+        var lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        colorOpt.style.color = lum < 0.5 ? "#fff" : "#000";
+      }
+      if (typeof updateMatchButtonColor === "function") updateMatchButtonColor();
     }
     var vignetteFadeToggle = document.getElementById("vignetteFadeToggle");
     if (vignetteFadeToggle) {
@@ -1547,15 +1701,26 @@
     }
     var vignetteFadeColorPicker = $("#vignetteFadeColorPicker");
     if (vignetteFadeColorPicker) {
+      vignetteFadeColorPicker.addEventListener("click", function() {
+        state.vignetteFade = "custom";
+        var toggle = document.getElementById("vignetteFadeToggle");
+        if (toggle) {
+          var radio = toggle.querySelector('input[name="vignetteFade"][value="custom"]');
+          if (radio) radio.checked = true;
+          syncVignetteFadeUI();
+        }
+      });
       vignetteFadeColorPicker.addEventListener("input", function() {
         state.vignetteFadeColor = vignetteFadeColorPicker.value;
-        if (state.vignetteFade === "color") {
+        syncVignetteFadeUI();
+        if (state.vignetteFade === "custom") {
           renderCanvas();
           if (typeof renderProducts === "function") renderProducts();
         }
       });
       vignetteFadeColorPicker.addEventListener("change", function() {
-        if (state.vignetteFade === "color") {
+        syncVignetteFadeUI();
+        if (state.vignetteFade === "custom") {
           renderCanvas();
           if (typeof renderProducts === "function") renderProducts();
         }
@@ -2127,6 +2292,11 @@
             state.rawBackendImage = croppedImg;
           });
         }
+        if (state.jpgImage) {
+          _cropFilterImage(state.jpgImage, cropRect, function(croppedImg) {
+            state.jpgImage = croppedImg;
+          });
+        }
         if (state.hqFilterImage) {
           _cropFilterImage(state.hqFilterImage, cropRect, function(croppedImg) {
             state.hqFilterImage = croppedImg;
@@ -2152,17 +2322,24 @@
     });
 
     /**
-     * Crop a filter image using the same transforms as the main canvas.
-     * Renders the source image with current rotation/flip/pixel adjustments,
-     * extracts the same crop region, and calls back with the cropped Image.
+     * Crop a filter image using the same transforms and reference size as the main canvas.
+     * Renders the source image scaled to cover the reference size (so JPG/Raw/RHEF align),
+     * applies rotation/flip/pixel adjustments, and extracts the same crop region.
      */
     function _cropFilterImage(sourceImg, cropRect, callback) {
-      // Render source with the same transforms that were active when user drew the crop
+      var ref = state.originalImage;
+      if (!ref) return callback(sourceImg);
+      var refW = ref.naturalWidth;
+      var refH = ref.naturalHeight;
+      var rotated = (state.rotation % 180 !== 0);
+      var cw = rotated ? refH : refW;
+      var ch = rotated ? refW : refH;
+
       var sw = sourceImg.naturalWidth;
       var sh = sourceImg.naturalHeight;
-      var rotated = (state.rotation % 180 !== 0);
-      var cw = rotated ? sh : sw;
-      var ch = rotated ? sw : sh;
+      var scale = Math.max(cw / sw, ch / sh);
+      var drawW = sw * scale;
+      var drawH = sh * scale;
 
       var tmpCanvas = document.createElement("canvas");
       tmpCanvas.width = cw;
@@ -2173,7 +2350,7 @@
       tctx.translate(cw / 2, ch / 2);
       tctx.rotate((state.rotation * Math.PI) / 180);
       tctx.scale(state.flipH ? -1 : 1, state.flipV ? -1 : 1);
-      tctx.drawImage(sourceImg, -sw / 2, -sh / 2, sw, sh);
+      tctx.drawImage(sourceImg, -drawW / 2, -drawH / 2, drawW, drawH);
       tctx.restore();
 
       // Apply pixel adjustments (brightness, contrast, saturation, vignette, invert)
@@ -2225,7 +2402,7 @@
                 r = r * (1 - t) + 255 * t;
                 g = g * (1 - t) + 255 * t;
                 b = b * (1 - t) + 255 * t;
-              } else if (fade === "color") {
+              } else if (fade === "custom") {
                 var hex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
                 var fr = parseInt(hex.substr(0, 2), 16);
                 var fg = parseInt(hex.substr(2, 2), 16);
@@ -2233,6 +2410,13 @@
                 r = r * (1 - t) + fr * t;
                 g = g * (1 - t) + fg * t;
                 b = b * (1 - t) + fb * t;
+              } else if (fade === "mode") {
+                var modeR = state._vignetteModeR !== undefined ? state._vignetteModeR : 0;
+                var modeG = state._vignetteModeG !== undefined ? state._vignetteModeG : 0;
+                var modeB = state._vignetteModeB !== undefined ? state._vignetteModeB : 0;
+                r = r * (1 - t) + modeR * t;
+                g = g * (1 - t) + modeG * t;
+                b = b * (1 - t) + modeB * t;
               }
             }
           }
@@ -2260,8 +2444,49 @@
     // ── HQ cache (used by startHqGeneration called from Make Products) ─
     var hqCache = {}; // key: "date_wavelength" => { url, imageObj }
 
-    // btnHQ is now hidden; HQ fires automatically when Make Products is clicked.
-    if (btnHQ) btnHQ.classList.add("hidden");
+    // ── "3. Generate HQ RHEF" — generate the full-resolution print image only if it hasn't been made yet (no mockups) ──
+    if (btnHQ) {
+      btnHQ.addEventListener("click", function() {
+        if (!state.originalImage) {
+          showInfo("No Image", "Click a wavelength tile to load the solar image first.");
+          return;
+        }
+        var dateVal = dateInput ? dateInput.value : "";
+        if (!dateVal) { showToast("Select a date first.", "error"); return; }
+        if (state.hqReady) {
+          showToast("HQ RHEF already generated. Buy buttons are live.");
+          return;
+        }
+        if (state.hqTaskId && !state.hqImageUrl) {
+          showToast("HQ is already generating\u2026", "info");
+          return;
+        }
+        if (!state.backendOnline) {
+          showInfo("Backend Offline", "The backend is needed to generate the HQ image. Please wait for it to come online.");
+          return;
+        }
+        btnHQ.disabled = true;
+        btnHQ.innerHTML = '<div class="spinner" style="border-top-color:#fff;display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Generating HQ RHEF…';
+        setStatus('<i class="fas fa-star"></i> Generating HQ RHEF print image…', true);
+        setProgress(10);
+        startHqGeneration(dateVal, state.wavelength).then(function(hqUrl) {
+          state.hqImageUrl = hqUrl;
+          state.hqReady = true;
+          updateSendToPrintifyButton();
+          btnHQ.disabled = false;
+          btnHQ.innerHTML = '<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ RHEF Ready';
+          setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ RHEF ready — buy buttons are live!');
+          showToast("HQ RHEF ready!", "success");
+          setTimeout(hideProgress, 1200);
+        }).catch(function(err) {
+          btnHQ.disabled = false;
+          btnHQ.innerHTML = '<i class="fas fa-star"></i> 3. Generate HQ RHEF';
+          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> HQ failed: ' + (err.message || err), false);
+          showToast("HQ failed: " + (err.message || err), "error");
+          hideProgress();
+        });
+      });
+    }
 
     // ── Products ─────────────────────────────────────────────────
     // ── Product mockup drawing ──────────────────────────────────
@@ -2990,8 +3215,8 @@
         if (state.rhefImage) {
           state.editorFilter = "rhef";
           renderCanvas();
-        } else if (state.hqFilterImage) {
-          state.editorFilter = "hq";
+        } else if (state.hqFilterImage && state.hqFormat) {
+          state.editorFilter = state.hqFormat;
           renderCanvas();
         }
       }
@@ -3201,6 +3426,7 @@
             description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with Solar Archive.",
             blueprint_id: product.blueprintId,
             print_provider_id: product.printProviderId,
+            variant_id: product.variantId,
             price: product.checkoutPrice,
             position: product.position || "front",
             tags: ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()]

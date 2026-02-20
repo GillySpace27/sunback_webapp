@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Local dev server for Solar Archive. Sources .env and runs the FastAPI app on port 8000.
+# Usage: ./run_server
+# Then open http://127.0.0.1:8000
+# To stop in the debugger when a preview download fails: SOLAR_ARCHIVE_DEBUG=1 ./run_server
+
+set -e
+cd "$(dirname "$0")"
+
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
+
+# SunPy needs these before it is imported; use local dirs if not set
+: "${SUNPY_CONFIGDIR:=$PWD/.sunpy/config}"
+: "${SUNPY_DOWNLOADDIR:=$PWD/.sunpy/data}"
+export SUNPY_CONFIGDIR SUNPY_DOWNLOADDIR
+mkdir -p "$SUNPY_CONFIGDIR" "$SUNPY_DOWNLOADDIR"
+
+export PYTHONUNBUFFERED=1
+exec python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload

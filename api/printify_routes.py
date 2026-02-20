@@ -468,10 +468,22 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
     handle = external.get("handle")
     external_id = external.get("id")
 
-    if handle:
-        return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"}
-    elif external_id:
-        return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{external_id}"}
+    def slug_only(value):
+        """Use value as product slug; if it looks like a full URL, extract the slug after /products/."""
+        if not value or not isinstance(value, str):
+            return None
+        s = value.strip()
+        if s.startswith("http://") or s.startswith("https://"):
+            # e.g. https://0b1wyw-tz.myshopify.com/products/solar-193a-2026-02-12-metal-art-sign
+            if "/products/" in s:
+                s = s.split("/products/", 1)[-1].split("/")[0].split("?")[0]
+            else:
+                s = s.rstrip("/").split("/")[-1].split("?")[0]
+        return s if s else None
+
+    slug = slug_only(handle) or slug_only(external_id)
+    if slug:
+        return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{slug}"}
     return {"status": "pending"}
 
 
