@@ -439,12 +439,20 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
     log_to_queue(f"[generate_preview] VSO_URL={os.environ['VSO_URL']}")
     log_to_queue(f"[generate_preview] SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
 
-    download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
+    download_dir = os.environ.get("SUNPY_DOWNLOADDIR", os.path.join(OUTPUT_DIR, "data"))
+    os.makedirs(download_dir, exist_ok=True)
+    log_to_queue(f"[generate_preview] download_dir={download_dir}")
 
     # Check if we already have a FITS for this date/wavelength cached locally
     import glob as _glob
-    fits_pattern = os.path.join(download_dir, f"aia.lev1.{wl}A_{dt.strftime('%Y_%m_%d')}*.fits")
-    existing = [f for f in _glob.glob(fits_pattern) if os.path.getsize(f) > 100_000]
+    date_glob = dt.strftime('%Y_%m_%d')
+    # Search download_dir and its parent (OUTPUT_DIR) for robustness
+    search_dirs = [download_dir, OUTPUT_DIR]
+    existing = []
+    for sdir in search_dirs:
+        pat = os.path.join(sdir, f"aia.lev1.{wl}A_{date_glob}*.fits")
+        existing += [f for f in _glob.glob(pat) if os.path.getsize(f) > 100_000]
+    log_to_queue(f"[generate_preview] Cache check ({date_glob} {wl}A): {existing or 'none found'}")
     if existing:
         fits_path = existing[0]
         log_to_queue(f"[generate_preview] Using cached FITS: {os.path.basename(fits_path)}")
