@@ -467,7 +467,14 @@ input[type="date"]:focus, select:focus {
 /* Image Display */
 .image-stage {
   position: relative;
-  background: #000;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #c8c8c8 25%, transparent 25%),
+    linear-gradient(-45deg, #c8c8c8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #c8c8c8 75%),
+    linear-gradient(-45deg, transparent 75%, #c8c8c8 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 8px;
   border-radius: var(--radius-md);
   overflow: hidden;
   min-height: 200px;
@@ -476,8 +483,18 @@ input[type="date"]:focus, select:focus {
   justify-content: center;
 }
 
+html.dark .image-stage {
+  background-color: #1a1a2e;
+  background-image:
+    linear-gradient(45deg, #2a2a44 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2a44 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2a44 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2a44 75%);
+}
+
 .image-stage.empty {
-  background: var(--bg-elevated);
+  background: var(--bg-elevated) !important;
+  background-image: none !important;
   border: 2px dashed var(--border);
 }
 
@@ -557,6 +574,34 @@ input[type="date"]:focus, select:focus {
   color: var(--text-dim);
   min-width: 40px;
   text-align: right;
+}
+
+.vignette-fade-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.vignette-fade-toggle {
+  flex-shrink: 0;
+}
+
+.vignette-fade-row .vignette-fade-color-label {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.vignette-fade-row .vignette-color-input {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: var(--bg-card);
+  flex-shrink: 0;
 }
 
 /* Product Cards */

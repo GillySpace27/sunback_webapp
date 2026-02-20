@@ -47,12 +47,18 @@
       cropStart: null,
       cropEnd: null,
       cropRatio: "1:1",
+      cropZoom: 100,
+      panX: 0,
+      panY: 0,
       selectedProduct: null,
       hqReady: false,
       lastImageUrl: "",
       backendOnline: false,
       vignette: 16,
       vignetteWidth: 0,
+      vignetteFade: "transparent",  // "transparent" | "black" | "white" | "color"
+      vignetteFadeColor: "#000000",
+      cropEdgeFeather: 0,          // 0–100: feather at edges of crop viewport
       textMode: false,
       textOverlay: null,  // { text, x, y, size, font, color, strokeColor, strokeWidth }
       mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
@@ -62,6 +68,7 @@
       helioPreviewLoaded: false,  // true once a Helioviewer image is in the canvas
       editorFilter: "raw",       // "raw" | "rhef" | "hq" — only in editor, not on tiles
       rhefImage: null,           // RHE-processed image when editorFilter is "rhef"
+      rawBackendImage: null,     // backend raw preview (no RHEF) for toggling with rhefImage
       rhefFetching: false,       // true while background RHEF fetch is in-flight
       rhefFetchPromise: null,    // Promise for in-flight RHEF fetch (deduplication)
       hqFilterImage: null,       // loaded HQ filtered Image object
@@ -300,6 +307,7 @@
     function _installPreviewImage(img, wl, dateVal) {
       state.originalImage = img;
       state.rhefImage = null;
+      state.rawBackendImage = null;
       state.editorFilter = "raw";
       state.rotation = 0;
       state.flipH = false;
@@ -310,6 +318,9 @@
       state.saturation = 100;
       state.vignette = 16;
       state.vignetteWidth = 0;
+      state.vignetteFade = "transparent";
+      state.vignetteFadeColor = "#000000";
+      state.cropEdgeFeather = 0;
       state.textOverlay = null;
       state.textMode = false;
       state.mockups = {};
@@ -337,30 +348,30 @@
         var cachedEntry = thumbCache[String(wl)];
         if (cachedEntry && cachedEntry.rhef) {
           state.rhefImage = cachedEntry.rhef;
-          // Defer auto-switch until after canvas is rendered
+          state.rawBackendImage = cachedEntry.rawBackend || null;
           setTimeout(function() {
-            transitionToFilter("rhef", function() {
-              showToast("Filtered version loaded! Click Raw to switch back.", "info");
-            });
-          }, 800);
+            applyFilterInstant("rhef");
+            showToast("Filtered version loaded! Click Raw to switch back.", "info");
+          }, 100);
         } else {
           state.rhefFetching = true;
           updateFilterStatusLine("Generating filtered version\u2026", "loading");
           state.rhefFetchPromise = fetchBackendRHEPreview(dateVal, wl, function(pct, msg) {
             updateFilterStatusLine(msg || "Generating filtered version\u2026", "loading");
-          }).then(function(rhefImg) {
+          }).then(function(ob) {
+            var rhefImg = ob.filteredImg;
             state.rhefImage = rhefImg;
+            state.rawBackendImage = ob.rawImg || null;
             state.rhefFetching = false;
             state.rhefFetchPromise = null;
             // Cache in thumbCache
             var entry = thumbCache[String(wl)] || {};
             entry.rhef = rhefImg;
+            entry.rawBackend = state.rawBackendImage;
             thumbCache[String(wl)] = entry;
             updateFilterStatusLine("Filtered version ready!", "success");
-            // Auto-switch to RHEF with radial wipe
-            transitionToFilter("rhef", function() {
-              showToast("Filtered version loaded! Click Raw to switch back.", "info");
-            });
+            applyFilterInstant("rhef");
+            showToast("Filtered version loaded! Click Raw to switch back.", "info");
           }).catch(function(err) {
             console.error("[RHEF] Background fetch failed:", err);
             state.rhefFetching = false;
@@ -376,18 +387,24 @@
       $("#brightnessSlider").value = 0;
       $("#contrastSlider").value = 0;
       $("#saturationSlider").value = 100;
-      $("#vignetteSlider").value = 16;
+      $("#vignetteSlider").value = 100 - 16;
       $("#vigWidthSlider").value = 0;
       $("#brightnessVal").textContent = "0";
       $("#contrastVal").textContent = "0";
       $("#saturationVal").textContent = "100";
       $("#vignetteVal").textContent = "16";
       $("#vigWidthVal").textContent = "0";
-      if ($("#zoomSlider")) { $("#zoomSlider").value = 100; $("#zoomVal").textContent = "100%"; }
-      if (solarCanvas) solarCanvas.style.transform = "";
+      if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
+      state.cropZoom = 100;
+      state.panX = 0;
+      state.panY = 0;
+      if (solarCanvas) applyCanvasView();
       if ($("#textToolPanel")) $("#textToolPanel").classList.add("hidden");
+      if ($("#adjustmentsPanel")) $("#adjustmentsPanel").classList.add("hidden");
       var textToolBtn = document.querySelector('[data-tool="text"]');
       if (textToolBtn) textToolBtn.classList.remove("active");
+      var adjustmentsBtn = document.getElementById("adjustmentsBtn");
+      if (adjustmentsBtn) adjustmentsBtn.classList.remove("active");
       if (solarCanvas) solarCanvas.classList.remove("text-dragging");
       if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
 
@@ -500,8 +517,8 @@
       }).then(function(res) { return res.json().then(function(data) { return { status: res.status, data: data }; }); })
         .then(function(result) {
           if (result.data.preview_url) {
-            if (onProgress) onProgress(85, "Loading RHE image…");
-            return API_BASE + result.data.preview_url;
+            if (onProgress) onProgress(85, "Loading preview images…");
+            return { filteredUrl: API_BASE + result.data.preview_url, rawUrl: result.data.preview_raw_url ? API_BASE + result.data.preview_raw_url : null };
           }
           if (result.status === 202) {
             return new Promise(function(resolve, reject) {
@@ -517,8 +534,8 @@
                   .then(function(pollResult) {
                     var d = pollResult.data;
                     if (d.preview_url) {
-                      if (onProgress) onProgress(85, "Loading RHE image…");
-                      resolve(API_BASE + d.preview_url);
+                      if (onProgress) onProgress(85, "Loading preview images…");
+                      resolve({ filteredUrl: API_BASE + d.preview_url, rawUrl: d.preview_raw_url ? API_BASE + d.preview_raw_url : null });
                       return;
                     }
                     if (pollResult.status === 200 && !d.preview_url) {
@@ -537,90 +554,47 @@
           }
           return Promise.reject(new Error(result.data.error || result.data.detail || "No preview_url"));
         })
-        .then(function(url) {
+        .then(function(urls) {
           return new Promise(function(resolve, reject) {
-            var img = new Image();
-            img.crossOrigin = "anonymous";
-            img.onload = function() {
-              if (onProgress) onProgress(100, "Done");
-              resolve(img);
-            };
-            img.onerror = function() {
-              // Retry without crossOrigin in case server doesn't send CORS headers
+            var filteredImg = new Image();
+            var rawImg = urls.rawUrl ? new Image() : null;
+            var done = 0;
+            var need = rawImg ? 2 : 1;
+            function maybeResolve() {
+              if (++done >= need) {
+                if (onProgress) onProgress(100, "Done");
+                resolve({ filteredImg: filteredImg, rawImg: rawImg });
+              }
+            }
+            filteredImg.crossOrigin = "anonymous";
+            filteredImg.onload = maybeResolve;
+            filteredImg.onerror = function() {
               var img2 = new Image();
-              img2.onload = function() { resolve(img2); };
-              img2.onerror = function() { reject(new Error("Failed to load RHE image")); };
-              img2.src = url;
+              img2.onload = function() { maybeResolve(); };
+              img2.onerror = function() { reject(new Error("Failed to load filtered preview")); };
+              img2.src = urls.filteredUrl;
             };
-            img.src = url;
+            filteredImg.src = urls.filteredUrl;
+            if (rawImg) {
+              rawImg.crossOrigin = "anonymous";
+              rawImg.onload = maybeResolve;
+              rawImg.onerror = function() { rawImg = null; maybeResolve(); };
+              rawImg.src = urls.rawUrl;
+            }
           });
         });
     }
 
-    // ── Radial outward wipe transition ─────────────────────────
-    function transitionToFilter(newFilter, onComplete) {
-      if (state.transitionInProgress) return;
-      if (newFilter === state.editorFilter) {
-        if (onComplete) onComplete();
-        return;
-      }
-
-      state.transitionInProgress = true;
-
-      // Capture current canvas state
-      var fromCanvas = document.createElement("canvas");
-      fromCanvas.width = solarCanvas.width;
-      fromCanvas.height = solarCanvas.height;
-      fromCanvas.getContext("2d").drawImage(solarCanvas, 0, 0);
-
-      // Switch filter and render target
+    /**
+     * Apply filter instantly (no animation). Updates canvas and mockups.
+     * Use when the target image is already cached so toggle feels immediate.
+     */
+    function applyFilterInstant(newFilter) {
+      if (newFilter === state.editorFilter) return;
       state.editorFilter = newFilter;
       renderCanvas();
-
-      // Capture target canvas state
-      var toCanvas = document.createElement("canvas");
-      toCanvas.width = solarCanvas.width;
-      toCanvas.height = solarCanvas.height;
-      toCanvas.getContext("2d").drawImage(solarCanvas, 0, 0);
-
-      // Animate radial wipe from center outward
-      var ctx = solarCanvas.getContext("2d");
-      var centerX = solarCanvas.width / 2;
-      var centerY = solarCanvas.height / 2;
-      var maxRadius = Math.sqrt(centerX * centerX + centerY * centerY);
-      var startTime = performance.now();
-      var duration = 600;
-
-      function animate(time) {
-        var elapsed = time - startTime;
-        var t = Math.min(elapsed / duration, 1);
-        // Ease-out cubic for smooth deceleration
-        var progress = 1 - Math.pow(1 - t, 3);
-        var radius = progress * maxRadius;
-
-        ctx.clearRect(0, 0, solarCanvas.width, solarCanvas.height);
-        ctx.drawImage(fromCanvas, 0, 0);
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(toCanvas, 0, 0);
-        ctx.restore();
-
-        if (t < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          state.transitionInProgress = false;
-          renderCanvas();
-          // Update radio button active states
-          _syncFilterToggleUI(newFilter);
-          updateMockupDisplay();
-          if (onComplete) onComplete();
-        }
-      }
-
-      requestAnimationFrame(animate);
+      _syncFilterToggleUI(newFilter);
+      updateMockupDisplay();
     }
 
     function _syncFilterToggleUI(filterValue) {
@@ -646,26 +620,19 @@
       if (typeof renderProducts === "function") renderProducts();
     }
 
-    // ── Editor filter: Raw ↔ RHEF ↔ HQ (only affects main canvas) ──
+    // ── Editor filter: Raw ↔ RHEF ↔ HQ (radio: only one selected; instant when cached) ──
     var editorFilterToggleEl = document.getElementById("editorFilterToggle");
     if (editorFilterToggleEl) {
-      editorFilterToggleEl.addEventListener("click", function(e) {
-        // Ignore synthetic click fired on the radio input itself — the label click handles it
-        if (e.target.tagName === "INPUT") return;
-        var label = e.target.closest(".filter-opt");
-        if (!label) return;
-        var radio = label.querySelector("input[type=radio]");
-        if (!radio) return;
+      editorFilterToggleEl.addEventListener("change", function(e) {
+        var radio = e.target;
+        if (radio.name !== "editorFilter" || radio.type !== "radio") return;
         var newFilter = radio.value;
-        if (newFilter === state.editorFilter || state.transitionInProgress) return;
+        if (newFilter === state.editorFilter) return;
 
         if (newFilter === "hq") {
-          // HQ filter: cached → instant transition; otherwise modal warning
           if (state.hqFilterImage) {
-            radio.checked = true;
-            transitionToFilter("hq");
+            applyFilterInstant("hq");
           } else {
-            // Revert radio to current
             editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
             if (state.hqFetching) {
               showToast("HQ is generating, please wait\u2026", "info");
@@ -686,14 +653,11 @@
 
         if (newFilter === "rhef") {
           if (state.rhefImage) {
-            // Cached → instant transition
-            radio.checked = true;
-            transitionToFilter("rhef");
+            applyFilterInstant("rhef");
           } else if (state.rhefFetching) {
             showToast("Filtered version is generating, please wait\u2026", "info");
             editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
           } else {
-            // Kick off fetch
             var dateVal = dateInput ? dateInput.value : "";
             if (API_BASE && dateVal) {
               editorFilterToggleEl.querySelector('input[value="' + state.editorFilter + '"]').checked = true;
@@ -701,13 +665,13 @@
               updateFilterStatusLine("Requesting RHEF\u2026", "loading");
               fetchBackendRHEPreview(dateVal, state.wavelength, function(pct, msg) {
                 updateFilterStatusLine(msg || "Generating filtered version\u2026", "loading");
-              }).then(function(img) {
-                state.rhefImage = img;
+              }).then(function(ob) {
+                state.rhefImage = ob.filteredImg;
+                state.rawBackendImage = ob.rawImg || null;
                 state.rhefFetching = false;
                 updateFilterStatusLine("Filtered version ready!", "success");
-                transitionToFilter("rhef", function() {
-                  showToast("Filtered version loaded! Click Raw to switch back.", "info");
-                });
+                applyFilterInstant("rhef");
+                showToast("Filtered version loaded! Click Raw to switch back.", "info");
               }).catch(function(err) {
                 console.error("[RHEF] Fetch failed:", err);
                 state.rhefFetching = false;
@@ -721,12 +685,10 @@
           return;
         }
 
-        // "raw" selected — instant from cache
-        radio.checked = true;
-        transitionToFilter("raw");
+        // "raw" selected — always instant (originalImage or rawBackendImage)
+        applyFilterInstant("raw");
       });
-      var firstFilterOpt = editorFilterToggleEl && editorFilterToggleEl.querySelector(".filter-opt:first-child");
-      if (firstFilterOpt) firstFilterOpt.classList.add("active");
+      _syncFilterToggleUI(state.editorFilter);
     }
 
     // Load thumbnails on date change and on initial page load
@@ -1071,18 +1033,31 @@
       });
     }
 
-    // ── "Preview Products" button — refreshes all canvas mockups from current canvas ──
+    // ── "Preview Products" button — generate real Printify mockups from current canvas as-is ──
     if (btnPreview) {
       btnPreview.addEventListener("click", function() {
         if (!state.originalImage) {
           showInfo("No Image", "Click a wavelength tile to load the solar image first.");
           return;
         }
-        // Clear Printify mockups so canvas-drawn previews show immediately
+        if (!state.backendOnline) {
+          showInfo("Backend Offline",
+            "The backend is needed to upload the image and generate mockups. Please wait for it to come online."
+          );
+          return;
+        }
+        // Clear caches so we upload current canvas and create fresh mockups (no HQ required)
         state.mockups = {};
+        state.mockupsRaw = {};
+        state.mockupsFiltered = {};
+        state.uploadedPrintifyId = null;
+        state.uploadedPrintifyIdRaw = null;
+        state.uploadedPrintifyIdFiltered = null;
         productSection.classList.remove("hidden");
         renderProducts();
-        showToast("Product previews updated!");
+        if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
+        showToast("Generating real mockups from current canvas…");
+        autoGenerateMockups("raw");
       });
     }
 
@@ -1207,9 +1182,8 @@
       var cached = hqCache[cacheKey];
       if (cached && cached.imageObj) {
         state.hqFilterImage = cached.imageObj;
-        transitionToFilter("hq", function() {
-          showToast("HQ filtered image ready!", "success");
-        });
+        applyFilterInstant("hq");
+        showToast("HQ filtered image ready!", "success");
         return Promise.resolve(cached.imageObj);
       }
 
@@ -1244,9 +1218,8 @@
             setProgress(100);
             hideProgress();
             updateFilterStatusLine("HQ filter ready!", "success");
-            transitionToFilter("hq", function() {
-              showToast("HQ filtered image ready!", "success");
-            });
+            applyFilterInstant("hq");
+            showToast("HQ filtered image ready!", "success");
             return img;
           });
         }
@@ -1283,6 +1256,7 @@
       var img;
       if (state.editorFilter === "hq" && state.hqFilterImage) img = state.hqFilterImage;
       else if (state.editorFilter === "rhef" && state.rhefImage) img = state.rhefImage;
+      else if (state.editorFilter === "raw" && state.rawBackendImage) img = state.rawBackendImage;
       else img = state.originalImage;
       var ctx = solarCanvas.getContext("2d");
 
@@ -1346,7 +1320,7 @@
           g = gray + sat * (g - gray);
           b = gray + sat * (b - gray);
 
-          // Vignette — fade to transparent outside radius
+          // Vignette — fade to transparent / black / white / color outside radius
           if (applyVignette) {
             var px = (i / 4) % cw;
             var py = Math.floor((i / 4) / cw);
@@ -1354,13 +1328,30 @@
             var dy = py - cy;
             var dist = Math.sqrt(dx * dx + dy * dy);
             if (dist > vigR) {
-              // vignetteWidth: 0 = hard crop, 100 = full smooth feather
               var maxFade = maxR - vigR;
               var fadeLen = maxFade * vigWidthFactor;
               var t = fadeLen > 0.5 ? Math.min((dist - vigR) / fadeLen, 1.0) : 1.0;
-              // Smooth cubic falloff (smoothstep)
               t = t * t * (3 - 2 * t);
-              d[i + 3] = d[i + 3] * (1 - t);  // fade alpha, not RGB
+              var fade = state.vignetteFade || "transparent";
+              if (fade === "transparent") {
+                d[i + 3] = d[i + 3] * (1 - t);
+              } else if (fade === "black") {
+                r = r * (1 - t);
+                g = g * (1 - t);
+                b = b * (1 - t);
+              } else if (fade === "white") {
+                r = r * (1 - t) + 255 * t;
+                g = g * (1 - t) + 255 * t;
+                b = b * (1 - t) + 255 * t;
+              } else if (fade === "color") {
+                var hex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
+                var fr = parseInt(hex.substr(0, 2), 16);
+                var fg = parseInt(hex.substr(2, 2), 16);
+                var fb = parseInt(hex.substr(4, 2), 16);
+                r = r * (1 - t) + fr * t;
+                g = g * (1 - t) + fg * t;
+                b = b * (1 - t) + fb * t;
+              }
             }
           }
 
@@ -1406,6 +1397,7 @@
         }
         ctx.restore();
       }
+      if (typeof applyCropEdgeMask === "function") applyCropEdgeMask();
     }
 
     // ── Edit tools ───────────────────────────────────────────────
@@ -1437,57 +1429,187 @@
         state.saturation = 100;
         state.vignette = 16;
         state.vignetteWidth = 0;
+        state.vignetteFade = "transparent";
+        state.vignetteFadeColor = "#000000";
+        state.cropEdgeFeather = 0;
         state.textOverlay = null;
         state.textMode = false;
+        if (typeof syncVignetteFadeUI === "function") syncVignetteFadeUI();
         $("#brightnessSlider").value = 0;
         $("#contrastSlider").value = 0;
         $("#saturationSlider").value = 100;
-        $("#vignetteSlider").value = 16;
+        $("#vignetteSlider").value = 100 - 16;
         $("#vigWidthSlider").value = 0;
+        if ($("#cropEdgeSlider")) { $("#cropEdgeSlider").value = 0; $("#cropEdgeVal").textContent = "0"; }
         $("#brightnessVal").textContent = "0";
         $("#contrastVal").textContent = "0";
         $("#saturationVal").textContent = "100";
         $("#vignetteVal").textContent = "16";
         $("#vigWidthVal").textContent = "0";
-        if ($("#zoomSlider")) { $("#zoomSlider").value = 100; $("#zoomVal").textContent = "100%"; }
-        solarCanvas.style.transform = "";
+        if (typeof applyCropEdgeMask === "function") applyCropEdgeMask();
+        if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
+        state.cropZoom = 100;
+        state.panX = 0;
+        state.panY = 0;
+        applyCanvasView();
         document.querySelector('[data-tool="invert"]').classList.remove("active");
+        document.querySelector('[data-tool="pan"]').classList.remove("active");
         document.querySelector('[data-tool="text"]').classList.remove("active");
+        $("#adjustmentsBtn").classList.remove("active");
         $("#textToolPanel").classList.add("hidden");
+        $("#adjustmentsPanel").classList.add("hidden");
         exitCropMode();
         renderCanvas();
       } else if (tool === "crop") {
+        document.querySelector('[data-tool="pan"]').classList.remove("active");
+        if (adjustmentsPanelEl) { adjustmentsPanelEl.classList.add("hidden"); }
+        if (adjustmentsBtnEl) adjustmentsBtnEl.classList.remove("active");
         enterCropMode();
+      } else if (tool === "pan") {
+        document.querySelector('[data-tool="crop"]').classList.remove("active");
+        if (adjustmentsPanelEl) { adjustmentsPanelEl.classList.add("hidden"); }
+        if (adjustmentsBtnEl) adjustmentsBtnEl.classList.remove("active");
+        exitCropMode();
+        btn.classList.add("active");
+        solarCanvas.style.cursor = "grab";
       } else if (tool === "text") {
+        if (adjustmentsPanelEl) { adjustmentsPanelEl.classList.add("hidden"); }
+        if (adjustmentsBtnEl) adjustmentsBtnEl.classList.remove("active");
         enterTextMode();
       }
     });
 
+    // ── Adjustments panel toggle ───────────────────────────────────
+    var adjustmentsBtnEl = document.getElementById("adjustmentsBtn");
+    var adjustmentsPanelEl = document.getElementById("adjustmentsPanel");
+    if (adjustmentsBtnEl && adjustmentsPanelEl) {
+      adjustmentsBtnEl.addEventListener("click", function() {
+        document.querySelectorAll(".edit-toolbar .edit-btn").forEach(function(b) {
+          if (b !== adjustmentsBtnEl) b.classList.remove("active");
+        });
+        adjustmentsPanelEl.classList.toggle("hidden");
+        adjustmentsBtnEl.classList.toggle("active", !adjustmentsPanelEl.classList.contains("hidden"));
+      });
+    }
+
     // ── Sliders ──────────────────────────────────────────────────
-    function setupSlider(sliderId, valId, stateKey) {
+    function setupSlider(sliderId, valId, stateKey, refreshMockups) {
       var slider = $("#" + sliderId);
       var valEl = $("#" + valId);
       slider.addEventListener("input", function() {
         state[stateKey] = parseInt(slider.value, 10);
         valEl.textContent = slider.value;
         renderCanvas();
+        if (refreshMockups && typeof renderProducts === "function") renderProducts();
       });
     }
 
     setupSlider("brightnessSlider", "brightnessVal", "brightness");
     setupSlider("contrastSlider", "contrastVal", "contrast");
     setupSlider("saturationSlider", "saturationVal", "saturation");
-    setupSlider("vignetteSlider", "vignetteVal", "vignette");
-    setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth");
+    // Vignette slider is inverted: slider 0 = max vignette (100), slider 100 = no vignette (0)
+    var vignetteSliderEl = $("#vignetteSlider");
+    var vignetteValEl = $("#vignetteVal");
+    if (vignetteSliderEl) {
+      vignetteSliderEl.addEventListener("input", function() {
+        state.vignette = 100 - parseInt(vignetteSliderEl.value, 10);
+        vignetteValEl.textContent = state.vignette;
+        renderCanvas();
+        if (typeof renderProducts === "function") renderProducts();
+      });
+    }
+    setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth", true);
 
-    // ── Zoom slider (CSS transform only — does not modify pixel data) ──
-    var zoomSlider = $("#zoomSlider");
-    var zoomVal = $("#zoomVal");
-    if (zoomSlider) {
-      zoomSlider.addEventListener("input", function() {
-        var pct = parseInt(zoomSlider.value, 10);
-        zoomVal.textContent = pct + "%";
-        solarCanvas.style.transform = "scale(" + (pct / 100) + ")";
+    // ── Vignette fade: filter-style toggle (transparent / black / white / color) ──
+    function syncVignetteFadeUI() {
+      var toggle = document.getElementById("vignetteFadeToggle");
+      if (!toggle) return;
+      var current = state.vignetteFade || "transparent";
+      toggle.querySelectorAll(".filter-opt").forEach(function(opt) {
+        var radio = opt.querySelector('input[name="vignetteFade"]');
+        if (radio) {
+          if (radio.value === current) radio.checked = true;
+          opt.classList.toggle("active", radio.checked);
+        }
+      });
+      var picker = $("#vignetteFadeColorPicker");
+      if (picker) picker.value = state.vignetteFadeColor || "#000000";
+    }
+    var vignetteFadeToggle = document.getElementById("vignetteFadeToggle");
+    if (vignetteFadeToggle) {
+      vignetteFadeToggle.addEventListener("change", function(e) {
+        if (e.target.name !== "vignetteFade") return;
+        state.vignetteFade = e.target.value || "transparent";
+        syncVignetteFadeUI();
+        renderCanvas();
+        if (typeof renderProducts === "function") renderProducts();
+      });
+    }
+    var vignetteFadeColorPicker = $("#vignetteFadeColorPicker");
+    if (vignetteFadeColorPicker) {
+      vignetteFadeColorPicker.addEventListener("input", function() {
+        state.vignetteFadeColor = vignetteFadeColorPicker.value;
+        if (state.vignetteFade === "color") {
+          renderCanvas();
+          if (typeof renderProducts === "function") renderProducts();
+        }
+      });
+      vignetteFadeColorPicker.addEventListener("change", function() {
+        if (state.vignetteFade === "color") {
+          renderCanvas();
+          if (typeof renderProducts === "function") renderProducts();
+        }
+      });
+    }
+
+    // ── Crop edge: feather the edges of the crop viewport ──
+    function applyCropEdgeMask() {
+      if (!solarCanvas) return;
+      var v = state.cropEdgeFeather || 0;
+      var blurEl = document.getElementById("cropEdgeFeatherBlur");
+      if (blurEl) blurEl.setAttribute("stdDeviation", (v / 100) * 0.25);
+      if (v <= 0) {
+        solarCanvas.style.maskImage = "";
+        solarCanvas.style.maskSize = "";
+        solarCanvas.style.maskRepeat = "";
+        solarCanvas.style.webkitMaskImage = "";
+        solarCanvas.style.webkitMaskSize = "";
+        solarCanvas.style.webkitMaskRepeat = "";
+      } else {
+        solarCanvas.style.maskImage = "url(#cropEdgeMask)";
+        solarCanvas.style.maskSize = "100% 100%";
+        solarCanvas.style.maskRepeat = "no-repeat";
+        solarCanvas.style.webkitMaskImage = "url(#cropEdgeMask)";
+        solarCanvas.style.webkitMaskSize = "100% 100%";
+        solarCanvas.style.webkitMaskRepeat = "no-repeat";
+      }
+    }
+    var cropEdgeSlider = $("#cropEdgeSlider");
+    var cropEdgeVal = $("#cropEdgeVal");
+    if (cropEdgeSlider) {
+      cropEdgeSlider.addEventListener("input", function() {
+        state.cropEdgeFeather = parseInt(cropEdgeSlider.value, 10);
+        cropEdgeVal.textContent = state.cropEdgeFeather;
+        applyCropEdgeMask();
+        if (typeof renderProducts === "function") renderProducts();
+      });
+    }
+
+    // ── Crop slider + pan: view transform (scale + translate) ──
+    function applyCanvasView() {
+      if (!solarCanvas) return;
+      solarCanvas.style.transform = "translate(" + state.panX + "px," + state.panY + "px) scale(" + (state.cropZoom / 100) + ")";
+    }
+    var cropSlider = $("#cropSlider");
+    var cropVal = $("#cropVal");
+    if (cropSlider) {
+      cropSlider.addEventListener("input", function() {
+        var pct = parseInt(cropSlider.value, 10);
+        state.cropZoom = pct;
+        cropVal.textContent = pct + "%";
+        applyCanvasView();
+        // Refresh mockups to reflect new crop viewport
+        if (typeof renderProducts === "function") renderProducts();
       });
     }
 
@@ -1712,8 +1834,30 @@
              canvasY >= tov.y - hh && canvasY <= tov.y + hh;
     }
 
+    var panDragging = false;
+    var panStartClientX = 0;
+    var panStartClientY = 0;
+    var panStartPanX = 0;
+    var panStartPanY = 0;
+    function isPanToolActive() {
+      var btn = document.querySelector('.edit-btn[data-tool="pan"]');
+      return btn && btn.classList.contains("active");
+    }
+
     function onCanvasPointerDown(e) {
-      // Handle text dragging first (takes priority)
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      if (isPanToolActive() && !state.textMode && !state.cropping) {
+        e.preventDefault();
+        panDragging = true;
+        panStartClientX = clientX;
+        panStartClientY = clientY;
+        panStartPanX = state.panX;
+        panStartPanY = state.panY;
+        solarCanvas.style.cursor = "grabbing";
+        return;
+      }
+      // Handle text dragging (takes priority over crop)
       if (state.textMode && state.textOverlay) {
         var coords = getCanvasCoords(e);
         if (isInsideText(coords.x, coords.y)) {
@@ -1724,13 +1868,22 @@
           return;
         }
       }
-      // Fall through to crop drag
       if (state.cropping) {
         startCropDrag(e);
       }
     }
 
     function onCanvasPointerMove(e) {
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      if (panDragging) {
+        e.preventDefault();
+        state.panX = panStartPanX + (clientX - panStartClientX);
+        state.panY = panStartPanY + (clientY - panStartClientY);
+        applyCanvasView();
+        if (typeof renderProducts === "function") renderProducts();
+        return;
+      }
       if (textDragging && state.textOverlay) {
         e.preventDefault();
         var coords = getCanvasCoords(e);
@@ -1745,6 +1898,13 @@
     }
 
     function onCanvasPointerUp() {
+      if (panDragging) {
+        panDragging = false;
+        if (isPanToolActive()) solarCanvas.style.cursor = "grab";
+        // Refresh mockups to reflect new pan position
+        if (typeof renderProducts === "function") renderProducts();
+        return;
+      }
       if (textDragging) {
         textDragging = false;
         return;
@@ -1752,7 +1912,7 @@
       endCropDrag();
     }
 
-    // Unified canvas pointer handlers (text drag + crop drag)
+    // Unified canvas pointer handlers (text drag + crop drag + pan)
     solarCanvas.addEventListener("mousedown", onCanvasPointerDown);
     solarCanvas.addEventListener("touchstart", onCanvasPointerDown, { passive: false });
     document.addEventListener("mousemove", onCanvasPointerMove);
@@ -1776,6 +1936,25 @@
       }
     }
 
+    function syncCropRatioUI() {
+      cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) {
+        b.classList.remove("active");
+        var ratio = b.dataset.ratio;
+        if (ratio === "product") {
+          var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+          if (product && product.aspectRatio && state.cropRatio === (product.aspectRatio.w + ":" + product.aspectRatio.h))
+            b.classList.add("active");
+        } else if (ratio === state.cropRatio) {
+          b.classList.add("active");
+        }
+      });
+      var anyActive = cropControls.querySelector(".crop-ratio-btn.active");
+      if (!anyActive) {
+        var oneToOne = cropControls.querySelector('.crop-ratio-btn[data-ratio="1:1"]');
+        if (oneToOne) oneToOne.classList.add("active");
+      }
+    }
+
     function enterCropMode() {
       state.cropping = true;
       cropControls.classList.remove("hidden");
@@ -1790,18 +1969,16 @@
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
         if (product && product.aspectRatio) {
           state.cropRatio = product.aspectRatio.w + ":" + product.aspectRatio.h;
-          cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
-          var productBtn = document.getElementById("cropProductBtn");
-          if (productBtn) productBtn.classList.add("active");
         }
       }
+      syncCropRatioUI();
     }
 
     function exitCropMode() {
       state.cropping = false;
       cropControls.classList.add("hidden");
       cropOverlay.classList.add("hidden");
-      solarCanvas.style.cursor = "default";
+      solarCanvas.style.cursor = isPanToolActive() ? "grab" : "default";
       cropDragging = false;
     }
 
@@ -1945,6 +2122,11 @@
             state.rhefImage = croppedImg;
           });
         }
+        if (state.rawBackendImage) {
+          _cropFilterImage(state.rawBackendImage, cropRect, function(croppedImg) {
+            state.rawBackendImage = croppedImg;
+          });
+        }
         if (state.hqFilterImage) {
           _cropFilterImage(state.hqFilterImage, cropRect, function(croppedImg) {
             state.hqFilterImage = croppedImg;
@@ -2032,7 +2214,26 @@
               var fadeLen = maxFade * vigWidthFactor;
               var t = fadeLen > 0.5 ? Math.min((dist - vigR) / fadeLen, 1.0) : 1.0;
               t = t * t * (3 - 2 * t);
-              d[i + 3] = d[i + 3] * (1 - t);
+              var fade = state.vignetteFade || "transparent";
+              if (fade === "transparent") {
+                d[i + 3] = d[i + 3] * (1 - t);
+              } else if (fade === "black") {
+                r = r * (1 - t);
+                g = g * (1 - t);
+                b = b * (1 - t);
+              } else if (fade === "white") {
+                r = r * (1 - t) + 255 * t;
+                g = g * (1 - t) + 255 * t;
+                b = b * (1 - t) + 255 * t;
+              } else if (fade === "color") {
+                var hex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
+                var fr = parseInt(hex.substr(0, 2), 16);
+                var fg = parseInt(hex.substr(2, 2), 16);
+                var fb = parseInt(hex.substr(4, 2), 16);
+                r = r * (1 - t) + fr * t;
+                g = g * (1 - t) + fg * t;
+                b = b * (1 - t) + fb * t;
+              }
             }
           }
           d[i] = Math.max(0, Math.min(255, r));
@@ -2066,6 +2267,32 @@
     // ── Product mockup drawing ──────────────────────────────────
 
     /**
+     * Return the visible portion of solarCanvas given the current crop-zoom and pan.
+     * When cropZoom=100 and pan=0 the full canvas is visible.
+     * Returns { sx, sy, sw, sh } in canvas pixel coordinates.
+     */
+    function _getCropViewport() {
+      var cw = solarCanvas ? solarCanvas.width  : 0;
+      var ch = solarCanvas ? solarCanvas.height : 0;
+      var z  = (state.cropZoom || 100) / 100;   // e.g. 1.5 for 150%
+      // Visible canvas dimensions at this zoom level
+      var visW = cw / z;
+      var visH = ch / z;
+      // pan is in screen-space pixels; convert to canvas pixels (opposite sign: dragging right reveals left)
+      var panCx = -(state.panX || 0) / z;
+      var panCy = -(state.panY || 0) / z;
+      // Center of the viewport in canvas coordinates
+      var cx = cw / 2 + panCx;
+      var cy = ch / 2 + panCy;
+      // Clamp so we never sample outside the canvas
+      var sx = Math.max(0, Math.min(cw - visW, cx - visW / 2));
+      var sy = Math.max(0, Math.min(ch - visH, cy - visH / 2));
+      var sw = Math.min(visW, cw - sx);
+      var sh = Math.min(visH, ch - sy);
+      return { sx: sx, sy: sy, sw: sw, sh: sh };
+    }
+
+    /**
      * Compute a center-crop source rect so the solar canvas fills a destination
      * area with the correct aspect ratio (no stretching, no letterboxing).
      * Returns { sx, sy, sw, sh } to pass as the source slice of drawImage().
@@ -2095,10 +2322,15 @@
       mctx.fillStyle = "#1a1a2e";
       mctx.fillRect(0, 0, W, H);
 
-      // Helper: draw solarCanvas into a destination rect with proper aspect-ratio center-crop
+      // Helper: draw solarCanvas into a destination rect respecting the crop-zoom viewport
+      // and then aspect-ratio fitting within that viewport.
       function drawCropped(dstX, dstY, dstW, dstH) {
-        var c = _cropSrcForDst(sw, sh, dstW, dstH);
-        mctx.drawImage(solarCanvas, c.sx, c.sy, c.sw, c.sh, dstX, dstY, dstW, dstH);
+        var vp = _getCropViewport();              // visible region of solarCanvas
+        var c  = _cropSrcForDst(vp.sw, vp.sh, dstW, dstH); // aspect-ratio fit inside viewport
+        // c.{sx,sy,sw,sh} are relative to the viewport — offset by vp.{sx,sy}
+        mctx.drawImage(solarCanvas,
+          vp.sx + c.sx, vp.sy + c.sy, c.sw, c.sh,
+          dstX, dstY, dstW, dstH);
       }
 
       if (productId === "mug_15oz" || productId === "tumbler_20oz" || productId === "desk_mat") {
@@ -2468,6 +2700,9 @@
           productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
           card.classList.add("selected");
           updateProductCropButton();
+          // Set crop aspect ratio to this product's ratio (or 1:1 if product has none)
+          state.cropRatio = (p.aspectRatio ? (p.aspectRatio.w + ":" + p.aspectRatio.h) : "1:1");
+          syncCropRatioUI();
           if (p.aspectRatio) {
             showToast("Crop tip: use " + p.aspectRatio.w + ":" + p.aspectRatio.h + " for " + p.name);
           }

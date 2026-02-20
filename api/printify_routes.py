@@ -56,21 +56,38 @@ def _shop_id():
 
 
 def _printify_request(method: str, url: str, **kwargs):
-    """Run a requests call to Printify using system/certifi CAs. The app sets
-    REQUESTS_CA_BUNDLE/SSL_CERT_FILE to a NASA-only bundle, which breaks
-    verification for api.printify.com; we temporarily use certifi so the
-    request succeeds.
+    """Run a requests call to Printify. In production (RENDER set) use certifi.
+    Locally, skip SSL verify by default to avoid 'unable to get local issuer
+    certificate'. Set PRINTIFY_SSL_VERIFY=1 to force verification when local.
     """
+    in_production = os.getenv("RENDER") is not None
+    explicit = os.getenv("PRINTIFY_SSL_VERIFY", "").strip().lower()
+    if explicit in ("0", "false", "no"):
+        skip_verify = True
+    elif explicit in ("1", "true", "yes"):
+        skip_verify = False
+    else:
+        skip_verify = not in_production
     saved_ca = os.environ.pop("REQUESTS_CA_BUNDLE", None)
     saved_ssl = os.environ.pop("SSL_CERT_FILE", None)
     try:
-        kwargs.setdefault("verify", certifi.where())
+        if skip_verify:
+            kwargs["verify"] = False
+        else:
+            ca_bundle = certifi.where()
+            kwargs["verify"] = ca_bundle
+            os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
+            os.environ["SSL_CERT_FILE"] = ca_bundle
         return requests.request(method, url, **kwargs)
     finally:
         if saved_ca is not None:
             os.environ["REQUESTS_CA_BUNDLE"] = saved_ca
+        elif "REQUESTS_CA_BUNDLE" in os.environ and not skip_verify:
+            del os.environ["REQUESTS_CA_BUNDLE"]
         if saved_ssl is not None:
             os.environ["SSL_CERT_FILE"] = saved_ssl
+        elif "SSL_CERT_FILE" in os.environ and not skip_verify:
+            del os.environ["SSL_CERT_FILE"]
 
 
 # ────────────────────────────────────────────────
