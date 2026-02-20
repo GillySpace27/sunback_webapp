@@ -439,53 +439,57 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
     log_to_queue(f"[generate_preview] VSO_URL={os.environ['VSO_URL']}")
     log_to_queue(f"[generate_preview] SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}")
 
-    client = VSOClient()
     download_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
-    # Use a short timeout for probe attempts so broken days fail fast
-    fast_downloader = get_downloader(total_timeout=45, connect_timeout=15, sock_read_timeout=30)
-    full_downloader = get_downloader(total_timeout=600, connect_timeout=60, sock_read_timeout=300)
 
-    def _try_download(candidate_dt, label):
-        """Search ±2min around candidate_dt, probe with fast timeout, then download fully."""
-        qr = client.search(
-            a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
-            a.Detector("AIA"),
-            a.Wavelength(wl * u.angstrom),
-            a.Source("SDO"),
-        )
-        total = sum(len(r) for r in qr)
-        if total == 0:
-            return None, qr
-        log_to_queue(f"[generate_preview] {label}: {total} records, probing download...")
-        # All response sets for the same day share the same fileid/DRMS record.
-        # Use fast_downloader to detect broken records quickly (45s timeout).
-        # If first attempt succeeds, switch to full_downloader isn't needed (file is done).
-        # If it fails, no point retrying — DRMS is broken for this day.
-        first_set = next((r for r in qr if len(r) > 0), None)
-        if first_set is None:
-            return None, qr
-        result = Fido.fetch(first_set, path=download_dir, downloader=fast_downloader)
-        if result and len(result) > 0:
-            path = str(result[0])
-            log_to_queue(f"[generate_preview] Downloaded: {os.path.basename(path)}")
-            return path, qr
-        err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown error"
-        log_to_queue(f"[generate_preview] {label}: download failed ({err}), skipping day.")
-        return None, qr
+    # Check if we already have a FITS for this date/wavelength cached locally
+    import glob as _glob
+    fits_pattern = os.path.join(download_dir, f"aia.lev1.{wl}A_{dt.strftime('%Y_%m_%d')}*.fits")
+    existing = [f for f in _glob.glob(fits_pattern) if os.path.getsize(f) > 100_000]
+    if existing:
+        fits_path = existing[0]
+        log_to_queue(f"[generate_preview] Using cached FITS: {os.path.basename(fits_path)}")
+    else:
+        client = VSOClient()
+        # Use a short timeout for probe attempts so broken days fail fast
+        fast_downloader = get_downloader(total_timeout=45, connect_timeout=15, sock_read_timeout=30)
 
-    # Try exact day first, then walk outward day-by-day
-    fits_path, qr = _try_download(dt, f"exact day {dt.date()}")
-    if not fits_path:
-        log_to_queue(f"[generate_preview] Scanning nearby days...")
-        for offset in range(1, 8):
-            for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
-                fits_path, qr = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
+        def _try_download(candidate_dt, label):
+            """Search ±2min around candidate_dt, probe with fast timeout."""
+            qr = client.search(
+                a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
+                a.Detector("AIA"),
+                a.Wavelength(wl * u.angstrom),
+                a.Source("SDO"),
+            )
+            total = sum(len(r) for r in qr)
+            if total == 0:
+                return None
+            log_to_queue(f"[generate_preview] {label}: {total} records, downloading...")
+            first_set = next((r for r in qr if len(r) > 0), None)
+            if first_set is None:
+                return None
+            result = Fido.fetch(first_set, path=download_dir, downloader=fast_downloader)
+            if result and len(result) > 0:
+                path = str(result[0])
+                log_to_queue(f"[generate_preview] Downloaded: {os.path.basename(path)}")
+                return path
+            err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown"
+            log_to_queue(f"[generate_preview] {label}: failed ({err}), skipping.")
+            return None
+
+        # Try exact day first, then walk outward day-by-day
+        fits_path = _try_download(dt, f"exact day {dt.date()}")
+        if not fits_path:
+            log_to_queue(f"[generate_preview] Scanning nearby days...")
+            for offset in range(1, 8):
+                for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
+                    fits_path = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
+                    if fits_path:
+                        break
                 if fits_path:
                     break
-            if fits_path:
-                break
-    if not fits_path:
-        raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
+        if not fits_path:
+            raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
     from sunpy.map import Map
     import numpy as np
     import matplotlib.pyplot as plt
