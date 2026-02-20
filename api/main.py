@@ -421,8 +421,9 @@ def fetch_first_fits(dt, wl):
     return str(files[0])
 
 
-def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
-    """Blocking FITS fetch + RHEF + PNG. Run in thread so server can still serve /docs etc."""
+def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, url_path_raw, url_path_filtered):
+    """Blocking FITS fetch + raw and RHEF-filtered PNGs. Run in thread so server can still serve /docs etc.
+    Writes preview_SDO_{wl}_{date_str}_raw.png and _filtered.png so the UI can toggle between them."""
     import ssl as _ssl
     import certifi
     from sunpy.net import Fido, attrs as a
@@ -458,31 +459,59 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
         log_to_queue(f"[generate_preview] Using cached FITS: {os.path.basename(fits_path)}")
     else:
         client = VSOClient()
-        # Use a short timeout for probe attempts so broken days fail fast
-        fast_downloader = get_downloader(total_timeout=45, connect_timeout=15, sock_read_timeout=30)
+        # NASA DRMS can be slow; use timeouts that allow slow-but-valid FITS (~10–50MB) to complete.
+        # sock_read=60 allows slow streaming; total=180 so one slow file can finish. Broken records
+        # still fail within these limits instead of hanging indefinitely.
+        fast_downloader = get_downloader(total_timeout=180, connect_timeout=30, sock_read_timeout=60)
+
+        def _is_lev1_fits(path):
+            """Return True only if the file looks like an AIA Level-1 FITS (≥1MB, lev1 in name)."""
+            if not path or not os.path.exists(path):
+                return False
+            size = os.path.getsize(path)
+            if size < 1_000_000:
+                log_to_queue(f"[generate_preview] Rejecting {os.path.basename(path)}: too small ({size} bytes, expected ≥1MB for lev1)")
+                return False
+            # Level-0 files look like AIA20260215_000000_0304.fits (no 'lev1' in name)
+            # Level-1 files look like aia.lev1.304A_2026_02_15T00_00_05.13Z.image_lev1.fits
+            basename = os.path.basename(path).lower()
+            if "lev1" not in basename:
+                log_to_queue(f"[generate_preview] Rejecting {os.path.basename(path)}: not a Level-1 FITS (no 'lev1' in filename)")
+                return False
+            return True
 
         def _try_download(candidate_dt, label):
-            """Search ±2min around candidate_dt, probe with fast timeout."""
+            """Search ±2min around candidate_dt, probe with fast timeout.
+            qr is a VSOQueryResponseTable; qr[i:i+1] gives a 1-row subtable for Fido.fetch.
+            We probe one row at a time so a broken sdo7 record fails in ~8s not 30s×N.
+            Note: JSOC series for 12s EUV is aia.lev1_euv_12s; VSO does not expose series, so we
+            get whatever AIA lev1 VSO returns and filter by filename (image_lev1, etc.)."""
             qr = client.search(
                 a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
                 a.Detector("AIA"),
                 a.Wavelength(wl * u.angstrom),
                 a.Source("SDO"),
             )
-            total = sum(len(r) for r in qr)
-            if total == 0:
+            if len(qr) == 0:
                 return None
-            log_to_queue(f"[generate_preview] {label}: {total} records, downloading...")
-            first_set = next((r for r in qr if len(r) > 0), None)
-            if first_set is None:
-                return None
-            result = Fido.fetch(first_set, path=download_dir, downloader=fast_downloader)
-            if result and len(result) > 0:
-                path = str(result[0])
-                log_to_queue(f"[generate_preview] Downloaded: {os.path.basename(path)}")
-                return path
-            err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown"
-            log_to_queue(f"[generate_preview] {label}: failed ({err}), skipping.")
+            log_to_queue(f"[generate_preview] {label}: {len(qr)} records found, probing one at a time...")
+            # Probe each row individually: qr[i:i+1] is a 1-row VSOQueryResponseTable
+            # that Fido.fetch accepts. This avoids launching 130 parallel broken DRMS downloads.
+            for i in range(len(qr)):
+                one_row = qr[i:i+1]
+                result = Fido.fetch(one_row, path=download_dir, downloader=fast_downloader)
+                if result and len(result) > 0:
+                    path = str(result[0])
+                    if _is_lev1_fits(path):
+                        log_to_queue(f"[generate_preview] Downloaded lev1: {os.path.basename(path)}")
+                        return path
+                    log_to_queue(f"[generate_preview] Skipping non-lev1: {os.path.basename(path)}, trying next row...")
+                    continue
+                err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown"
+                log_to_queue(f"[generate_preview] {label}: row {i} failed ({err[:80]}), trying next row...")
+                if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+                    breakpoint()  # inspect result, result.errors, one_row, i, label, download_dir
+            log_to_queue(f"[generate_preview] {label}: all {len(qr)} rows failed or non-lev1, skipping day.")
             return None
 
         # Try exact day first, then walk outward day-by-day
@@ -497,7 +526,32 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
                 if fits_path:
                     break
         if not fits_path:
-            raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
+            if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+                breakpoint()  # inspect before Helioviewer fallback: dt, wl, date_str, out_path_filtered
+            # Fallback: NASA DRMS often times out; use Helioviewer PNG so user still gets a preview.
+            log_to_queue("[generate_preview] VSO/DRMS failed; trying Helioviewer fallback...")
+            try:
+                hv_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+                hv_date_str = hv_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                scale = 3000.0 / 1024.0
+                url = (
+                    f"{HELIOVIEWER_BASE}/?"
+                    f"date={requests.utils.quote(hv_date_str)}"
+                    f"&imageScale={scale}"
+                    f"&layers=[SDO,AIA,AIA,{wl},1,100]"
+                    f"&x0=0&y0=0&width=1024&height=1024&display=true&watermark=false"
+                )
+                content, _ = _fetch_helioviewer_screenshot(url)
+                os.makedirs(os.path.dirname(out_path_filtered), exist_ok=True)
+                with open(out_path_filtered, "wb") as f:
+                    f.write(content)
+                log_to_queue(f"[generate_preview] Helioviewer fallback saved: {os.path.basename(out_path_filtered)}")
+                return (url_path_filtered, url_path_filtered)
+            except Exception as e:
+                log_to_queue(f"[generate_preview] Helioviewer fallback failed: {e}")
+                if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+                    breakpoint()  # inspect e, out_path before raising 502
+                raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
     from sunpy.map import Map
     import numpy as np
     import matplotlib.pyplot as plt
@@ -519,33 +573,46 @@ def _generate_preview_sync(dt, wl, date_str, out_path, url_path):
     meta["naxis1"] = reduced.shape[1]
     meta["naxis2"] = reduced.shape[0]
     smap_reduced = AIAMap(reduced, meta)
+    cmap = plt.get_cmap(f"sdoaia{wl}")
+    os.makedirs(os.path.dirname(out_path_raw), exist_ok=True)
+    # Raw preview (no RHEF) — same stretch so toggling is comparable
+    vmin_raw = np.nanpercentile(reduced, 1)
+    vmax_raw = np.nanpercentile(reduced, 99.7)
+    plt.figure(figsize=(8, 8), dpi=100)
+    plt.axis("off")
+    plt.imshow(reduced, cmap=cmap, vmin=vmin_raw, vmax=vmax_raw, origin="lower")
+    plt.tight_layout(pad=0)
+    plt.savefig(out_path_raw, bbox_inches="tight", pad_inches=0)
+    plt.close()
+    # Filtered preview (RHEF)
     from sunkit_image import radial
     try:
         rhef_data = radial.rhef(smap_reduced, progress=True).data
     except Exception:
         log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
         rhef_data = radial.rhef(smap_reduced.data, progress=True).data
-    cmap = plt.get_cmap(f"sdoaia{wl}")
     vmin = np.nanpercentile(rhef_data, 1)
     vmax = np.nanpercentile(rhef_data, 99.7)
     plt.figure(figsize=(8, 8), dpi=100)
     plt.axis("off")
     plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
     plt.tight_layout(pad=0)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+    plt.savefig(out_path_filtered, bbox_inches="tight", pad_inches=0)
     plt.close()
     import time
     for _ in range(50):
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+        if os.path.exists(out_path_filtered) and os.path.getsize(out_path_filtered) > 1000:
             break
         time.sleep(0.05)
-    return url_path
+    return (url_path_raw, url_path_filtered)
 
 
 # Cache of (date_str, wl) for which preview generation already failed (e.g. no VSO data)
 # so we return 200 with preview_url=null instead of 202 again and avoid repeated failing tasks.
 _preview_failed: set = set()
+# Keys currently being generated — prevents spawning duplicate background tasks when the
+# client polls and gets 202 multiple times before the task finishes.
+_preview_in_progress: set = set()
 
 
 @app.post("/api/clear_preview_failed")
@@ -553,6 +620,8 @@ async def clear_preview_failed():
     """Clear the in-memory set of failed preview keys so they can be retried."""
     count = len(_preview_failed)
     _preview_failed.clear()
+    # Also clear in_progress so stalled tasks can be retried
+    _preview_in_progress.clear()
     return JSONResponse(
         status_code=200,
         content={"cleared": count, "message": f"Cleared {count} failed preview cache entries"},
@@ -565,31 +634,47 @@ async def generate_preview(req: PreviewRequest = Body(...)):
     """
     Warm the science-image cache: if preview PNG exists return it; if we already know
     this date/wl has no data, return preview_url=null; otherwise run FITS+RHEF in background.
+    Only one background task per (date, wavelength) is allowed at a time.
     """
     try:
         dt = datetime.strptime(req.date, "%Y-%m-%d")
         wl = int(req.wavelength)
         date_str = dt.strftime("%Y%m%d")
         key = (date_str, wl)
-        out_path = os.path.join(PREVIEW_DIR, f"preview_SDO_{wl}_{date_str}.png")
-        url_path = f"/asset/preview/preview_SDO_{wl}_{date_str}.png"
-        if os.path.exists(out_path):
-            return {"preview_url": url_path}
+        base = f"preview_SDO_{wl}_{date_str}"
+        out_path_raw = os.path.join(PREVIEW_DIR, f"{base}_raw.png")
+        out_path_filtered = os.path.join(PREVIEW_DIR, f"{base}_filtered.png")
+        url_path_raw = f"/asset/preview/{base}_raw.png"
+        url_path_filtered = f"/asset/preview/{base}_filtered.png"
+        if os.path.exists(out_path_filtered):
+            raw_url = url_path_raw if os.path.exists(out_path_raw) else None
+            return {"preview_url": url_path_filtered, "preview_raw_url": raw_url}
         if key in _preview_failed:
             return JSONResponse(
                 status_code=200,
                 content={"preview_url": None, "error": "No VSO AIA data for this date/wavelength"},
                 headers=CORS_HEADERS,
             )
-        # Run in background so client gets 202 immediately
+        # If already generating, just return 202 — don't spawn another task
+        if key in _preview_in_progress:
+            return JSONResponse(
+                status_code=202,
+                content={"status": "in_progress", "preview_url": None},
+                headers=CORS_HEADERS,
+            )
+        # Mark as in-progress and run in background so client gets 202 immediately
+        _preview_in_progress.add(key)
         async def run():
             try:
                 await asyncio.to_thread(
-                    _generate_preview_sync, dt, wl, date_str, out_path, url_path
+                    _generate_preview_sync, dt, wl, date_str,
+                    out_path_raw, out_path_filtered, url_path_raw, url_path_filtered
                 )
             except Exception as e:
                 _preview_failed.add(key)
                 print(f"[generate_preview] background failed: {e}", flush=True)
+            finally:
+                _preview_in_progress.discard(key)
         asyncio.create_task(run())
         return JSONResponse(
             status_code=202,

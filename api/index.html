@@ -138,12 +138,33 @@
       </div>
       <div class="filter-status-line" id="filterStatusLine" style="display:none;"></div>
       <button class="edit-btn" data-tool="crop" title="Crop"><i class="fas fa-crop-alt"></i> Crop</button>
+      <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
       <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
       <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
       <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h"></i> Flip H</button>
       <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v"></i> Flip V</button>
+      <button class="edit-btn" id="adjustmentsBtn" title="Brightness, contrast, saturation"><i class="fas fa-sliders-h"></i> Adjust</button>
       <button class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust"></i> Invert</button>
       <button class="edit-btn" data-tool="reset" title="Reset"><i class="fas fa-undo"></i> Reset</button>
+    </div>
+
+    <!-- Adjustments Panel (brightness, contrast, saturation) -->
+    <div class="text-tool-panel hidden" id="adjustmentsPanel">
+      <div class="slider-row">
+        <label>Brightness</label>
+        <input type="range" id="brightnessSlider" min="-100" max="100" value="0">
+        <span class="slider-val" id="brightnessVal">0</span>
+      </div>
+      <div class="slider-row">
+        <label>Contrast</label>
+        <input type="range" id="contrastSlider" min="-100" max="100" value="0">
+        <span class="slider-val" id="contrastVal">0</span>
+      </div>
+      <div class="slider-row">
+        <label>Saturation</label>
+        <input type="range" id="saturationSlider" min="0" max="200" value="100">
+        <span class="slider-val" id="saturationVal">100</span>
+      </div>
     </div>
 
     <!-- Text Tool Panel -->
@@ -224,36 +245,36 @@
       </div>
     </div>
 
-    <!-- Adjustments -->
+    <!-- Sliders (Crop, Vignette, Vig. Edge) -->
     <div class="slider-row">
-      <label>Zoom</label>
-      <input type="range" id="zoomSlider" min="50" max="300" value="100" step="1">
-      <span class="slider-val" id="zoomVal">100%</span>
-    </div>
-    <div class="slider-row">
-      <label>Brightness</label>
-      <input type="range" id="brightnessSlider" min="-100" max="100" value="0">
-      <span class="slider-val" id="brightnessVal">0</span>
-    </div>
-    <div class="slider-row">
-      <label>Contrast</label>
-      <input type="range" id="contrastSlider" min="-100" max="100" value="0">
-      <span class="slider-val" id="contrastVal">0</span>
-    </div>
-    <div class="slider-row">
-      <label>Saturation</label>
-      <input type="range" id="saturationSlider" min="0" max="200" value="100">
-      <span class="slider-val" id="saturationVal">100</span>
+      <label>Crop</label>
+      <input type="range" id="cropSlider" min="50" max="300" value="100" step="1">
+      <span class="slider-val" id="cropVal">100%</span>
     </div>
     <div class="slider-row">
       <label>Vignette</label>
-      <input type="range" id="vignetteSlider" min="0" max="100" value="16">
+      <input type="range" id="vignetteSlider" min="0" max="100" value="84">
       <span class="slider-val" id="vignetteVal">16</span>
+    </div>
+    <div class="vignette-fade-row">
+      <div class="filter-toggle vignette-fade-toggle" id="vignetteFadeToggle">
+        <label class="filter-opt active"><input type="radio" name="vignetteFade" value="transparent" checked> Transparent</label>
+        <label class="filter-opt"><input type="radio" name="vignetteFade" value="black"> Black</label>
+        <label class="filter-opt"><input type="radio" name="vignetteFade" value="white"> White</label>
+        <label class="filter-opt"><input type="radio" name="vignetteFade" value="color"> Color</label>
+      </div>
+      <span class="field-label-sm vignette-fade-color-label">Fade color</span>
+      <input type="color" id="vignetteFadeColorPicker" value="#000000" title="Vignette fade color" class="vignette-color-input">
     </div>
     <div class="slider-row">
       <label>Vig. Edge</label>
       <input type="range" id="vigWidthSlider" min="0" max="100" value="0">
       <span class="slider-val" id="vigWidthVal">0</span>
+    </div>
+    <div class="slider-row">
+      <label>Crop edge</label>
+      <input type="range" id="cropEdgeSlider" min="0" max="100" value="0">
+      <span class="slider-val" id="cropEdgeVal">0</span>
     </div>
 
     <div class="progress-track" id="progressTrack">
@@ -313,7 +334,7 @@
   <div class="app-footer">
     Images courtesy of NASA/SDO. Not affiliated; no endorsement implied.<br>
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
-    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">v20a23f3</span>
+    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">ve585be3</span>
   </div>
 </div>
 
@@ -322,6 +343,18 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Crop edge feathered mask (referenced by canvas) -->
+<svg id="cropEdgeMaskSvg" aria-hidden="true" style="position:absolute;width:0;height:0;pointer-events:none">
+  <defs>
+    <filter id="cropEdgeFeatherFilter" x="-0.2" y="-0.2" width="1.4" height="1.4">
+      <feGaussianBlur id="cropEdgeFeatherBlur" in="SourceGraphic" stdDeviation="0"/>
+    </filter>
+    <mask id="cropEdgeMask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+      <rect x="0" y="0" width="1" height="1" fill="white" filter="url(#cropEdgeFeatherFilter)"/>
+    </mask>
+  </defs>
+</svg>
 
 <script src="solar-archive.js"></script>
 </body>
