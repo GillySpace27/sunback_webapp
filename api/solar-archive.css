@@ -1313,3 +1313,68 @@ html.dark .image-stage {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(150,191,72,0.35);
 }
+
+/* ── Side-by-side editor + product mockup preview ────────── */
+.editor-with-preview {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.editor-with-preview .editor-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-with-preview .selected-product-preview {
+  flex: 0 0 280px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  text-align: center;
+  position: sticky;
+  top: 20px;
+}
+
+.selected-product-preview .preview-product-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+}
+
+.selected-product-preview .preview-mockup {
+  width: 100%;
+  aspect-ratio: 1;
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.selected-product-preview .preview-mockup canvas,
+.selected-product-preview .preview-mockup img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.selected-product-preview .preview-product-ratio {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@media (max-width: 740px) {
+  .editor-with-preview {
+    flex-direction: column;
+  }
+  .editor-with-preview .selected-product-preview {
+    flex: none;
+    width: 100%;
+    position: static;
+  }
+}
