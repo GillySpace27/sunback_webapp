@@ -115,18 +115,20 @@
     </div>
   </div>
 
-  <!-- Step 2: View & Edit Image -->
+  <!-- Step 3: View & Edit Image (reordered by JS — appears after product selection) -->
   <div class="section hidden" id="editSection">
     <div class="section-header">
-      <div class="step-badge">2</div>
+      <div class="step-badge">3</div>
       <div class="section-title">View &amp; Edit Your Image</div>
     </div>
 
-    <div class="image-stage" id="imageStage">
-      <img id="solarImg" alt="Solar image" crossorigin="anonymous">
-      <canvas id="solarCanvas"></canvas>
-      <div class="crop-overlay hidden" id="cropOverlay"></div>
-    </div>
+    <div class="editor-with-preview">
+      <div class="editor-main">
+        <div class="image-stage" id="imageStage">
+          <img id="solarImg" alt="Solar image" crossorigin="anonymous">
+          <canvas id="solarCanvas"></canvas>
+          <div class="crop-overlay hidden" id="cropOverlay"></div>
+        </div>
 
     <!-- Edit Tools -->
     <div class="edit-toolbar">
@@ -283,6 +285,16 @@
       <span class="slider-val" id="cropEdgeVal">0</span>
     </div>
 
+      </div><!-- /.editor-main -->
+
+      <!-- Selected product mockup preview (side-by-side on wide screens) -->
+      <div class="selected-product-preview hidden" id="selectedProductPreview">
+        <div class="preview-product-name"></div>
+        <div class="preview-mockup"></div>
+        <div class="preview-product-ratio"></div>
+      </div>
+    </div><!-- /.editor-with-preview -->
+
     <div class="progress-track" id="progressTrack">
       <div class="progress-fill" id="progressFill"></div>
     </div>
@@ -299,17 +311,15 @@
     </button>
   </div>
 
-  <!-- Step 3: Choose Product -->
+  <!-- Step 2: Choose Product (reordered by JS — appears before edit section) -->
   <div class="section hidden" id="productSection">
     <div class="section-header">
-      <div class="step-badge">3</div>
+      <div class="step-badge">2</div>
       <div class="section-title">Choose Your Product</div>
     </div>
 
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      <strong>1. Reset to Mock Mockups</strong> — Show canvas-drawn previews only (no upload). Use this if positioning gets out of sync so you can pan/crop and try again.<br>
-      <strong>2. Generate HQ Mockups</strong> — Upload to Printify, create real mockup images, and start HQ RHEF production. Do this when you’re happy with the position.<br>
-      <strong>3. Generate HQ RHEF</strong> — Build the full-resolution print image only (if it hasn’t been made yet). Buy buttons go live once HQ is ready.
+      Click a product below to see how your solar image looks on it. You’ll then be able to pan, crop, and fine-tune the artwork in the editor.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -324,7 +334,7 @@
     <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
-      Load an image (wavelength tile), edit position, then click <strong>2. Generate HQ Mockups</strong> to create mockups and HQ. Use <strong>1. Reset to Mock Mockups</strong> if you need to re-adjust position.
+      Select a date and wavelength above to see product previews. Click any product to edit your artwork.
     </div>
 
     <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
@@ -342,7 +352,7 @@
   <div class="app-footer">
     Images courtesy of NASA/SDO. Not affiliated; no endorsement implied.<br>
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
-    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">v2d99dcd</span>
+    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">v6dad2b1</span>
   </div>
 </div>
 

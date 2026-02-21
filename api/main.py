@@ -444,7 +444,9 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     os.makedirs(download_dir, exist_ok=True)
     log_to_queue(f"[generate_preview] download_dir={download_dir}")
 
-    # Fetch Helioviewer instant preview first (JPG option = helioviewer-derived)
+    # Fetch Helioviewer instant preview first (JPG option = helioviewer-derived).
+    # Resize to PREVIEW_SIZE so JPG matches raw/filtered dimensions and overlays correctly.
+    PREVIEW_SIZE = 800  # same as raw/filtered (figsize 8 * dpi 100)
     os.makedirs(os.path.dirname(out_path_jpg), exist_ok=True)
     try:
         hv_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
@@ -458,9 +460,21 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             f"&x0=0&y0=0&width=1024&height=1024&display=true&watermark=false"
         )
         content, _ = _fetch_helioviewer_screenshot(url)
-        with open(out_path_jpg, "wb") as f:
-            f.write(content)
-        log_to_queue(f"[generate_preview] Helioviewer JPG saved: {os.path.basename(out_path_jpg)}")
+        # Resize to PREVIEW_SIZE so JPG matches raw/filtered and overlays in the UI
+        import io as _io
+        from skimage.transform import resize as _sk_resize
+        arr = plt.imread(_io.BytesIO(content))
+        h, w = arr.shape[0], arr.shape[1]
+        if (h, w) != (PREVIEW_SIZE, PREVIEW_SIZE):
+            preserve = arr.dtype == np.uint8 or np.issubdtype(arr.dtype, np.integer)
+            arr = _sk_resize(
+                arr, (PREVIEW_SIZE, PREVIEW_SIZE) + (arr.shape[2:] if arr.ndim == 3 else ()),
+                preserve_range=preserve, anti_aliasing=True
+            )
+            if preserve:
+                arr = np.clip(arr, 0, 255).astype(np.uint8)
+        plt.imsave(out_path_jpg, arr)
+        log_to_queue(f"[generate_preview] Helioviewer JPG saved (resized to {PREVIEW_SIZE}px): {os.path.basename(out_path_jpg)}")
     except Exception as e:
         log_to_queue(f"[generate_preview] Helioviewer JPG failed (continuing): {e}")
 
@@ -566,8 +580,20 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                 with open(out_path_filtered, "wb") as f:
                     f.write(content)
                 if not os.path.exists(out_path_jpg) or os.path.getsize(out_path_jpg) < 100:
-                    with open(out_path_jpg, "wb") as f:
-                        f.write(content)
+                    import io as _io
+                    from skimage.transform import resize as _sk_resize
+                    arr = plt.imread(_io.BytesIO(content))
+                    h, w = arr.shape[0], arr.shape[1]
+                    sz = 800
+                    if (h, w) != (sz, sz):
+                        preserve = arr.dtype == np.uint8 or np.issubdtype(arr.dtype, np.integer)
+                        arr = _sk_resize(
+                            arr, (sz, sz) + (arr.shape[2:] if arr.ndim == 3 else ()),
+                            preserve_range=preserve, anti_aliasing=True
+                        )
+                        if preserve:
+                            arr = np.clip(arr, 0, 255).astype(np.uint8)
+                    plt.imsave(out_path_jpg, arr)
                 log_to_queue(f"[generate_preview] Helioviewer fallback saved: {os.path.basename(out_path_filtered)}")
                 return (url_path_filtered, url_path_filtered, url_path_jpg)
             except Exception as e:

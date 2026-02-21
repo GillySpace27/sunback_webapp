@@ -225,6 +225,120 @@
       dateInput.max = maxD.toISOString().split("T")[0];
     })();
 
+    // ── Reorder workflow: product-first, then edit ────────────────
+    // Moves the product section before the edit section in the DOM,
+    // updates step badge numbers, and sets up the product-first flow.
+    function reorderWorkflow() {
+      var container = productSection.parentNode;
+      // Move product section before edit section in DOM order
+      container.insertBefore(productSection, editSection);
+      // Update step badge numbers
+      productSection.querySelector(".step-badge").textContent = "2";
+      editSection.querySelector(".step-badge").textContent = "3";
+      // Both sections start hidden; productSection shown when wavelength selected,
+      // editSection shown when a product card is clicked.
+    }
+    reorderWorkflow();
+
+    // ── Product selection via event delegation ──────────────────
+    function selectProductCard(productId) {
+      var product = PRODUCTS.find(function(p) { return p.id === productId; });
+      if (!product) return;
+
+      state.selectedProduct = productId;
+
+      // Update selected visual state on product cards
+      productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
+      var selectedCard = productGrid.querySelector('.product-card[data-product-id="' + productId + '"]');
+      if (selectedCard) selectedCard.classList.add("selected");
+
+      // Determine crop ratio from product's aspect ratio
+      var ratio = (product.aspectRatio)
+        ? (product.aspectRatio.w + ":" + product.aspectRatio.h)
+        : "1:1";
+      state.cropRatio = ratio;
+
+      // Programmatically click the matching crop-ratio button so the UI updates
+      var matchingBtn = cropControls.querySelector('.crop-ratio-btn[data-ratio="' + ratio + '"]');
+      if (matchingBtn) {
+        cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
+        matchingBtn.classList.add("active");
+      } else {
+        // Fallback: use the product crop button if it exists
+        var productBtn = cropControls.querySelector('.crop-ratio-btn[data-ratio="product"]');
+        if (productBtn) {
+          cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
+          productBtn.classList.add("active");
+        }
+        syncCropRatioUI();
+      }
+
+      // Update crop product button
+      updateProductCropButton();
+
+      // Show the edit section so the user can start editing
+      editSection.classList.remove("hidden");
+
+      // Update the selected product mockup preview pane
+      updateSelectedProductPreview(product);
+
+      // Show variant options for this product
+      if (selectedCard) showVariantPanel(product, selectedCard);
+
+      if (product.aspectRatio) {
+        showToast("Editing for " + product.name + " (" + product.aspectRatio.w + ":" + product.aspectRatio.h + ")");
+      }
+
+      // Scroll to the edit section
+      editSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // Event delegation on the product grid
+    productGrid.addEventListener("click", function(e) {
+      // Don't interfere with buy button clicks
+      if (e.target.closest(".product-buy-btn")) return;
+      var card = e.target.closest(".product-card");
+      if (!card) return;
+      var productId = card.dataset.productId;
+      if (productId) selectProductCard(productId);
+    });
+
+    // ── Update the side-by-side product mockup preview ──────────
+    function updateSelectedProductPreview(product) {
+      var previewPane = document.getElementById("selectedProductPreview");
+      if (!previewPane) return;
+      if (!product) {
+        previewPane.classList.add("hidden");
+        return;
+      }
+      previewPane.classList.remove("hidden");
+      previewPane.querySelector(".preview-product-name").textContent = product.name;
+      var ratioText = product.aspectRatio
+        ? product.aspectRatio.w + ":" + product.aspectRatio.h
+        : "flexible";
+      previewPane.querySelector(".preview-product-ratio").textContent = "Aspect ratio: " + ratioText;
+
+      // Render a live mockup from the current canvas
+      var mockupContainer = previewPane.querySelector(".preview-mockup");
+      mockupContainer.innerHTML = "";
+      if (state.mockups[product.id] && state.mockups[product.id].images && state.mockups[product.id].images.length > 0) {
+        var bestImg = state.mockups[product.id].images.find(function(m) { return m.is_default; }) || state.mockups[product.id].images[0];
+        var img = document.createElement("img");
+        img.src = bestImg.src;
+        img.alt = product.name + " mockup";
+        mockupContainer.appendChild(img);
+      } else if (state.originalImage && solarCanvas.width > 0) {
+        var miniCanvas = document.createElement("canvas");
+        miniCanvas.width = 260;
+        miniCanvas.height = 260;
+        var mctx = miniCanvas.getContext("2d");
+        drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height);
+        mockupContainer.appendChild(miniCanvas);
+      } else {
+        mockupContainer.innerHTML = '<span style="color:var(--text-dim);"><i class="fas ' + product.icon + '" style="font-size:2rem;"></i></span>';
+      }
+    }
+
     // ── Wavelength selection + instant Helioviewer preview ───────
     wlGrid.addEventListener("click", function(e) {
       var card = e.target.closest(".wl-card");
@@ -415,10 +529,10 @@
 
       renderCanvas();
       setProgress(100);
-      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — edit below (use Raw/RHEF in toolbar), then click <strong>2. Generate HQ Mockups</strong> when ready.');
+      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — now choose a product below to start editing.');
       showToast(wl + " Å loaded!");
 
-      editSection.classList.remove("hidden");
+      // Product-first workflow: show product grid, keep editor hidden until product selected
       imageStage.classList.remove("empty");
       if (btnPreview) btnPreview.classList.remove("hidden");
       btnGenerate.classList.remove("hidden");
@@ -426,6 +540,13 @@
       productSection.classList.remove("hidden");
       renderProducts();
       if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
+
+      // If a product was already selected (e.g. user switched wavelength), re-show editor
+      if (state.selectedProduct) {
+        editSection.classList.remove("hidden");
+        var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+        if (product) updateSelectedProductPreview(product);
+      }
 
       setTimeout(hideProgress, 1200);
     }
@@ -1528,6 +1649,12 @@
         ctx.restore();
       }
       if (typeof applyCropEdgeMask === "function") applyCropEdgeMask();
+
+      // Live-update the selected product mockup preview as user edits
+      if (state.selectedProduct) {
+        var selProduct = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+        if (selProduct) updateSelectedProductPreview(selProduct);
+      }
     }
 
     // ── Edit tools ───────────────────────────────────────────────
@@ -2884,6 +3011,7 @@
           : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving…' : '<i class="fas fa-shopping-cart"></i> Buy · ' + p.price + hqBadge);
 
         card.className = "product-card";
+        card.dataset.productId = p.id;
         card.innerHTML =
           '<div class="product-preview"><span class="product-icon"><i class="fas ' + p.icon + '"></i></span></div>' +
           '<div class="product-info">' +
@@ -2915,26 +3043,10 @@
           card.querySelector(".product-preview").appendChild(miniCanvas);
         }
 
-        // Highlight selected product for crop suggestion
+        // Highlight selected product
         if (state.selectedProduct === p.id) card.classList.add("selected");
 
-        card.addEventListener("click", function(e) {
-          // Don't interfere with buy button
-          if (e.target.closest(".product-buy-btn")) return;
-          state.selectedProduct = p.id;
-          productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
-          card.classList.add("selected");
-          updateProductCropButton();
-          // Set crop aspect ratio to this product's ratio (or 1:1 if product has none)
-          state.cropRatio = (p.aspectRatio ? (p.aspectRatio.w + ":" + p.aspectRatio.h) : "1:1");
-          syncCropRatioUI();
-          if (p.aspectRatio) {
-            showToast("Crop tip: use " + p.aspectRatio.w + ":" + p.aspectRatio.h + " for " + p.name);
-          }
-          // Show variant info panel
-          showVariantPanel(p, card);
-        });
-
+        // Click handling is done via event delegation on productGrid (selectProductCard)
         productGrid.appendChild(card);
       });
 
@@ -3344,10 +3456,10 @@
         sendHint.textContent = "HQ image is rendering in the background — you can buy now and it will be used automatically.";
         sendHint.style.color = "var(--accent-sun)";
       } else if (state.originalImage) {
-        sendHint.textContent = "Click Make Products to start HQ rendering and generate mockups.";
+        sendHint.textContent = "Click a product to edit, then Generate HQ Mockups when ready.";
         sendHint.style.color = "var(--text-dim)";
       } else {
-        sendHint.textContent = "Select a date and click a wavelength to load your solar image.";
+        sendHint.textContent = "Select a date and click a wavelength to see product previews.";
         sendHint.style.color = "var(--text-dim)";
       }
     }
