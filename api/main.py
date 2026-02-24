@@ -318,12 +318,38 @@ async def api_health():
     return JSONResponse(content={"status": "ok"}, headers=CORS_HEADERS)
 
 
+# ---------------------------------------------------------------------------
+# /api/build-info — when frontend assets were last modified (for "page updated" display)
+# ---------------------------------------------------------------------------
+@app.get("/api/build-info")
+async def api_build_info():
+    """Return the latest modification time of index.html, solar-archive.js, solar-archive.css (UTC ISO)."""
+    import time
+    api_dir = Path(__file__).resolve().parent
+    files = [api_dir / "index.html", api_dir / "solar-archive.js", api_dir / "solar-archive.css"]
+    latest = 0.0
+    for p in files:
+        if p.exists():
+            try:
+                m = p.stat().st_mtime
+                if m > latest:
+                    latest = m
+            except OSError:
+                pass
+    if latest <= 0:
+        return JSONResponse(content={"built": None}, headers=CORS_HEADERS)
+    return JSONResponse(
+        content={"built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(latest))},
+        headers=CORS_HEADERS,
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/helioviewer_thumb — proxy Helioviewer takeScreenshot for wavelength tiles + canvas
 # ──────────────────────────────────────────────────────────────────────────────
 HELIOVIEWER_BASE = "https://api.helioviewer.org/v2/takeScreenshot"
 
-def _fetch_helioviewer_screenshot(url: str):
+def _fetch_helioviewer_screenshot(url: str, timeout: int = 60):
     """Sync fetch so we can run in executor; returns (content, content_type) or raises.
     Skip SSL verify for this request only: the app sets SSL_CERT_FILE to a NASA bundle
     which breaks verification for api.helioviewer.org (public CA). We only GET public
@@ -331,7 +357,9 @@ def _fetch_helioviewer_screenshot(url: str):
     """
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    r = requests.get(url, timeout=25, verify=False)
+    # Bypass any system/corporate proxy (e.g. webfilter.nwra.com) — Helioviewer is a
+    # public API that must be reached directly, not through an internal web filter.
+    r = requests.get(url, timeout=timeout, verify=False, proxies={"http": None, "https": None})
     r.raise_for_status()
     ct = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
     if "json" in ct:
@@ -365,9 +393,12 @@ async def helioviewer_thumb(
         f"&layers=[SDO,AIA,AIA,{wavelength},1,100]"
         f"&x0=0&y0=0&width={size}&height={size}&display=true&watermark=false"
     )
+    timeout = 90 if size >= 1024 else 60
     try:
         loop = asyncio.get_event_loop()
-        content, media_type = await loop.run_in_executor(None, lambda: _fetch_helioviewer_screenshot(url))
+        content, media_type = await loop.run_in_executor(
+            None, lambda: _fetch_helioviewer_screenshot(url, timeout=timeout)
+        )
         return Response(content=content, media_type=media_type, headers=CORS_HEADERS)
     except requests.RequestException as e:
         print(f"[helioviewer_thumb] {url[:120]}... -> {e}", flush=True)
@@ -445,8 +476,8 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     log_to_queue(f"[generate_preview] download_dir={download_dir}")
 
     # Fetch Helioviewer instant preview first (JPG option = helioviewer-derived).
-    # Resize to PREVIEW_SIZE so JPG matches raw/filtered dimensions and overlays correctly.
-    PREVIEW_SIZE = 800  # same as raw/filtered (figsize 8 * dpi 100)
+    # Resize to PREVIEW_SIZE so JPG matches raw/filtered; 384 matches PREVIEW_TARGET used for RHEF.
+    PREVIEW_SIZE = 384
     os.makedirs(os.path.dirname(out_path_jpg), exist_ok=True)
     try:
         hv_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
@@ -462,8 +493,9 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         content, _ = _fetch_helioviewer_screenshot(url)
         # Resize to PREVIEW_SIZE so JPG matches raw/filtered and overlays in the UI
         import io as _io
+        import matplotlib.pyplot as _plt_jpg
         from skimage.transform import resize as _sk_resize
-        arr = plt.imread(_io.BytesIO(content))
+        arr = _plt_jpg.imread(_io.BytesIO(content))
         h, w = arr.shape[0], arr.shape[1]
         if (h, w) != (PREVIEW_SIZE, PREVIEW_SIZE):
             preserve = arr.dtype == np.uint8 or np.issubdtype(arr.dtype, np.integer)
@@ -473,7 +505,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             )
             if preserve:
                 arr = np.clip(arr, 0, 255).astype(np.uint8)
-        plt.imsave(out_path_jpg, arr)
+        _plt_jpg.imsave(out_path_jpg, arr)
         log_to_queue(f"[generate_preview] Helioviewer JPG saved (resized to {PREVIEW_SIZE}px): {os.path.basename(out_path_jpg)}")
     except Exception as e:
         log_to_queue(f"[generate_preview] Helioviewer JPG failed (continuing): {e}")
@@ -481,84 +513,74 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     # Check if we already have a FITS for this date/wavelength cached locally
     import glob as _glob
     date_glob = dt.strftime('%Y_%m_%d')
-    # Search download_dir and its parent (OUTPUT_DIR) for robustness
     search_dirs = [download_dir, OUTPUT_DIR]
     existing = []
     for sdir in search_dirs:
-        pat = os.path.join(sdir, f"aia.lev1.{wl}A_{date_glob}*.fits")
-        existing += [f for f in _glob.glob(pat) if os.path.getsize(f) > 100_000]
+        existing += [f for f in _glob.glob(os.path.join(sdir, f"aia.lev1.{wl}A_{date_glob}*.fits")) if os.path.getsize(f) > 100_000]
+        existing += [f for f in _glob.glob(os.path.join(sdir, f"AIA*{date_glob.replace('_', '')}*{wl}*.fits")) if os.path.getsize(f) > 100_000]
+    existing = list(dict.fromkeys(existing))  # dedupe, keep order
     log_to_queue(f"[generate_preview] Cache check ({date_glob} {wl}A): {existing or 'none found'}")
     if existing:
         fits_path = existing[0]
         log_to_queue(f"[generate_preview] Using cached FITS: {os.path.basename(fits_path)}")
     else:
-        client = VSOClient()
-        # NASA DRMS can be slow; use timeouts that allow slow-but-valid FITS (~10–50MB) to complete.
-        # sock_read=60 allows slow streaming; total=180 so one slow file can finish. Broken records
-        # still fail within these limits instead of hanging indefinitely.
-        fast_downloader = get_downloader(total_timeout=180, connect_timeout=30, sock_read_timeout=60)
+        fits_path = None  # will be set by VSO download or left None for Helioviewer fallback
+        try:
+            client = VSOClient()
+            # NASA DRMS can be slow; use timeouts that allow slow-but-valid FITS (~10–50MB) to complete.
+            # sock_read=60 allows slow streaming; total=180 so one slow file can finish. Broken records
+            # still fail within these limits instead of hanging indefinitely.
+            fast_downloader = get_downloader(total_timeout=180, connect_timeout=30, sock_read_timeout=60)
 
-        def _is_lev1_fits(path):
-            """Return True only if the file looks like an AIA Level-1 FITS (≥1MB, lev1 in name)."""
-            if not path or not os.path.exists(path):
-                return False
-            size = os.path.getsize(path)
-            if size < 1_000_000:
-                log_to_queue(f"[generate_preview] Rejecting {os.path.basename(path)}: too small ({size} bytes, expected ≥1MB for lev1)")
-                return False
-            # Level-0 files look like AIA20260215_000000_0304.fits (no 'lev1' in name)
-            # Level-1 files look like aia.lev1.304A_2026_02_15T00_00_05.13Z.image_lev1.fits
-            basename = os.path.basename(path).lower()
-            if "lev1" not in basename:
-                log_to_queue(f"[generate_preview] Rejecting {os.path.basename(path)}: not a Level-1 FITS (no 'lev1' in filename)")
-                return False
-            return True
+            def _is_usable_fits(path):
+                """Return True if the file exists and is large enough to use (avoid placeholders)."""
+                if not path or not os.path.exists(path):
+                    return False
+                return os.path.getsize(path) >= 100_000
 
-        def _try_download(candidate_dt, label):
-            """Search ±2min around candidate_dt, probe with fast timeout.
-            qr is a VSOQueryResponseTable; qr[i:i+1] gives a 1-row subtable for Fido.fetch.
-            We probe one row at a time so a broken sdo7 record fails in ~8s not 30s×N.
-            Note: JSOC series for 12s EUV is aia.lev1_euv_12s; VSO does not expose series, so we
-            get whatever AIA lev1 VSO returns and filter by filename (image_lev1, etc.)."""
-            qr = client.search(
-                a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
-                a.Detector("AIA"),
-                a.Wavelength(wl * u.angstrom),
-                a.Source("SDO"),
-            )
-            if len(qr) == 0:
+            def _try_download(candidate_dt, label):
+                """Search ±2min around candidate_dt, probe one row at a time. Use first successful download."""
+                qr = client.search(
+                    a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
+                    a.Detector("AIA"),
+                    a.Wavelength(wl * u.angstrom),
+                    a.Source("SDO"),
+                )
+                if len(qr) == 0:
+                    return None
+                log_to_queue(f"[generate_preview] {label}: {len(qr)} records found, probing one at a time...")
+                for i in range(len(qr)):
+                    one_row = qr[i:i+1]
+                    result = Fido.fetch(one_row, path=download_dir, downloader=fast_downloader)
+                    if result and len(result) > 0:
+                        path = str(result[0])
+                        if _is_usable_fits(path):
+                            log_to_queue(f"[generate_preview] Using: {os.path.basename(path)}")
+                            return path
+                        continue
+                    err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown"
+                    log_to_queue(f"[generate_preview] {label}: row {i} failed ({err[:80]}), trying next row...")
+                    if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+                        breakpoint()  # inspect result, result.errors, one_row, i, label, download_dir
+                log_to_queue(f"[generate_preview] {label}: all {len(qr)} rows failed, skipping day.")
                 return None
-            log_to_queue(f"[generate_preview] {label}: {len(qr)} records found, probing one at a time...")
-            # Probe each row individually: qr[i:i+1] is a 1-row VSOQueryResponseTable
-            # that Fido.fetch accepts. This avoids launching 130 parallel broken DRMS downloads.
-            for i in range(len(qr)):
-                one_row = qr[i:i+1]
-                result = Fido.fetch(one_row, path=download_dir, downloader=fast_downloader)
-                if result and len(result) > 0:
-                    path = str(result[0])
-                    if _is_lev1_fits(path):
-                        log_to_queue(f"[generate_preview] Downloaded lev1: {os.path.basename(path)}")
-                        return path
-                    log_to_queue(f"[generate_preview] Skipping non-lev1: {os.path.basename(path)}, trying next row...")
-                    continue
-                err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown"
-                log_to_queue(f"[generate_preview] {label}: row {i} failed ({err[:80]}), trying next row...")
-                if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
-                    breakpoint()  # inspect result, result.errors, one_row, i, label, download_dir
-            log_to_queue(f"[generate_preview] {label}: all {len(qr)} rows failed or non-lev1, skipping day.")
-            return None
 
-        # Try exact day first, then walk outward day-by-day
-        fits_path = _try_download(dt, f"exact day {dt.date()}")
-        if not fits_path:
-            log_to_queue(f"[generate_preview] Scanning nearby days...")
-            for offset in range(1, 8):
-                for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
-                    fits_path = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
+            # Try exact day first, then walk outward day-by-day
+            fits_path = _try_download(dt, f"exact day {dt.date()}")
+            if not fits_path:
+                log_to_queue(f"[generate_preview] Scanning nearby days...")
+                for offset in range(1, 8):
+                    for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
+                        fits_path = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
+                        if fits_path:
+                            break
                     if fits_path:
                         break
-                if fits_path:
-                    break
+        except Exception as vso_err:
+            # VSO/SunPy unavailable (e.g. WSDL mirrors unreachable on this network).
+            # fits_path stays None so the Helioviewer fallback below runs automatically.
+            log_to_queue(f"[generate_preview] VSO unavailable ({type(vso_err).__name__}): {vso_err}")
+
         if not fits_path:
             if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
                 breakpoint()  # inspect before Helioviewer fallback: dt, wl, date_str, out_path_filtered
@@ -581,10 +603,11 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                     f.write(content)
                 if not os.path.exists(out_path_jpg) or os.path.getsize(out_path_jpg) < 100:
                     import io as _io
+                    import matplotlib.pyplot as _plt_jpg2
                     from skimage.transform import resize as _sk_resize
-                    arr = plt.imread(_io.BytesIO(content))
+                    arr = _plt_jpg2.imread(_io.BytesIO(content))
                     h, w = arr.shape[0], arr.shape[1]
-                    sz = 800
+                    sz = PREVIEW_SIZE
                     if (h, w) != (sz, sz):
                         preserve = arr.dtype == np.uint8 or np.issubdtype(arr.dtype, np.integer)
                         arr = _sk_resize(
@@ -593,7 +616,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                         )
                         if preserve:
                             arr = np.clip(arr, 0, 255).astype(np.uint8)
-                    plt.imsave(out_path_jpg, arr)
+                    _plt_jpg2.imsave(out_path_jpg, arr)
                 log_to_queue(f"[generate_preview] Helioviewer fallback saved: {os.path.basename(out_path_filtered)}")
                 return (url_path_filtered, url_path_filtered, url_path_jpg)
             except Exception as e:
@@ -602,14 +625,14 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                     breakpoint()  # inspect e, out_path before raising 502
                 raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
     from sunpy.map import Map
-    import numpy as np
     import matplotlib.pyplot as plt
     from skimage.measure import block_reduce
     smap = Map(fits_path)
     data = np.array(smap.data, dtype=np.float32)
     data[data <= 0] = np.nan
     h, w = data.shape
-    block_size = max(1, int(np.ceil(h / 512)))
+    PREVIEW_TARGET = 384  # smaller = faster RHEF so preview is ready sooner for image creation
+    block_size = max(1, int(np.ceil(h / PREVIEW_TARGET)))
     reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
     from sunpy.map.sources.sdo import AIAMap
     from sunpy.util.metadata import MetaDict
@@ -624,10 +647,12 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     smap_reduced = AIAMap(reduced, meta)
     cmap = plt.get_cmap(f"sdoaia{wl}")
     os.makedirs(os.path.dirname(out_path_raw), exist_ok=True)
+    fig_dpi = 100
+    fig_inches = PREVIEW_SIZE / fig_dpi
     # Raw preview (no RHEF) — same stretch so toggling is comparable
     vmin_raw = np.nanpercentile(reduced, 1)
     vmax_raw = np.nanpercentile(reduced, 99.7)
-    plt.figure(figsize=(8, 8), dpi=100)
+    plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
     plt.axis("off")
     plt.imshow(reduced, cmap=cmap, vmin=vmin_raw, vmax=vmax_raw, origin="lower")
     plt.tight_layout(pad=0)
@@ -642,7 +667,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         rhef_data = radial.rhef(smap_reduced.data, progress=True).data
     vmin = np.nanpercentile(rhef_data, 1)
     vmax = np.nanpercentile(rhef_data, 99.7)
-    plt.figure(figsize=(8, 8), dpi=100)
+    plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
     plt.axis("off")
     plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
     plt.tight_layout(pad=0)
@@ -707,8 +732,23 @@ async def generate_preview(req: PreviewRequest = Body(...)):
                 content={"preview_url": None, "error": "No VSO AIA data for this date/wavelength"},
                 headers=CORS_HEADERS,
             )
-        # If already generating, just return 202 — don't spawn another task
+        # If already generating, return partial results so UI can show JPG while RHEF runs
         if key in _preview_in_progress:
+            if os.path.exists(out_path_filtered):
+                raw_url = url_path_raw if os.path.exists(out_path_raw) else None
+                jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
+                return {"preview_url": url_path_filtered, "preview_raw_url": raw_url, "preview_jpg_url": jpg_url}
+            if os.path.exists(out_path_jpg):
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "preview_url": None,
+                        "preview_raw_url": None,
+                        "preview_jpg_url": url_path_jpg,
+                        "status": "rhef_generating",
+                    },
+                    headers=CORS_HEADERS,
+                )
             return JSONResponse(
                 status_code=202,
                 content={"status": "in_progress", "preview_url": None},
