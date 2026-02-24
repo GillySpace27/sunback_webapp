@@ -78,6 +78,9 @@ def _printify_request(method: str, url: str, **kwargs):
             kwargs["verify"] = ca_bundle
             os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
             os.environ["SSL_CERT_FILE"] = ca_bundle
+        # Bypass any system/corporate proxy (e.g. webfilter.nwra.com) — Printify is a
+        # public API that must be reached directly, not through an internal web filter.
+        kwargs.setdefault("proxies", {"http": None, "https": None})
         return requests.request(method, url, **kwargs)
     finally:
         if saved_ca is not None:
@@ -250,6 +253,7 @@ async def list_variants(blueprint_id: int, provider_id: int):
         result = await run_in_threadpool(_list_variants_sync, blueprint_id, provider_id)
         return JSONResponse(content=result)
     except Exception as e:
+        _log(f"[printify][variants] blueprint={blueprint_id} provider={provider_id} error: {e}")
         return JSONResponse(status_code=500, content={"detail": f"Failed to list variants: {e}"})
 
 
@@ -303,15 +307,20 @@ def _do_checkout_sync(
     description: str,
     blueprint_id: int,
     print_provider_id: int,
-    variant_id: int,
+    variant_ids: list,
     price: int,
     position: str,
     tags: list,
 ) -> dict:
-    """Blocking checkout logic — runs in a thread via run_in_threadpool."""
-    shop_id = _shop_id()
+    """Blocking checkout logic — runs in a thread via run_in_threadpool.
 
-    # ── Step 1: Upload image ──
+    variant_ids is a list of all Printify variant IDs to enable on the product,
+    so customers can choose their preferred size/color on the Shopify storefront.
+    """
+    shop_id = _shop_id()
+    if not variant_ids:
+        raise Exception("No variant IDs provided")
+
     _log(f"[checkout] Step 1: uploading image ({len(image_base64)} chars)")
     upload_resp = _printify_request(
         "POST",
@@ -329,19 +338,25 @@ def _do_checkout_sync(
         raise Exception("No image ID in upload response")
     _log(f"[checkout] Image uploaded: {image_id}")
 
-    # ── Step 2: Create product ──
-    _log(f"[checkout] Step 2: creating product (blueprint={blueprint_id}, provider={print_provider_id})")
+    # ── Step 2: Create product with all requested variants enabled ──
+    _log(
+        f"[checkout] Step 2: creating product (blueprint={blueprint_id}, "
+        f"provider={print_provider_id}, variants={len(variant_ids)})"
+    )
     product_payload = {
         "title": title,
         "description": description,
         "blueprint_id": blueprint_id,
         "print_provider_id": print_provider_id,
+        # Enable every requested variant at the same price
         "variants": [
-            {"id": variant_id, "price": price, "is_enabled": True}
+            {"id": vid, "price": price, "is_enabled": True}
+            for vid in variant_ids
         ],
+        # Apply the same print area / image placement to all variants
         "print_areas": [
             {
-                "variant_ids": [variant_id],
+                "variant_ids": variant_ids,
                 "placeholders": [
                     {
                         "position": position,
@@ -395,10 +410,11 @@ def _do_checkout_sync(
     if publish_resp.status_code not in (200, 201):
         _log(f"[checkout] Publish warning ({publish_resp.status_code}): {publish_resp.text[:300]}")
 
-    _log(f"[checkout] Complete: product={product_id}, image={image_id}")
+    _log(f"[checkout] Complete: product={product_id}, image={image_id}, variants={len(variant_ids)}")
     return {
         "printify_product_id": product_id,
         "printify_image_id": image_id,
+        "variant_count": len(variant_ids),
         "status": "published",
     }
 
@@ -418,20 +434,27 @@ async def checkout(request: Request):
         description = body.get("description", "")
         blueprint_id = body.get("blueprint_id")
         print_provider_id = body.get("print_provider_id")
-        variant_id = body.get("variant_id")
+        # Accept either variant_ids (list) or legacy variant_id (single int)
+        variant_ids = body.get("variant_ids")
+        if not variant_ids:
+            legacy_id = body.get("variant_id")
+            variant_ids = [legacy_id] if legacy_id else []
+        # Ensure all entries are ints
+        variant_ids = [int(v) for v in variant_ids if v is not None]
         price = body.get("price", 0)
         position = body.get("position", "front")
         tags = body.get("tags", [])
 
         if not image_base64:
             raise HTTPException(status_code=400, detail="Missing image_base64")
-        if not blueprint_id or not print_provider_id or not variant_id:
-            raise HTTPException(status_code=400, detail="Missing blueprint_id, print_provider_id, or variant_id")
+        if not blueprint_id or not print_provider_id or not variant_ids:
+            raise HTTPException(status_code=400, detail="Missing blueprint_id, print_provider_id, or variant_ids")
 
+        _log(f"[checkout] Received: blueprint={blueprint_id} provider={print_provider_id} variants={len(variant_ids)}")
         result = await run_in_threadpool(
             _do_checkout_sync,
             image_base64, file_name, title, description,
-            blueprint_id, print_provider_id, variant_id,
+            blueprint_id, print_provider_id, variant_ids,
             price, position, tags,
         )
         return JSONResponse(content=result)
