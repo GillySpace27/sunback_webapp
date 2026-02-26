@@ -56,7 +56,7 @@
       backendOnline: false,
       vignette: 24,
       vignetteWidth: 0,
-      vignetteFade: "transparent",  // "transparent" | "black" | "white" | "mode" | "custom"
+      vignetteFade: "black",         // "transparent" | "black" | "white" | "mode" | "custom"
       vignetteFadeColor: "#000000",
       cropEdgeFeather: 0,          // 0–100: feather at edges of crop viewport
       textMode: false,
@@ -84,7 +84,10 @@
       selectedVariantByProduct: {},    // productId -> variantId (user-confirmed)
       pendingVariantByProduct: {},     // productId -> variantId (first click, not yet confirmed)
       variantAspectRatioByProduct: {}, // productId -> { w, h } parsed from selected variant
-      mockupSlideIndex: {}             // productId -> current slide index in mockup slideshow
+      aspectFlippedByProduct: {},      // productId -> bool: user manually swapped w↔h
+      mockupSlideIndex: {},            // productId -> current slide index in mockup slideshow
+      showOverlay: true,               // draw orange frame border on canvas
+      showGuides: false                // draw centre-line / spine guide lines on canvas
     };
 
     // ── Product catalog (Printify blueprint/provider/variant model) ──
@@ -113,10 +116,16 @@
       { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front", aspectRatio: { w: 1, h: 1 },
         variantFilter: { sizes: ["S","M","L","XS","XL","2XL"] } },
       // ── Tech & Desk ──
-      { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case, glossy finish",            icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front", aspectRatio: { w: 9, h: 19 } },
+      // Blueprint 269 / provider 1 (SPOKE) covers iPhone 11–17 and Samsung Galaxy S21–S25.
+      // Google Pixel cases require blueprint 421 / provider 23 (WOYC) — a separate product
+      // entry can be added once that blueprint's checkout flow is verified.
+      { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case — iPhone & Samsung",        icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front", aspectRatio: { w: 9, h: 19 } },
+      // Pixel Phone Case — blueprint 421, provider 23 (WOYC). Uncomment and verify variant IDs
+      // before enabling.  Pixel 7/8/8a/9/9 Pro confirmed on WOYC catalog.
+      // { id: "phone_case_pixel", name: "Phone Case (Pixel)", desc: "Tough snap case — Google Pixel", icon: "fa-mobile-alt", price: "From $19.99", checkoutPrice: 1999, blueprintId: 421, printProviderId: 23, variantId: null, position: "front", aspectRatio: { w: 9, h: 19 } },
       { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
       { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front", aspectRatio: { w: 1, h: 1 } },
-      { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front", aspectRatio: { w: 2, h: 1 } },
+      { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front", aspectRatio: { w: 2, h: 1 }, forceOrientation: "landscape" },
       // ── Home & Living ──
       { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 } },
       { id: "sherpa_blanket",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front", aspectRatio: { w: 1, h: 1 } },
@@ -124,7 +133,8 @@
       { id: "puzzle_1000",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front", aspectRatio: { w: 1, h: 1 } },
       { id: "coaster_set",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $14.99", checkoutPrice: 1499, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front", aspectRatio: { w: 1, h: 1 } },
       // ── Accessories & Stationery ──
-      { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: null },
+      { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: null,
+        sizePricing: { 45748: "$2.99", 45750: "$3.99", 45752: "$4.99", 45754: "$7.99" } },
       { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front", aspectRatio: { w: 151, h: 100 } },
       { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
     ];
@@ -222,18 +232,22 @@
     }
 
     function updateClockNumbersButtonVisibility() {
-      var btn = document.getElementById("clockNumbersBtn");
-      if (!btn) return;
+      var clockTab = document.querySelector('.edit-tab[data-tab="clock"]');
+      var clockPanel = document.getElementById("tabPanel_clock");
+      if (!clockTab || !clockPanel) return;
       if (state.selectedProduct === "wall_clock") {
-        btn.classList.remove("hidden");
+        clockTab.classList.remove("hidden");
       } else {
-        btn.classList.add("hidden");
-        var panel = document.getElementById("clockNumbersPanel");
-        if (panel && !panel.classList.contains("hidden")) {
-          panel.classList.add("hidden");
-          document.querySelectorAll(".edit-toolbar .edit-btn[data-tool]").forEach(function(b) { b.classList.remove("active"); });
-          var panBtn = document.querySelector('[data-tool="pan"]');
-          if (panBtn) panBtn.classList.add("active");
+        clockTab.classList.add("hidden");
+        // If clock tab was active, switch to Geometry
+        if (clockTab.classList.contains("active")) {
+          var geometryTab = document.querySelector('.edit-tab[data-tab="geometry"]');
+          if (geometryTab) {
+            geometryTab.click();
+          }
+        }
+        if (!clockPanel.classList.contains("hidden")) {
+          clockPanel.classList.add("hidden");
         }
       }
     }
@@ -298,10 +312,8 @@
       // Clear clock numbers when switching away from wall_clock
       if (productId !== "wall_clock" && state.clockNumbers) {
         state.clockNumbers = null;
-        var cnPanel = document.getElementById("clockNumbersPanel");
-        if (cnPanel) cnPanel.classList.add("hidden");
-        var cnBtn = document.querySelector('[data-tool="clockNumbers"]');
-        if (cnBtn) cnBtn.classList.remove("active");
+        var clockPanel = document.getElementById("tabPanel_clock");
+        if (clockPanel) clockPanel.classList.add("hidden");
       }
 
       // Update selected visual state on product cards
@@ -403,21 +415,13 @@
         buyLabel.textContent = "Buy / Create on Shopify — " + product.price;
       }
 
-      // Create (or reuse) the persistent preview canvas — size by effective aspect ratio
+      // Create (or reuse) the persistent preview canvas.
+      // Always use a square 260×260 canvas — the product shape drawn inside it communicates
+      // the proportions without distorting the illustration by squashing the canvas itself.
       var mockupContainer = previewPane.querySelector(".preview-mockup");
       var existing = mockupContainer.querySelector("canvas.live-preview-canvas");
-      var maxDim = 260;
-      var pw = maxDim;
-      var ph = maxDim;
-      if (ar && ar.w && ar.h) {
-        if (ar.w >= ar.h) {
-          pw = maxDim;
-          ph = Math.round(maxDim * ar.h / ar.w);
-        } else {
-          ph = maxDim;
-          pw = Math.round(maxDim * ar.w / ar.h);
-        }
-      }
+      var pw = 260;
+      var ph = 260;
       if (!existing) {
         mockupContainer.innerHTML = "";
         existing = document.createElement("canvas");
@@ -455,7 +459,9 @@
       var lctx = livePreviewCanvas.getContext("2d");
       lctx.clearRect(0, 0, pw, ph);
 
-      var scale = Math.min(pw / 160, ph / 160);
+      // Scale the 160×160 mockup coordinate space to fill the square canvas.
+      // Using the full canvas dimension (pw/160) so the illustration is as large as possible.
+      var scale = pw / 160;
       lctx.save();
       lctx.scale(scale, scale);
       var variant = getSelectedVariantForProduct(product.id);
@@ -565,6 +571,33 @@
       }
     }
 
+    // ── Deselect product (✕ button in the preview panel) ────────
+    var btnDeselectProduct = document.getElementById("btnDeselectProduct");
+    if (btnDeselectProduct) {
+      btnDeselectProduct.addEventListener("click", function() {
+        state.selectedProduct = null;
+        state.uploadedPrintifyId = null;
+        state.uploadedPrintifyIdRaw = null;
+        state.uploadedPrintifyIdFiltered = null;
+        var previewPanel = document.getElementById("selectedProductPreview");
+        if (previewPanel) previewPanel.classList.add("hidden");
+        renderCanvas();
+        var productSection = document.getElementById("productSection");
+        if (productSection) productSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+
+    // ── Change wavelength navigation button (in Adjust tab) ─────
+    var btnChangeWavelength = document.getElementById("btnChangeWavelength");
+    if (btnChangeWavelength) {
+      btnChangeWavelength.addEventListener("click", function() {
+        var wlGrid = document.getElementById("wlGrid");
+        var target = wlGrid || document.querySelector(".section");
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+        else window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+
     var btnPreviewMockup = document.getElementById("btnPreviewMockup");
     if (btnPreviewMockup) {
       btnPreviewMockup.addEventListener("click", function() {
@@ -584,7 +617,20 @@
             showInfo("No Image", "Select a wavelength tile to load the solar image first.");
             return;
           }
-          if (typeof autoGenerateMockups === "function") autoGenerateMockups("raw", productId);
+          // Determine the correct variant bucket from the active filter.
+          //   "jpg" / "raw" science  →  "raw"   (non-filtered Helioviewer/science slot)
+          //   "rhef"                 →  "filtered" (science-processed slot)
+          var mockupVariant = (state.editorFilter === "rhef") ? "filtered" : "raw";
+
+          // ALWAYS clear the cached upload ID for this variant before generating
+          // a single-product mockup.  Without this, if the user resets and regenerates
+          // (or changes the filter between attempts), the old upload ID for a stale
+          // canvas export would be reused instead of uploading the current canvas.
+          var mkUploadKey = (mockupVariant === "filtered") ? "uploadedPrintifyIdFiltered" : "uploadedPrintifyIdRaw";
+          state[mkUploadKey] = null;
+          if (mockupVariant === "raw") state.uploadedPrintifyId = null; // legacy alias
+
+          if (typeof autoGenerateMockups === "function") autoGenerateMockups(mockupVariant, productId);
           showToast("Generating real mockup for this product…");
         }
       });
@@ -715,7 +761,7 @@
       state.saturation = 100;
       state.vignette = 24;
       state.vignetteWidth = 0;
-      state.vignetteFade = "transparent";
+      state.vignetteFade = "black";
       state.vignetteFadeColor = "#000000";
       state.cropEdgeFeather = 0;
       state.textOverlay = null;
@@ -727,6 +773,7 @@
       state.uploadedPrintifyId = null;
       state.uploadedPrintifyIdRaw = null;
       state.uploadedPrintifyIdFiltered = null;
+      state.aspectFlippedByProduct = {};
       state.hqReady = false;
       state.hqImageUrl = null;
       state.hqTaskId = null;
@@ -742,12 +789,10 @@
       // Reset filter toggle UI to JPG
       _syncFilterToggleUI("jpg");
 
-      // RHEF/JPG generation is user-triggered only (btnHQ / filter toggle).
-      // Do NOT auto-fetch here — the Helioviewer canvas is immediately usable and
-      // a background FITS download from VSO can take minutes, making the page
-      // appear hung before the user has even chosen a product.
-      //
       // Restore from cache if this wavelength was already fetched this session.
+      // Otherwise fire off a background RHE prefetch so the science data has a
+      // head-start while the user browses products and edits.  The prefetch does
+      // NOT switch the active filter — the user stays on JPG until they choose to toggle.
       if (API_BASE && dateVal && wl) {
         var cachedEntry = thumbCache[String(wl)];
         if (cachedEntry && cachedEntry.rhef) {
@@ -757,7 +802,51 @@
           setTimeout(function() {
             applyFilterInstant("rhef");
             showToast("Filtered version loaded from cache! Click Raw to switch back.", "info");
+            // RHEF preview is ready — kick off HQ generation immediately (also checks hqCache)
+            startHqFilterGeneration(dateVal, wl, "rhef");
           }, 100);
+        } else {
+          // Background prefetch — warm the backend cache without blocking the UI.
+          // Store results so the filter toggle can use them instantly later.
+          (function prefetchRHE() {
+            state.rhefFetching = true;
+            if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+            updateFilterStatusLine("Prefetching science data\u2026", "loading");
+            state.rhefFetchPromise = fetchBackendRHEPreview(dateVal, wl, function(pct, msg, optData) {
+              updateFilterStatusLine(msg || "Generating preview\u2026", "loading");
+              if (optData && optData.preview_jpg_url) {
+                var jpgUrl = (String(optData.preview_jpg_url).indexOf("http") === 0) ? optData.preview_jpg_url : (API_BASE + optData.preview_jpg_url);
+                var jpgImg = new Image();
+                jpgImg.crossOrigin = "anonymous";
+                jpgImg.onload = function() {
+                  state.jpgImage = jpgImg;
+                  if (state.editorFilter === "jpg") renderCanvas();
+                };
+                jpgImg.src = jpgUrl;
+              }
+            }).then(function(ob) {
+              state.rhefImage = ob.filteredImg;
+              state.rawBackendImage = ob.rawImg || null;
+              state.jpgImage = ob.jpgImg || null;
+              state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+              state.rhefFetchPromise = null;
+              var entry = thumbCache[String(wl)] || {};
+              entry.rhef = state.rhefImage; entry.rawBackend = state.rawBackendImage; entry.jpg = state.jpgImage;
+              thumbCache[String(wl)] = entry;
+              updateFilterStatusLine("Science data ready! Generating HQ\u2026", "loading");
+              // Stay on whatever filter the user currently has selected — just re-render
+              // to make the cached images available.
+              renderCanvas();
+              // RHEF preview is ready — kick off HQ generation in the background.
+              // The HQ image will auto-upgrade the canvas to hq_rhef when it arrives.
+              startHqFilterGeneration(dateVal, wl, "rhef");
+            }).catch(function(err) {
+              console.warn("[Prefetch] RHE prefetch failed (non-blocking):", err);
+              state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+              state.rhefFetchPromise = null;
+              updateFilterStatusLine("", "");
+            });
+          })();
         }
       }
 
@@ -779,11 +868,8 @@
       // panX/panY already set to image center (naturalWidth/2, naturalHeight/2) above — don't reset to 0.
       if (solarCanvas) applyCanvasView();
       if ($("#textToolPanel")) $("#textToolPanel").classList.add("hidden");
-      if ($("#adjustmentsPanel")) $("#adjustmentsPanel").classList.add("hidden");
       var textToolBtn = document.querySelector('[data-tool="text"]');
       if (textToolBtn) textToolBtn.classList.remove("active");
-      var adjustmentsBtn = document.getElementById("adjustmentsBtn");
-      if (adjustmentsBtn) adjustmentsBtn.classList.remove("active");
       if (solarCanvas) solarCanvas.classList.remove("text-dragging");
       if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
 
@@ -806,11 +892,15 @@
       if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
 
       // If a product was already selected (e.g. user switched wavelength), re-show editor
+      // and scroll back down to it so the user lands on the canvas.
       if (state.selectedProduct) {
         editSection.classList.remove("hidden");
         if (btnBuyInEditor) btnBuyInEditor.classList.remove("hidden");
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
         if (product) updateSelectedProductPreview(product);
+        setTimeout(function() {
+          editSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 120);
       }
 
       setTimeout(hideProgress, 1200);
@@ -1134,8 +1224,16 @@
         editorFilterToggleEl.querySelector('input[name="editorFilter"][value="' + state.editorFilter + '"]').checked = true;
         return;
       }
+      if (state.hqFetching && state.editorFilter === "hq_rhef") {
+        showToast("High-resolution image is generating in background. It will appear automatically when ready.", "info");
+        editorFilterToggleEl.querySelector('input[name="editorFilter"][value="' + state.editorFilter + '"]').checked = true;
+        return;
+      }
       if (state.rhefFetchPromise) {
+        // A fetch is already in-flight — chain onto it; only apply the filter if the user
+        // hasn't switched to something else by the time the fetch completes.
         state.rhefFetchPromise.then(function() {
+          if (state.editorFilter !== filterValue) { renderCanvas(); return; }
           if (filterValue === "rhef" && preferWipe) applyFilterWithRadialWipe("rhef", function() {});
           else applyFilterInstant(filterValue);
         });
@@ -1151,9 +1249,9 @@
           jpgImg.crossOrigin = "anonymous";
           jpgImg.onload = function() {
             state.jpgImage = jpgImg;
-            state.editorFilter = "jpg";
-            _syncFilterToggleUI("jpg");
-            if (typeof drawEditorCanvas === "function") drawEditorCanvas();
+            // Cache the early JPG preview but don't force-switch the user's active filter.
+            // Only re-render so the cached image is used if editorFilter is already "jpg".
+            if (state.editorFilter === "jpg") renderCanvas();
           };
           jpgImg.src = jpgUrl;
         }
@@ -1167,8 +1265,15 @@
         entry.rhef = state.rhefImage; entry.rawBackend = state.rawBackendImage; entry.jpg = state.jpgImage;
         thumbCache[String(state.wavelength)] = entry;
         updateFilterStatusLine("Preview ready!", "success");
-        if (filterValue === "rhef" && preferWipe) applyFilterWithRadialWipe("rhef", function() {});
-        else applyFilterInstant(filterValue);
+        // Only apply the requested filter if the user hasn't switched away since the fetch started.
+        if (state.editorFilter === filterValue) {
+          if (filterValue === "rhef" && preferWipe) applyFilterWithRadialWipe("rhef", function() {});
+          else applyFilterInstant(filterValue);
+        } else {
+          // User is on a different filter — re-render so the newly cached images are available
+          // (e.g. user is on "raw" and rawBackendImage just arrived).
+          renderCanvas();
+        }
       }).catch(function(err) {
         console.error("[Preview] Fetch failed:", err);
         state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
@@ -1183,8 +1288,13 @@
         var newFilter = radio.value;
         if (newFilter === state.editorFilter) return;
         if (newFilter === "jpg") {
-          if (state.jpgImage) applyFilterInstant("jpg");
-          else ensurePreviewFetchedThenApply("jpg", false);
+          // state.originalImage is always available as a JPG fallback (renderCanvas uses
+          // jpgImage || originalImage), so we can always switch to JPG instantly without
+          // waiting for an async fetch.  The old path through ensurePreviewFetchedThenApply
+          // was broken: it never updated state.editorFilter before the async fetch, so the
+          // resolution check (state.editorFilter === "jpg") always failed and the canvas
+          // stayed on whatever it had before.
+          applyFilterInstant("jpg");
           return;
         }
         if (newFilter === "rhef") {
@@ -1192,7 +1302,34 @@
           else ensurePreviewFetchedThenApply("rhef", true);
           return;
         }
-        applyFilterInstant("raw");
+        if (newFilter === "raw") {
+          // If the backend raw image is already loaded, show it immediately.
+          // Otherwise trigger the shared fetch (which retrieves raw + rhef + jpg together).
+          if (state.rawBackendImage) applyFilterInstant("raw");
+          else ensurePreviewFetchedThenApply("raw", false);
+          return;
+        }
+        if (newFilter === "hq_rhef") {
+          var dateForHQ = dateInput ? dateInput.value : "";
+          if (state.hqFilterImage && state.hqFormat === "rhef") {
+            // HQ already loaded — switch instantly, no dialog needed
+            applyFilterInstant("hq_rhef");
+          } else {
+            // HQ not yet ready: show an info dialog.
+            // Do NOT switch the filter — user stays on their current filter (JPG/RAW/RHEF).
+            // The HQ will be available when they explicitly switch to hq_rhef.
+            var msg = state.hqFetching
+              ? "The high-resolution RHEF image is currently being generated in the background and will appear automatically when ready.\n\nAny edits you make now — crop, zoom, pan, adjustments — will be represented in the final product. It is recommended to wait for the high-resolution image to appear before sending to Shopify."
+              : "This high-resolution image may take a couple of minutes to generate.\n\nAny edits you make now — crop, zoom, pan, adjustments — will be represented in the final product. It is recommended to wait for the high-resolution image to appear before sending to Shopify.";
+            showInfo("HQ RHEF", msg);
+            // Start generating if not already in flight (user stays on current filter)
+            if (!state.hqFetching && dateForHQ && state.wavelength) {
+              startHqFilterGeneration(dateForHQ, state.wavelength, "rhef");
+            }
+          }
+          return;
+        }
+        applyFilterInstant(newFilter);
       }
       // Single click handler with preventDefault to avoid double-fire from
       // label default behavior (which would trigger a second change event
@@ -1311,7 +1448,7 @@
     function updateRhefLoadingUI() {
       var el = document.getElementById("filterLoadingIndicator");
       if (!el) return;
-      if (state.rhefFetching) el.classList.remove("hidden");
+      if (state.rhefFetching || state.hqFetching) el.classList.remove("hidden");
       else el.classList.add("hidden");
     }
 
@@ -1721,19 +1858,24 @@
      */
     function startHqFilterGeneration(date, wavelength, format) {
       format = format || state.editorFilter || "rhef";
+
+      // Dedup: if already generating this format, return without starting a second fetch
+      if (state.hqFetching) return Promise.resolve();
+
       var cacheKey = date + "_" + wavelength + "_hq_" + format;
       var cached = hqCache[cacheKey];
       if (cached && cached.imageObj) {
         state.hqFilterImage = cached.imageObj;
         state.hqFormat = format;
-        applyFilterInstant(format);
-        showToast("Full-resolution " + format.toUpperCase() + " ready!", "success");
+        _hqApplyUpgrade(format);
+        showToast("Full-resolution RHEF ready!", "success");
         return Promise.resolve(cached.imageObj);
       }
 
       state.hqFetching = true;
+      if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
       setProgress(10);
-      updateFilterStatusLine("Full-res " + format.toUpperCase() + " generation (may take ~60s)\u2026", "loading");
+      updateFilterStatusLine("Full-res RHEF generating in background (may take ~2 min)\u2026", "loading");
 
       return postJSON(API_BASE + "/api/generate", {
         date: date,
@@ -1748,35 +1890,52 @@
         return pollStatus(statusUrl, function(data) {
           if (data.status === "started" || data.status === "processing") {
             setProgress(50);
-            updateFilterStatusLine("Full-res rendering\u2026", "loading");
+            updateFilterStatusLine("Full-res RHEF rendering\u2026", "loading");
           }
         });
       }).then(function(result) {
         if (result.status === "completed" && result.image_url) {
           var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
           setProgress(85);
-          updateFilterStatusLine("Loading full-res image\u2026", "loading");
+          updateFilterStatusLine("Loading full-res RHEF image\u2026", "loading");
           return loadImage(hqUrl).then(function(img) {
             state.hqFilterImage = img;
             state.hqFormat = format;
             state.hqFetching = false;
+            if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
             hqCache[cacheKey] = { url: hqUrl, imageObj: img };
             setProgress(100);
             hideProgress();
-            updateFilterStatusLine("Full-res " + format.toUpperCase() + " ready!", "success");
-            applyFilterInstant(format);
-            showToast("Full-resolution " + format.toUpperCase() + " ready!", "success");
+            updateFilterStatusLine("Full-res RHEF ready!", "success");
+            _hqApplyUpgrade(format);
+            showToast("Full-resolution RHEF ready! \u2728", "success");
             return img;
           });
         }
         throw new Error(result.message || "HQ generation failed");
       }).catch(function(err) {
         state.hqFetching = false;
+        if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
         hideProgress();
         updateFilterStatusLine("HQ generation failed: " + err.message, "error");
         showToast("HQ failed: " + (err.message || err), "error");
         return Promise.reject(err);
       });
+    }
+
+    /**
+     * When HQ for a given format arrives (from cache or freshly generated), upgrade the canvas
+     * to "hq_rhef" if the user is currently viewing the base RHEF or the HQ RHEF filter.
+     * For any other active filter, switch to hq_rhef so the user can see the HQ.
+     * The user can always switch back to other filters (JPG, raw, RHEF) - those previews
+     * remain available in memory.
+     */
+    function _hqApplyUpgrade(format) {
+      // Always upgrade to hq_rhef when HQ arrives - the HQ is the premium view
+      state.editorFilter = "hq_rhef";
+      renderCanvas();
+      _syncFilterToggleUI("hq_rhef");
+      updateMockupDisplay();
     }
 
     // ── Load image with CORS proxy fallback ──────────────────────
@@ -1809,6 +1968,9 @@
       else if (fmt === "raw" && state.rawBackendImage) img = state.rawBackendImage;
       else if (fmt === "rhef" && state.hqFilterImage && state.hqFormat === "rhef") img = state.hqFilterImage;
       else if (fmt === "rhef" && state.rhefImage) img = state.rhefImage;
+      // hq_rhef: use the full-res image when ready, fall back to preview RHEF while generating
+      else if (fmt === "hq_rhef" && state.hqFilterImage && state.hqFormat === "rhef") img = state.hqFilterImage;
+      else if (fmt === "hq_rhef") img = state.rhefImage || state.originalImage;
       else img = state.originalImage;
       var ctx = solarCanvas.getContext("2d");
 
@@ -1855,10 +2017,20 @@
       ctx.scale(state.flipH ? -1 : 1, state.flipV ? -1 : 1);
       ctx.translate(-refCW / 2, -refCH / 2);
       var scaleImg = Math.max(refCW / iw, refCH / ih);
+      // Helioviewer-sourced JPG (fmt="jpg") covers 3 000 arcsec of sky at 384 px.
+      // FITS-derived raw/rhef cover the AIA full disk: 4 096 px × 0.6 arcsec/px = 2 458 arcsec.
+      // Scale up the JPG so the solar disk appears the same physical size as in raw/rhef.
+      if (fmt === "jpg") {
+        scaleImg *= 3000 / (4096 * 0.6); // ≈ 1.220
+      }
       var drawW = iw * scaleImg;
       var drawH = ih * scaleImg;
       ctx.drawImage(img, 0, 0, iw, ih, (refCW - drawW) / 2, (refCH - drawH) / 2, drawW, drawH);
       ctx.restore();
+
+      // Determine whether this is a round product — needed both by the pixel loop
+      // (for vignette centering) and by the circular-clip code below.
+      var isCircularProduct = (state.selectedProduct === "wall_clock");
 
       // Apply brightness/contrast/saturation via pixel manipulation
       var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
@@ -1871,19 +2043,19 @@
         var factor = (259 * (co * 255 + 255)) / (255 * (259 - co * 255));
         var sat = state.saturation / 100;
 
-        // Vignette params
+        // Vignette params — always pinned to canvas centre so the radius stays
+        // consistent regardless of pan position.
         var applyVignette = state.vignette > 0;
-        // Center vignette on the actual sun position (image center mapped through pan/zoom),
-        // not the canvas center — they differ when the user has panned or changed aspect ratio.
-        var cx = cw / 2 + zoom * (refCW / 2 - panX);
-        var cy = ch / 2 + zoom * (refCH / 2 - panY);
-        // maxR = distance from sun center to the farthest canvas corner
-        var maxR = Math.max(
-          Math.sqrt(cx * cx             + cy * cy),
-          Math.sqrt((cw - cx) * (cw - cx) + cy * cy),
-          Math.sqrt(cx * cx             + (ch - cy) * (ch - cy)),
-          Math.sqrt((cw - cx) * (cw - cx) + (ch - cy) * (ch - cy))
-        );
+        var cx = cw / 2;
+        var cy = ch / 2;
+        var maxR;
+        if (isCircularProduct) {
+          // inscribed circle radius — vignette slider maps within the round print area
+          maxR = Math.min(cw, ch) / 2;
+        } else {
+          // distance from canvas centre to the farthest corner
+          maxR = Math.sqrt(cx * cx + cy * cy);
+        }
         // vignetteRadius: at 0 => no effect, at 100 => very tight circle
         // We map slider 0–100 to radius factor 1.0–0.1
         var radiusFactor = 1.0 - (state.vignette / 100) * 0.9;
@@ -2055,14 +2227,14 @@
           var angle = h * (Math.PI * 2 / 12);
           var x = cx + r * Math.sin(angle);
           var y = cy - r * Math.cos(angle);
+          var numLabel = (cn.style === "roman") ? ROMAN_NUMERALS[h] : String(h);
           if (cn.strokeWidth > 0) {
             ctx.strokeStyle = cn.strokeColor || "#000";
             ctx.lineWidth = (cn.strokeWidth || 0) * 2;
             ctx.lineJoin = "round";
-            ctx.strokeText(String(h === 12 ? 12 : h), x, y);
+            ctx.strokeText(numLabel, x, y);
           }
           ctx.fillStyle = cn.color || "#fff";
-          var numLabel = (cn.style === "roman") ? ROMAN_NUMERALS[h] : String(h);
           ctx.fillText(numLabel, x, y);
         }
         ctx.restore();
@@ -2071,7 +2243,6 @@
       if (typeof applyCropEdgeMask === "function") applyCropEdgeMask();
 
       // Circular clip for round products (wall_clock)
-      var isCircularProduct = (state.selectedProduct === "wall_clock");
       if (isCircularProduct) {
         var circR = Math.min(cw, ch) / 2;
         var tmpCirc = document.createElement("canvas");
@@ -2086,20 +2257,88 @@
         ctx.drawImage(tmpCirc, 0, 0);
       }
 
-      // Fixed frame border (canvas is the frame; image moves behind it)
-      ctx.save();
-      ctx.strokeStyle = "rgba(255, 152, 0, 0.95)";
-      ctx.lineWidth = Math.max(4, Math.min(12, solarCanvas.width / 128));
-      ctx.setLineDash([]);
-      if (isCircularProduct) {
-        var borderR = Math.min(cw, ch) / 2 - ctx.lineWidth / 2;
-        ctx.beginPath();
-        ctx.arc(cw / 2, ch / 2, borderR, 0, Math.PI * 2);
-        ctx.stroke();
-      } else {
-        ctx.strokeRect(0, 0, solarCanvas.width, solarCanvas.height);
+      // ── Background-colour fill for transparent areas ─────────────────────────────────
+      // Fills any pixel whose alpha is < 10 with the chosen background colour.
+      // This covers:
+      //   • pan-off areas on square/rectangular crops (image doesn't reach the edge)
+      //   • corner pixels outside the circular clip (wall_clock)
+      // Must run AFTER the pixel loop (so mode colour is known) and AFTER the circular clip.
+      var _bgFadePost = state.vignetteFade || "black";
+      if (_bgFadePost !== "transparent") {
+        var _bgR = 0, _bgG = 0, _bgB = 0;
+        if (_bgFadePost === "white") { _bgR = 255; _bgG = 255; _bgB = 255; }
+        else if (_bgFadePost === "custom") {
+          var _bgHex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
+          _bgR = parseInt(_bgHex.substr(0, 2), 16);
+          _bgG = parseInt(_bgHex.substr(2, 2), 16);
+          _bgB = parseInt(_bgHex.substr(4, 2), 16);
+        } else if (_bgFadePost === "mode") {
+          _bgR = state._vignetteModeR || 0;
+          _bgG = state._vignetteModeG || 0;
+          _bgB = state._vignetteModeB || 0;
+        }
+        // "black" stays 0,0,0 — already initialised above
+        var bgPostData = ctx.getImageData(0, 0, cw, ch);
+        var bgpd = bgPostData.data;
+        var bgChanged = false;
+        for (var bpi = 0; bpi < bgpd.length; bpi += 4) {
+          if (bgpd[bpi + 3] < 10) {
+            bgpd[bpi]     = _bgR;
+            bgpd[bpi + 1] = _bgG;
+            bgpd[bpi + 2] = _bgB;
+            bgpd[bpi + 3] = 255;
+            bgChanged = true;
+          }
+        }
+        if (bgChanged) ctx.putImageData(bgPostData, 0, 0);
       }
-      ctx.restore();
+
+      // Fixed frame border & guide lines — skipped when burning so they aren't baked in
+      if (!state._burningCanvas) {
+        // ── Orange frame border ──────────────────────────────────
+        if (state.showOverlay !== false) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(255, 152, 0, 0.95)";
+          ctx.lineWidth = Math.max(4, Math.min(12, solarCanvas.width / 128));
+          ctx.setLineDash([]);
+          if (isCircularProduct) {
+            var borderR = Math.min(cw, ch) / 2 - ctx.lineWidth / 2;
+            ctx.beginPath();
+            ctx.arc(cw / 2, ch / 2, borderR, 0, Math.PI * 2);
+            ctx.stroke();
+          } else {
+            ctx.strokeRect(0, 0, solarCanvas.width, solarCanvas.height);
+          }
+          ctx.restore();
+        }
+
+        // ── Guide lines (spine / centre cross) ───────────────────
+        if (state.showGuides) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(0, 210, 255, 0.80)";
+          ctx.lineWidth = Math.max(1, Math.round(cw / 400));
+          ctx.setLineDash([Math.round(cw / 40), Math.round(cw / 80)]);
+          // Vertical centre line (spine for journals; centre for all)
+          ctx.beginPath();
+          ctx.moveTo(cw / 2, 0);
+          ctx.lineTo(cw / 2, ch);
+          ctx.stroke();
+          // Horizontal centre line
+          ctx.beginPath();
+          ctx.moveTo(0, ch / 2);
+          ctx.lineTo(cw, ch / 2);
+          ctx.stroke();
+          // Thirds (light, dashed)
+          ctx.strokeStyle = "rgba(0, 210, 255, 0.35)";
+          [cw / 3, (2 * cw) / 3].forEach(function(x) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ch); ctx.stroke();
+          });
+          [ch / 3, (2 * ch) / 3].forEach(function(y) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke();
+          });
+          ctx.restore();
+        }
+      }
 
       // Live-update the selected product preview — redraws persistent canvas, no DOM mutations
       refreshLivePreview();
@@ -2120,6 +2359,18 @@
       } else if (tool === "flipV") {
         state.flipV = !state.flipV;
         renderCanvas();
+      } else if (tool === "flipAspect") {
+        var faProductId = state.selectedProduct;
+        if (faProductId) {
+          state.aspectFlippedByProduct[faProductId] = !state.aspectFlippedByProduct[faProductId];
+          var faProduct = PRODUCTS.find(function(p) { return p.id === faProductId; });
+          var faAR = getEffectiveAspectRatio(faProduct);
+          if (faAR && faAR.w && faAR.h) {
+            state.cropRatio = faAR.w + ":" + faAR.h;
+            syncCropRatioUI();
+          }
+          renderCanvas();
+        }
       } else if (tool === "invert") {
         state.inverted = !state.inverted;
         btn.classList.toggle("active", state.inverted);
@@ -2134,11 +2385,12 @@
         state.saturation = 100;
         state.vignette = 24;
         state.vignetteWidth = 0;
-        state.vignetteFade = "transparent";
+        state.vignetteFade = "black";
         state.vignetteFadeColor = "#000000";
         state.cropEdgeFeather = 0;
         state.textOverlay = null;
         state.textMode = false;
+        if (state.selectedProduct) state.aspectFlippedByProduct[state.selectedProduct] = false;
         state.clockNumbers = null;
         if (typeof syncVignetteFadeUI === "function") syncVignetteFadeUI();
         $("#brightnessSlider").value = 0;
@@ -2171,11 +2423,9 @@
         document.querySelector('[data-tool="text"]').classList.remove("active");
         var clockBtn = document.querySelector('[data-tool="clockNumbers"]');
         if (clockBtn) clockBtn.classList.remove("active");
-        $("#adjustmentsBtn").classList.remove("active");
         $("#textToolPanel").classList.add("hidden");
         var clockPanel = document.getElementById("clockNumbersPanel");
         if (clockPanel) clockPanel.classList.add("hidden");
-        $("#adjustmentsPanel").classList.add("hidden");
         exitCropMode();
         renderCanvas();
       } else if (tool === "pan") {
@@ -2209,17 +2459,21 @@
     });
 
     // ── Adjustments panel toggle ───────────────────────────────────
-    var adjustmentsBtnEl = document.getElementById("adjustmentsBtn");
-    var adjustmentsPanelEl = document.getElementById("adjustmentsPanel");
-    if (adjustmentsBtnEl && adjustmentsPanelEl) {
-      adjustmentsBtnEl.addEventListener("click", function() {
-        document.querySelectorAll(".edit-toolbar .edit-btn").forEach(function(b) {
-          if (b !== adjustmentsBtnEl) b.classList.remove("active");
+    // Tab switching (Tools / Geometry / Adjust)
+    var adjustmentsBtnEl = null;   // no longer a standalone button — nulled so all guard checks are no-ops
+    var adjustmentsPanelEl = null; // same
+    (function() {
+      var tabs = document.querySelectorAll(".edit-tab");
+      tabs.forEach(function(tab) {
+        tab.addEventListener("click", function() {
+          tabs.forEach(function(t) { t.classList.remove("active"); });
+          document.querySelectorAll(".edit-tab-panel").forEach(function(p) { p.classList.add("hidden"); });
+          tab.classList.add("active");
+          var panel = document.getElementById("tabPanel_" + tab.dataset.tab);
+          if (panel) panel.classList.remove("hidden");
         });
-        adjustmentsPanelEl.classList.toggle("hidden");
-        adjustmentsBtnEl.classList.toggle("active", !adjustmentsPanelEl.classList.contains("hidden"));
       });
-    }
+    }());
 
     // ── Sliders ──────────────────────────────────────────────────
     function setupSlider(sliderId, valId, stateKey, refreshMockups) {
@@ -2249,6 +2503,62 @@
     }
     setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth", true);
 
+    // ── Crop / Vignette presets ───────────────────────────────────
+    var CROP_PRESETS = {
+      // Ordered by cropZoom ascending; higher vignette breaks ties at the same cropZoom.
+      //                         cropZoom  vignette  vignetteWidth  cropEdgeFeather
+      solar_portrait: { cropZoom: 71,  vignette: 42, vignetteWidth: 10, cropEdgeFeather: 0 },
+      tight_frame:    { cropZoom: 75,  vignette: 0,  vignetteWidth: 0,  cropEdgeFeather: 0 },
+      full_frame:     { cropZoom: 100, vignette: 27, vignetteWidth: 27, cropEdgeFeather: 0 },
+      full_disk:      { cropZoom: 100, vignette: 24, vignetteWidth: 0,  cropEdgeFeather: 0 },
+      minimal:        { cropZoom: 100, vignette: 0,  vignetteWidth: 0,  cropEdgeFeather: 0 },
+    };
+
+    function applyPreset(presetName) {
+      var p = CROP_PRESETS[presetName];
+      if (!p) return;
+      state.cropZoom        = p.cropZoom;
+      state.vignette        = p.vignette;
+      state.vignetteWidth   = p.vignetteWidth;
+      state.cropEdgeFeather = p.cropEdgeFeather;
+      // Sync slider DOM
+      var cs = $("#cropSlider"),      cv  = $("#cropVal");
+      var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
+      var vws = $("#vigWidthSlider"), vwv = $("#vigWidthVal");
+      var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
+      if (cs)  { cs.value  = p.cropZoom;           cv.textContent  = p.cropZoom + "%"; }
+      if (vs)  { vs.value  = 100 - p.vignette;     vv.textContent  = p.vignette; }
+      if (vws) { vws.value = p.vignetteWidth;      vwv.textContent = p.vignetteWidth; }
+      if (ces) { ces.value = p.cropEdgeFeather;    cev.textContent = p.cropEdgeFeather; }
+      applyCanvasView();
+      renderCanvas();
+      if (typeof renderProducts === "function") renderProducts();
+    }
+
+    document.querySelectorAll(".preset-btn[data-preset]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyPreset(this.dataset.preset); });
+    });
+
+    // ── Frame-border overlay checkbox ────────────────────────────
+    var showOverlayCheck = document.getElementById("showOverlayCheck");
+    if (showOverlayCheck) {
+      showOverlayCheck.checked = state.showOverlay !== false;
+      showOverlayCheck.addEventListener("change", function() {
+        state.showOverlay = showOverlayCheck.checked;
+        renderCanvas();
+      });
+    }
+
+    // ── Guide-lines checkbox ──────────────────────────────────────
+    var showGuidesCheck = document.getElementById("showGuidesCheck");
+    if (showGuidesCheck) {
+      showGuidesCheck.checked = !!state.showGuides;
+      showGuidesCheck.addEventListener("change", function() {
+        state.showGuides = showGuidesCheck.checked;
+        renderCanvas();
+      });
+    }
+
     // ── Vignette fade: filter-style toggle (transparent / black / white / mode / custom) ──
     function updateMatchButtonColor() {
       var modeOpt = document.querySelector(".filter-opt-mode");
@@ -2268,7 +2578,7 @@
     function syncVignetteFadeUI() {
       var toggle = document.getElementById("vignetteFadeToggle");
       if (!toggle) return;
-      var current = state.vignetteFade || "transparent";
+      var current = state.vignetteFade || "black";
       toggle.querySelectorAll(".filter-opt").forEach(function(opt) {
         var radio = opt.querySelector('input[name="vignetteFade"]');
         if (radio) {
@@ -2301,6 +2611,19 @@
     var vignetteFadeColorPicker = $("#vignetteFadeColorPicker");
     if (vignetteFadeColorPicker) {
       vignetteFadeColorPicker.addEventListener("click", function() {
+        // When switching to Custom, seed the picker with the current "match" (mode) colour
+        // so the user starts from the dominant canvas colour instead of plain black.
+        if (state.vignetteFade !== "custom") {
+          var mr = state._vignetteModeR !== undefined ? state._vignetteModeR : 0;
+          var mg = state._vignetteModeG !== undefined ? state._vignetteModeG : 0;
+          var mb = state._vignetteModeB !== undefined ? state._vignetteModeB : 0;
+          var modeHex = "#" +
+            ("0" + Math.max(0, Math.min(255, mr)).toString(16)).slice(-2) +
+            ("0" + Math.max(0, Math.min(255, mg)).toString(16)).slice(-2) +
+            ("0" + Math.max(0, Math.min(255, mb)).toString(16)).slice(-2);
+          state.vignetteFadeColor = modeHex;
+          vignetteFadeColorPicker.value = modeHex;
+        }
         state.vignetteFade = "custom";
         var toggle = document.getElementById("vignetteFadeToggle");
         if (toggle) {
@@ -2308,6 +2631,8 @@
           if (radio) radio.checked = true;
           syncVignetteFadeUI();
         }
+        renderCanvas();
+        if (typeof renderProducts === "function") renderProducts();
       });
       vignetteFadeColorPicker.addEventListener("input", function() {
         state.vignetteFadeColor = vignetteFadeColorPicker.value;
@@ -2399,10 +2724,8 @@
       state.textMode = true;
       document.querySelector('[data-tool="text"]').classList.add("active");
       textToolPanel.classList.remove("hidden");
-      var clockPanel = document.getElementById("clockNumbersPanel");
+      var clockPanel = document.getElementById("tabPanel_clock");
       if (clockPanel) clockPanel.classList.add("hidden");
-      var clockBtn = document.querySelector('[data-tool="clockNumbers"]');
-      if (clockBtn) clockBtn.classList.remove("active");
 
       // Initialise overlay at centre of current canvas
       if (!state.textOverlay) {
@@ -2553,18 +2876,35 @@
         showToast("Enter some text first.", "error");
         return;
       }
-      // Render one final time, then capture canvas as new originalImage
+      // Render without the frame overlay so it isn't baked into the image
+      state._burningCanvas = true;
       renderCanvas();
+      state._burningCanvas = false;
       var dataUrl;
       try {
         dataUrl = solarCanvas.toDataURL("image/png");
       } catch(e) {
         showToast("Could not burn text — canvas security error: " + e.message, "error");
+        renderCanvas(); // restore overlay
         return;
       }
       var newImg = new Image();
       newImg.onload = function() {
+        // Replace the working image with the burned snapshot
         state.originalImage = newImg;
+        // Re-centre pan for the new image dimensions
+        state.panX = newImg.naturalWidth / 2;
+        state.panY = newImg.naturalHeight / 2;
+        state.cropZoom = 100;
+        if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
+        // Clear format-specific previews — they belong to the old unburned image
+        state.jpgImage = null;
+        state.rawBackendImage = null;
+        state.rhefImage = null;
+        state.hqFilterImage = null;
+        state.hqFormat = null;
+        state.editorFilter = "jpg";
+        _syncFilterToggleUI("jpg");
         state.rotation = 0;
         state.flipH = false;
         state.flipV = false;
@@ -2583,6 +2923,7 @@
       };
       newImg.onerror = function() {
         showToast("Could not burn text — image decode error.", "error");
+        renderCanvas(); // restore overlay
       };
       newImg.src = dataUrl;
     });
@@ -2645,21 +2986,34 @@
     var burnClockNumbersBtn = document.getElementById("burnClockNumbers");
     if (burnClockNumbersBtn) burnClockNumbersBtn.addEventListener("click", function() {
       applyClockNumbersFromPanel();
+      // Render without frame overlay so the border isn't baked in
+      state._burningCanvas = true;
       renderCanvas();
+      state._burningCanvas = false;
+      var dataUrlClock = solarCanvas.toDataURL("image/png");
       var newImg = new Image();
       newImg.onload = function() {
         state.originalImage = newImg;
+        state.panX = newImg.naturalWidth / 2;
+        state.panY = newImg.naturalHeight / 2;
+        state.cropZoom = 100;
+        if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
+        state.jpgImage = null;
+        state.rawBackendImage = null;
+        state.rhefImage = null;
+        state.hqFilterImage = null;
+        state.hqFormat = null;
+        state.editorFilter = "jpg";
+        _syncFilterToggleUI("jpg");
         state.clockNumbers = null;
-        var panel = document.getElementById("clockNumbersPanel");
-        if (panel) panel.classList.add("hidden");
-        var clockBtn = document.querySelector('[data-tool="clockNumbers"]');
-        if (clockBtn) clockBtn.classList.remove("active");
+        var clockPanel = document.getElementById("tabPanel_clock");
+        if (clockPanel) clockPanel.classList.add("hidden");
         var panBtn = document.querySelector('[data-tool="pan"]');
         if (panBtn) panBtn.classList.add("active");
         renderCanvas();
         showToast("Clock numbers burned into image.");
       };
-      newImg.src = solarCanvas.toDataURL("image/png");
+      newImg.src = dataUrlClock;
     });
     var cancelClockNumbersBtn = document.getElementById("cancelClockNumbers");
     if (cancelClockNumbersBtn) cancelClockNumbersBtn.addEventListener("click", function() {
@@ -3511,28 +3865,17 @@
 
     /**
      * Extract a { w, h } aspect ratio from a Printify variant object.
-     * Priority: placeholders[front].width/height  →  parse "WxH" from title/size option.
+     * Priority: parse "WxH" from title/size option  →  placeholders[front].width/height.
+     * Title text is tried first because Printify's placeholder pixel counts are non-round
+     * (e.g. 10950×3750 → 73:25) while the human-readable title gives the clean intended
+     * ratio (e.g. "36 x 12" → 3:1).
      * Returns null when no ratio can be determined.
      * All returned ratios are GCD-reduced (e.g. 2000×2000 → 1:1, 11000×14000 → 11:14).
      */
     function parseVariantAspectRatio(variant) {
       if (!variant) return null;
 
-      // 1. Use print-area placeholders (most reliable)
-      var phs = variant.placeholders || [];
-      for (var i = 0; i < phs.length; i++) {
-        var ph = phs[i];
-        if (ph && (ph.position === "front" || phs.length === 1)) {
-          var pw = ph.width  || ph.w;
-          var ph2 = ph.height || ph.h;
-          if (pw > 0 && ph2 > 0) {
-            var g = gcd(pw, ph2);
-            return { w: pw / g, h: ph2 / g };
-          }
-        }
-      }
-
-      // 2. Parse "WxH" / "W x H" from title or the first option value
+      // 1. Parse "WxH" / "W x H" from title or the first option value (clean human ratios)
       var opts = variant.options || {};
       var txt = variant.title || opts.size || (Object.keys(opts).length ? opts[Object.keys(opts)[0]] : "") || "";
       txt = String(txt).replace(/"/g, "").replace(/\bin\b/gi, "").trim();
@@ -3550,6 +3893,20 @@
         }
       }
 
+      // 2. Fall back to print-area placeholder pixel dimensions
+      var phs = variant.placeholders || [];
+      for (var i = 0; i < phs.length; i++) {
+        var ph = phs[i];
+        if (ph && (ph.position === "front" || phs.length === 1)) {
+          var pw = ph.width  || ph.w;
+          var ph2 = ph.height || ph.h;
+          if (pw > 0 && ph2 > 0) {
+            var g = gcd(pw, ph2);
+            return { w: pw / g, h: ph2 / g };
+          }
+        }
+      }
+
       return null;
     }
 
@@ -3559,9 +3916,20 @@
      */
     function getEffectiveAspectRatio(product) {
       if (!product) return null;
-      var variantAR = state.variantAspectRatioByProduct && state.variantAspectRatioByProduct[product.id];
-      if (variantAR && variantAR.w && variantAR.h) return variantAR;
-      return product.aspectRatio || null;
+      var ar = state.variantAspectRatioByProduct && state.variantAspectRatioByProduct[product.id];
+      if (!ar || !ar.w || !ar.h) ar = product.aspectRatio || null;
+      if (!ar) return null;
+      // Some products (e.g. desk mat) report variant sizes as short-side × long-side in their
+      // titles, so parseVariantAspectRatio returns portrait even for a landscape product.
+      // forceOrientation: "landscape" ensures the effective AR is always landscape (w ≥ h).
+      if (product.forceOrientation === "landscape" && ar.h > ar.w) {
+        ar = { w: ar.h, h: ar.w };
+      }
+      // Flip Aspect button: swap w↔h for the current product
+      if (state.aspectFlippedByProduct && state.aspectFlippedByProduct[product.id]) {
+        ar = { w: ar.h, h: ar.w };
+      }
+      return ar;
     }
 
     /**
@@ -3712,6 +4080,15 @@
       return parts.length ? parts.join(" / ") : "Variant #" + v.id;
     }
 
+    function getVariantPrice(product, variant) {
+      if (!product || !product.sizePricing || !variant) return null;
+      var byId = product.sizePricing[variant.id];
+      if (byId != null) return byId;
+      var byLabel = product.sizePricing[variantLabel(variant)];
+      if (byLabel != null) return byLabel;
+      return null;
+    }
+
     function getSelectedVariantForProduct(productId) {
       var p = PRODUCTS.find(function(pr) { return pr.id === productId; });
       if (!p || !p.blueprintId || !p.printProviderId) return null;
@@ -3739,7 +4116,8 @@
         variants.forEach(function(v) {
           var opt = document.createElement("option");
           opt.value = v.id;
-          opt.textContent = variantLabel(v);
+          var price = getVariantPrice(product, v);
+          opt.textContent = variantLabel(v) + (price ? " — " + price : "");
           select.appendChild(opt);
         });
         var currentId = state.selectedVariantByProduct[product.id] != null ? state.selectedVariantByProduct[product.id] : product.variantId;
@@ -3830,7 +4208,8 @@
       var html = '<div class="variant-summary">';
       html += '<span class="variant-count">' + variants.length + ' variants</span>';
       if (selectedVariant) {
-        html += '<div class="variant-selected-msg">Selected: ' + variantLabel(selectedVariant) + '</div>';
+        var selPrice = getVariantPrice(product, selectedVariant);
+        html += '<div class="variant-selected-msg">Selected: ' + variantLabel(selectedVariant) + (selPrice ? " — " + selPrice : "") + '</div>';
       }
       html += '<div class="variant-list">';
       variants.forEach(function(v) {
@@ -3838,7 +4217,8 @@
         var isConfirmed = (selectedId === v.id);
         var rowClass = "variant-row" + (isPending ? " pending" : "") + (isConfirmed ? " confirmed" : "");
         var label = variantLabel(v);
-        html += '<div class="' + rowClass + '" data-variant-id="' + v.id + '" role="button" tabindex="0">' + label + '</div>';
+        var price = getVariantPrice(product, v);
+        html += '<div class="' + rowClass + '" data-variant-id="' + v.id + '" role="button" tabindex="0">' + label + (price ? ' <span class="variant-price">' + price + '</span>' : "") + '</div>';
       });
       html += '</div>';
       if (product.id === "wall_clock") {
@@ -4020,6 +4400,13 @@
           var productId = btn.dataset.productId;
           var product = PRODUCTS.find(function(p) { return p.id === productId; });
           if (!product) return;
+          // Selecting a different product means the canvas will render at a new aspect ratio;
+          // any previously uploaded Printify image is now stale — clear it so we re-upload.
+          if (state.selectedProduct !== productId) {
+            state.uploadedPrintifyId = null;
+            state.uploadedPrintifyIdRaw = null;
+            state.uploadedPrintifyIdFiltered = null;
+          }
           state.selectedProduct = productId;
           // Apply this product's variant aspect ratio to the crop so the editor frame matches the chosen variant
           var effectiveAR = getEffectiveAspectRatio(product);
@@ -4267,6 +4654,11 @@
         });
       }
 
+      if (state.selectedProduct !== newId) {
+        state.uploadedPrintifyId = null;
+        state.uploadedPrintifyIdRaw = null;
+        state.uploadedPrintifyIdFiltered = null;
+      }
       state.selectedProduct = newId;
       closeCatalog();
       renderProducts();
@@ -4331,9 +4723,12 @@
         return;
       }
 
-      // For filtered mockups, temporarily render with the filtered image
+      // For filtered mockups, temporarily render using the best available filtered image.
+      // Switch the canvas to RHEF/HQ if the user is NOT already on it (e.g. still on "jpg" or
+      // "raw"), capture the pixels, then restore.  If RHEF isn't available yet, fall through
+      // and capture whatever is currently on the canvas.
       var prevFilter = state.editorFilter;
-      if (isFiltered && state.editorFilter === "raw") {
+      if (isFiltered && state.editorFilter !== "rhef") {
         if (state.rhefImage) {
           state.editorFilter = "rhef";
           renderCanvas();
@@ -4346,7 +4741,7 @@
       var fname = "solar_" + (dateInput.value || "image") + "_" + state.wavelength + "_" + variant + ".png";
       var base64Data = getCanvasBase64();
 
-      // Restore filter state if we changed it
+      // Restore filter state if we temporarily changed it
       if (state.editorFilter !== prevFilter) {
         state.editorFilter = prevFilter;
         renderCanvas();
@@ -4752,14 +5147,7 @@
       });
     }
 
-    // ── Shopify / Printify Dashboard ──────────────────────────────
-    $("#btnShopify").addEventListener("click", function() {
-      window.open("https://" + SHOPIFY_STORE, "_blank");
-    });
-
-    $("#btnPrintifyDash").addEventListener("click", function() {
-      window.open("https://printify.com/app/products", "_blank");
-    });
+    // (Shopify Store / Printify Dashboard buttons removed)
 
     // Product tiles are NOT pre-rendered on load.
     // renderProducts() is called by _installPreviewImage() once a date is selected and the

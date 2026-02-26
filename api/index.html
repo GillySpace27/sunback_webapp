@@ -132,18 +132,26 @@
 
     <!-- Edit Tools -->
     <div class="edit-toolbar">
+      <!-- Row 1: Filter toggle + Change Wavelength -->
       <div class="edit-toolbar-row">
         <div class="filter-toggle editor-filter" id="editorFilterToggle">
           <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
           <label class="filter-opt"><input type="radio" name="editorFilter" value="jpg" checked> JPG</label>
           <label class="filter-opt"><input type="radio" name="editorFilter" value="raw"> Raw</label>
           <label class="filter-opt"><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
+          <label class="filter-opt" id="hqRhefFilterOpt"><input type="radio" name="editorFilter" value="hq_rhef"> HQ RHEF</label>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
+        <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" style="margin-left:auto;" title="Scroll back up to change date or wavelength">
+          <i class="fas fa-sun"></i> Change wavelength
+        </button>
+      </div>
+      <!-- Row 2: Background toggle -->
+      <div class="edit-toolbar-row" style="margin-top:4px;">
         <div class="filter-toggle vignette-fade-toggle" id="vignetteFadeToggle">
           <span class="field-label" style="margin:0; margin-right:8px;">Background</span>
-          <label class="filter-opt active"><input type="radio" name="vignetteFade" value="transparent" checked> Transparent</label>
-          <label class="filter-opt"><input type="radio" name="vignetteFade" value="black"> Black</label>
+          <label class="filter-opt"><input type="radio" name="vignetteFade" value="transparent"> Transparent</label>
+          <label class="filter-opt active"><input type="radio" name="vignetteFade" value="black" checked> Black</label>
           <label class="filter-opt"><input type="radio" name="vignetteFade" value="white"> White</label>
           <label class="filter-opt filter-opt-mode" title="Use the most common color in the image so the vignette matches the canvas"><input type="radio" name="vignetteFade" value="mode"> Match</label>
           <label class="filter-opt filter-opt-color" title="Custom color">
@@ -154,34 +162,132 @@
         </div>
       </div>
       <div class="filter-status-line" id="filterStatusLine" style="display:none;"></div>
-      <div class="edit-toolbar-break"></div>
-      <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
-      <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
-      <button class="edit-btn hidden" id="clockNumbersBtn" data-tool="clockNumbers" title="Customize clock face numerals (wall clock only)"><i class="fas fa-clock"></i> Clock Face</button>
-      <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
-      <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h"></i> Flip H</button>
-      <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v"></i> Flip V</button>
-      <button class="edit-btn" id="adjustmentsBtn" title="Brightness, contrast, saturation"><i class="fas fa-sliders-h"></i> Adjust</button>
-      <button class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust"></i> Invert</button>
-      <button class="edit-btn" data-tool="reset" title="Reset"><i class="fas fa-undo"></i> Reset</button>
-    </div>
 
-    <!-- Adjustments Panel (brightness, contrast, saturation) -->
-    <div class="text-tool-panel hidden" id="adjustmentsPanel">
-      <div class="slider-row">
-        <label>Brightness</label>
-        <input type="range" id="brightnessSlider" min="-100" max="100" value="0">
-        <span class="slider-val" id="brightnessVal">0</span>
+      <!-- Tab bar: Geometry · Adjust · Clock · Tools  |  Reset always visible -->
+      <div class="edit-tab-bar">
+        <button class="edit-tab active" data-tab="geometry">Geometry</button>
+        <button class="edit-tab" data-tab="adjust">Adjust</button>
+        <button class="edit-tab edit-tab-clock hidden" data-tab="clock"><i class="fas fa-clock"></i> Clock</button>
+        <button class="edit-tab" data-tab="tools">Tools</button>
+        <button class="edit-btn edit-btn-reset" data-tool="reset" title="Reset all edits"><i class="fas fa-undo"></i> Reset</button>
       </div>
-      <div class="slider-row">
-        <label>Contrast</label>
-        <input type="range" id="contrastSlider" min="-100" max="100" value="0">
-        <span class="slider-val" id="contrastVal">0</span>
+
+      <!-- Geometry tab (default) -->
+      <div class="edit-tab-panel" id="tabPanel_geometry">
+        <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
+        <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
+        <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h"></i> Flip H</button>
+        <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v"></i> Flip V</button>
+        <button class="edit-btn" data-tool="flipAspect" title="Swap canvas width and height"><i class="fas fa-expand-arrows-alt"></i> Flip Aspect</button>
+        <div class="edit-toolbar-break"></div>
+        <div class="preset-row">
+          <span class="preset-row-label">Presets</span>
+          <button class="edit-btn preset-btn" data-preset="solar_portrait" title="Crop 71% · Vignette 42 · Edge 10">Solar Portrait</button>
+          <button class="edit-btn preset-btn" data-preset="tight_frame"    title="Crop 75% · No vignette">Tight Frame</button>
+          <button class="edit-btn preset-btn" data-preset="full_frame"     title="Crop 100% · Vignette 27 · Edge 27">Full Frame</button>
+          <button class="edit-btn preset-btn" data-preset="full_disk"      title="Crop 100% · Vignette 24">Full Disk</button>
+          <button class="edit-btn preset-btn" data-preset="minimal"        title="Crop 100% · No vignette">Minimal</button>
+        </div>
+        <div class="slider-row">
+          <label>Crop</label>
+          <input type="range" id="cropSlider" min="50" max="300" value="100" step="1">
+          <span class="slider-val" id="cropVal">100%</span>
+        </div>
+        <div class="slider-row">
+          <label>Crop Edge</label>
+          <input type="range" id="cropEdgeSlider" min="0" max="100" value="0">
+          <span class="slider-val" id="cropEdgeVal">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Vignette</label>
+          <input type="range" id="vignetteSlider" min="0" max="100" value="76">
+          <span class="slider-val" id="vignetteVal">24</span>
+        </div>
+        <div class="slider-row">
+          <label>Vig. Edge</label>
+          <input type="range" id="vigWidthSlider" min="0" max="100" value="0">
+          <span class="slider-val" id="vigWidthVal">0</span>
+        </div>
+        <div class="edit-toolbar-break"></div>
+        <div class="guide-checks">
+          <label class="toggle-label" title="Show/hide the orange frame border on the canvas">
+            <input type="checkbox" id="showOverlayCheck" checked> Frame border
+          </label>
+          <label class="toggle-label" title="Show centre-line guides (spine for journal, thirds, etc.)">
+            <input type="checkbox" id="showGuidesCheck"> Guide lines
+          </label>
+        </div>
       </div>
-      <div class="slider-row">
-        <label>Saturation</label>
-        <input type="range" id="saturationSlider" min="0" max="200" value="100">
-        <span class="slider-val" id="saturationVal">100</span>
+
+      <!-- Adjust tab -->
+      <div class="edit-tab-panel hidden" id="tabPanel_adjust">
+        <button class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust"></i> Invert</button>
+        <div class="edit-toolbar-break"></div>
+        <div class="slider-row">
+          <label>Brightness</label>
+          <input type="range" id="brightnessSlider" min="-100" max="100" value="0">
+          <span class="slider-val" id="brightnessVal">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Contrast</label>
+          <input type="range" id="contrastSlider" min="-100" max="100" value="0">
+          <span class="slider-val" id="contrastVal">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Saturation</label>
+          <input type="range" id="saturationSlider" min="0" max="200" value="100">
+          <span class="slider-val" id="saturationVal">100</span>
+        </div>
+      </div>
+
+      <!-- Clock tab (wall clock product only) -->
+      <div class="edit-tab-panel hidden" id="tabPanel_clock">
+        <p style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:12px;">
+          Customize the clock face numerals for wall clock products.
+        </p>
+        <div class="field-row">
+          <span class="field-label-sm">Style</span>
+          <select id="clockNumbersStyleSelect">
+            <option value="arabic">Arabic (1, 2, 3…)</option>
+            <option value="roman">Roman (I, II, III…)</option>
+          </select>
+        </div>
+        <div class="slider-row">
+          <label>Size</label>
+          <input type="range" id="clockNumbersSizeSlider" min="10" max="80" value="28" style="flex:1;">
+          <span class="slider-val" id="clockNumbersSizeVal" style="min-width:32px;">28</span>
+        </div>
+        <div class="slider-row">
+          <label>Radius</label>
+          <input type="range" id="clockNumbersRadiusSlider" min="20" max="80" value="42" style="flex:1;">
+          <span class="slider-val" id="clockNumbersRadiusVal" style="min-width:32px;">42%</span>
+        </div>
+        <div class="field-row">
+          <span class="field-label-sm">Font</span>
+          <select id="clockNumbersFontSelect"><!-- populated by JS from FONT_CATALOG --></select>
+        </div>
+        <div class="field-row">
+          <span class="field-label-sm">Color</span>
+          <input type="color" id="clockNumbersColorPicker" value="#ffffff">
+          <span class="field-label-sm">Stroke</span>
+          <input type="color" id="clockNumbersStrokePicker" value="#000000">
+          <span class="field-label-sm" style="min-width:30px;">W</span>
+          <input type="range" id="clockNumbersStrokeWidth" min="0" max="10" value="2" style="flex:1; max-width:100px;">
+          <span class="slider-val" id="clockNumbersStrokeVal" style="min-width:20px;">2</span>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:6px;">
+          <button class="edit-btn" id="burnClockNumbers" style="flex:1;justify-content:center;">
+            <i class="fas fa-check"></i> Burn Numbers Into Image
+          </button>
+          <button class="edit-btn" id="cancelClockNumbers">
+            <i class="fas fa-times"></i> Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- Tools tab (last) -->
+      <div class="edit-tab-panel hidden" id="tabPanel_tools">
+        <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
       </div>
     </div>
 
@@ -284,32 +390,12 @@
       </div>
     </div>
 
-    <!-- Sliders (Crop, Vignette, Vig. Edge) -->
-    <div class="slider-row">
-      <label>Crop</label>
-      <input type="range" id="cropSlider" min="50" max="300" value="100" step="1">
-      <span class="slider-val" id="cropVal">100%</span>
-    </div>
-    <div class="slider-row">
-      <label>Vignette</label>
-      <input type="range" id="vignetteSlider" min="0" max="100" value="76">
-      <span class="slider-val" id="vignetteVal">24</span>
-    </div>
-    <div class="slider-row">
-      <label>Vig. Edge</label>
-      <input type="range" id="vigWidthSlider" min="0" max="100" value="0">
-      <span class="slider-val" id="vigWidthVal">0</span>
-    </div>
-    <div class="slider-row">
-      <label>Crop edge</label>
-      <input type="range" id="cropEdgeSlider" min="0" max="100" value="0">
-      <span class="slider-val" id="cropEdgeVal">0</span>
-    </div>
 
       </div><!-- /.editor-main -->
 
       <!-- Selected product mockup preview (side-by-side on wide screens) -->
       <div class="selected-product-preview hidden" id="selectedProductPreview">
+        <button class="preview-close-btn" id="btnDeselectProduct" title="Deselect product &amp; go back to product list">&#x2715;</button>
         <div class="preview-product-name"></div>
         <div class="preview-mockup"></div>
         <div class="preview-product-ratio"></div>
@@ -358,15 +444,6 @@
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
       Select a date and wavelength to see products. Click a product to choose a variant, then Select this product to edit; buy from the editor.
-    </div>
-
-    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
-      <button class="btn-secondary" id="btnShopify">
-        <i class="fab fa-shopify"></i> Open Shopify Store
-      </button>
-      <button class="btn-secondary" id="btnPrintifyDash">
-        <i class="fas fa-external-link-alt"></i> Printify Dashboard
-      </button>
     </div>
 
     <div class="status-msg" id="orderStatus"></div>
