@@ -4,7 +4,7 @@ services:
     name: solar-archive
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn webapp.api.main:app --host 0.0.0.0 --port 10000
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port 10000
     plan: free
     envVars:
       - key: PRINTFUL_API_KEY
