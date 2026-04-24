@@ -5,7 +5,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Solar Archive — Your Sun, Your Day</title>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
 </head>
@@ -136,10 +135,10 @@
       <div class="edit-toolbar-row">
         <div class="filter-toggle editor-filter" id="editorFilterToggle">
           <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
-          <label class="filter-opt"><input type="radio" name="editorFilter" value="jpg" checked> JPG</label>
-          <label class="filter-opt"><input type="radio" name="editorFilter" value="raw"> Raw</label>
-          <label class="filter-opt"><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
-          <label class="filter-opt" id="hqRhefFilterOpt"><input type="radio" name="editorFilter" value="hq_rhef"> HQ RHEF</label>
+          <label class="filter-opt" title="Standard colorized JPG — what most people want. Fast preview, great for screens and most prints."><input type="radio" name="editorFilter" value="jpg" checked> JPG</label>
+          <label class="filter-opt" title="Raw telescope data, grayscale. Scientific view with no color mapping."><input type="radio" name="editorFilter" value="raw"> Raw</label>
+          <label class="filter-opt" title="Radial Histogram Equalizing Filter — boosts faint features across the Sun's surface and corona."><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
+          <label class="filter-opt" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes; checkout will wait for it automatically."><input type="radio" name="editorFilter" value="hq_rhef"> <i class="fas fa-star" style="font-size:0.6em;opacity:0.65;"></i> HQ RHEF</label>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
         <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" style="margin-left:auto;" title="Scroll back up to change date or wavelength">
@@ -174,20 +173,27 @@
 
       <!-- Geometry tab (default) -->
       <div class="edit-tab-panel" id="tabPanel_geometry">
+        <!-- Crop presets: how much of the image fills the frame -->
+        <div class="preset-row">
+          <span class="preset-row-label">Crop</span>
+          <button class="edit-btn preset-btn" data-crop="fit"  title="Fit the full solar disk with breathing room around it">Fit</button>
+          <button class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
+          <button class="edit-btn preset-btn" data-crop="tile" title="Zoom in close — detail shot of the Sun's surface">Tile</button>
+        </div>
+        <!-- Vignette presets: soft feather vs hard edge -->
+        <div class="preset-row">
+          <span class="preset-row-label">Vignette</span>
+          <button class="edit-btn preset-btn" data-vignette="off"   title="No vignette">Off</button>
+          <button class="edit-btn preset-btn" data-vignette="soft"  title="Soft feathered vignette">Soft</button>
+          <button class="edit-btn preset-btn" data-vignette="sharp" title="Hard-edge circular vignette">Sharp</button>
+        </div>
+        <div class="edit-toolbar-break"></div>
         <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
         <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
         <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h"></i> Flip H</button>
         <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v"></i> Flip V</button>
         <button class="edit-btn" data-tool="flipAspect" title="Swap canvas width and height"><i class="fas fa-expand-arrows-alt"></i> Flip Aspect</button>
         <div class="edit-toolbar-break"></div>
-        <div class="preset-row">
-          <span class="preset-row-label">Presets</span>
-          <button class="edit-btn preset-btn" data-preset="solar_portrait" title="Crop 71% · Vignette 42 · Edge 10">Solar Portrait</button>
-          <button class="edit-btn preset-btn" data-preset="tight_frame"    title="Crop 75% · No vignette">Tight Frame</button>
-          <button class="edit-btn preset-btn" data-preset="full_frame"     title="Crop 100% · Vignette 27 · Edge 27">Full Frame</button>
-          <button class="edit-btn preset-btn" data-preset="full_disk"      title="Crop 100% · Vignette 24">Full Disk</button>
-          <button class="edit-btn preset-btn" data-preset="minimal"        title="Crop 100% · No vignette">Minimal</button>
-        </div>
         <div class="slider-row">
           <label>Crop</label>
           <input type="range" id="cropSlider" min="50" max="300" value="100" step="1">
@@ -336,7 +342,7 @@
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button class="edit-btn" id="applyText" style="flex:1;justify-content:center;">
-          <i class="fas fa-check"></i> Burn Text Into Image
+          <i class="fas fa-check"></i> Apply
         </button>
         <button class="edit-btn" id="cancelText">
           <i class="fas fa-times"></i> Cancel
@@ -344,7 +350,7 @@
       </div>
       <div class="text-tool-hint">
         <i class="fas fa-arrows-alt"></i>
-        <span>Drag the text on the image to position it. Click "Burn" to permanently apply.</span>
+        <span>Drag the text on the image to position it. Text stays editable right up to checkout \u2014 it's composited into the print only when you click Create on Shopify.</span>
       </div>
     </div>
 
@@ -408,7 +414,7 @@
           <i class="fas fa-rocket"></i> <span class="btn-preview-mockup-label">Generate real mockup</span>
         </button>
         <button class="btn-buy-in-editor" id="btnBuyInEditor" type="button" title="Create this product on Shopify and complete your purchase.">
-          <i class="fas fa-shopping-cart"></i> <span id="btnBuyLabel">Buy / Create on Shopify</span>
+          <i class="fas fa-shopping-cart"></i> <span id="btnBuyLabel">Create on Shopify</span>
         </button>
       </div>
     </div><!-- /.editor-with-preview -->
@@ -417,6 +423,10 @@
       <div class="progress-fill" id="progressFill"></div>
     </div>
 
+    <!-- Checkout progress (shown when a purchase is in flight) -->
+    <!-- Lives inside the editor section so it appears directly below the Create button. -->
+    <div class="checkout-progress hidden" id="checkoutProgress"></div>
+
     <!-- Buttons 1/2/3 removed; Buy button is in the preview pane -->
   </div>
 
@@ -424,23 +434,30 @@
   <div class="section hidden" id="productSection">
     <div class="section-header">
       <div class="step-badge">2</div>
-      <div class="section-title">Choose Your Product</div>
+      <div class="section-title" id="productSectionTitle">Choose Your Product</div>
     </div>
 
-    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Click a product to select it and choose a size/color variant (click once to expand, again to confirm). Click <strong>Select this product</strong> to open the editor, then use <strong>Buy / Create on Shopify</strong> in the editor to purchase.
+    <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
+      Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
+
+    <!-- Your Requests: products the user added this session via "Request a product".
+         Hidden by default, shown once sessionCatalog has at least one entry. -->
+    <div class="user-requests-section hidden" id="userRequestsSection">
+      <div class="user-requests-header">
+        <span class="user-requests-title">Your Requests</span>
+      </div>
+      <p class="user-requests-sub">Products you asked for are available here for this session. We'll review and add approved ones to the permanent catalog.</p>
+      <div class="product-grid" id="userRequestsGrid"></div>
+    </div>
 
     <button class="btn-catalog" id="btnCatalog">
       <i class="fas fa-th-large"></i> Browse More Products
     </button>
 
     <div class="mockup-status" id="mockupStatus"></div>
-
-    <!-- Checkout progress (shown when a purchase is in flight) -->
-    <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
       Select a date and wavelength to see products. Click a product to choose a variant, then Select this product to edit; buy from the editor.
@@ -460,8 +477,113 @@
 <!-- Catalog modal (rendered by JS) -->
 <div id="catalogModal" class="catalog-modal hidden"></div>
 
+<!-- Pre-editor confirmation modal: previews the product/variant before opening the editor -->
+<div class="confirm-modal hidden" id="confirmSelectModal" role="dialog" aria-modal="true" aria-labelledby="confirmSelectTitle">
+  <div class="confirm-modal-backdrop" id="confirmSelectBackdrop"></div>
+  <div class="confirm-modal-panel">
+    <button class="confirm-modal-close" id="confirmSelectClose" type="button" aria-label="Close">&#x2715;</button>
+    <h2 class="confirm-modal-title" id="confirmSelectTitle">Ready to customize?</h2>
+    <p class="confirm-modal-sub">Review your selection, then we'll open the editor.</p>
+    <dl class="confirm-metadata" id="confirmSelectMetadata"></dl>
+    <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
+    <div class="confirm-modal-actions">
+      <button class="confirm-modal-btn confirm-modal-btn-secondary" id="confirmSelectChange" type="button">Change variant</button>
+      <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Feedback floating action button — opens the feedback modal -->
+<button class="feedback-fab" id="feedbackFab" type="button"
+        title="Leave feedback or request a product"
+        aria-label="Open feedback panel">
+  <i class="fas fa-comment-dots"></i>
+  <span class="feedback-fab-label">Feedback</span>
+</button>
+
+<!-- Feedback modal -->
+<div class="feedback-modal hidden" id="feedbackModal" role="dialog" aria-labelledby="feedbackModalTitle" aria-modal="true">
+  <div class="feedback-modal-backdrop" id="feedbackModalBackdrop"></div>
+  <div class="feedback-modal-panel">
+    <button class="feedback-close-btn" id="feedbackCloseBtn" type="button" aria-label="Close feedback">&#x2715;</button>
+    <h2 class="feedback-modal-title" id="feedbackModalTitle">Help us make this better</h2>
+    <p class="feedback-modal-sub">Your notes go straight to the team.</p>
+
+    <div class="feedback-tabs" role="tablist">
+      <button class="feedback-tab active" id="feedbackTabComment" data-tab="comment" role="tab" aria-selected="true" type="button">
+        <i class="fas fa-comment"></i> Leave a comment
+      </button>
+      <button class="feedback-tab" id="feedbackTabProduct" data-tab="product" role="tab" aria-selected="false" type="button">
+        <i class="fas fa-tags"></i> Request a product
+      </button>
+    </div>
+
+    <!-- Comment tab panel -->
+    <div class="feedback-tab-panel" id="feedbackPanelComment">
+      <label class="feedback-field-label" for="feedbackCommentBody">What's on your mind?</label>
+      <textarea id="feedbackCommentBody" rows="5" placeholder="Bug, idea, something confusing&hellip; the more specific, the more we can help."></textarea>
+      <div class="feedback-context-note">
+        <i class="fas fa-info-circle"></i>
+        <span>We'll attach what you're currently looking at (wavelength, date, product) so we can reproduce what you saw.</span>
+      </div>
+      <label class="feedback-field-label" for="feedbackCommentEmail">Email <span class="feedback-field-opt">(optional — so we can follow up)</span></label>
+      <input type="email" id="feedbackCommentEmail" placeholder="you@example.com">
+      <button class="feedback-submit-btn" id="feedbackCommentSubmit" type="button">
+        <i class="fas fa-paper-plane"></i> Send feedback
+      </button>
+    </div>
+
+    <!-- Product request tab panel -->
+    <div class="feedback-tab-panel hidden" id="feedbackPanelProduct">
+      <label class="feedback-field-label" for="feedbackProductSearch">Search Printify's catalog</label>
+      <input type="text" id="feedbackProductSearch" placeholder="e.g. tote bag, beach towel, wine tumbler&hellip;" autocomplete="off">
+      <div class="feedback-product-hint" id="feedbackProductHint">
+        <i class="fas fa-spinner fa-spin"></i> Loading catalog&hellip;
+      </div>
+      <div class="feedback-product-results" id="feedbackProductResults"></div>
+
+      <!-- Shown once a blueprint is picked -->
+      <div class="feedback-product-chosen hidden" id="feedbackProductChosen">
+        <div class="feedback-chosen-header">
+          <span class="feedback-chosen-name" id="feedbackChosenName"></span>
+          <button class="feedback-chosen-clear" id="feedbackChosenClear" type="button" aria-label="Clear selection">&#x2715;</button>
+        </div>
+        <div class="feedback-chosen-brand" id="feedbackChosenBrand"></div>
+
+        <label class="feedback-field-label" for="feedbackProviderSelect">Print provider</label>
+        <select id="feedbackProviderSelect"></select>
+
+        <label class="feedback-field-label" for="feedbackVariantSelect">Variant</label>
+        <select id="feedbackVariantSelect"></select>
+
+        <label class="feedback-field-label" for="feedbackProductNote">Note <span class="feedback-field-opt">(optional)</span></label>
+        <textarea id="feedbackProductNote" rows="2" placeholder="Anything we should know? (color preference, sizing, etc.)"></textarea>
+
+        <button class="feedback-submit-btn" id="feedbackProductSubmit" type="button">
+          <i class="fas fa-star"></i> Request this product
+        </button>
+      </div>
+    </div>
+
+    <!-- Thanks screen (shown on successful submission) -->
+    <div class="feedback-tab-panel hidden" id="feedbackPanelThanks">
+      <div class="feedback-thanks">
+        <i class="fas fa-check-circle"></i>
+        <h3>Got it — thank you!</h3>
+        <p id="feedbackThanksMsg">Your note is on its way.</p>
+        <button class="feedback-submit-btn feedback-submit-secondary" id="feedbackThanksAnother" type="button">
+          Leave another note
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- ARIA live region for screen readers -->
+<div id="statusRegion" aria-live="polite" aria-atomic="true" style="position:absolute;left:-9999px;width:1px;height:1px;"></div>
 
 <!-- Crop edge feathered mask (referenced by canvas) -->
 <svg id="cropEdgeMaskSvg" aria-hidden="true" style="position:absolute;width:0;height:0;pointer-events:none">
