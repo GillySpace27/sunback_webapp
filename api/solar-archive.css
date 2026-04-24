@@ -2248,6 +2248,29 @@ html.dark .image-stage {
   font-size: 0.78rem;
   color: var(--text-secondary, #9898b8);
 }
+/* Mock-mockup preview inside the "Ready to customize?" confirm modal.
+   Renders the product silhouette + user's current solar image so the
+   variant pick commits with visual context, not just a text summary. */
+.confirm-mockup {
+  margin: 0 auto 14px;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f1120;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.confirm-mockup.empty {
+  display: none;
+}
+.confirm-mockup .confirm-mockup-canvas {
+  width: 220px;
+  height: 220px;
+  image-rendering: -webkit-optimize-contrast;
+}
 .confirm-metadata {
   margin: 0 0 14px;
   padding: 12px 14px;

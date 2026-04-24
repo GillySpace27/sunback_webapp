@@ -141,9 +141,14 @@
           <label class="filter-opt" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes; checkout will wait for it automatically."><input type="radio" name="editorFilter" value="hq_rhef"> <i class="fas fa-star" style="font-size:0.6em;opacity:0.65;"></i> HQ RHEF</label>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
-        <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" style="margin-left:auto;" title="Scroll back up to change date or wavelength">
-          <i class="fas fa-sun"></i> Change wavelength
-        </button>
+        <div class="edit-toolbar-nav-group" style="margin-left:auto;display:flex;gap:6px;">
+          <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change date or wavelength">
+            <i class="fas fa-sun"></i> Change wavelength
+          </button>
+          <button class="edit-btn edit-btn-nav" id="btnChangeProduct" title="Scroll back up to pick a different product">
+            <i class="fas fa-shapes"></i> Change product
+          </button>
+        </div>
       </div>
       <!-- Row 2: Background toggle -->
       <div class="edit-toolbar-row" style="margin-top:4px;">
@@ -176,6 +181,7 @@
         <!-- Crop presets: how much of the image fills the frame -->
         <div class="preset-row">
           <span class="preset-row-label">Crop</span>
+          <button class="edit-btn preset-btn" data-crop="full" title="Fit the entire image inside the print area — no cropping, may letterbox">Full</button>
           <button class="edit-btn preset-btn" data-crop="fit"  title="Fit the full solar disk with breathing room around it">Fit</button>
           <button class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
           <button class="edit-btn preset-btn" data-crop="tile" title="Zoom in close — detail shot of the Sun's surface">Tile</button>
@@ -196,7 +202,7 @@
         <div class="edit-toolbar-break"></div>
         <div class="slider-row">
           <label>Crop</label>
-          <input type="range" id="cropSlider" min="50" max="300" value="100" step="1">
+          <input type="range" id="cropSlider" min="25" max="300" value="100" step="1">
           <span class="slider-val" id="cropVal">100%</span>
         </div>
         <div class="slider-row">
@@ -484,6 +490,10 @@
     <button class="confirm-modal-close" id="confirmSelectClose" type="button" aria-label="Close">&#x2715;</button>
     <h2 class="confirm-modal-title" id="confirmSelectTitle">Ready to customize?</h2>
     <p class="confirm-modal-sub">Review your selection, then we'll open the editor.</p>
+    <!-- Mock mockup preview — rendered at open-time from the live solar canvas
+         so users see "this is how your image will look on the product" before
+         they commit. Hidden when no image is loaded yet (falls back to icon). -->
+    <div class="confirm-mockup" id="confirmSelectMockup" aria-hidden="true"></div>
     <dl class="confirm-metadata" id="confirmSelectMetadata"></dl>
     <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
     <div class="confirm-modal-actions">

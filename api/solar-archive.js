@@ -802,6 +802,17 @@
       });
     }
 
+    var btnChangeProduct = document.getElementById("btnChangeProduct");
+    if (btnChangeProduct) {
+      btnChangeProduct.addEventListener("click", function() {
+        // Scroll the top of the product picker into view. productSection is
+        // re-ordered to appear below the editor, so we need to target its
+        // header explicitly rather than relying on document order.
+        var productSec = document.getElementById("productSection");
+        if (productSec) productSec.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+
     var btnPreviewMockup = document.getElementById("btnPreviewMockup");
     if (btnPreviewMockup) {
       btnPreviewMockup.addEventListener("click", function() {
@@ -1617,17 +1628,19 @@
     if (dateInput) {
       dateInput.addEventListener("change", loadWavelengthThumbnails);
       dateInput.addEventListener("input", loadWavelengthThumbnails);
-      // Default to today so users see wavelength tiles on first paint instead
-      // of an empty panel. AIA data is only available after May 2010, so a
-      // "today" default is always in-range. If the user had set a date in a
-      // prior session we don't overwrite it; the <input type="date"> only
-      // preserves its value when the form is reloaded, so an empty value is
-      // the fresh-page signal to apply the default.
+      // Default to one week ago so users see wavelength tiles on first paint
+      // AND land on a date where the HQ RHEF science images are reliably
+      // available. The JPG previews publish within hours of observation, but
+      // the full-resolution FITS pipeline (needed for "HQ RHEF" and print-
+      // quality output) takes a few days to catch up — so defaulting to today
+      // produces a good preview but can strand checkout waiting for HQ to
+      // exist. A 7-day lag sidesteps that without confusing anyone.
       if (!dateInput.value) {
-        var today = new Date();
-        var yyyy = today.getFullYear();
-        var mm = String(today.getMonth() + 1).padStart(2, "0");
-        var dd = String(today.getDate()).padStart(2, "0");
+        var def = new Date();
+        def.setDate(def.getDate() - 7);
+        var yyyy = def.getFullYear();
+        var mm = String(def.getMonth() + 1).padStart(2, "0");
+        var dd = String(def.getDate()).padStart(2, "0");
         dateInput.value = yyyy + "-" + mm + "-" + dd;
         // Fire change so the tile-loading pipeline runs immediately.
         dateInput.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2183,6 +2196,21 @@
     // JPG / Raw / RHEF keeps the same crop and overlay; other images are drawn scaled to cover.
     function renderCanvas() {
       if (!state.originalImage) return;
+      // Re-entry guard. renderCanvas ends with refreshLivePreview(), which can
+      // call drawProductMockup() → getCleanCanvasSnapshot() → renderCanvas()
+      // recursively. That cascade was the reason slider drags bogged down to
+      // ~1 fps: each frame was doing 3+ full renders plus a live-preview loop
+      // on each of them. Bailing on recursion means the inner snapshot still
+      // copies from the already-drawn solarCanvas — it just doesn't redraw.
+      if (state._renderInProgress) return;
+      state._renderInProgress = true;
+      try {
+        _renderCanvasInner();
+      } finally {
+        state._renderInProgress = false;
+      }
+    }
+    function _renderCanvasInner() {
       var img;
       var fmt = state.editorFilter;
       if (fmt === "jpg" && state.hqFilterImage && state.hqFormat === "jpg") img = state.hqFilterImage;
@@ -2255,11 +2283,36 @@
       // (for vignette centering) and by the circular-clip code below.
       var isCircularProduct = (state.selectedProduct === "wall_clock");
 
-      // Apply brightness/contrast/saturation via pixel manipulation
+      // Apply brightness/contrast/saturation via pixel manipulation.
+      //
+      // The pixel loop is O(width × height). We previously ran it on a 1/4-
+      // linear / 1/16-pixel offscreen work canvas during interactive edits,
+      // but the upscale blur was visibly coarse (beta feedback: "I'd leave
+      // as a customer"). Disabled by default now — the recursion fix on
+      // renderCanvas was doing most of the heavy lifting anyway. Flip
+      // ENABLE_INTERACTIVE_DOWNSAMPLE back to true if a large canvas reveals
+      // latency that the cheap paths can't cover.
+      var ENABLE_INTERACTIVE_DOWNSAMPLE = false;
       var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
                            state.saturation !== 100 || state.inverted || state.vignette > 0;
       if (needsPixelWork) {
-        var imageData = ctx.getImageData(0, 0, cw, ch);
+        var useDownsampled = ENABLE_INTERACTIVE_DOWNSAMPLE && !state._fullResRender;
+        var workCw = cw, workCh = ch;
+        var workCtx = ctx;
+        var workCanvas = null;
+        if (useDownsampled) {
+          workCw = Math.max(1, Math.round(cw / 4));
+          workCh = Math.max(1, Math.round(ch / 4));
+          workCanvas = document.createElement("canvas");
+          workCanvas.width = workCw;
+          workCanvas.height = workCh;
+          workCtx = workCanvas.getContext("2d");
+          // Downsample the current (pre-effect) main canvas into the work
+          // canvas. The browser's built-in bilinear scale is GPU-accelerated
+          // and essentially free compared to the per-pixel JS below.
+          workCtx.drawImage(solarCanvas, 0, 0, workCw, workCh);
+        }
+        var imageData = workCtx.getImageData(0, 0, workCw, workCh);
         var d = imageData.data;
         var br = state.brightness;
         var co = state.contrast / 100;
@@ -2267,14 +2320,15 @@
         var sat = state.saturation / 100;
 
         // Vignette params — always pinned to canvas centre so the radius stays
-        // consistent regardless of pan position.
+        // consistent regardless of pan position. Uses workCw/workCh so the
+        // effect scales 1:1 with the downsampled work canvas.
         var applyVignette = state.vignette > 0;
-        var cx = cw / 2;
-        var cy = ch / 2;
+        var cx = workCw / 2;
+        var cy = workCh / 2;
         var maxR;
         if (isCircularProduct) {
           // inscribed circle radius — vignette slider maps within the round print area
-          maxR = Math.min(cw, ch) / 2;
+          maxR = Math.min(workCw, workCh) / 2;
         } else {
           // distance from canvas centre to the farthest corner
           maxR = Math.sqrt(cx * cx + cy * cy);
@@ -2345,10 +2399,11 @@
           g = gray + sat * (g - gray);
           b = gray + sat * (b - gray);
 
-          // Vignette — fade to transparent / black / white / color / mode outside radius
+          // Vignette — fade to transparent / black / white / color / mode outside radius.
+          // Coords are in work-canvas space (matches cx/cy/maxR above).
           if (applyVignette) {
-            var px = (i / 4) % cw;
-            var py = Math.floor((i / 4) / cw);
+            var px = (i / 4) % workCw;
+            var py = Math.floor((i / 4) / workCw);
             var dx = px - cx;
             var dy = py - cy;
             var dist = Math.sqrt(dx * dx + dy * dy);
@@ -2392,7 +2447,14 @@
           d[i + 2] = Math.max(0, Math.min(255, b));
         }
 
-        ctx.putImageData(imageData, 0, 0);
+        workCtx.putImageData(imageData, 0, 0);
+        if (useDownsampled) {
+          // Blit the processed work canvas back onto the main canvas at full
+          // resolution. drawImage's GPU scaling is ~1000× faster than the JS
+          // pixel loop and the slight interpolation blur is invisible to the
+          // user at slider-drag speeds. Export bypasses this branch entirely.
+          ctx.drawImage(workCanvas, 0, 0, cw, ch);
+        }
       }
 
       // ── Text overlay (live preview, not burned in) ────────────
@@ -2698,15 +2760,123 @@
       });
     }());
 
+    // ── Lightweight mockup refresh ───────────────────────────────
+    // Problem: every slider `input` event used to call renderProducts(),
+    // which tears down and rebuilds the entire product grid DOM (~26 cards,
+    // each with a canvas redraw + event-handler re-binding). During a drag
+    // that fires up to 60×/s, the main thread was spending all its time
+    // rebuilding cards that were mostly offscreen anyway — sliders felt
+    // completely unresponsive.
+    //
+    // Fix: two-layer optimization.
+    //   1. scheduleMockupRefresh() coalesces bursts of input events into
+    //      one update per animation frame via requestAnimationFrame.
+    //   2. On that frame, only cards currently intersecting the viewport
+    //      (tracked by IntersectionObserver) have their existing canvas
+    //      re-drawn — no DOM teardown, no offscreen work.
+    //
+    // The heavyweight renderProducts() is still used when the set of cards
+    // or their DOM shape actually changes (new Printify mockups arrive,
+    // variants load, session catalog updates, etc.).
+    var _visibleCards = (typeof WeakSet === "function") ? new WeakSet() : null;
+    var _cardObserver = null;
+    if (typeof IntersectionObserver === "function") {
+      _cardObserver = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (!_visibleCards) return;
+          if (entry.isIntersecting) _visibleCards.add(entry.target);
+          else _visibleCards.delete(entry.target);
+        });
+      }, { rootMargin: "200px 0px", threshold: 0 });
+    }
+    function observeProductCards() {
+      if (!_cardObserver) return;
+      // Do NOT pre-populate _visibleCards — the observer will emit an initial
+      // callback (async, within a frame) marking the cards that actually
+      // intersect the viewport. Pre-adding all cards defeats the whole point
+      // of offscreen-skipping: the first rAF after slider drag would refresh
+      // every mockup, re-introducing the lag for users scrolled near the top.
+      var cards = productGrid ? productGrid.querySelectorAll(".product-card") : [];
+      cards.forEach(function(c) { _cardObserver.observe(c); });
+      var userReqGrid = document.getElementById("userRequestsGrid");
+      if (userReqGrid) {
+        userReqGrid.querySelectorAll(".product-card").forEach(function(c) {
+          _cardObserver.observe(c);
+        });
+      }
+    }
+    function _isCardVisible(card) {
+      // No observer support (ancient browser) → refresh everything.
+      if (!_visibleCards || !_cardObserver) return true;
+      return _visibleCards.has(card);
+    }
+    var _pendingRefresh = false;
+    function scheduleMockupRefresh() {
+      if (_pendingRefresh) return;
+      _pendingRefresh = true;
+      (window.requestAnimationFrame || function(cb) { return setTimeout(cb, 16); })(function() {
+        _pendingRefresh = false;
+        _refreshVisibleMockups();
+      });
+    }
+    // renderCanvas is the single biggest cost per slider input (~8ms on a 2K
+    // source image). During a drag the browser fires `input` events at up to
+    // 60/s, so back-to-back synchronous renderCanvas calls block the main
+    // thread and starve subsequent events. scheduleCanvasRender collapses
+    // bursts into one paint per animation frame — the slider's DOM value
+    // still updates immediately (so the numeric readout tracks the thumb),
+    // but the canvas redraws at display refresh rate.
+    var _pendingCanvasRender = false;
+    function scheduleCanvasRender() {
+      if (_pendingCanvasRender) return;
+      _pendingCanvasRender = true;
+      (window.requestAnimationFrame || function(cb) { return setTimeout(cb, 16); })(function() {
+        _pendingCanvasRender = false;
+        renderCanvas();
+      });
+    }
+    function _refreshVisibleMockups() {
+      if (!productGrid || !state.originalImage || !solarCanvas || solarCanvas.width === 0) return;
+      var allCards = productGrid.querySelectorAll(".product-card");
+      var userReqGrid = document.getElementById("userRequestsGrid");
+      if (userReqGrid) {
+        allCards = Array.prototype.concat.call(
+          Array.prototype.slice.call(allCards),
+          Array.prototype.slice.call(userReqGrid.querySelectorAll(".product-card"))
+        );
+      }
+      for (var i = 0; i < allCards.length; i++) {
+        var card = allCards[i];
+        if (!_isCardVisible(card)) continue;
+        var pid = card.dataset.productId;
+        var product = PRODUCTS.find(function(p) { return p.id === pid; });
+        if (!product) continue;
+        // A card shows either a Printify-hosted <img> (already final) or a
+        // canvas we own. Only the canvas path needs live updates from edits.
+        var preview = card.querySelector(".product-preview");
+        if (!preview) continue;
+        var canvas = preview.querySelector("canvas");
+        if (!canvas) continue;
+        var mctx = canvas.getContext("2d");
+        var variant = (typeof getSelectedVariantForProduct === "function")
+          ? getSelectedVariantForProduct(pid) : null;
+        mctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawProductMockup(mctx, pid, solarCanvas.width, solarCanvas.height, variant);
+      }
+    }
+
     // ── Sliders ──────────────────────────────────────────────────
-    function setupSlider(sliderId, valId, stateKey, refreshMockups) {
+    // scheduleMockupRefresh is rAF-coalesced + offscreen-skipping, so it's
+    // cheap enough to call from every slider — users now see brightness/
+    // contrast/saturation changes reflected in visible product mockups too.
+    function setupSlider(sliderId, valId, stateKey) {
       var slider = $("#" + sliderId);
       var valEl = $("#" + valId);
       slider.addEventListener("input", function() {
         state[stateKey] = parseInt(slider.value, 10);
         valEl.textContent = slider.value;
-        renderCanvas();
-        if (refreshMockups && typeof renderProducts === "function") renderProducts();
+        scheduleCanvasRender();
+        scheduleMockupRefresh();
       });
     }
 
@@ -2720,22 +2890,59 @@
       vignetteSliderEl.addEventListener("input", function() {
         state.vignette = 100 - parseInt(vignetteSliderEl.value, 10);
         vignetteValEl.textContent = state.vignette;
-        renderCanvas();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleCanvasRender();
+        scheduleMockupRefresh();
       });
     }
-    setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth", true);
+    setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth");
 
     // ── Crop & Vignette presets ───────────────────────────────────
     // Split into two independent axes so users can mix crop tightness with
     // vignette treatment freely, rather than picking from five combined
     // presets. Each axis sets only its own state fields and re-syncs the
     // corresponding slider DOM — the other axis is left untouched.
+    // Compute the cropZoom % that fits the entire source image inside the
+    // current product frame with no clipping (letterbox on the mismatched
+    // axis). At zoom=100, the reference image fills the canvas on one axis
+    // and gets clipped on the other; we want the *smaller* of the two fit
+    // ratios so both axes fit. For a square source on a square product this
+    // equals 100 (same as "fill"). For a 2:1 mug with square source it's
+    // ~50. For extreme aspects it can go below the slider's old 50 floor,
+    // which is why the slider min was dropped to 25.
+    function computeFullCropZoom() {
+      if (!state.originalImage) return 100;
+      var ref = state.originalImage;
+      var refW = ref.naturalWidth || 1;
+      var refH = ref.naturalHeight || 1;
+      var rotated = (state.rotation % 180 !== 0);
+      var refCW = rotated ? refH : refW;
+      var refCH = rotated ? refW : refH;
+      var product = state.selectedProduct
+        ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
+        : null;
+      var ar = getEffectiveAspectRatio(product);
+      var cw = refCW, ch = refCH;
+      if (product && ar && ar.w && ar.h) {
+        var R = ar.w / ar.h;
+        if (R >= refCW / refCH) {
+          cw = refCW;
+          ch = Math.max(1, Math.floor(refCW / R));
+        } else {
+          ch = refCH;
+          cw = Math.max(1, Math.floor(refCH * R));
+        }
+      }
+      var fit = Math.min(cw / refCW, ch / refCH);
+      return Math.max(25, Math.min(300, Math.round(fit * 100)));
+    }
     var CROP_MODES = {
-      // cropZoom % of image inside the frame. Lower = more padding, higher = tighter.
-      fit:  71,   // full solar disk with breathing room
-      fill: 100,  // frame edge-to-edge
-      tile: 150,  // zoomed-in detail crop
+      // cropZoom % of image inside the frame. Lower = more padding, higher =
+      // tighter. `full` is a function because it depends on the currently
+      // selected product's aspect ratio relative to the source image.
+      full: computeFullCropZoom, // fits entire image inside print area
+      fit:  71,                  // full solar disk with breathing room
+      fill: 100,                 // frame edge-to-edge
+      tile: 150,                 // zoomed-in detail crop
     };
     var VIGNETTE_MODES = {
       // vignette (0-100 intensity) and vignetteWidth (feather width). Edge=0 is
@@ -2748,15 +2955,18 @@
     };
 
     function applyCropMode(modeName) {
-      var zoom = CROP_MODES[modeName];
-      if (zoom == null) return;
+      var entry = CROP_MODES[modeName];
+      if (entry == null) return;
+      // `full` is a function (depends on current product + image); others are
+      // plain numbers. Resolve lazily so product switches pick the right fit.
+      var zoom = (typeof entry === "function") ? entry() : entry;
       state.cropZoom = zoom;
       var cs = $("#cropSlider"), cv = $("#cropVal");
       if (cs) { cs.value = zoom; cv.textContent = zoom + "%"; }
       _syncPresetActiveButtons();
       applyCanvasView();
       renderCanvas();
-      if (typeof renderProducts === "function") renderProducts();
+      scheduleMockupRefresh();
     }
 
     function applyVignetteMode(modeName) {
@@ -2775,7 +2985,7 @@
       _syncPresetActiveButtons();
       applyCanvasView();
       renderCanvas();
-      if (typeof renderProducts === "function") renderProducts();
+      scheduleMockupRefresh();
     }
 
     // Highlight the preset button that currently matches state, so the user
@@ -2783,7 +2993,9 @@
     function _syncPresetActiveButtons() {
       var cropMode = null;
       Object.keys(CROP_MODES).forEach(function(k) {
-        if (state.cropZoom === CROP_MODES[k]) cropMode = k;
+        var val = CROP_MODES[k];
+        var target = (typeof val === "function") ? val() : val;
+        if (state.cropZoom === target) cropMode = k;
       });
       document.querySelectorAll(".preset-btn[data-crop]").forEach(function(btn) {
         btn.classList.toggle("active", btn.dataset.crop === cropMode);
@@ -2873,7 +3085,7 @@
         state.vignetteFade = e.target.value || "transparent";
         syncVignetteFadeUI();
         renderCanvas();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleMockupRefresh();
       });
     }
     var vignetteFadeColorPicker = $("#vignetteFadeColorPicker");
@@ -2900,21 +3112,21 @@
           syncVignetteFadeUI();
         }
         renderCanvas();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleMockupRefresh();
       });
       vignetteFadeColorPicker.addEventListener("input", function() {
         state.vignetteFadeColor = vignetteFadeColorPicker.value;
         syncVignetteFadeUI();
         if (state.vignetteFade === "custom") {
           renderCanvas();
-          if (typeof renderProducts === "function") renderProducts();
+          scheduleMockupRefresh();
         }
       });
       vignetteFadeColorPicker.addEventListener("change", function() {
         syncVignetteFadeUI();
         if (state.vignetteFade === "custom") {
           renderCanvas();
-          if (typeof renderProducts === "function") renderProducts();
+          scheduleMockupRefresh();
         }
       });
     }
@@ -2948,7 +3160,7 @@
         state.cropEdgeFeather = parseInt(cropEdgeSlider.value, 10);
         cropEdgeVal.textContent = state.cropEdgeFeather;
         applyCropEdgeMask();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleMockupRefresh();
       });
     }
 
@@ -2965,8 +3177,8 @@
         state.cropZoom = pct;
         cropVal.textContent = pct + "%";
         applyCanvasView();
-        renderCanvas();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleCanvasRender();
+        scheduleMockupRefresh();
       });
     }
 
@@ -3026,7 +3238,9 @@
       renderCanvas();
     }
 
-    // Live-update text overlay as the user types / changes controls
+    // Live-update text overlay as the user types / changes controls.
+    // Uses the rAF-coalesced path so rapid slider/input events don't pile up
+    // synchronous canvas repaints while the user is still moving the thumb.
     function syncTextOverlay() {
       if (!state.textOverlay) return;
       state.textOverlay.text = textInput.value;
@@ -3035,7 +3249,7 @@
       state.textOverlay.color = textColorPicker.value;
       state.textOverlay.strokeColor = textStrokePicker.value;
       state.textOverlay.strokeWidth = parseInt(textStrokeWidthSlider.value, 10);
-      renderCanvas();
+      scheduleCanvasRender();
     }
 
     textInput.addEventListener("input", syncTextOverlay);
@@ -3343,8 +3557,8 @@
         state.panX = panStartPanX - (cur.x - panStartCanvasX) / zoom;
         state.panY = panStartPanY - (cur.y - panStartCanvasY) / zoom;
         applyCanvasView();
-        renderCanvas();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleCanvasRender();
+        scheduleMockupRefresh();
         return;
       }
       if (textDragging && state.textOverlay) {
@@ -3352,7 +3566,7 @@
         var coords = getCanvasCoords(e);
         state.textOverlay.x = coords.x - textDragOffsetX;
         state.textOverlay.y = coords.y - textDragOffsetY;
-        renderCanvas();
+        scheduleCanvasRender();
         return;
       }
     }
@@ -3362,7 +3576,7 @@
         panDragging = false;
         if (isPanToolActive()) solarCanvas.style.cursor = "grab";
         renderCanvas();
-        if (typeof renderProducts === "function") renderProducts();
+        scheduleMockupRefresh();
         return;
       }
       if (textDragging) {
@@ -4667,11 +4881,18 @@
         var rowClass = "variant-row" + (isConfirmed ? " confirmed" : "");
         var label = variantLabel(v);
         var price = getVariantPrice(product, v);
+        // Tooltip (title attr) shows the full, un-truncated "Color / Size"
+        // label plus the price. The visible label is often truncated with
+        // ellipsis on narrow columns (beta reported variants like "Athletic
+        // Heather / XL Long T" getting cut) — the hover text is the escape
+        // hatch for confirming exactly which variant this is before clicking.
+        var tooltipText = label + (price ? " — " + price : "");
+        var tooltipAttr = ' title="' + escapeHtmlSimple(tooltipText) + '"';
         html +=
-          '<div class="' + rowClass + '" data-variant-id="' + v.id + '">' +
-            '<span class="variant-row-label">' + label + '</span>' +
+          '<div class="' + rowClass + '" data-variant-id="' + v.id + '"' + tooltipAttr + '>' +
+            '<span class="variant-row-label"' + tooltipAttr + '>' + label + '</span>' +
             (price ? '<span class="variant-price">' + price + '</span>' : '<span class="variant-price variant-price-empty"></span>') +
-            '<button class="variant-select-btn" data-variant-id="' + v.id + '" type="button">' +
+            '<button class="variant-select-btn" data-variant-id="' + v.id + '" type="button"' + tooltipAttr + '>' +
               (isConfirmed ? '<i class="fas fa-check"></i> Selected' : '<i class="fas fa-chevron-right"></i> Select') +
             '</button>' +
           '</div>';
@@ -4895,6 +5116,12 @@
         });
       });
 
+      // Register all freshly-built cards with the IntersectionObserver so
+      // scheduleMockupRefresh() can skip offscreen ones. Initial state assumes
+      // all are visible until the observer's first callback runs (avoids a
+      // blank first-paint when cards haven't been measured yet).
+      if (typeof observeProductCards === "function") observeProductCards();
+
       // Restore the open variant panel for the selected product if variants are already cached
       // (renderProducts() resets all panels to hidden — re-show so slider adjustments don't close them)
       if (state.selectedProduct) {
@@ -4945,6 +5172,30 @@
       updateSelectedProductPreview(product);
       editSection.classList.remove("hidden");
       syncCropRatioUI();
+
+      // Default the editor to "Full" crop + "Off" vignette so the user lands
+      // on the widest, cleanest view of their image every time a product is
+      // first engaged. Full fits the entire source inside the print area
+      // (no cropping); users can always tighten later with Fit/Fill/Tile or
+      // the slider. Vignette is off to match: "here is your whole image, as
+      // clean as possible." Reset also clears vigWidth and the crop-edge
+      // feather so stale state from an earlier product doesn't leak over.
+      if (state.originalImage && typeof computeFullCropZoom === "function") {
+        state.cropZoom = computeFullCropZoom();
+        state.vignette = 0;
+        state.vignetteWidth = 0;
+        state.cropEdgeFeather = 0;
+        var cs = $("#cropSlider"),  cv  = $("#cropVal");
+        var vs = $("#vignetteSlider"), vv = $("#vignetteVal");
+        var vws = $("#vigWidthSlider"), vwv = $("#vigWidthVal");
+        var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
+        if (cs)  { cs.value  = state.cropZoom;    cv.textContent  = state.cropZoom + "%"; }
+        if (vs)  { vs.value  = 100 - state.vignette; vv.textContent = state.vignette; }
+        if (vws) { vws.value = state.vignetteWidth;  vwv.textContent = state.vignetteWidth; }
+        if (ces) { ces.value = state.cropEdgeFeather; cev.textContent = state.cropEdgeFeather; }
+        if (typeof _syncPresetActiveButtons === "function") _syncPresetActiveButtons();
+      }
+
       renderCanvas();
       updateProductSectionHeader();
       editSection.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -5177,8 +5428,13 @@
       // Re-render with `_burningCanvas` flag so the on-screen frame border,
       // guide lines, and any live (un-burned) text overlay are excluded from
       // the image sent to Printify. Those are editing aids, not product art.
+      // Set `_fullResRender` so the pixel-work branch in renderCanvas uses
+      // the main canvas directly (no 1/4 downsample) — print output must
+      // stay at full source resolution.
       var wasBurning = state._burningCanvas;
+      var wasFullRes = state._fullResRender;
       state._burningCanvas = true;
+      state._fullResRender = true;
       try { renderCanvas(); } catch (_e) {}
 
       var maxDim = 4096;
@@ -5198,6 +5454,7 @@
 
       // Restore on-screen view (with border/guides/text overlay) for the editor.
       state._burningCanvas = wasBurning || false;
+      state._fullResRender = wasFullRes || false;
       try { renderCanvas(); } catch (_e) {}
 
       return dataUrl.split(",")[1];
@@ -5735,6 +5992,38 @@
         return '<dt>' + escapeHtmlSimple(r.label) + '</dt>' +
                '<dd>' + escapeHtmlSimple(r.value) + '</dd>';
       }).join("");
+
+      // Render the same canvas mockup the product grid uses, sized larger so
+      // the modal delivers a "here's how your sun looks on this product"
+      // preview. If no image is loaded yet, hide the mockup box so we don't
+      // render a blank placeholder. Falls back silently if drawProductMockup
+      // fails (bad state shouldn't block the confirm flow).
+      var mockupContainer = document.getElementById("confirmSelectMockup");
+      if (mockupContainer) {
+        mockupContainer.innerHTML = "";
+        var canDrawMockup = !!state.originalImage && typeof drawProductMockup === "function"
+          && solarCanvas && solarCanvas.width > 0;
+        if (canDrawMockup) {
+          try {
+            var mockCanvas = document.createElement("canvas");
+            mockCanvas.width = 320;
+            mockCanvas.height = 320;
+            mockCanvas.className = "confirm-mockup-canvas";
+            var mctx = mockCanvas.getContext("2d");
+            // Scale up the mockup's 160×160 draw space to fill the 320×320
+            // display canvas. drawProductMockup draws at a fixed 160 internal
+            // size, so scale the context before calling.
+            mctx.scale(2, 2);
+            drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height, activeVariant);
+            mockupContainer.appendChild(mockCanvas);
+            mockupContainer.classList.remove("empty");
+          } catch (e) {
+            mockupContainer.classList.add("empty");
+          }
+        } else {
+          mockupContainer.classList.add("empty");
+        }
+      }
 
       var backdrop = document.getElementById("confirmSelectBackdrop");
       var closeBtn = document.getElementById("confirmSelectClose");
