@@ -59,6 +59,18 @@ def _printify_request(method: str, url: str, **kwargs):
     """Run a requests call to Printify. In production (RENDER set) use certifi.
     Locally, skip SSL verify by default to avoid 'unable to get local issuer
     certificate'. Set PRINTIFY_SSL_VERIFY=1 to force verification when local.
+
+    Works across three network shapes without configuration:
+      1. External / home wifi: no proxy in use, direct connection succeeds.
+      2. Corporate network (dev): outbound direct is blocked, HTTPS_PROXY env
+         points at an internal filter proxy.
+      3. Deployed (Render): no proxy, direct connection succeeds.
+
+    Strategy: try direct first (bypassing any HTTPS_PROXY env var). If direct
+    refuses with a ConnectionError, retry letting requests honor the env
+    proxy. That way external-wifi users aren't trapped by a stale corp-
+    network HTTPS_PROXY in their shell profile, and corp-network users still
+    reach the API via the filter.
     """
     in_production = os.getenv("RENDER") is not None
     explicit = os.getenv("PRINTIFY_SSL_VERIFY", "").strip().lower()
@@ -78,10 +90,23 @@ def _printify_request(method: str, url: str, **kwargs):
             kwargs["verify"] = ca_bundle
             os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
             os.environ["SSL_CERT_FILE"] = ca_bundle
-        # Bypass any system/corporate proxy (e.g. webfilter.nwra.com) — Printify is a
-        # public API that must be reached directly, not through an internal web filter.
-        kwargs.setdefault("proxies", {"http": None, "https": None})
-        return requests.request(method, url, **kwargs)
+        # Try direct first — bypass any env proxy. Works on external wifi and
+        # in deployed envs. Fails fast on corp networks with "Connection refused."
+        # Use a short connect timeout on the direct probe (5s) so corp-network
+        # clients fail fast and fall back to the env proxy instead of blocking
+        # on a full-length upstream timeout.
+        direct_kwargs = dict(kwargs)
+        direct_kwargs["proxies"] = {"http": None, "https": None}
+        original_timeout = kwargs.get("timeout")
+        if isinstance(original_timeout, (int, float)):
+            direct_kwargs["timeout"] = (5, original_timeout)
+        else:
+            direct_kwargs["timeout"] = (5, 60)
+        try:
+            return requests.request(method, url, **direct_kwargs)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            # Direct refused or timed out — retry via HTTPS_PROXY env proxy.
+            return requests.request(method, url, **kwargs)
     finally:
         if saved_ca is not None:
             os.environ["REQUESTS_CA_BUNDLE"] = saved_ca
@@ -230,6 +255,31 @@ async def list_blueprints():
         return JSONResponse(content=result)
     except Exception as e:
         return JSONResponse(status_code=500, content={"detail": f"Failed to list blueprints: {e}"})
+
+
+# ────────────────────────────────────────────────
+# 4b. List print providers for a blueprint
+# ────────────────────────────────────────────────
+def _list_providers_sync(blueprint_id: int) -> list:
+    resp = _printify_request(
+        "GET",
+        f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers.json",
+        headers=_headers(),
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@router.get("/blueprints/{blueprint_id}/providers")
+async def list_providers(blueprint_id: int):
+    """Returns all print providers available for a given blueprint."""
+    try:
+        result = await run_in_threadpool(_list_providers_sync, blueprint_id)
+        return JSONResponse(content=result)
+    except Exception as e:
+        _log(f"[printify][providers] blueprint={blueprint_id} error: {e}")
+        return JSONResponse(status_code=500, content={"detail": f"Failed to list providers: {e}"})
 
 
 # ────────────────────────────────────────────────

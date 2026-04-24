@@ -66,7 +66,6 @@
       clockNumbers: null, // wall_clock only: { font, color, strokeColor, strokeWidth, size, radiusPct }
       mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
       uploadedPrintifyId: null,  // reusable image ID from Printify upload
-      helioPreviewLoaded: false,  // true once a Helioviewer image is in the canvas
       editorFilter: "jpg",       // "jpg" | "raw" | "rhef" — preview only; HQ is separate button
       jpgImage: null,            // JPG = Helioviewer-derived from backend; distinct from raw and RHEF
       rhefImage: null,            // RHE-processed preview image
@@ -94,6 +93,14 @@
     // IDs are pre-resolved from the live Printify catalog.
     // blueprintId = product type, printProviderId = fulfiller,
     // variantId = default size/color (customer picks final variant on Shopify).
+    //
+    // previewView controls how each gallery mockup frames the shared source
+    // image (state.originalImage) so every card shows a distinct subset:
+    //   - zoom >1 tightens the crop (detail view), <1 shows more breathing room
+    //   - cx, cy (0..1) offset the center of the source rect — tweak these so
+    //     different products look visually different even when aspect matches
+    // The selected product in the editor keeps using the live solarCanvas so
+    // user edits are reflected; non-selected gallery cards use this preset.
     var PRODUCTS = [
       // ── Wall Art & Home Decor ──
       { id: "canvas_stretched",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas, 1.25\" bars",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 1, h: 1 } },
@@ -104,7 +111,11 @@
       { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 } },
       { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front", aspectRatio: { w: 1, h: 1 } },
       // ── Drinkware ──
-      { id: "mug_15oz",             name: "Ceramic Mug — 15oz",  desc: "Large white ceramic mug, full-wrap print",  icon: "fa-mug-hot",      price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front", aspectRatio: { w: 2, h: 1 } },
+      // NOTE: Printify splits mug color across separate blueprints rather than
+      // exposing color as a variant. White lives at BP 425; black lives at BP 1152.
+      // Both are listed so the gallery carries both options.
+      { id: "mug_15oz",             name: "Ceramic Mug — 15oz (White)", desc: "Large white ceramic mug, full-wrap print", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front", aspectRatio: { w: 2, h: 1 } },
+      { id: "mug_15oz_black",       name: "Ceramic Mug — 15oz (Black)", desc: "Large black ceramic mug, full-wrap print", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 1152, printProviderId: 28,  variantId: 88132, position: "front", aspectRatio: { w: 2448, h: 1266 } },
       { id: "tumbler_20oz",         name: "Tumbler — 20oz",      desc: "Insulated stainless steel with lid",        icon: "fa-glass-whiskey", price: "From $19.99", checkoutPrice: 1999, blueprintId: 353,  printProviderId: 1,   variantId: 44519, position: "front", aspectRatio: { w: 2, h: 1 } },
       // ── Apparel ──
       { id: "tshirt_unisex",        name: "Unisex T-Shirt",      desc: "Bella+Canvas 3001 jersey tee, DTG print",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front", aspectRatio: { w: 1, h: 1 },
@@ -139,6 +150,160 @@
       { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
     ];
 
+    // ── Session catalog (user-requested products) ────────────────
+    // Products the user submits via the "Request a product" tab are added
+    // here for the current session so they can preview/edit/checkout them
+    // without waiting for admin approval. Persisted to sessionStorage so
+    // a tab refresh keeps them; they clear on tab close. When an admin
+    // approves a submission, the approved_catalog.json entry takes over
+    // and dedup logic hides the session entry on next load.
+    var SESSION_CATALOG_KEY = "solarArchive.sessionCatalog.v1";
+    function loadSessionCatalog() {
+      try {
+        var raw = sessionStorage.getItem(SESSION_CATALOG_KEY);
+        if (!raw) return [];
+        var arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+      } catch (_e) { return []; }
+    }
+    function saveSessionCatalog(arr) {
+      try {
+        sessionStorage.setItem(SESSION_CATALOG_KEY, JSON.stringify(arr || []));
+      } catch (_e) { /* quota — best effort */ }
+    }
+    // Build a product-catalog entry from a feedback submission's product_request
+    // payload plus the Printify variant details we already fetched to populate
+    // the feedback UI.
+    function makeProductFromRequest(req, opts) {
+      if (!req || !req.blueprintId) return null;
+      var id = "user_" + req.blueprintId + "_" + (req.printProviderId || "any");
+      var title = req.title || ("Blueprint " + req.blueprintId);
+      var ar = (opts && opts.aspectRatio) || { w: 1, h: 1 };
+      // Opinionated default so the card renders — admin sets final pricing when approving.
+      var price = (opts && opts.price) || "Custom — pricing TBD";
+      var checkoutPrice = (opts && opts.checkoutPrice) || 2499;
+      return {
+        id: id,
+        name: title,
+        desc: req.variantTitle ? ("Variant: " + req.variantTitle) : "User-requested product",
+        icon: "fa-sparkles",
+        price: price,
+        checkoutPrice: checkoutPrice,
+        blueprintId: req.blueprintId,
+        printProviderId: req.printProviderId || null,
+        variantId: req.variantId || null,
+        position: "front",
+        aspectRatio: ar,
+        _isUserRequested: true,
+      };
+    }
+
+    function addToSessionCatalog(entry) {
+      if (!entry || !entry.id) return;
+      var current = loadSessionCatalog();
+      // Dedupe: same id replaces the previous entry rather than stacking.
+      var filtered = current.filter(function(p) { return p.id !== entry.id; });
+      filtered.push(entry);
+      saveSessionCatalog(filtered);
+    }
+
+    // Merge session-catalog entries into PRODUCTS at boot so every downstream
+    // lookup (renderProducts, selectProductCard, checkout) treats them as
+    // normal products.
+    (function hydrateSessionCatalog() {
+      var sessionEntries = loadSessionCatalog();
+      sessionEntries.forEach(function(entry) {
+        if (!entry || !entry.id) return;
+        // Skip if already present (e.g., after admin approval injected the
+        // same entry into the main catalog).
+        var existing = PRODUCTS.find(function(p) { return p.id === entry.id || (entry.blueprintId && p.blueprintId === entry.blueprintId && p.printProviderId === entry.printProviderId && !p._isUserRequested); });
+        if (existing) return;
+        PRODUCTS.push(entry);
+      });
+    })();
+
+    // Fetch admin-approved catalog additions and merge them into PRODUCTS.
+    // Runs at boot; any session-only entry that has since been approved gets
+    // the admin copy — visually distinct because _isUserRequested is absent.
+    (function hydrateApprovedCatalog() {
+      var apiBase = (typeof API_BASE !== "undefined" && API_BASE) ? API_BASE : "";
+      fetch(apiBase + "/api/catalog/approved")
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (!data || !Array.isArray(data.entries) || !data.entries.length) return;
+          var changed = false;
+          data.entries.forEach(function(entry) {
+            if (!entry || !entry.id) return;
+            // If PRODUCTS already has a non-requested entry for this BP+provider,
+            // skip — hard-coded catalog wins for consistency.
+            var existing = PRODUCTS.find(function(p) {
+              if (p._isUserRequested) return false;
+              if (p.id === entry.id) return true;
+              return entry.blueprintId && p.blueprintId === entry.blueprintId && p.printProviderId === entry.printProviderId;
+            });
+            if (existing) return;
+            // Remove any session-requested placeholder for this BP+provider
+            // so we don't show duplicates once the admin approves.
+            for (var i = PRODUCTS.length - 1; i >= 0; i--) {
+              var p = PRODUCTS[i];
+              if (p._isUserRequested && entry.blueprintId && p.blueprintId === entry.blueprintId && p.printProviderId === entry.printProviderId) {
+                PRODUCTS.splice(i, 1);
+              }
+            }
+            PRODUCTS.push(entry);
+            changed = true;
+          });
+          if (changed && typeof renderProducts === "function" && state.originalImage) {
+            renderProducts();
+          }
+        })
+        .catch(function(e) { console.warn("[catalog] approved fetch failed:", e); });
+    })();
+
+    // Per-product gallery-mockup framing. Each entry picks a distinct subset
+    // of the shared solar image (state.originalImage) so the gallery reads as
+    // variety — a wall of different views of the Sun — rather than the same
+    // crop repeated in different outlines. Values are normalized to the source:
+    //   zoom:  1.0 fills the frame with the whole image; >1 zooms in; <1 pads.
+    //   cx,cy: 0..1, the normalized center of the source rect.
+    // Missing entries fall back to a default derived from aspectRatio at draw
+    // time, so adding products later doesn't require updating this map.
+    var PRODUCT_PREVIEW_VIEW = {
+      // Square wall art — vary zoom/offset so each card looks different
+      canvas_stretched:    { zoom: 1.00, cx: 0.50, cy: 0.50 },
+      metal_sign:          { zoom: 1.08, cx: 0.52, cy: 0.48 },
+      acrylic_print:       { zoom: 0.92, cx: 0.48, cy: 0.52 },
+      tapestry:            { zoom: 0.85, cx: 0.50, cy: 0.50 },
+      wall_clock:          { zoom: 1.00, cx: 0.50, cy: 0.50 },
+      // Posters (11:14 portrait)
+      poster_matte:        { zoom: 0.95, cx: 0.50, cy: 0.48 },
+      framed_poster:       { zoom: 0.88, cx: 0.50, cy: 0.52 },
+      // Drinkware (2:1 unwrap)
+      mug_15oz:            { zoom: 0.80, cx: 0.50, cy: 0.50 },
+      mug_15oz_black:      { zoom: 0.92, cx: 0.54, cy: 0.50 },
+      tumbler_20oz:        { zoom: 0.88, cx: 0.46, cy: 0.50 },
+      // Apparel — tighter detail crop (this is what prints on the chest panel)
+      tshirt_unisex:       { zoom: 1.25, cx: 0.50, cy: 0.48 },
+      hoodie_pullover:     { zoom: 1.20, cx: 0.52, cy: 0.50 },
+      crewneck_sweatshirt: { zoom: 1.15, cx: 0.48, cy: 0.50 },
+      // Tech / desk
+      phone_case:          { zoom: 1.35, cx: 0.50, cy: 0.50 },
+      laptop_sleeve:       { zoom: 0.90, cx: 0.50, cy: 0.50 },
+      mouse_pad:           { zoom: 0.95, cx: 0.50, cy: 0.50 },
+      desk_mat:            { zoom: 0.82, cx: 0.50, cy: 0.50 },
+      // Home & living
+      throw_pillow:        { zoom: 1.10, cx: 0.50, cy: 0.50 },
+      sherpa_blanket:      { zoom: 0.80, cx: 0.50, cy: 0.50 },
+      shower_curtain:      { zoom: 0.88, cx: 0.50, cy: 0.52 },
+      puzzle_1000:         { zoom: 1.00, cx: 0.50, cy: 0.50 },
+      coaster_set:         { zoom: 1.20, cx: 0.50, cy: 0.50 },
+      // Accessories
+      sticker_kiss:        { zoom: 1.50, cx: 0.50, cy: 0.50 },
+      journal_hardcover:   { zoom: 0.95, cx: 0.52, cy: 0.50 },
+      backpack:            { zoom: 1.05, cx: 0.50, cy: 0.50 },
+      crew_socks:          { zoom: 1.15, cx: 0.50, cy: 0.50 },
+    };
+
     // All product IDs are pre-resolved. Mark catalog as ready immediately.
     var catalogResolved = true;
 
@@ -169,7 +334,21 @@
       { name: "Space Mono",       category: "Monospace",   gquery: "Space+Mono:wght@400;700" }
     ];
 
-    var loadedFonts = { "Outfit": true, "JetBrains Mono": true }; // preloaded in HTML <link>
+    var loadedFonts = {};
+
+    // Pre-load fonts that are actively used (Outfit is default body font, JetBrains Mono in footer)
+    // Using link elements directly for these to avoid UI delay when user first opens font menu
+    (function preloadDefaultFonts() {
+      var link1 = document.createElement("link");
+      link1.rel = "stylesheet";
+      link1.href = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap";
+      document.head.appendChild(link1);
+
+      var link2 = document.createElement("link");
+      link2.rel = "stylesheet";
+      link2.href = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap";
+      document.head.appendChild(link2);
+    })();
 
     function loadGoogleFont(fontEntry) {
       if (loadedFonts[fontEntry.name]) return Promise.resolve();
@@ -256,8 +435,6 @@
     var $ = function(sel) { return document.querySelector(sel); };
     var dateInput = $("#solarDate");
     var wlGrid = $("#wlGrid");
-    var btnGenerate = $("#btnGenerate");
-    var btnPreview = $("#btnPreview");
     var progressTrack = $("#progressTrack");
     var progressFill = $("#progressFill");
     var statusMsg = $("#statusMsg");
@@ -266,8 +443,6 @@
     var solarImg = $("#solarImg");
     var solarCanvas = $("#solarCanvas");
     var cropOverlay = $("#cropOverlay");
-    var cropControls = $("#cropControls");
-    var btnHQ = $("#btnHQ");
     var productSection = $("#productSection");
     var productGrid = $("#productGrid");
     var checkoutProgress = $("#checkoutProgress");
@@ -302,6 +477,24 @@
     }
     reorderWorkflow();
 
+    // ── Context-aware product-section header ─────────────────────
+    // When the editor is open, the product grid below the editor reads as
+    // "also consider these" inspiration — not the primary chooser. Swap the
+    // title and intro copy accordingly so it stops nagging the user to pick.
+    function updateProductSectionHeader() {
+      var title = document.getElementById("productSectionTitle");
+      var intro = document.getElementById("productSectionIntro");
+      if (!title || !intro) return;
+      var editorOpen = editSection && !editSection.classList.contains("hidden");
+      if (editorOpen && state.selectedProduct) {
+        title.textContent = "Product Examples";
+        intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and scroll up to check out.";
+      } else {
+        title.textContent = "Choose Your Product";
+        intro.innerHTML = "Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.";
+      }
+    }
+
     // ── Product selection via event delegation ──────────────────
     function selectProductCard(productId) {
       var product = PRODUCTS.find(function(p) { return p.id === productId; });
@@ -325,26 +518,6 @@
       var ar0 = getEffectiveAspectRatio(product);
       var ratio = ar0 ? (ar0.w + ":" + ar0.h) : "1:1";
       state.cropRatio = ratio;
-
-      // Programmatically click the matching crop-ratio button so the UI updates (if crop menu exists)
-      if (cropControls) {
-        var matchingBtn = cropControls.querySelector('.crop-ratio-btn[data-ratio="' + ratio + '"]');
-        if (matchingBtn) {
-          cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
-          matchingBtn.classList.add("active");
-        } else {
-          // Fallback: use the product crop button if it exists
-          var productBtn = cropControls.querySelector('.crop-ratio-btn[data-ratio="product"]');
-          if (productBtn) {
-            cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
-            productBtn.classList.add("active");
-          }
-          syncCropRatioUI();
-        }
-      }
-
-      // Update crop product button
-      updateProductCropButton();
 
       // Reset pan to ref center, zoom 100% so the fixed frame shows centered image
       var ref = state.originalImage;
@@ -377,15 +550,41 @@
       if (typeof renderCanvas === "function") renderCanvas();
     }
 
-    // Event delegation on the product grid
-    productGrid.addEventListener("click", function(e) {
-      if (e.target.closest(".product-buy-btn")) return;
-      if (e.target.closest(".variant-panel")) return;
-      var card = e.target.closest(".product-card");
-      if (!card) return;
-      var productId = card.dataset.productId;
-      if (productId) selectProductCard(productId);
-    });
+    // Event delegation on the product grid (and the user-requested grid, so
+    // requested-product cards behave identically to catalog cards). Clicking
+    // anywhere on the card toggles its variant pane — same action as the
+    // Select disclosure button — so the whole card is a single, forgiving
+    // target for "show me the variants of this."
+    function _bindGridEvents(gridEl) {
+      if (!gridEl) return;
+      gridEl.addEventListener("click", function(e) {
+        if (e.target.closest(".variant-panel")) return;
+        // Let the disclosure button's own handler fire; don't also toggle here.
+        if (e.target.closest(".product-buy-btn")) return;
+        var card = e.target.closest(".product-card");
+        if (!card) return;
+        var productId = card.dataset.productId;
+        if (!productId) return;
+        var product = PRODUCTS.find(function(p) { return p.id === productId; });
+        if (!product) return;
+        var btn = card.querySelector(".product-select-btn");
+        if (btn && btn.disabled) return;
+        toggleVariantPane(product, card, btn);
+      });
+      gridEl.addEventListener("keydown", function(e) {
+        var card = e.target.closest(".product-card");
+        if (!card || e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        var productId = card.dataset.productId;
+        var product = PRODUCTS.find(function(p) { return p.id === productId; });
+        if (!product) return;
+        var btn = card.querySelector(".product-select-btn");
+        toggleVariantPane(product, card, btn);
+      });
+    }
+    _bindGridEvents(productGrid);
+    _bindGridEvents(document.getElementById("userRequestsGrid"));
 
     // ── Side-by-side product preview — persistent canvas approach ──
     // livePreviewCanvas is created once on product selection and reused
@@ -409,10 +608,13 @@
       var ratioText = ar ? ar.w + ":" + ar.h : "flexible";
       previewPane.querySelector(".preview-product-ratio").textContent = "Aspect ratio: " + ratioText;
 
-      // Update buy button label with price
+      // Update create button label. Price intentionally omitted — the price
+      // lives in the preview pane; a "create" button that also shows price
+      // reads as "buy now" to beta testers and blurs the create vs. purchase
+      // steps (purchase happens on Shopify after this).
       var buyLabel = document.getElementById("btnBuyLabel");
-      if (buyLabel && product.price) {
-        buyLabel.textContent = "Buy / Create on Shopify — " + product.price;
+      if (buyLabel) {
+        buyLabel.textContent = "Create on Shopify";
       }
 
       // Create (or reuse) the persistent preview canvas.
@@ -581,7 +783,9 @@
         state.uploadedPrintifyIdFiltered = null;
         var previewPanel = document.getElementById("selectedProductPreview");
         if (previewPanel) previewPanel.classList.add("hidden");
+        if (editSection) editSection.classList.add("hidden");
         renderCanvas();
+        updateProductSectionHeader();
         var productSection = document.getElementById("productSection");
         if (productSection) productSection.scrollIntoView({ behavior: "smooth", block: "start" });
       });
@@ -674,6 +878,24 @@
      * In both cases the canvas is exported to a data-URL and installed as state.originalImage
      * so all editing tools work normally on it.
      */
+    // ── Retry helper for transient network failures ──────────────
+    function fetchWithRetry(url, options, maxRetries, retryDelay) {
+      maxRetries = maxRetries || 3;
+      retryDelay = retryDelay || 1000;
+
+      function attemptFetch(remaining) {
+        return fetch(url, options).catch(function(err) {
+          if (remaining <= 0) throw err;
+          return new Promise(function(resolve) {
+            setTimeout(function() {
+              resolve(attemptFetch(remaining - 1));
+            }, retryDelay);
+          });
+        });
+      }
+      return attemptFetch(maxRetries);
+    }
+
     function loadHelioviewerPreview(wl, dateVal) {
       setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
       setProgress(10);
@@ -702,10 +924,44 @@
           _startPreviewFromCanvas(rawC, entry, wl, dateVal);
         };
         img.onerror = function() {
-          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' +
-            'Preview failed — check date and backend status.', false);
-          hideProgress();
+          // Image onerror doesn't expose the HTTP status, so re-query the same
+          // URL via fetch() to distinguish upstream Helioviewer failures (502
+          // from the backend proxy) from real user-network / backend-down
+          // cases. Beta testers saw the generic message and assumed their
+          // network was broken when it was actually Helioviewer upstream.
+          fetch(url, { method: "GET", cache: "no-store" })
+            .then(function(r) {
+              var msg;
+              if (r.status === 502 || r.status === 503 || r.status === 504) {
+                msg = "Helioviewer's data service is temporarily unavailable. " +
+                      "Try another wavelength, or retry in a minute.";
+              } else if (!r.ok) {
+                msg = "Preview failed (HTTP " + r.status + "). Try another date or wavelength.";
+              } else {
+                // Fetch says OK but <img> onerror fired — likely a decode issue.
+                msg = "Preview failed — the image couldn't be decoded. Try another wavelength.";
+              }
+              showPreviewError(msg);
+            })
+            .catch(function() {
+              // Fetch itself failed: the backend proxy isn't reachable at all.
+              showPreviewError(
+                "Can't reach the backend at " + API_BASE + ". " +
+                "Check your connection, or wait for the server to finish waking up."
+              );
+            });
         };
+        function showPreviewError(msg) {
+          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' + msg, false);
+          var retryDiv = document.createElement("div");
+          retryDiv.innerHTML = '<button class="retry-btn" style="margin-top:8px;padding:6px 12px;cursor:pointer;">Retry</button>';
+          statusMsg.appendChild(retryDiv);
+          retryDiv.querySelector(".retry-btn").addEventListener("click", function() {
+            statusMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Retrying…';
+            loadHelioviewerPreview(state.wavelength, dateVal);
+          });
+          hideProgress();
+        }
         img.src = url;
       }
     }
@@ -747,6 +1003,10 @@
      */
     function _installPreviewImage(img, wl, dateVal) {
       state.originalImage = img;
+      // Set accessible alt text for the preview image
+      var altText = "Solar image from " + dateVal + ", " + wl + " Angstrom wavelength";
+      if (solarImg) solarImg.alt = altText;
+      if (solarCanvas) solarCanvas.setAttribute("aria-label", altText);
       state.panX = img.naturalWidth / 2;
       state.panY = img.naturalHeight / 2;
       state.rhefImage = null;
@@ -784,7 +1044,6 @@
       state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
       state.rhefFetchPromise = null;
       state.transitionInProgress = false;
-      state.helioPreviewLoaded = true;
 
       // Reset filter toggle UI to JPG
       _syncFilterToggleUI("jpg");
@@ -880,9 +1139,6 @@
 
       // Product-first workflow: show product grid, keep editor hidden until product selected
       imageStage.classList.remove("empty");
-      if (btnPreview) btnPreview.classList.remove("hidden");
-      if (btnGenerate) btnGenerate.classList.remove("hidden");
-      if (btnHQ) btnHQ.classList.remove("hidden");
       productSection.classList.remove("hidden");
       if (state.scrollToProductsOnLoad) {
         state.scrollToProductsOnLoad = false;
@@ -902,6 +1158,7 @@
           editSection.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 120);
       }
+      updateProductSectionHeader();
 
       setTimeout(hideProgress, 1200);
     }
@@ -910,6 +1167,14 @@
     var HELIO_SOURCE_IDS = { 94: 8, 131: 9, 171: 10, 193: 11, 211: 12, 304: 13, 335: 14, 1600: 15, 1700: 16 };
     var lastThumbDate = "";
     var thumbCache = {};  // { "wl": { raw: <canvas>, canvas2048: <canvas>, rhef: <Image> } } — tiles show raw
+    // Tiles emit 6+ log lines per wavelength per date (10 wavelengths, 2–3 retries
+    // each) which drowns out real errors in the console. Gate them behind a URL
+    // flag — `?debug=tiles` or `?debug=1` turns them back on for diagnosis.
+    var DEBUG_TILES = /(?:^|[?&])debug=(tiles|1|all)(?:&|$)/.test(location.search);
+    function tileLog() {
+      if (!DEBUG_TILES) return;
+      console.log.apply(console, ["[tiles]"].concat(Array.prototype.slice.call(arguments)));
+    }
 
     /** Clone a canvas element */
     function cloneCanvas(src) {
@@ -949,7 +1214,7 @@
       var thumbDivs = document.querySelectorAll(".wl-thumb");
       var thumbCount = thumbDivs ? thumbDivs.length : 0;
       var alreadyLoadedThisDate = dateVal === lastThumbDate && Object.keys(thumbCache).length > 0;
-      console.log("[tiles] loadWavelengthThumbnails", { dateVal: dateVal, lastThumbDate: lastThumbDate, thumbCount: thumbCount, alreadyLoadedThisDate: alreadyLoadedThisDate });
+      tileLog("loadWavelengthThumbnails", { dateVal: dateVal, lastThumbDate: lastThumbDate, thumbCount: thumbCount, alreadyLoadedThisDate: alreadyLoadedThisDate });
       if (!dateVal || alreadyLoadedThisDate) return;
       lastThumbDate = dateVal;
       thumbCache = {};  // clear cache for new date
@@ -977,7 +1242,7 @@
         tileImg.onload = function() {
           thumbCache[wl] = { raw: null, canvas2048: null, rhef: null };
           div.classList.add("loaded");
-          console.log("[tiles] loaded", wl);
+          tileLog("loaded", wl);
           // Kick off a background backend-proxy fetch to warm the canvas cache.
           // The backend proxy bypasses CORS (Helioviewer blocks cross-origin canvas reads),
           // so this is the only reliable way to get a drawable canvas from Helioviewer data.
@@ -994,20 +1259,20 @@
                 c.getContext("2d").drawImage(proxyImg, 0, 0);
                 // Guard: thumbCache entry may be gone if user changed date rapidly
                 if (thumbCache[String(wl)]) thumbCache[String(wl)].canvas2048 = c;
-                console.log("[tiles] proxy canvas cached for", wl);
+                tileLog("proxy canvas cached for", wl);
               } catch(e) {
-                console.log("[tiles] proxy canvas draw error for", wl, e);
+                tileLog("proxy canvas draw error for", wl, e);
               }
             };
             proxyImg.onerror = function() {
-              console.log("[tiles] proxy canvas fetch failed for", wl);
+              tileLog("proxy canvas fetch failed for", wl);
             };
             proxyImg.src = proxyUrl;
           }
         };
         tileImg.onerror = function() {
           div.innerHTML = "";
-          console.log("[tiles] error", wl);
+          tileLog("error", wl);
         };
         div.innerHTML = "";
         div.appendChild(tileImg);
@@ -1352,8 +1617,33 @@
     if (dateInput) {
       dateInput.addEventListener("change", loadWavelengthThumbnails);
       dateInput.addEventListener("input", loadWavelengthThumbnails);
+      // Default to today so users see wavelength tiles on first paint instead
+      // of an empty panel. AIA data is only available after May 2010, so a
+      // "today" default is always in-range. If the user had set a date in a
+      // prior session we don't overwrite it; the <input type="date"> only
+      // preserves its value when the form is reloaded, so an empty value is
+      // the fresh-page signal to apply the default.
+      if (!dateInput.value) {
+        var today = new Date();
+        var yyyy = today.getFullYear();
+        var mm = String(today.getMonth() + 1).padStart(2, "0");
+        var dd = String(today.getDate()).padStart(2, "0");
+        dateInput.value = yyyy + "-" + mm + "-" + dd;
+        // Fire change so the tile-loading pipeline runs immediately.
+        dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     }
-    // No eager setTimeout loads — thumbnails only fetch after the user picks a date.
+
+    // Eager-render the product grid pre-image so users can browse the catalog
+    // while a wavelength image is loading (or before they even pick one). The
+    // cards render with their fa-icon placeholders; renderProducts() already
+    // handles the no-image case by disabling the Select buttons and showing
+    // "Select wavelength first". Once an image loads, renderProducts() is
+    // called again and upgrades each card to its canvas/Printify mockup.
+    if (productSection) {
+      productSection.classList.remove("hidden");
+      if (typeof renderProducts === "function") renderProducts();
+    }
 
     // ── Toast ────────────────────────────────────────────────────
     var toastTimer = null;
@@ -1364,11 +1654,23 @@
       requestAnimationFrame(function() { toastEl.classList.add("show"); });
       clearTimeout(toastTimer);
       toastTimer = setTimeout(function() { toastEl.classList.remove("show"); }, 4000);
+
+      // Update ARIA live region for screen readers
+      var statusRegion = document.getElementById("statusRegion");
+      if (statusRegion) statusRegion.textContent = msg;
     }
 
     // ── Custom modals (no alert/confirm/prompt) ──────────────────
-    function showModal(title, message, onConfirm, confirmText) {
+    function showModal(title, message, onConfirm, confirmText, loadingText) {
       confirmText = confirmText || "OK";
+      // Beta testers reported the confirm button gave no feedback that compute
+      // had started — modal vanished instantly and the long-running work
+      // behind it (image compositing, Printify upload, Shopify publish) felt
+      // stalled. Button now swaps to a spinner + loadingText label the moment
+      // it's clicked; modal stays open until the onConfirm's returned Promise
+      // settles (or, for legacy non-Promise callbacks, for a short hold so
+      // the spinner is perceptible before handoff to downstream UI).
+      loadingText = loadingText || "Working\u2026";
       var overlay = document.createElement("div");
       overlay.className = "modal-overlay";
       overlay.innerHTML =
@@ -1381,12 +1683,38 @@
           "</div>" +
         "</div>";
       document.body.appendChild(overlay);
-      overlay.querySelector(".btn-cancel").addEventListener("click", function() {
+      var btnCancel = overlay.querySelector(".btn-cancel");
+      var btnConfirm = overlay.querySelector(".btn-confirm");
+      btnCancel.addEventListener("click", function() {
         overlay.remove();
       });
-      overlay.querySelector(".btn-confirm").addEventListener("click", function() {
-        overlay.remove();
-        if (onConfirm) onConfirm();
+      btnConfirm.addEventListener("click", function() {
+        // Lock both buttons so double-clicks can't fire onConfirm twice and
+        // the user can't cancel out halfway through a side-effecting call.
+        btnConfirm.disabled = true;
+        btnCancel.disabled = true;
+        btnConfirm.classList.add("is-loading");
+        btnConfirm.innerHTML = '<span class="btn-spinner"></span> ' + loadingText;
+
+        var closed = false;
+        function closeOnce() { if (!closed) { closed = true; overlay.remove(); } }
+
+        var result;
+        try {
+          result = onConfirm ? onConfirm() : undefined;
+        } catch (err) {
+          closeOnce();
+          throw err;
+        }
+        if (result && typeof result.then === "function") {
+          result.then(closeOnce, closeOnce);
+        } else {
+          // Legacy sync callback: let the browser paint the spinner frame,
+          // then hold briefly so the state change is visible before close.
+          requestAnimationFrame(function() {
+            setTimeout(closeOnce, 350);
+          });
+        }
       });
     }
 
@@ -1497,7 +1825,6 @@
 
     function checkBackendHealth() {
       setBannerState("checking", "Checking backend status...", "Connecting to " + API_BASE, false);
-      if (btnGenerate) btnGenerate.disabled = true;
 
       // Phase 1: lightweight health endpoint (no heavy app init)
       var abortCtrl = new AbortController();
@@ -1576,7 +1903,6 @@
 
     function onBackendOnline() {
       state.backendOnline = true;
-      if (btnGenerate) btnGenerate.disabled = false;
       setBannerState("online", "Backend online", "Connected to " + API_BASE, false);
       fetchBuildTime();
       // Auto-hide after 4s
@@ -1592,7 +1918,6 @@
 
     function onBackendCORSBlocked() {
       state.backendOnline = false;
-      if (btnGenerate) btnGenerate.disabled = true;
       cspNotice.classList.remove("hidden");
       setBannerState("offline",
         "CORS blocked — backend is running but won't accept requests from this origin",
@@ -1605,7 +1930,6 @@
 
     function onBackendOffline() {
       state.backendOnline = false;
-      if (btnGenerate) btnGenerate.disabled = true;
       setBannerState("offline",
         "Backend is offline — connection refused",
         API_BASE + " is not accepting connections. This usually means: " +
@@ -1619,7 +1943,6 @@
 
     function showFileProtocolBanner() {
       state.backendOnline = false;
-      if (btnGenerate) btnGenerate.disabled = true;
       setBannerState("offline",
         "Viewing from a local file (file://)",
         "Browsers cannot connect to a backend from file://. To use the app: (1) Run a local server in the api folder — e.g. " +
@@ -1718,149 +2041,29 @@
       });
     }
 
-    // ── "1. Reset to Mock Mockups" — clear Printify mockups so product grid shows canvas-drawn previews only; lets user iterate on position quickly ──
-    if (btnPreview) {
-      btnPreview.addEventListener("click", function() {
-        if (!state.originalImage) {
-          showInfo("No Image", "Click a wavelength tile to load the solar image first.");
-          return;
-        }
-        state.mockups = {};
-        state.mockupsRaw = {};
-        state.mockupsFiltered = {};
-        state.mockupSlideIndex = {};
-        state.uploadedPrintifyId = null;
-        state.uploadedPrintifyIdRaw = null;
-        state.uploadedPrintifyIdFiltered = null;
-        productSection.classList.remove("hidden");
-        if ($("#mockupStatus")) $("#mockupStatus").innerHTML = "";
-        renderProducts();
-        showToast("Reset to mock mockups — adjust position, then click Generate HQ Mockups when ready.");
-      });
-    }
-
-    // ── "2. Generate HQ Mockups" — upload to Printify, generate real mockups, and trigger HQ RHEF production ───
-    if (btnGenerate) btnGenerate.addEventListener("click", function() {
-      if (!state.originalImage) {
-        showInfo("No Image", "Click a wavelength tile to load the solar image first.");
-        return;
-      }
-      if (!state.backendOnline) {
-        showInfo("Backend Offline",
-          "The backend server is not responding. Please wait for it to come online, " +
-          "or check the Render dashboard.<br><br>" +
-          '<a href="https://dashboard.render.com" target="_blank" rel="noopener" ' +
-          'style="color:var(--accent-cool);">Open Render Dashboard →</a>'
-        );
-        return;
-      }
-
-      var date = dateInput.value;
-      if (!date) {
-        showInfo("Missing Date", "Please select a date before generating.");
-        return;
-      }
-
-      // Reset HQ state if restarting
-      state.hqReady = false;
-      state.hqImageUrl = null;
-      state.hqTaskId = null;
-
-      // Disable button while HQ is running, show status
-      if (btnGenerate) btnGenerate.disabled = true;
-      if (btnGenerate) btnGenerate.innerHTML = '<div class="spinner" style="border-top-color:#fff;display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> HQ generating…';
-
-      setStatus('<i class="fas fa-rocket"></i> Starting HQ rendering + mockups in parallel…', true);
-      setProgress(10);
-
-      // ── Track A: Start mockups immediately from current canvas ──
-      state.mockups = {};
-      state.mockupsRaw = {};
-      state.mockupsFiltered = {};
-      state.mockupSlideIndex = {};
-      state.uploadedPrintifyId = null;
-      state.uploadedPrintifyIdRaw = null;
-      state.uploadedPrintifyIdFiltered = null;
-      productSection.classList.remove("hidden");
-      renderProducts();
-      // Generate raw mockups first
-      setTimeout(function() {
-        autoGenerateMockups("raw");
-        // If filtered image is available, also generate filtered mockups
-        if (state.rhefImage || state.hqFilterImage) {
-          setTimeout(function() { autoGenerateMockups("filtered"); }, 500);
-        }
-      }, 300);
-
-      // ── Track B: Start HQ generation in background ──────────────
-      startHqGeneration(date, state.wavelength).then(function(hqUrl) {
-        state.hqImageUrl = hqUrl;
-        state.hqReady = true;
-        updateSendToPrintifyButton();
-        if (btnGenerate) btnGenerate.disabled = false;
-        if (btnGenerate) btnGenerate.innerHTML = '<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ Ready · Generate Again';
-        setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ image ready — buy buttons are live!');
-        showToast("HQ print image ready!", "success");
-        setTimeout(hideProgress, 1200);
-      }).catch(function(err) {
-        if (btnGenerate) btnGenerate.disabled = false;
-        if (btnGenerate) btnGenerate.innerHTML = '<i class="fas fa-redo"></i> Retry HQ';
-        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> HQ failed: ' + (err.message || err), false);
-        showToast("HQ failed: " + (err.message || err), "error");
-        hideProgress();
-      });
-    });
-
-    /**
-     * Start a background HQ generation task and poll until done.
-     * Returns a Promise that resolves with the absolute HQ image URL.
-     */
-    function startHqGeneration(date, wavelength) {
-      // Check client-side cache first
-      var cacheKey = date + "_" + wavelength;
-      var cached = hqCache[cacheKey];
-      if (cached && cached.url) {
-        state.hqImageUrl = cached.url;
-        return Promise.resolve(cached.url);
-      }
-
-      return postJSON(API_BASE + "/api/generate", {
-        date: date,
-        wavelength: wavelength,
-        mission: "SDO",
-        detector: "AIA"
-      }, 120000).then(function(res) {
-        if (!res.task_id || !res.status_url) throw new Error("HQ task failed to start");
-        state.hqTaskId = res.task_id;
-
-        var statusUrl = API_BASE + res.status_url;
-        setProgress(30);
-        return pollStatus(statusUrl, function(data) {
-          if (data.status === "started" || data.status === "processing") {
-            setStatus('<i class="fas fa-spinner fa-spin"></i> HQ rendering in background… mockups generating below', true);
-            setProgress(50);
-          }
-        });
-      }).then(function(result) {
-        if (result.status === "completed" && result.image_url) {
-          var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
-          hqCache[cacheKey] = { url: hqUrl, imageObj: null };
-          setProgress(90);
-          return hqUrl;
-        }
-        throw new Error(result.message || "HQ generation failed");
-      });
-    }
+    // Legacy btnPreview/btnGenerate/btnHQ click handlers and the
+    // startHqGeneration helper that only served them were removed — the
+    // corresponding buttons were dropped from index.html when the workflow
+    // collapsed into the filter radio + product-tile flow. startHqFilterGeneration
+    // remains and covers the live HQ-RHEF path.
 
     /**
      * Start full-resolution image generation for the given format (jpg, raw, or rhef).
      * format defaults to state.editorFilter. On completion, sets hqFilterImage and hqFormat.
+     *
+     * Beta testers reported intermittent HQ failures (Helioviewer upstream
+     * blips, cold-start timeouts). On the first attempt, transient errors
+     * (network / 5xx / timeout) trigger a silent retry after 1.5 s backoff.
+     * Hard errors (bad input, backend-logic failures) fall through to the
+     * user-facing toast on the first attempt so real issues stay visible.
      */
-    function startHqFilterGeneration(date, wavelength, format) {
+    function startHqFilterGeneration(date, wavelength, format, _attempt) {
       format = format || state.editorFilter || "rhef";
+      _attempt = _attempt || 1;
 
-      // Dedup: if already generating this format, return without starting a second fetch
-      if (state.hqFetching) return Promise.resolve();
+      // Dedup: only guard on the initial call; retries are allowed to continue
+      // the existing fetch lifecycle.
+      if (_attempt === 1 && state.hqFetching) return Promise.resolve();
 
       var cacheKey = date + "_" + wavelength + "_hq_" + format;
       var cached = hqCache[cacheKey];
@@ -1874,8 +2077,13 @@
 
       state.hqFetching = true;
       if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
-      setProgress(10);
-      updateFilterStatusLine("Full-res RHEF generating in background (may take ~2 min)\u2026", "loading");
+      if (_attempt === 1) setProgress(10);
+      updateFilterStatusLine(
+        _attempt > 1
+          ? "Full-res RHEF retrying\u2026 (previous attempt failed)"
+          : "Full-res RHEF generating in background (may take ~2 min)\u2026",
+        "loading"
+      );
 
       return postJSON(API_BASE + "/api/generate", {
         date: date,
@@ -1914,11 +2122,26 @@
         }
         throw new Error(result.message || "HQ generation failed");
       }).catch(function(err) {
+        var msg = (err && err.message) || String(err);
+        var isTransient =
+          /Failed to fetch|NetworkError|timeout|timed out|5\d\d|bad gateway|service unavailable/i.test(msg);
+        if (_attempt < 2 && isTransient) {
+          // Silent one-shot retry: keep state.hqFetching true so the UI
+          // continues showing the generating state; schedule a retry after a
+          // short backoff so we don't hammer the same flaky endpoint.
+          return new Promise(function(resolve, reject) {
+            setTimeout(function() {
+              startHqFilterGeneration(date, wavelength, format, _attempt + 1)
+                .then(resolve, reject);
+            }, 1500);
+          });
+        }
+        // Terminal failure — surface to the user.
         state.hqFetching = false;
         if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
         hideProgress();
-        updateFilterStatusLine("HQ generation failed: " + err.message, "error");
-        showToast("HQ failed: " + (err.message || err), "error");
+        updateFilterStatusLine("HQ generation failed: " + msg, "error");
+        showToast("HQ failed: " + msg, "error");
         return Promise.reject(err);
       });
     }
@@ -2503,41 +2726,86 @@
     }
     setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth", true);
 
-    // ── Crop / Vignette presets ───────────────────────────────────
-    var CROP_PRESETS = {
-      // Ordered by cropZoom ascending; higher vignette breaks ties at the same cropZoom.
-      //                         cropZoom  vignette  vignetteWidth  cropEdgeFeather
-      solar_portrait: { cropZoom: 71,  vignette: 42, vignetteWidth: 10, cropEdgeFeather: 0 },
-      tight_frame:    { cropZoom: 75,  vignette: 0,  vignetteWidth: 0,  cropEdgeFeather: 0 },
-      full_frame:     { cropZoom: 100, vignette: 27, vignetteWidth: 27, cropEdgeFeather: 0 },
-      full_disk:      { cropZoom: 100, vignette: 24, vignetteWidth: 0,  cropEdgeFeather: 0 },
-      minimal:        { cropZoom: 100, vignette: 0,  vignetteWidth: 0,  cropEdgeFeather: 0 },
+    // ── Crop & Vignette presets ───────────────────────────────────
+    // Split into two independent axes so users can mix crop tightness with
+    // vignette treatment freely, rather than picking from five combined
+    // presets. Each axis sets only its own state fields and re-syncs the
+    // corresponding slider DOM — the other axis is left untouched.
+    var CROP_MODES = {
+      // cropZoom % of image inside the frame. Lower = more padding, higher = tighter.
+      fit:  71,   // full solar disk with breathing room
+      fill: 100,  // frame edge-to-edge
+      tile: 150,  // zoomed-in detail crop
+    };
+    var VIGNETTE_MODES = {
+      // vignette (0-100 intensity) and vignetteWidth (feather width). Edge=0 is
+      // a crisp circle; higher edge = soft feathered fade. Sharp's values are
+      // aligned with the editor's default state so the Sharp button appears
+      // active on initial load, reflecting what's already rendered on-canvas.
+      off:   { vignette: 0,  vignetteWidth: 0  },
+      soft:  { vignette: 24, vignetteWidth: 22 },
+      sharp: { vignette: 24, vignetteWidth: 0  },
     };
 
-    function applyPreset(presetName) {
-      var p = CROP_PRESETS[presetName];
-      if (!p) return;
-      state.cropZoom        = p.cropZoom;
-      state.vignette        = p.vignette;
-      state.vignetteWidth   = p.vignetteWidth;
-      state.cropEdgeFeather = p.cropEdgeFeather;
-      // Sync slider DOM
-      var cs = $("#cropSlider"),      cv  = $("#cropVal");
-      var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
-      var vws = $("#vigWidthSlider"), vwv = $("#vigWidthVal");
-      var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
-      if (cs)  { cs.value  = p.cropZoom;           cv.textContent  = p.cropZoom + "%"; }
-      if (vs)  { vs.value  = 100 - p.vignette;     vv.textContent  = p.vignette; }
-      if (vws) { vws.value = p.vignetteWidth;      vwv.textContent = p.vignetteWidth; }
-      if (ces) { ces.value = p.cropEdgeFeather;    cev.textContent = p.cropEdgeFeather; }
+    function applyCropMode(modeName) {
+      var zoom = CROP_MODES[modeName];
+      if (zoom == null) return;
+      state.cropZoom = zoom;
+      var cs = $("#cropSlider"), cv = $("#cropVal");
+      if (cs) { cs.value = zoom; cv.textContent = zoom + "%"; }
+      _syncPresetActiveButtons();
       applyCanvasView();
       renderCanvas();
       if (typeof renderProducts === "function") renderProducts();
     }
 
-    document.querySelectorAll(".preset-btn[data-preset]").forEach(function(btn) {
-      btn.addEventListener("click", function() { applyPreset(this.dataset.preset); });
+    function applyVignetteMode(modeName) {
+      var m = VIGNETTE_MODES[modeName];
+      if (!m) return;
+      state.vignette = m.vignette;
+      state.vignetteWidth = m.vignetteWidth;
+      state.cropEdgeFeather = 0;
+      var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
+      var vws = $("#vigWidthSlider"), vwv = $("#vigWidthVal");
+      var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
+      // vignetteSlider stores 100 - intensity (per existing convention at line 2609)
+      if (vs)  { vs.value  = 100 - m.vignette;     vv.textContent  = m.vignette; }
+      if (vws) { vws.value = m.vignetteWidth;      vwv.textContent = m.vignetteWidth; }
+      if (ces) { ces.value = 0;                    cev.textContent = 0; }
+      _syncPresetActiveButtons();
+      applyCanvasView();
+      renderCanvas();
+      if (typeof renderProducts === "function") renderProducts();
+    }
+
+    // Highlight the preset button that currently matches state, so the user
+    // can see which mode is active without reading slider values.
+    function _syncPresetActiveButtons() {
+      var cropMode = null;
+      Object.keys(CROP_MODES).forEach(function(k) {
+        if (state.cropZoom === CROP_MODES[k]) cropMode = k;
+      });
+      document.querySelectorAll(".preset-btn[data-crop]").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.crop === cropMode);
+      });
+      var vigMode = null;
+      Object.keys(VIGNETTE_MODES).forEach(function(k) {
+        var m = VIGNETTE_MODES[k];
+        if (state.vignette === m.vignette && state.vignetteWidth === m.vignetteWidth) vigMode = k;
+      });
+      document.querySelectorAll(".preset-btn[data-vignette]").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.vignette === vigMode);
+      });
+    }
+
+    document.querySelectorAll(".preset-btn[data-crop]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyCropMode(this.dataset.crop); });
     });
+    document.querySelectorAll(".preset-btn[data-vignette]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyVignetteMode(this.dataset.vignette); });
+    });
+    // Initial sync so buttons reflect default state on load.
+    _syncPresetActiveButtons();
 
     // ── Frame-border overlay checkbox ────────────────────────────
     var showOverlayCheck = document.getElementById("showOverlayCheck");
@@ -2870,62 +3138,31 @@
       });
     }
 
-    // Apply text (burn into image permanently)
+    // Apply text — non-destructive. The overlay stays in state.textOverlay and
+    // is re-rendered every frame in renderCanvas(). At checkout, getCanvasBase64
+    // re-renders with _burningCanvas=true (which strips editing aids like the
+    // frame border) and captures the text overlay into the uploaded image.
+    // This keeps text editable right up until checkout — the user can change
+    // wording, font, color, or position at any time without losing quality.
     $("#applyText").addEventListener("click", function() {
       if (!state.textOverlay || !state.textOverlay.text) {
         showToast("Enter some text first.", "error");
         return;
       }
-      // Render without the frame overlay so it isn't baked into the image
-      state._burningCanvas = true;
-      renderCanvas();
-      state._burningCanvas = false;
-      var dataUrl;
-      try {
-        dataUrl = solarCanvas.toDataURL("image/png");
-      } catch(e) {
-        showToast("Could not burn text — canvas security error: " + e.message, "error");
-        renderCanvas(); // restore overlay
-        return;
+      // Leave the overlay in place and just close the panel. Exit text-editing
+      // mode so the canvas stops being draggable as "text mode".
+      state.textMode = false;
+      textToolPanel.classList.add("hidden");
+      solarCanvas.classList.remove("text-dragging");
+      // Swap the Text tool button back to "+ Text" so the user knows they can
+      // reopen the panel to edit or clear the text overlay.
+      var textBtn = document.querySelector('[data-tool="text"]');
+      if (textBtn) {
+        textBtn.classList.remove("active");
+        textBtn.innerHTML = '<i class="fas fa-font"></i> Edit Text';
       }
-      var newImg = new Image();
-      newImg.onload = function() {
-        // Replace the working image with the burned snapshot
-        state.originalImage = newImg;
-        // Re-centre pan for the new image dimensions
-        state.panX = newImg.naturalWidth / 2;
-        state.panY = newImg.naturalHeight / 2;
-        state.cropZoom = 100;
-        if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
-        // Clear format-specific previews — they belong to the old unburned image
-        state.jpgImage = null;
-        state.rawBackendImage = null;
-        state.rhefImage = null;
-        state.hqFilterImage = null;
-        state.hqFormat = null;
-        state.editorFilter = "jpg";
-        _syncFilterToggleUI("jpg");
-        state.rotation = 0;
-        state.flipH = false;
-        state.flipV = false;
-        state.textOverlay = null;
-        state.textMode = false;
-        textToolPanel.classList.add("hidden");
-        // Change Text button to "+ Text" for re-use
-        var textBtn = document.querySelector('[data-tool="text"]');
-        if (textBtn) {
-          textBtn.classList.remove("active");
-          textBtn.innerHTML = '<i class="fas fa-font"></i> + Text';
-        }
-        solarCanvas.classList.remove("text-dragging");
-        renderCanvas();
-        showToast("Text burned into image! Click + Text to add more.");
-      };
-      newImg.onerror = function() {
-        showToast("Could not burn text — image decode error.", "error");
-        renderCanvas(); // restore overlay
-      };
-      newImg.src = dataUrl;
+      renderCanvas();
+      showToast("Text applied. It stays editable — click Edit Text to change it, or it will be printed as-is.");
     });
 
     // Cancel text overlay
@@ -3145,82 +3382,20 @@
     // ── Crop mode ────────────────────────────────────────────────
     var cropDragging = false;
 
-    function updateProductCropButton() {
-      var btn = document.getElementById("cropProductBtn");
-      if (!btn) return;
-      var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-      var ar = product ? getEffectiveAspectRatio(product) : null;
-      if (product && ar) {
-        btn.classList.remove("hidden");
-        btn.innerHTML = '<i class="fas fa-box" style="font-size:10px;"></i> ' +
-          ar.w + ":" + ar.h + " " + product.name;
-      } else {
-        btn.classList.add("hidden");
-      }
-    }
-
-    function syncCropRatioUI() {
-      if (!cropControls) return;
-      cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) {
-        b.classList.remove("active");
-        var ratio = b.dataset.ratio;
-        if (ratio === "product") {
-          var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-          var syncAR = getEffectiveAspectRatio(product);
-          if (product && syncAR && state.cropRatio === (syncAR.w + ":" + syncAR.h))
-            b.classList.add("active");
-        } else if (ratio === state.cropRatio) {
-          b.classList.add("active");
-        }
-      });
-      // Do not force 1:1 when no preset matches (e.g. after Flip crop 4:3 → 3:4); leave ratio as-is with no selection.
-    }
-
-    function enterCropMode() {
-      state.cropping = false;
-      if (cropControls) cropControls.classList.remove("hidden");
-      cropOverlay.classList.add("hidden");
-      state.cropStart = null;
-      state.cropEnd = null;
-      updateProductCropButton();
-      if (state.selectedProduct) {
-        var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-        var enterAR = getEffectiveAspectRatio(product);
-        if (enterAR) {
-          state.cropRatio = enterAR.w + ":" + enterAR.h;
-        }
-      }
-      syncCropRatioUI();
-      renderCanvas();
-    }
+    // syncCropRatioUI is kept as a no-op for compatibility with several call
+    // sites that expect to nudge the crop-ratio preset buttons. Those buttons
+    // (`.crop-ratio-btn` / `#cropControls` / `#cropProductBtn` / `#cancelCrop`)
+    // were removed from index.html when the crop flow collapsed into free-form
+    // drag + the product aspect ratio is applied automatically. Leaving the
+    // symbol defined avoids adding `if (typeof …)` guards at every call.
+    function syncCropRatioUI() {}
 
     function exitCropMode() {
       state.cropping = false;
-      if (cropControls) cropControls.classList.add("hidden");
       cropOverlay.classList.add("hidden");
       solarCanvas.style.cursor = isPanToolActive() ? "grab" : "default";
       cropDragging = false;
     }
-
-    if (cropControls) cropControls.addEventListener("click", function(e) {
-      var ratioBtn = e.target.closest(".crop-ratio-btn");
-      if (ratioBtn) {
-        cropControls.querySelectorAll(".crop-ratio-btn").forEach(function(b) { b.classList.remove("active"); });
-        ratioBtn.classList.add("active");
-        var ratio = ratioBtn.dataset.ratio;
-        if (ratio === "product") {
-          var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-          var productCropAR = getEffectiveAspectRatio(product);
-          state.cropRatio = productCropAR ? (productCropAR.w + ":" + productCropAR.h) : "free";
-        } else {
-          state.cropRatio = ratio;
-        }
-        state.cropStart = null;
-        state.cropEnd = null;
-        cropOverlay.classList.add("hidden");
-        renderCanvas();
-      }
-    });
 
     function getCanvasCoords(e) {
       var rect = solarCanvas.getBoundingClientRect();
@@ -3417,57 +3592,67 @@
       croppedImg.src = cropCanvas.toDataURL("image/png");
     }
 
-    if ($("#cancelCrop")) $("#cancelCrop").addEventListener("click", exitCropMode);
-
-    // ── HQ cache (used by startHqGeneration called from Make Products) ─
+    // ── HQ cache (used by startHqFilterGeneration and the checkout flow) ─
     var hqCache = {}; // key: "date_wavelength" => { url, imageObj }
-
-    // ── "3. Generate HQ RHEF" — generate the full-resolution print image only if it hasn't been made yet (no mockups) ──
-    if (btnHQ) {
-      btnHQ.addEventListener("click", function() {
-        if (!state.originalImage) {
-          showInfo("No Image", "Click a wavelength tile to load the solar image first.");
-          return;
-        }
-        var dateVal = dateInput ? dateInput.value : "";
-        if (!dateVal) { showToast("Select a date first.", "error"); return; }
-        if (state.hqReady) {
-          showToast("HQ RHEF already generated. Buy buttons are live.");
-          return;
-        }
-        if (state.hqTaskId && !state.hqImageUrl) {
-          showToast("HQ is already generating\u2026", "info");
-          return;
-        }
-        if (!state.backendOnline) {
-          showInfo("Backend Offline", "The backend is needed to generate the HQ image. Please wait for it to come online.");
-          return;
-        }
-        btnHQ.disabled = true;
-        btnHQ.innerHTML = '<div class="spinner" style="border-top-color:#fff;display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Generating HQ RHEF…';
-        setStatus('<i class="fas fa-star"></i> Generating HQ RHEF print image…', true);
-        setProgress(10);
-        startHqGeneration(dateVal, state.wavelength).then(function(hqUrl) {
-          state.hqImageUrl = hqUrl;
-          state.hqReady = true;
-          updateSendToPrintifyButton();
-          btnHQ.disabled = false;
-          btnHQ.innerHTML = '<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ RHEF Ready';
-          setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> HQ RHEF ready — buy buttons are live!');
-          showToast("HQ RHEF ready!", "success");
-          setTimeout(hideProgress, 1200);
-        }).catch(function(err) {
-          btnHQ.disabled = false;
-          btnHQ.innerHTML = '<i class="fas fa-star"></i> 3. Generate HQ RHEF';
-          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> HQ failed: ' + (err.message || err), false);
-          showToast("HQ failed: " + (err.message || err), "error");
-          hideProgress();
-        });
-      });
-    }
 
     // ── Products ─────────────────────────────────────────────────
     // ── Product mockup drawing ──────────────────────────────────
+
+    // ── Clean canvas snapshot (no editor overlays) ──────────────
+    // solarCanvas is drawn with an orange frame border + optional guide lines
+    // so the editor can show where the printable edge is. Those are editing
+    // aids — they must not leak into product mockups or the upload payload.
+    // This helper renders the canvas once with _burningCanvas=true (which
+    // skips the overlay branch in renderCanvas), copies the result to an
+    // offscreen canvas, restores visible state, and returns the snapshot.
+    var _cleanSnapshotCanvas = null;
+    var _cleanSnapshotSig = null;
+    function _currentCanvasSig() {
+      // Rebuild the snapshot only when something observable to a mockup has
+      // actually changed. Signature covers size, filter, background, geometry,
+      // and active text overlay. Over-invalidating is cheap; under-invalidating
+      // would show stale art.
+      var t = state.textOverlay;
+      return [
+        solarCanvas ? solarCanvas.width : 0,
+        solarCanvas ? solarCanvas.height : 0,
+        state.editorFilter || "",
+        state.vignetteFade || "",
+        state.rotation || 0,
+        state.flipH ? 1 : 0,
+        state.flipV ? 1 : 0,
+        state.panX || 0,
+        state.panY || 0,
+        state.cropZoom || 0,
+        state.vignette || 0,
+        state.brightness || 0,
+        state.contrast || 0,
+        state.saturation || 100,
+        t ? (t.text + "|" + t.x + "|" + t.y + "|" + t.size + "|" + t.color + "|" + (t.rotation || 0)) : ""
+      ].join(":");
+    }
+    function getCleanCanvasSnapshot() {
+      if (!solarCanvas || solarCanvas.width === 0) return solarCanvas;
+      var sig = _currentCanvasSig();
+      if (_cleanSnapshotCanvas && _cleanSnapshotSig === sig
+          && _cleanSnapshotCanvas.width === solarCanvas.width
+          && _cleanSnapshotCanvas.height === solarCanvas.height) {
+        return _cleanSnapshotCanvas;
+      }
+      var wasBurning = state._burningCanvas;
+      state._burningCanvas = true;
+      try { renderCanvas(); } catch (_e) {}
+      if (!_cleanSnapshotCanvas) _cleanSnapshotCanvas = document.createElement("canvas");
+      _cleanSnapshotCanvas.width = solarCanvas.width;
+      _cleanSnapshotCanvas.height = solarCanvas.height;
+      var cctx = _cleanSnapshotCanvas.getContext("2d");
+      cctx.clearRect(0, 0, _cleanSnapshotCanvas.width, _cleanSnapshotCanvas.height);
+      cctx.drawImage(solarCanvas, 0, 0);
+      state._burningCanvas = wasBurning || false;
+      try { renderCanvas(); } catch (_e) {}
+      _cleanSnapshotSig = sig;
+      return _cleanSnapshotCanvas;
+    }
 
     /**
      * Return the crop box in canvas pixel coordinates. Fixed-frame model: the canvas is the frame,
@@ -3525,9 +3710,80 @@
       mctx.fillStyle = "#1a1a2e";
       mctx.fillRect(0, 0, W, H);
 
+      // Source routing: the currently-edited product mirrors the live editor
+      // canvas (so the user sees their edits); every other product in the
+      // gallery pulls from the shared state.originalImage with its own
+      // previewView framing so the gallery reads as variety. Both paths are
+      // a single drawImage call — no per-card bitmap allocations.
+      var isSelected = (productId === state.selectedProduct);
+      var sourceCanvas = null;
+      var shareSrc = null; // the shared raw solar image for non-selected cards
+      if (isSelected) {
+        sourceCanvas = (typeof getCleanCanvasSnapshot === "function")
+          ? getCleanCanvasSnapshot()
+          : solarCanvas;
+      } else {
+        shareSrc = state.originalImage;
+      }
+
+      // Resolve the per-product preview framing (zoom + normalized center).
+      // Falls back to a gentle default keyed off aspect so a new product
+      // without an explicit entry still looks reasonable.
+      function _previewViewFor(pid) {
+        var v = PRODUCT_PREVIEW_VIEW[pid];
+        if (v) return v;
+        return { zoom: 1.0, cx: 0.5, cy: 0.5 };
+      }
+
+      // Compute a source rect on `shareSrc` that matches dstW:dstH with the
+      // product's preview framing applied. Returns null if we should fall
+      // through to letterboxing.
+      function _sharedSrcRect(dstW, dstH) {
+        if (!shareSrc || !shareSrc.naturalWidth) return null;
+        var iw = shareSrc.naturalWidth;
+        var ih = shareSrc.naturalHeight;
+        var view = _previewViewFor(productId);
+        var zoom = Math.max(0.3, Math.min(3.0, view.zoom || 1.0));
+        // Start by fitting the destination aspect inside the source, then
+        // divide by zoom to get the visible source region.
+        var dstAR = dstW / dstH;
+        var srcAR = iw / ih;
+        var vw, vh;
+        if (dstAR >= srcAR) {
+          // dst is wider than src — fit width, crop vertically
+          vw = iw / zoom;
+          vh = vw / dstAR;
+        } else {
+          vh = ih / zoom;
+          vw = vh * dstAR;
+        }
+        // Clamp the viewport to source bounds. When a zoom<1 and a wide/tall
+        // destination aspect push vw or vh past iw/ih, drawImage silently
+        // renders transparency in the out-of-bounds portion, leaving a blank
+        // strip on the mockup (beta reported this on the mug unwrap). Shrink
+        // both dimensions proportionally so dstAR is preserved and the image
+        // fully fills the destination — the effective zoom is just capped.
+        var scale = Math.min(1, iw / vw, ih / vh);
+        vw *= scale;
+        vh *= scale;
+        var cx = (view.cx != null ? view.cx : 0.5) * iw;
+        var cy = (view.cy != null ? view.cy : 0.5) * ih;
+        var sx = Math.max(0, Math.min(iw - vw, cx - vw / 2));
+        var sy = Math.max(0, Math.min(ih - vh, cy - vh / 2));
+        return { sx: sx, sy: sy, sw: vw, sh: vh };
+      }
+
       // Helper: draw the same crop viewport as main canvas and preview (no extra crop).
       // Letterbox so the crop content is never stretched — identical behavior to preview pane.
       function drawCropped(dstX, dstY, dstW, dstH) {
+        if (shareSrc) {
+          // Fast path for gallery cards: draw straight from the shared raw
+          // image using this product's previewView, no editor-state plumbing.
+          var r = _sharedSrcRect(dstW, dstH);
+          if (!r) return;
+          mctx.drawImage(shareSrc, r.sx, r.sy, r.sw, r.sh, dstX, dstY, dstW, dstH);
+          return;
+        }
         var vp = _getCropViewport();
         if (!vp || vp.sw < 1 || vp.sh < 1) return;
         var vpRatio = vp.sw / vp.sh;
@@ -3541,48 +3797,134 @@
         }
         var dx = dstX + (dstW - drawW) / 2;
         var dy = dstY + (dstH - drawH) / 2;
-        mctx.drawImage(solarCanvas, vp.sx, vp.sy, vp.sw, vp.sh, dx, dy, drawW, drawH);
+        mctx.drawImage(sourceCanvas, vp.sx, vp.sy, vp.sw, vp.sh, dx, dy, drawW, drawH);
       }
 
-      if (productId === "mug_15oz" || productId === "tumbler_20oz" || productId === "desk_mat") {
-        // Wide 2:1 products — mug body / wide rectangle
-        var bodyL = 30, bodyR = 120, bodyT = 35, bodyB = 130;
-        if (productId === "desk_mat") {
-          bodyL = 5; bodyR = 155; bodyT = 45; bodyB = 115;
-        } else if (productId === "tumbler_20oz") {
-          bodyL = 38; bodyR = 112; bodyT = 28; bodyB = 138;
+      // Helper: cover-fit the source into dst (crop source to dst aspect, fill
+      // edge-to-edge, no letterboxing, no horizontal/vertical distortion).
+      // Used for mug/tumbler unwraps where the 2:1 printable area must fill
+      // completely and the sun must stay circular.
+      function drawStretched(dstX, dstY, dstW, dstH) {
+        if (shareSrc) {
+          // Shared-source path already returns a rect matching dstAR — draw
+          // it 1:1 into dst so it fills without distortion.
+          var r = _sharedSrcRect(dstW, dstH);
+          if (!r) return;
+          mctx.drawImage(shareSrc, r.sx, r.sy, r.sw, r.sh, dstX, dstY, dstW, dstH);
+          return;
         }
+        // Selected-product (live canvas) path: center-crop the viewport to
+        // the destination aspect, then draw the crop 1:1 into dst. Without
+        // this crop, a square canvas stretched into a 2:1 dst would distort
+        // the sun into a horizontal ellipse — beta testers flagged this.
+        var vp = _getCropViewport();
+        if (!vp || vp.sw < 1 || vp.sh < 1) return;
+        var dstAR = dstW / dstH;
+        var vpAR = vp.sw / vp.sh;
+        var sx = vp.sx, sy = vp.sy, sw = vp.sw, sh = vp.sh;
+        if (vpAR > dstAR) {
+          sw = vp.sh * dstAR;
+          sx = vp.sx + (vp.sw - sw) / 2;
+        } else if (vpAR < dstAR) {
+          sh = vp.sw / dstAR;
+          sy = vp.sy + (vp.sh - sh) / 2;
+        }
+        mctx.drawImage(sourceCanvas, sx, sy, sw, sh, dstX, dstY, dstW, dstH);
+      }
+
+      if (productId === "mug_15oz" || productId === "mug_15oz_black" || productId === "tumbler_20oz") {
+        // Unwrapped drinkware view — the 2:1 printable strip laid flat, with
+        // the image cover-cropped edge-to-edge (matches object-fit:cover).
+        // The sun stays round (no distortion) and the strip fills completely.
+        // Center-crops top/bottom of a square source to fit 2:1; tumblers
+        // render as a plain strip without handles.
+        var bodyL = 22, bodyR = 138, bodyT = 58, bodyB = 115; // 116x57 (~2:1)
+        var isTumbler = (productId === "tumbler_20oz");
+        if (isTumbler) {
+          // Tumbler has a subtle taper; render a narrower unwrap strip
+          bodyL = 24; bodyR = 136; bodyT = 52; bodyB = 118;
+        }
+        var bodyW = bodyR - bodyL;
+        var bodyH = bodyB - bodyT;
+
         mctx.save();
         mctx.beginPath();
-        mctx.moveTo(bodyL, bodyT + 8);
-        mctx.quadraticCurveTo(bodyL, bodyT, bodyL + 8, bodyT);
-        mctx.lineTo(bodyR - 8, bodyT);
-        mctx.quadraticCurveTo(bodyR, bodyT, bodyR, bodyT + 8);
-        mctx.lineTo(bodyR + 2, bodyB - 10);
-        mctx.quadraticCurveTo(bodyR, bodyB, bodyR - 10, bodyB);
-        mctx.lineTo(bodyL + 10, bodyB);
-        mctx.quadraticCurveTo(bodyL, bodyB, bodyL - 2, bodyB - 10);
+        mctx.moveTo(bodyL + 3, bodyT);
+        mctx.lineTo(bodyR - 3, bodyT);
+        mctx.quadraticCurveTo(bodyR, bodyT, bodyR, bodyT + 3);
+        mctx.lineTo(bodyR, bodyB - 3);
+        mctx.quadraticCurveTo(bodyR, bodyB, bodyR - 3, bodyB);
+        mctx.lineTo(bodyL + 3, bodyB);
+        mctx.quadraticCurveTo(bodyL, bodyB, bodyL, bodyB - 3);
+        mctx.lineTo(bodyL, bodyT + 3);
+        mctx.quadraticCurveTo(bodyL, bodyT, bodyL + 3, bodyT);
         mctx.closePath();
         mctx.clip();
-        drawCropped(bodyL, bodyT, bodyR - bodyL, bodyB - bodyT);
+        drawStretched(bodyL, bodyT, bodyW, bodyH);
         mctx.restore();
-        if (productId !== "desk_mat") {
-          // Handle
+
+        // Body outline (subtle so the strip reads as a physical object)
+        mctx.strokeStyle = "rgba(255,255,255,0.18)";
+        mctx.lineWidth = 1;
+        mctx.strokeRect(bodyL, bodyT, bodyW, bodyH);
+
+        // Handles: dashed marker on BOTH sides of the mug body to convey
+        // "this is where the wrap seams behind the handle." Tumblers have no
+        // handle so they render as a plain strip.
+        if (!isTumbler) {
           mctx.strokeStyle = "#aaa";
-          mctx.lineWidth = 4;
+          mctx.lineWidth = 3;
+          mctx.setLineDash([3, 3]);
+          var handleMidY = (bodyT + bodyB) / 2;
+          var handleTop = bodyT + 10;
+          var handleBot = bodyB - 10;
           mctx.beginPath();
-          mctx.moveTo(bodyR, bodyT + 15);
-          mctx.quadraticCurveTo(bodyR + 28, bodyT + 15, bodyR + 28, (bodyT + bodyB) / 2);
-          mctx.quadraticCurveTo(bodyR + 28, bodyB - 15, bodyR, bodyB - 15);
+          mctx.moveTo(bodyR, handleTop);
+          mctx.quadraticCurveTo(bodyR + 16, handleTop, bodyR + 16, handleMidY);
+          mctx.quadraticCurveTo(bodyR + 16, handleBot, bodyR, handleBot);
           mctx.stroke();
+          mctx.beginPath();
+          mctx.moveTo(bodyL, handleTop);
+          mctx.quadraticCurveTo(bodyL - 16, handleTop, bodyL - 16, handleMidY);
+          mctx.quadraticCurveTo(bodyL - 16, handleBot, bodyL, handleBot);
+          mctx.stroke();
+          mctx.setLineDash([]);
         }
-        // Rim highlight
-        mctx.strokeStyle = "rgba(255,255,255,0.3)";
-        mctx.lineWidth = 2;
+
+        // Rim highlight (subtle top stroke)
+        mctx.strokeStyle = "rgba(255,255,255,0.35)";
+        mctx.lineWidth = 1.5;
         mctx.beginPath();
         mctx.moveTo(bodyL + 2, bodyT);
         mctx.lineTo(bodyR - 2, bodyT);
         mctx.stroke();
+
+        // "Unwrapped view" tag so the representation is clear
+        mctx.fillStyle = "rgba(255,255,255,0.55)";
+        mctx.font = "8px system-ui, sans-serif";
+        mctx.textAlign = "center";
+        mctx.fillText("unwrapped view", W / 2, bodyB + 12);
+        mctx.textAlign = "start";
+      } else if (productId === "desk_mat") {
+        // Desk mat — wide 2:1 flat rectangle, no handle.
+        var dmL = 5, dmR = 155, dmT = 45, dmB = 115;
+        mctx.save();
+        mctx.beginPath();
+        mctx.moveTo(dmL, dmT + 3);
+        mctx.quadraticCurveTo(dmL, dmT, dmL + 3, dmT);
+        mctx.lineTo(dmR - 3, dmT);
+        mctx.quadraticCurveTo(dmR, dmT, dmR, dmT + 3);
+        mctx.lineTo(dmR, dmB - 3);
+        mctx.quadraticCurveTo(dmR, dmB, dmR - 3, dmB);
+        mctx.lineTo(dmL + 3, dmB);
+        mctx.quadraticCurveTo(dmL, dmB, dmL, dmB - 3);
+        mctx.closePath();
+        mctx.clip();
+        drawCropped(dmL, dmT, dmR - dmL, dmB - dmT);
+        mctx.restore();
+        mctx.strokeStyle = "rgba(255,255,255,0.18)";
+        mctx.lineWidth = 1;
+        mctx.strokeRect(dmL, dmT, dmR - dmL, dmB - dmT);
       } else if (productId === "tshirt_unisex" || productId === "hoodie_pullover" || productId === "crewneck_sweatshirt") {
         // Apparel silhouette with image on chest (1:1 print area)
         mctx.fillStyle = productId === "tshirt_unisex" ? "#e8e8e8" : "#d0d0d0";
@@ -3848,6 +4190,89 @@
         mctx.strokeStyle = "#666";
         mctx.lineWidth = 2;
         mctx.strokeRect(lapL, lapT, lapW, lapH);
+      } else if (productId === "sticker_kiss") {
+        // Kiss-cut sticker — rounded square with a white die-cut border so it
+        // reads as a sticker laid on the card rather than a framed print.
+        var skL = 18, skT = 18, skW = 124, skH = 124, skR = 18;
+        // Outer die-cut: slightly larger rounded square behind the art.
+        mctx.fillStyle = "#fafafa";
+        mctx.beginPath();
+        mctx.moveTo(skL - 4 + skR, skT - 4);
+        mctx.lineTo(skL + skW + 4 - skR, skT - 4);
+        mctx.quadraticCurveTo(skL + skW + 4, skT - 4, skL + skW + 4, skT - 4 + skR);
+        mctx.lineTo(skL + skW + 4, skT + skH + 4 - skR);
+        mctx.quadraticCurveTo(skL + skW + 4, skT + skH + 4, skL + skW + 4 - skR, skT + skH + 4);
+        mctx.lineTo(skL - 4 + skR, skT + skH + 4);
+        mctx.quadraticCurveTo(skL - 4, skT + skH + 4, skL - 4, skT + skH + 4 - skR);
+        mctx.lineTo(skL - 4, skT - 4 + skR);
+        mctx.quadraticCurveTo(skL - 4, skT - 4, skL - 4 + skR, skT - 4);
+        mctx.closePath();
+        mctx.fill();
+        // Clip the art to the inner rounded square so it reads as a sticker face.
+        mctx.save();
+        mctx.beginPath();
+        mctx.moveTo(skL + skR, skT);
+        mctx.lineTo(skL + skW - skR, skT);
+        mctx.quadraticCurveTo(skL + skW, skT, skL + skW, skT + skR);
+        mctx.lineTo(skL + skW, skT + skH - skR);
+        mctx.quadraticCurveTo(skL + skW, skT + skH, skL + skW - skR, skT + skH);
+        mctx.lineTo(skL + skR, skT + skH);
+        mctx.quadraticCurveTo(skL, skT + skH, skL, skT + skH - skR);
+        mctx.lineTo(skL, skT + skR);
+        mctx.quadraticCurveTo(skL, skT, skL + skR, skT);
+        mctx.closePath();
+        mctx.clip();
+        drawCropped(skL, skT, skW, skH);
+        mctx.restore();
+        // Subtle drop shadow hint so the sticker sits on the card surface.
+        mctx.strokeStyle = "rgba(0,0,0,0.18)";
+        mctx.lineWidth = 1;
+        mctx.strokeRect(skL - 4, skT - 4, skW + 8, skH + 8);
+      } else if (productId === "backpack") {
+        // Backpack silhouette — all-over-print body with a front panel that
+        // carries the art, plus straps so it reads as a wearable bag.
+        mctx.fillStyle = "#2a2a34";
+        // Body outline (slight trapezoid, rounded corners)
+        mctx.beginPath();
+        mctx.moveTo(42, 40);
+        mctx.lineTo(118, 40);
+        mctx.quadraticCurveTo(130, 42, 132, 60);
+        mctx.lineTo(132, 140);
+        mctx.quadraticCurveTo(132, 150, 122, 150);
+        mctx.lineTo(38, 150);
+        mctx.quadraticCurveTo(28, 150, 28, 140);
+        mctx.lineTo(28, 60);
+        mctx.quadraticCurveTo(30, 42, 42, 40);
+        mctx.closePath();
+        mctx.fill();
+        // Top handle
+        mctx.strokeStyle = "#3a3a44";
+        mctx.lineWidth = 4;
+        mctx.beginPath();
+        mctx.moveTo(70, 40);
+        mctx.quadraticCurveTo(80, 20, 90, 40);
+        mctx.stroke();
+        // Shoulder straps (arcing outward at top, tucking behind body)
+        mctx.strokeStyle = "#22222a";
+        mctx.lineWidth = 6;
+        mctx.beginPath();
+        mctx.moveTo(45, 46); mctx.quadraticCurveTo(10, 75, 30, 130); mctx.stroke();
+        mctx.beginPath();
+        mctx.moveTo(115, 46); mctx.quadraticCurveTo(150, 75, 130, 130); mctx.stroke();
+        // Front panel with the art (square print area on the body)
+        var bpL = 48, bpT = 60, bpW = 64, bpH = 64;
+        mctx.save();
+        mctx.beginPath();
+        mctx.rect(bpL, bpT, bpW, bpH);
+        mctx.clip();
+        drawCropped(bpL, bpT, bpW, bpH);
+        mctx.restore();
+        mctx.strokeStyle = "rgba(255,255,255,0.2)";
+        mctx.lineWidth = 1;
+        mctx.strokeRect(bpL, bpT, bpW, bpH);
+        // Front pocket hint below the art
+        mctx.fillStyle = "rgba(0,0,0,0.28)";
+        mctx.fillRect(bpL + 6, bpT + bpH + 6, bpW - 12, 14);
       } else {
         // Generic square fallback
         drawCropped(10, 10, 140, 140);
@@ -4014,10 +4439,48 @@
       return p;
     }
 
+    // Toggle the variant pane below a card's Select button. If the pane is
+    // currently collapsed, this opens it (and loads variants if we haven't
+    // cached them yet). If it's open, this collapses it. Keeps the disclosure
+    // button's chevron and aria-expanded in sync.
+    function toggleVariantPane(product, card, btn) {
+      var panel = card.querySelector(".variant-panel");
+      if (!panel) return;
+      var isOpen = !panel.classList.contains("hidden");
+      if (isOpen) {
+        panel.classList.add("hidden");
+        _setButtonDisclosureState(btn, false);
+        return;
+      }
+      _setButtonDisclosureState(btn, true);
+      showVariantPanel(product, card);
+    }
+
+    function _setButtonDisclosureState(btn, open) {
+      if (!btn) return;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      var icon = btn.querySelector("i.fas");
+      if (icon) {
+        icon.classList.remove("fa-chevron-down");
+        icon.classList.remove("fa-chevron-up");
+        icon.classList.add(open ? "fa-chevron-up" : "fa-chevron-down");
+      }
+      var labelSpan = btn.querySelector(".product-select-btn-label");
+      if (labelSpan) {
+        labelSpan.textContent = open ? "Hide variants" : "Pick a variant";
+      }
+    }
+
     function showVariantPanel(product, card) {
-      // Hide all other variant panels
-      productGrid.querySelectorAll(".variant-panel").forEach(function(vp) {
-        if (vp.dataset.productId !== product.id) vp.classList.add("hidden");
+      // Hide all other variant panels and reset their buttons so only one is
+      // open at a time (prevents a wall of expanded tiles).
+      document.querySelectorAll(".product-card .variant-panel").forEach(function(vp) {
+        if (vp.dataset.productId !== product.id) {
+          vp.classList.add("hidden");
+          var otherCard = vp.closest(".product-card");
+          var otherBtn = otherCard ? otherCard.querySelector(".product-select-btn") : null;
+          if (otherBtn) _setButtonDisclosureState(otherBtn, false);
+        }
       });
 
       var panel = card.querySelector(".variant-panel");
@@ -4040,31 +4503,16 @@
 
       loadVariants(product)
         .then(function(variants) {
-          // Re-query DOM in case renderProducts() rebuilt the card while fetch was in flight
-          var freshCard = productGrid.querySelector('.product-card[data-product-id="' + product.id + '"]');
+          // Re-query DOM in case renderProducts() rebuilt the card while the fetch was in flight.
+          // The card could live in either the main grid or the user-requests grid.
+          var freshCard = document.querySelector('.product-card[data-product-id="' + product.id + '"]');
           var freshPanel = freshCard ? freshCard.querySelector(".variant-panel") : null;
           if (!freshPanel) return;
           freshPanel.classList.remove("hidden");
           renderVariantPanel(freshPanel, product, filterVariantsForProduct(product, variants));
-          // If a variant was already chosen (e.g. pre-set state), make sure the button is enabled
-          if (freshCard && state.selectedVariantByProduct[product.id] != null) {
-            var loadedSelectBtn = freshCard.querySelector(".product-select-btn");
-            if (loadedSelectBtn && loadedSelectBtn.disabled) {
-              loadedSelectBtn.disabled = false;
-              loadedSelectBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Select this product';
-            }
-          }
-          if (state.selectedProduct === product.id) {
-            var effectiveAR = getEffectiveAspectRatio(product);
-            if (effectiveAR && effectiveAR.w && effectiveAR.h) {
-              state.cropRatio = effectiveAR.w + ":" + effectiveAR.h;
-              syncCropRatioUI();
-            }
-            if (typeof renderCanvas === "function") renderCanvas();
-          }
         })
         .catch(function() {
-          var freshCard2 = productGrid.querySelector('.product-card[data-product-id="' + product.id + '"]');
+          var freshCard2 = document.querySelector('.product-card[data-product-id="' + product.id + '"]');
           var freshPanel2 = freshCard2 ? freshCard2.querySelector(".variant-panel") : null;
           if (freshPanel2) freshPanel2.innerHTML = '<div class="variant-loading" style="color:var(--text-dim);">Could not load variants</div>';
         });
@@ -4202,23 +4650,31 @@
       }
 
       var selectedId = state.selectedVariantByProduct[product.id];
-      var pendingId = state.pendingVariantByProduct[product.id];
       var selectedVariant = selectedId ? variants.find(function(v) { return v.id === selectedId; }) : null;
 
       var html = '<div class="variant-summary">';
-      html += '<span class="variant-count">' + variants.length + ' variants</span>';
+      html += '<span class="variant-count">' + variants.length + ' variant' + (variants.length === 1 ? '' : 's') + '</span>';
       if (selectedVariant) {
         var selPrice = getVariantPrice(product, selectedVariant);
-        html += '<div class="variant-selected-msg">Selected: ' + variantLabel(selectedVariant) + (selPrice ? " — " + selPrice : "") + '</div>';
+        html += '<div class="variant-selected-msg">Selected: ' + variantLabel(selectedVariant) + (selPrice ? " \u2014 " + selPrice : "") + '</div>';
       }
+      // Each variant is rendered as a tile: label on the left, price, and a
+      // Select button on the right that commits this specific variant and
+      // opens the editor via the confirmation modal.
       html += '<div class="variant-list">';
       variants.forEach(function(v) {
-        var isPending = (pendingId === v.id);
         var isConfirmed = (selectedId === v.id);
-        var rowClass = "variant-row" + (isPending ? " pending" : "") + (isConfirmed ? " confirmed" : "");
+        var rowClass = "variant-row" + (isConfirmed ? " confirmed" : "");
         var label = variantLabel(v);
         var price = getVariantPrice(product, v);
-        html += '<div class="' + rowClass + '" data-variant-id="' + v.id + '" role="button" tabindex="0">' + label + (price ? ' <span class="variant-price">' + price + '</span>' : "") + '</div>';
+        html +=
+          '<div class="' + rowClass + '" data-variant-id="' + v.id + '">' +
+            '<span class="variant-row-label">' + label + '</span>' +
+            (price ? '<span class="variant-price">' + price + '</span>' : '<span class="variant-price variant-price-empty"></span>') +
+            '<button class="variant-select-btn" data-variant-id="' + v.id + '" type="button">' +
+              (isConfirmed ? '<i class="fas fa-check"></i> Selected' : '<i class="fas fa-chevron-right"></i> Select') +
+            '</button>' +
+          '</div>';
       });
       html += '</div>';
       if (product.id === "wall_clock") {
@@ -4232,15 +4688,16 @@
       if (panel._variantClickDelegate) panel.removeEventListener("click", panel._variantClickDelegate);
       if (panel._variantKeyDelegate)   panel.removeEventListener("keydown", panel._variantKeyDelegate);
 
-      function handleVariantRowAction(vid) {
-        // Single-click immediately confirms the variant (no two-click pending pattern)
+      function handleVariantSelect(vid) {
+        // Single-click on a variant's Select button: commit this variant and
+        // route through the confirm modal into the editor. Sets the chosen
+        // variant and updates aspect-ratio state before opening.
         state.selectedVariantByProduct[product.id] = vid;
         state.pendingVariantByProduct[product.id] = undefined;
 
         var cacheKey = product.blueprintId + "_" + product.printProviderId;
         var freshVariants = variantCache[cacheKey] || variants;
 
-        // Update aspect ratio from this variant
         var clickedVariant = freshVariants.find(function(v) { return v.id === vid; });
         if (clickedVariant) {
           var parsedAR = parseVariantAspectRatio(clickedVariant);
@@ -4248,47 +4705,23 @@
           else delete state.variantAspectRatioByProduct[product.id];
         }
 
-        // Re-render the in-card panel with new confirmed selection (filtered)
-        renderVariantPanel(panel, product, filterVariantsForProduct(product, freshVariants));
-
-        // Enable "Select this product" on this card now that a variant is chosen
-        var card = panel.closest(".product-card");
-        if (card) {
-          var selectBtn = card.querySelector(".product-select-btn");
-          if (selectBtn) {
-            selectBtn.disabled = false;
-            selectBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Select this product';
-          }
-        }
-
-        // Sync canvas / crop UI if this is the currently-selected product
-        if (state.selectedProduct === product.id) {
-          var effectiveAR = getEffectiveAspectRatio(product);
-          if (effectiveAR && effectiveAR.w && effectiveAR.h) {
-            state.cropRatio = effectiveAR.w + ":" + effectiveAR.h;
-            syncCropRatioUI();
-          }
-          // Sync the preview-pane dropdown to match
-          var pvSelect = document.getElementById("previewVariantSelect");
-          if (pvSelect) pvSelect.value = String(vid);
-          if (typeof updateSelectedProductPreview === "function") updateSelectedProductPreview(product);
-          if (typeof renderCanvas === "function") renderCanvas();
-        }
+        // Open the confirmation modal, then commit + open editor on confirm.
+        showConfirmSelectModal(product, function() { commitProductSelection(product); });
       }
 
       panel._variantClickDelegate = function(e) {
-        var row = e.target.closest(".variant-row");
-        if (!row) return;
+        var btn = e.target.closest(".variant-select-btn");
+        if (!btn) return;
         e.stopPropagation();
-        handleVariantRowAction(parseInt(row.dataset.variantId, 10));
+        handleVariantSelect(parseInt(btn.dataset.variantId, 10));
       };
       panel._variantKeyDelegate = function(e) {
         if (e.key !== "Enter" && e.key !== " ") return;
-        var row = e.target.closest(".variant-row");
-        if (!row) return;
+        var btn = e.target.closest(".variant-select-btn");
+        if (!btn) return;
         e.preventDefault();
         e.stopPropagation();
-        handleVariantRowAction(parseInt(row.dataset.variantId, 10));
+        handleVariantSelect(parseInt(btn.dataset.variantId, 10));
       };
       panel.addEventListener("click", panel._variantClickDelegate);
       panel.addEventListener("keydown", panel._variantKeyDelegate);
@@ -4296,6 +4729,14 @@
 
     function renderProducts() {
       productGrid.innerHTML = "";
+      // The user-requested grid lives below the main grid, hidden unless the
+      // session has at least one requested product. Requested products render
+      // with the same machinery but route to a different container so they're
+      // visually grouped and labeled as "Requested".
+      var userRequestsGrid = document.getElementById("userRequestsGrid");
+      var userRequestsSection = document.getElementById("userRequestsSection");
+      if (userRequestsGrid) userRequestsGrid.innerHTML = "";
+      var hasUserRequested = false;
       PRODUCTS.forEach(function(p) {
         var card = document.createElement("div");
         var hasMockup = state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0;
@@ -4303,25 +4744,49 @@
           ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
           : (state.originalImage ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> ' : '');
 
-        // Select button: enabled only when image + blueprint + user has chosen a variant on this card
-        var hasChosenVariant = state.selectedVariantByProduct[p.id] != null;
-        var canSelect = !!state.originalImage && p.blueprintId && p.printProviderId && hasChosenVariant;
+        // The button is now a disclosure toggle: clicking it expands the
+        // variant pane below. Each variant inside the pane carries its own
+        // Select button — that's where the real commit happens. So this
+        // button is always enabled once we have an image + blueprint, with
+        // no "choose a variant first" gate.
+        var canSelect = !!state.originalImage && p.blueprintId && p.printProviderId;
         var selectLabel = !state.originalImage
           ? '<i class="fas fa-lock"></i> Select wavelength first'
-          : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving…' : (!hasChosenVariant ? '<i class="fas fa-list"></i> Choose a variant above' : '<i class="fas fa-chevron-down"></i> Select this product'));
+          : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving\u2026'
+              : '<i class="fas fa-chevron-down"></i> <span class="product-select-btn-label">Pick a variant</span>');
 
         card.className = "product-card";
         card.dataset.productId = p.id;
+        card.setAttribute("role", "button");
+        card.setAttribute("tabindex", "0");
+        card.setAttribute("aria-label", p.name + " - " + p.desc + ". " + p.price + (canSelect ? " Select to edit" : ""));
+        // Card layout: preview → info text → action button → collapsible variant pane.
+        // The variant pane lives BELOW the button so clicking the button reads as
+        // "expand this to see variants." Each variant row carries its own
+        // Select button so the pane is the real point of decision; the outer
+        // button is a disclosure toggle, not a commit.
         card.innerHTML =
           '<div class="product-preview"><span class="product-icon"><i class="fas ' + p.icon + '"></i></span></div>' +
           '<div class="product-info">' +
             '<div class="product-name">' + statusDot + p.name + "</div>" +
             '<div class="product-desc">' + p.desc + "</div>" +
             '<div class="product-price">' + p.price + "</div>" +
-            '<div class="variant-panel hidden" data-product-id="' + p.id + '"></div>' +
-            '<button class="product-buy-btn product-select-btn" data-product-id="' + p.id + '"' +
+            '<button class="product-buy-btn product-select-btn" data-product-id="' + p.id + '" aria-expanded="false"' +
               (canSelect ? '' : ' disabled') + '>' + selectLabel + '</button>' +
+            '<div class="variant-panel hidden" data-product-id="' + p.id + '"></div>' +
           "</div>";
+
+        // Persist the product-type icon as a tiny upper-left badge after the
+        // mockup loads — beta testers asked for an at-a-glance indicator so
+        // they can scan the grid by product type without reading names. The
+        // same fa-icon that shows pre-load stays visible as a corner glyph.
+        function _addIconBadge(parentEl, iconClass) {
+          var badge = document.createElement("span");
+          badge.className = "product-icon-badge";
+          badge.innerHTML = '<i class="fas ' + iconClass + '"></i>';
+          badge.setAttribute("aria-hidden", "true");
+          parentEl.appendChild(badge);
+        }
 
         // Show real Printify mockup if available, else draw canvas mockup
         if (hasMockup) {
@@ -4375,6 +4840,7 @@
               previewEl.appendChild(nextBtn);
             })(p.id, mockImages, img, ctrBadge);
           }
+          _addIconBadge(previewEl, p.icon);
         } else if (state.originalImage && solarCanvas.width > 0) {
           var miniCanvas = document.createElement("canvas");
           miniCanvas.width = 160;
@@ -4382,47 +4848,50 @@
           var mctx = miniCanvas.getContext("2d");
           var variant = getSelectedVariantForProduct(p.id);
           drawProductMockup(mctx, p.id, solarCanvas.width, solarCanvas.height, variant);
-          card.querySelector(".product-preview").innerHTML = "";
-          card.querySelector(".product-preview").appendChild(miniCanvas);
+          var canvasPreviewEl = card.querySelector(".product-preview");
+          canvasPreviewEl.innerHTML = "";
+          canvasPreviewEl.appendChild(miniCanvas);
+          _addIconBadge(canvasPreviewEl, p.icon);
         }
 
         // Highlight selected product
         if (state.selectedProduct === p.id) card.classList.add("selected");
 
-        // Click handling is done via event delegation on productGrid (selectProductCard)
-        productGrid.appendChild(card);
+        // Route user-requested products to the "Your Requests" grid so they
+        // visually group as session-only submissions. Everything else goes to
+        // the main grid.
+        if (p._isUserRequested) {
+          card.classList.add("product-card-requested");
+          if (userRequestsGrid) userRequestsGrid.appendChild(card);
+          hasUserRequested = true;
+        } else {
+          productGrid.appendChild(card);
+        }
       });
 
-      // Bind "Select this product" button: scroll to editor (no checkout)
-      productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) {
+      // Show/hide the Your Requests section based on whether the session has
+      // any requested products pending.
+      if (userRequestsSection) {
+        userRequestsSection.classList.toggle("hidden", !hasUserRequested);
+      }
+
+      // Bind the disclosure button: clicking it toggles the variant pane
+      // below. The commit-to-editor flow has moved to the per-variant Select
+      // button inside the pane (see renderVariantPanel). Also lazily loads
+      // the variants from Printify the first time the pane is opened.
+      var _allButtons = Array.from(productGrid.querySelectorAll(".product-buy-btn"));
+      if (userRequestsGrid) {
+        _allButtons = _allButtons.concat(Array.from(userRequestsGrid.querySelectorAll(".product-buy-btn")));
+      }
+      _allButtons.forEach(function(btn) {
         btn.addEventListener("click", function(e) {
           e.stopPropagation();
           var productId = btn.dataset.productId;
           var product = PRODUCTS.find(function(p) { return p.id === productId; });
           if (!product) return;
-          // Selecting a different product means the canvas will render at a new aspect ratio;
-          // any previously uploaded Printify image is now stale — clear it so we re-upload.
-          if (state.selectedProduct !== productId) {
-            state.uploadedPrintifyId = null;
-            state.uploadedPrintifyIdRaw = null;
-            state.uploadedPrintifyIdFiltered = null;
-          }
-          state.selectedProduct = productId;
-          // Apply this product's variant aspect ratio to the crop so the editor frame matches the chosen variant
-          var effectiveAR = getEffectiveAspectRatio(product);
-          if (effectiveAR && effectiveAR.w && effectiveAR.h) {
-            state.cropRatio = effectiveAR.w + ":" + effectiveAR.h;
-          }
-          productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
-          var selectedCard = productGrid.querySelector('.product-card[data-product-id="' + productId + '"]');
-          if (selectedCard) selectedCard.classList.add("selected");
-          updateSelectedProductPreview(product);
-          editSection.classList.remove("hidden");
-          if (cropControls) cropControls.classList.remove("hidden");
-          updateProductCropButton();
-          syncCropRatioUI();
-          renderCanvas();
-          editSection.scrollIntoView({ behavior: "smooth", block: "start" });
+          var card = btn.closest(".product-card");
+          if (!card) return;
+          toggleVariantPane(product, card, btn);
         });
       });
 
@@ -4442,6 +4911,43 @@
           }
         }
       }
+    }
+
+    // ── Shared commit path ───────────────────────────────────────
+    // Called from the per-variant Select button in the variant pane (the
+    // primary commit path). Primes state for the chosen product, then opens
+    // the editor. Also kept general enough for legacy callers.
+    function commitProductSelection(product) {
+      var productId = product.id;
+      // Selecting a different product means the canvas will render at a new
+      // aspect ratio; any previously uploaded Printify image is now stale.
+      if (state.selectedProduct !== productId) {
+        state.uploadedPrintifyId = null;
+        state.uploadedPrintifyIdRaw = null;
+        state.uploadedPrintifyIdFiltered = null;
+      }
+      state.selectedProduct = productId;
+      // If the user hasn't manually picked a variant, treat the product's
+      // `variantId` field as the active default.
+      if (state.selectedVariantByProduct[productId] == null && product.variantId != null) {
+        state.selectedVariantByProduct[productId] = product.variantId;
+      }
+      var effectiveAR = getEffectiveAspectRatio(product);
+      if (effectiveAR && effectiveAR.w && effectiveAR.h) {
+        state.cropRatio = effectiveAR.w + ":" + effectiveAR.h;
+      }
+      productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
+      var userReqGrid = document.getElementById("userRequestsGrid");
+      if (userReqGrid) userReqGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
+      var selectedCard = productGrid.querySelector('.product-card[data-product-id="' + productId + '"]')
+        || (userReqGrid && userReqGrid.querySelector('.product-card[data-product-id="' + productId + '"]'));
+      if (selectedCard) selectedCard.classList.add("selected");
+      updateSelectedProductPreview(product);
+      editSection.classList.remove("hidden");
+      syncCropRatioUI();
+      renderCanvas();
+      updateProductSectionHeader();
+      editSection.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     // Buy button in editor: start checkout for the selected product
@@ -4667,8 +5173,14 @@
 
     // ── Canvas-to-base64 helper for Printify uploads ──────────
     function getCanvasBase64() {
-      // Export the current solar canvas as a JPEG base64 string
-      // We resize to max 4096px (print quality) and use JPEG to keep payload small
+      // Export the current solar canvas as a JPEG base64 string.
+      // Re-render with `_burningCanvas` flag so the on-screen frame border,
+      // guide lines, and any live (un-burned) text overlay are excluded from
+      // the image sent to Printify. Those are editing aids, not product art.
+      var wasBurning = state._burningCanvas;
+      state._burningCanvas = true;
+      try { renderCanvas(); } catch (_e) {}
+
       var maxDim = 4096;
       var sw = solarCanvas.width;
       var sh = solarCanvas.height;
@@ -4682,9 +5194,12 @@
       var ectx = exportCanvas.getContext("2d");
       ectx.drawImage(solarCanvas, 0, 0, ew, eh);
 
-      // Use PNG for best quality (solar images have fine details)
-      var dataUrl = exportCanvas.toDataURL("image/png");
-      // Strip the "data:image/png;base64," prefix — Printify wants raw base64
+      var dataUrl = exportCanvas.toDataURL("image/jpeg", 0.85);
+
+      // Restore on-screen view (with border/guides/text overlay) for the editor.
+      state._burningCanvas = wasBurning || false;
+      try { renderCanvas(); } catch (_e) {}
+
       return dataUrl.split(",")[1];
     }
 
@@ -4886,18 +5401,31 @@
       }
 
       var hqNote = state.hqReady
-        ? "The full NASA/SDO HQ image is ready and will be used for printing. 🌟"
+        ? "The full NASA/SDO HQ image is ready and will be used for printing."
         : (state.hqTaskId
-            ? "The HQ image is still rendering — checkout will wait for it automatically before uploading to Printify."
-            : "The preview image will be used. Click <strong>Make Products</strong> first for full HQ quality.");
+            ? "The HQ image is still rendering — checkout will wait for it automatically before uploading."
+            : "The preview image will be used. Switch the Filter to <strong>HQ RHEF</strong> first if you want the full-resolution print.");
 
       showModal(
-        "Buy " + product.name,
-        "This will create your custom <strong>" + product.name + "</strong> with your solar image and list it on Shopify with <strong>all available sizes and colors</strong>.<br><br>" +
-          hqNote + "<br><br>" +
-          "You'll pick your exact size, color, and options on Shopify's secure checkout.",
-        function() { doCheckout(product); },
-        "Create on Shopify"
+        "Create " + product.name + " on Shopify",
+        "This will publish your custom <strong>" + product.name + "</strong> to Shopify with your selected variant locked in. All you'll do on Shopify is complete payment — no need to re-pick the product, size, or color.<br><br>" +
+          hqNote,
+        function() {
+          // Kick off the checkout and keep the modal open with a spinner on
+          // the Create button until the status list below has rendered and
+          // scrolled into view. That way the user sees a continuous "I'm
+          // working on it" signal from button-press → modal spinner →
+          // status-list progress, with no blank moment in between.
+          doCheckout(product);
+          return new Promise(function(resolve) {
+            // One frame for the spinner to paint, then a hold long enough
+            // for checkoutProgress to scroll into view and ckStep1's spinner
+            // to start animating. ~650ms feels responsive without flashing.
+            requestAnimationFrame(function() { setTimeout(resolve, 650); });
+          });
+        },
+        "Create on Shopify",
+        "Creating product\u2026"
       );
     }
 
@@ -4988,7 +5516,7 @@
               '<div style="font-size:48px;margin-bottom:8px;">🎉</div>' +
               '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">Your product is live on Shopify!</div>' +
               '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
-                'Choose your size, color, and options on Shopify, then complete your purchase.' +
+                'Your variant is pre-selected — just complete checkout on Shopify to receive your custom print.' +
               '</p>' +
               '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
                 '<i class="fab fa-shopify"></i> Complete Purchase on Shopify' +
@@ -4999,13 +5527,25 @@
                 '</button>' +
               '</div>' +
             '</div>';
-          showToast("Product created! Redirecting to Shopify…");
-          setTimeout(function() { window.open(shopifyUrl, "_blank"); }, 1500);
+          showToast("Product ready — click Complete Purchase when you're ready.");
+          // Auto-redirect removed: beta testers reported the previous 1.5s
+          // redirect felt "instant" and hid the completed status indicator.
+          // The user now clicks the prominent Complete Purchase button when
+          // they're ready, keeping the flow under their control.
         });
       })
       .catch(function(err) {
         var msg = err.message || String(err);
+        // Try to parse JSON error from backend
         try { msg = JSON.parse(msg).detail || msg; } catch(_e) {}
+        // Check for rate limit errors
+        if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("429")) {
+          msg = "Rate limit exceeded. Please wait a few minutes and try again.";
+        }
+        // Check for network errors
+        if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
+          msg = "Network error. Please check your internet connection and try again.";
+        }
         checkoutProgress.innerHTML +=
           '<div style="margin-top:14px;color:var(--accent-flare);">' +
             '<i class="fas fa-exclamation-triangle"></i> ' + msg +
@@ -5152,5 +5692,467 @@
     // Product tiles are NOT pre-rendered on load.
     // renderProducts() is called by _installPreviewImage() once a date is selected and the
     // solar preview loads, ensuring cards only populate after the user picks a date.
+
+    // ── Pre-editor confirmation popup ────────────────────────────
+    // Shown after the user clicks "Select this product" on a card. It previews
+    // the chosen variant's metadata (title, size, aspect ratio, price) so the
+    // customer can bail out or change variant before the editor opens — acts
+    // as the safety net that makes the auto-default-variant behavior tolerable.
+    function showConfirmSelectModal(product, onContinue) {
+      var modal = document.getElementById("confirmSelectModal");
+      var metaEl = document.getElementById("confirmSelectMetadata");
+      if (!modal || !metaEl) {
+        // Safety fallback: just run the continuation if the modal isn't wired
+        if (onContinue) onContinue();
+        return;
+      }
+
+      // Resolve the active variant: user's manual pick if present, else product default.
+      var activeVariantId = state.selectedVariantByProduct[product.id] != null
+        ? state.selectedVariantByProduct[product.id]
+        : product.variantId;
+      var cacheKey = product.blueprintId + "_" + product.printProviderId;
+      var variants = variantCache[cacheKey] || [];
+      var activeVariant = variants.find(function(v) { return v.id === activeVariantId; }) || null;
+      var variantText = activeVariant ? variantLabel(activeVariant) : (activeVariantId ? ("ID " + activeVariantId) : "default");
+
+      var ar = getEffectiveAspectRatio(product);
+      var arText = ar ? (ar.w + ":" + ar.h) : "flexible";
+
+      var priceText = (activeVariant ? getVariantPrice(product, activeVariant) : null) || product.price || "";
+
+      // Build metadata rows. Omit empty values so the popup stays compact.
+      var rows = [
+        { label: "Product", value: product.name },
+        { label: "Variant", value: variantText },
+        { label: "Aspect ratio", value: arText },
+        { label: "Price", value: priceText },
+      ];
+      if (product._isUserRequested) {
+        rows.push({ label: "Status", value: "Your request (pending review)" });
+      }
+      metaEl.innerHTML = rows.filter(function(r) { return r.value; }).map(function(r) {
+        return '<dt>' + escapeHtmlSimple(r.label) + '</dt>' +
+               '<dd>' + escapeHtmlSimple(r.value) + '</dd>';
+      }).join("");
+
+      var backdrop = document.getElementById("confirmSelectBackdrop");
+      var closeBtn = document.getElementById("confirmSelectClose");
+      var continueBtn = document.getElementById("confirmSelectContinue");
+      var changeBtn = document.getElementById("confirmSelectChange");
+
+      function close() {
+        modal.classList.add("hidden");
+        continueBtn.removeEventListener("click", onContinueClick);
+        changeBtn.removeEventListener("click", onChangeClick);
+        closeBtn.removeEventListener("click", close);
+        backdrop.removeEventListener("click", close);
+        document.removeEventListener("keydown", onKey);
+      }
+      function onContinueClick() {
+        close();
+        if (onContinue) onContinue();
+      }
+      function onChangeClick() {
+        close();
+        // Leave the variant panel open on the card so the user can pick a
+        // different variant without extra clicks.
+        var card = productGrid.querySelector('.product-card[data-product-id="' + product.id + '"]');
+        if (card) {
+          var panel = card.querySelector(".variant-panel");
+          if (panel) panel.classList.remove("hidden");
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
+      function onKey(e) {
+        if (e.key === "Escape") close();
+        if (e.key === "Enter") { e.preventDefault(); onContinueClick(); }
+      }
+
+      continueBtn.addEventListener("click", onContinueClick);
+      changeBtn.addEventListener("click", onChangeClick);
+      closeBtn.addEventListener("click", close);
+      backdrop.addEventListener("click", close);
+      document.addEventListener("keydown", onKey);
+
+      modal.classList.remove("hidden");
+      setTimeout(function() { continueBtn.focus(); }, 40);
+    }
+
+    function escapeHtmlSimple(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // Feedback widget — floating button + modal with two tabs:
+    //   1. Free-text comment  → POST /api/feedback
+    //   2. Product request    → search /api/printify/blueprints, pick
+    //      a blueprint + provider + variant, attach a note, submit.
+    //
+    // Auto-captures the page context (date, wavelength, filter, selected
+    // product, URL, user agent) so the operator can reproduce what the user
+    // was looking at when they submitted.
+    // ───────────────────────────────────────────────────────────────
+    (function setupFeedbackWidget() {
+      var fab = document.getElementById("feedbackFab");
+      var modal = document.getElementById("feedbackModal");
+      if (!fab || !modal) return;
+
+      var backdrop = document.getElementById("feedbackModalBackdrop");
+      var closeBtn = document.getElementById("feedbackCloseBtn");
+      var tabComment = document.getElementById("feedbackTabComment");
+      var tabProduct = document.getElementById("feedbackTabProduct");
+      var panelComment = document.getElementById("feedbackPanelComment");
+      var panelProduct = document.getElementById("feedbackPanelProduct");
+      var panelThanks = document.getElementById("feedbackPanelThanks");
+      var commentBody = document.getElementById("feedbackCommentBody");
+      var commentEmail = document.getElementById("feedbackCommentEmail");
+      var commentSubmit = document.getElementById("feedbackCommentSubmit");
+      var productSearch = document.getElementById("feedbackProductSearch");
+      var productHint = document.getElementById("feedbackProductHint");
+      var productResults = document.getElementById("feedbackProductResults");
+      var productChosen = document.getElementById("feedbackProductChosen");
+      var chosenName = document.getElementById("feedbackChosenName");
+      var chosenBrand = document.getElementById("feedbackChosenBrand");
+      var chosenClear = document.getElementById("feedbackChosenClear");
+      var providerSelect = document.getElementById("feedbackProviderSelect");
+      var variantSelect = document.getElementById("feedbackVariantSelect");
+      var productNote = document.getElementById("feedbackProductNote");
+      var productSubmit = document.getElementById("feedbackProductSubmit");
+      var thanksMsg = document.getElementById("feedbackThanksMsg");
+      var thanksAnother = document.getElementById("feedbackThanksAnother");
+
+      // Blueprint catalog cache. Loaded lazily on first open of the Request tab.
+      var _blueprints = null;
+      var _blueprintsLoading = null;
+      var _chosenBlueprint = null;
+      // Fallback API base when served from a different origin (e.g., Shopify).
+      var API_BASE = (typeof window !== "undefined" && window.location && window.location.origin) || "";
+
+      function captureContext() {
+        // Pull a small, helpful snapshot of what the user is looking at. Values
+        // are derived from global state if available; missing fields are fine.
+        var ctx = {};
+        try {
+          var dateInput = document.getElementById("solarDate");
+          if (dateInput && dateInput.value) ctx.date = dateInput.value;
+          var selectedCard = document.querySelector(".wl-card.selected");
+          if (selectedCard && selectedCard.dataset.wl) ctx.wavelength = selectedCard.dataset.wl;
+          var filterChecked = document.querySelector('input[name="editorFilter"]:checked');
+          if (filterChecked) ctx.filter = filterChecked.value;
+          var bgChecked = document.querySelector('input[name="vignetteFade"]:checked');
+          if (bgChecked) ctx.background = bgChecked.value;
+          var selectedProduct = document.querySelector(".product-card.selected");
+          if (selectedProduct) ctx.selectedProduct = selectedProduct.dataset.productId;
+        } catch (_e) { /* best-effort */ }
+        return ctx;
+      }
+
+      function openModal() {
+        modal.classList.remove("hidden");
+        // Reset to comment tab each open
+        showTab("comment");
+        setTimeout(function() {
+          if (commentBody) commentBody.focus();
+        }, 60);
+      }
+
+      function closeModal() {
+        modal.classList.add("hidden");
+        // Clear form state so next open starts clean
+        if (commentBody) commentBody.value = "";
+        if (commentEmail) commentEmail.value = "";
+        if (productSearch) productSearch.value = "";
+        if (productResults) productResults.innerHTML = "";
+        if (productNote) productNote.value = "";
+        clearChosen();
+      }
+
+      function showTab(name) {
+        panelComment.classList.toggle("hidden", name !== "comment");
+        panelProduct.classList.toggle("hidden", name !== "product");
+        panelThanks.classList.add("hidden");
+        tabComment.classList.toggle("active", name === "comment");
+        tabProduct.classList.toggle("active", name === "product");
+        tabComment.setAttribute("aria-selected", name === "comment" ? "true" : "false");
+        tabProduct.setAttribute("aria-selected", name === "product" ? "true" : "false");
+        if (name === "product") loadBlueprints();
+      }
+
+      function showThanks(msg) {
+        panelComment.classList.add("hidden");
+        panelProduct.classList.add("hidden");
+        panelThanks.classList.remove("hidden");
+        if (thanksMsg) thanksMsg.textContent = msg || "Your note is on its way.";
+      }
+
+      function loadBlueprints() {
+        if (_blueprints || _blueprintsLoading) {
+          if (_blueprints) renderResults(productSearch.value.trim());
+          return;
+        }
+        productHint.classList.remove("hidden");
+        productHint.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading catalog\u2026';
+        _blueprintsLoading = fetch(API_BASE + "/api/printify/blueprints")
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            _blueprints = Array.isArray(data) ? data : [];
+            productHint.classList.add("hidden");
+            renderResults(productSearch.value.trim());
+          })
+          .catch(function(err) {
+            productHint.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Couldn\u2019t load catalog. Try again in a minute.';
+            console.warn("[feedback] blueprints load failed:", err);
+          })
+          .finally(function() { _blueprintsLoading = null; });
+      }
+
+      function renderResults(query) {
+        if (!_blueprints) return;
+        if (!productResults) return;
+        query = (query || "").toLowerCase().trim();
+        var items;
+        if (!query) {
+          // No query: show a compact hint + recent popular categories
+          productResults.innerHTML = '<div class="feedback-product-placeholder">Type above to search \u2014 try "tote", "wine", "pet", "ornament"&hellip;</div>';
+          return;
+        }
+        items = _blueprints.filter(function(b) {
+          var t = (b.title || "").toLowerCase();
+          var br = (b.brand || "").toLowerCase();
+          return t.indexOf(query) !== -1 || br.indexOf(query) !== -1;
+        }).slice(0, 20);
+        if (!items.length) {
+          productResults.innerHTML = '<div class="feedback-product-placeholder">No matches for \u201c' + escapeHtml(query) + '\u201d.</div>';
+          return;
+        }
+        productResults.innerHTML = items.map(function(b) {
+          return '<button type="button" class="feedback-product-hit" data-bp="' + b.id + '">' +
+                   '<span class="feedback-product-hit-title">' + escapeHtml(b.title || "") + '</span>' +
+                   '<span class="feedback-product-hit-brand">' + escapeHtml(b.brand || "") + '</span>' +
+                 '</button>';
+        }).join("");
+      }
+
+      function escapeHtml(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function chooseBlueprint(bp) {
+        _chosenBlueprint = bp;
+        chosenName.textContent = bp.title || ("Blueprint " + bp.id);
+        chosenBrand.textContent = bp.brand ? ("Brand: " + bp.brand) : "";
+        productChosen.classList.remove("hidden");
+        productResults.innerHTML = "";
+        if (productSearch) productSearch.value = "";
+        // Load providers
+        providerSelect.innerHTML = '<option>Loading providers\u2026</option>';
+        variantSelect.innerHTML = '<option>Pick a provider first</option>';
+        fetch(API_BASE + "/api/printify/blueprints/" + encodeURIComponent(bp.id) + "/providers")
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .catch(function() { return null; })
+          .then(function(providers) {
+            // Some environments only expose the variants endpoint (which needs a
+            // provider id). If /providers doesn't exist, show a manual provider
+            // entry box instead of blocking the submission.
+            if (!Array.isArray(providers) || !providers.length) {
+              providerSelect.innerHTML = '<option value="">(provider lookup unavailable — we\u2019ll assign one)</option>';
+              variantSelect.innerHTML = '<option value="">(any)</option>';
+              return;
+            }
+            providerSelect.innerHTML = '<option value="">Pick a provider\u2026</option>' +
+              providers.map(function(p) {
+                return '<option value="' + p.id + '">' + escapeHtml(p.title || ("Provider " + p.id)) + '</option>';
+              }).join("");
+            variantSelect.innerHTML = '<option value="">Pick a provider first</option>';
+          });
+      }
+
+      function loadVariants(bpId, providerId) {
+        if (!bpId || !providerId) return;
+        variantSelect.innerHTML = '<option>Loading variants\u2026</option>';
+        fetch(API_BASE + "/api/printify/blueprints/" + encodeURIComponent(bpId) + "/providers/" + encodeURIComponent(providerId) + "/variants")
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var vs = (data && Array.isArray(data.variants)) ? data.variants : [];
+            if (!vs.length) {
+              variantSelect.innerHTML = '<option value="">(no variants returned)</option>';
+              return;
+            }
+            variantSelect.innerHTML = '<option value="">Any variant is fine</option>' +
+              vs.map(function(v) {
+                var opts = v.options ? Object.keys(v.options).map(function(k) { return v.options[k]; }).join(" · ") : "";
+                return '<option value="' + v.id + '" data-title="' + escapeHtml(v.title || "") + '">' +
+                       escapeHtml(v.title || ("Variant " + v.id)) + (opts ? (" (" + escapeHtml(opts) + ")") : "") +
+                       '</option>';
+              }).join("");
+          })
+          .catch(function() {
+            variantSelect.innerHTML = '<option value="">(couldn\u2019t load variants — we\u2019ll figure it out)</option>';
+          });
+      }
+
+      function clearChosen() {
+        _chosenBlueprint = null;
+        if (productChosen) productChosen.classList.add("hidden");
+        if (providerSelect) providerSelect.innerHTML = "";
+        if (variantSelect) variantSelect.innerHTML = "";
+      }
+
+      function submitComment() {
+        var body = (commentBody.value || "").trim();
+        if (!body) {
+          commentBody.focus();
+          commentBody.classList.add("feedback-field-error");
+          setTimeout(function() { commentBody.classList.remove("feedback-field-error"); }, 1500);
+          return;
+        }
+        var payload = {
+          kind: "comment",
+          body: body,
+          email: (commentEmail.value || "").trim() || null,
+          url: window.location.href,
+          user_agent: navigator.userAgent,
+          context: captureContext(),
+        };
+        commentSubmit.disabled = true;
+        commentSubmit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending\u2026';
+        sendFeedback(payload)
+          .then(function() { showThanks("Thanks — your feedback is logged."); })
+          .catch(function(e) {
+            showToast("Couldn't send feedback: " + (e && e.message ? e.message : "please try again"), "error");
+          })
+          .finally(function() {
+            commentSubmit.disabled = false;
+            commentSubmit.innerHTML = '<i class="fas fa-paper-plane"></i> Send feedback';
+          });
+      }
+
+      function submitProductRequest() {
+        if (!_chosenBlueprint) {
+          showToast("Pick a product first.", "error");
+          return;
+        }
+        var providerId = providerSelect.value ? parseInt(providerSelect.value, 10) : null;
+        var variantId = variantSelect.value ? parseInt(variantSelect.value, 10) : null;
+        var variantTitle = variantSelect.selectedOptions[0] ? variantSelect.selectedOptions[0].dataset.title : null;
+        var note = (productNote.value || "").trim();
+
+        var payload = {
+          kind: "product_request",
+          body: note || ("Request: " + (_chosenBlueprint.title || ("BP " + _chosenBlueprint.id))),
+          url: window.location.href,
+          user_agent: navigator.userAgent,
+          context: captureContext(),
+          product_request: {
+            blueprintId: _chosenBlueprint.id,
+            title: _chosenBlueprint.title || null,
+            brand: _chosenBlueprint.brand || null,
+            printProviderId: providerId,
+            variantId: variantId,
+            variantTitle: variantTitle || null,
+          },
+        };
+        productSubmit.disabled = true;
+        productSubmit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending\u2026';
+
+        // Derive aspect ratio from the variant's placeholder if we can — the
+        // rendering path needs something non-null to avoid showing a generic
+        // 1:1 square for a 2:1 print area.
+        var aspectRatio = { w: 1, h: 1 };
+        try {
+          var opts = variantSelect.selectedOptions[0];
+          var vid = parseInt(opts && opts.value, 10);
+          // variantSelect options were populated from /variants; we can re-resolve
+          // placeholder dimensions by refetching, but for session purposes the
+          // variant's size title carries enough signal. Default 1:1 is safe.
+          if (opts && /(\d+)\s*[x×]\s*(\d+)/i.test(opts.textContent || "")) {
+            var m = (opts.textContent || "").match(/(\d+)\s*[x×]\s*(\d+)/i);
+            if (m) aspectRatio = { w: parseInt(m[1], 10), h: parseInt(m[2], 10) };
+          }
+        } catch (_e) { /* best-effort */ }
+
+        sendFeedback(payload)
+          .then(function() {
+            // Build a session-only product entry so the user can use what they
+            // just requested without waiting for admin approval.
+            if (typeof makeProductFromRequest === "function" && typeof addToSessionCatalog === "function") {
+              var sessionEntry = makeProductFromRequest(payload.product_request, { aspectRatio: aspectRatio });
+              if (sessionEntry) {
+                addToSessionCatalog(sessionEntry);
+                // Merge into the live PRODUCTS array if not already present
+                if (typeof PRODUCTS !== "undefined" && !PRODUCTS.find(function(p) { return p.id === sessionEntry.id; })) {
+                  PRODUCTS.push(sessionEntry);
+                }
+                // Re-render so the Your Requests section picks it up immediately
+                if (typeof renderProducts === "function") renderProducts();
+              }
+            }
+            showThanks("Got it \u2014 your product is ready below under \u201cYour Requests\u201d. We'll review for adding to the permanent catalog.");
+          })
+          .catch(function(e) {
+            showToast("Couldn't send request: " + (e && e.message ? e.message : "please try again"), "error");
+          })
+          .finally(function() {
+            productSubmit.disabled = false;
+            productSubmit.innerHTML = '<i class="fas fa-star"></i> Request this product';
+          });
+      }
+
+      function sendFeedback(payload) {
+        return fetch(API_BASE + "/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }).then(function(r) {
+          if (!r.ok) return r.text().then(function(t) { throw new Error(t || ("HTTP " + r.status)); });
+          return r.json();
+        });
+      }
+
+      // Wire events
+      fab.addEventListener("click", openModal);
+      backdrop.addEventListener("click", closeModal);
+      closeBtn.addEventListener("click", closeModal);
+      tabComment.addEventListener("click", function() { showTab("comment"); });
+      tabProduct.addEventListener("click", function() { showTab("product"); });
+      commentSubmit.addEventListener("click", submitComment);
+      productSubmit.addEventListener("click", submitProductRequest);
+      chosenClear.addEventListener("click", clearChosen);
+      thanksAnother.addEventListener("click", function() { showTab("comment"); });
+
+      // Debounced search
+      var searchTimer = null;
+      productSearch.addEventListener("input", function() {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() { renderResults(productSearch.value.trim()); }, 120);
+      });
+
+      // Delegated click for product hits
+      productResults.addEventListener("click", function(e) {
+        var hit = e.target.closest(".feedback-product-hit");
+        if (!hit) return;
+        var bpId = parseInt(hit.dataset.bp, 10);
+        var bp = (_blueprints || []).find(function(b) { return b.id === bpId; });
+        if (bp) chooseBlueprint(bp);
+      });
+
+      // Variant list depends on provider selection
+      providerSelect.addEventListener("change", function() {
+        if (!_chosenBlueprint) return;
+        var pid = providerSelect.value;
+        if (pid) loadVariants(_chosenBlueprint.id, pid);
+      });
+
+      // Escape key closes the modal when it's open
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
+      });
+    })();
 
   })();

@@ -351,15 +351,51 @@ HELIOVIEWER_BASE = "https://api.helioviewer.org/v2/takeScreenshot"
 
 def _fetch_helioviewer_screenshot(url: str, timeout: int = 60):
     """Sync fetch so we can run in executor; returns (content, content_type) or raises.
-    Skip SSL verify for this request only: the app sets SSL_CERT_FILE to a NASA bundle
-    which breaks verification for api.helioviewer.org (public CA). We only GET public
-    read-only image URLs here.
+
+    Works across three network shapes without configuration:
+      1. External / home wifi: no proxy in use, direct connection succeeds.
+      2. Corporate network (dev): outbound direct is blocked, HTTPS_PROXY env
+         points at webfilter.nwra.com which does TLS MITM.
+      3. Deployed (Render): no proxy, direct connection succeeds.
+
+    Strategy: try direct first (bypassing any HTTPS_PROXY env var). If direct
+    refuses with a ConnectionError, retry letting requests honor the env
+    proxy. That way external-wifi users aren't trapped by a stale corp-
+    network HTTPS_PROXY in their shell profile, and corp-network users still
+    reach the API via the filter.
+
+    SSL handling: the app may set SSL_CERT_FILE to a NASA CA bundle (needed for
+    JSOC/VSO), which does NOT chain to the public CA that signs api.helioviewer.org.
+    Use certifi's bundle for this single call. If the corporate proxy re-signs
+    certs with its own CA (breaks certifi), fall through to verify=False — the
+    payload is a public read-only image so the downside is minimal.
     """
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    # Bypass any system/corporate proxy (e.g. webfilter.nwra.com) — Helioviewer is a
-    # public API that must be reached directly, not through an internal web filter.
-    r = requests.get(url, timeout=timeout, verify=False, proxies={"http": None, "https": None})
+
+    try:
+        import certifi
+        verify_first = certifi.where()
+    except ImportError:
+        verify_first = False
+
+    def _do_get(proxies_arg, req_timeout):
+        try:
+            return requests.get(url, timeout=req_timeout, verify=verify_first, proxies=proxies_arg)
+        except requests.exceptions.SSLError:
+            return requests.get(url, timeout=req_timeout, verify=False, proxies=proxies_arg)
+
+    # Try direct first with an aggressive (connect=5s, read=timeout) timeout
+    # so external-wifi clients succeed fast and corp-network clients fail fast
+    # enough to try the env proxy. A full `timeout` on the direct attempt
+    # would make corp-network clients wait a full minute before falling back.
+    try:
+        r = _do_get({"http": None, "https": None}, (5, timeout))
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        # Direct refused or couldn't connect — retry via whatever proxy
+        # HTTPS_PROXY / https_proxy points at. proxies=None means "use
+        # default behavior" (env vars).
+        r = _do_get(None, timeout)
     r.raise_for_status()
     ct = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
     if "json" in ct:
@@ -781,6 +817,10 @@ async def generate_preview(req: PreviewRequest = Body(...)):
 
 from api import printify_routes
 app.include_router(printify_routes.router, prefix="/api")
+
+from api import feedback_routes
+app.include_router(feedback_routes.router, prefix="/api")
+app.include_router(feedback_routes.catalog_router, prefix="/api")
 
 # --- Asynchronous HQ generation endpoints ---
 from fastapi import BackgroundTasks, HTTPException, APIRouter
@@ -1444,9 +1484,12 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             log_to_queue("[fetch][AIA][warn] No full-res level-1 science FITS found after filtering.")
             raise HTTPException(status_code=502, detail="No full-res level-1 AIA FITS found.")
         # --- Memory-safe streaming AIA frame combination ---
+        # Note: Map is imported at module scope. Do NOT re-import it here — a local
+        # re-import would make `Map` a function-local name throughout fido_fetch_map,
+        # and the earlier references at lines ~1369/1372 would then raise
+        # UnboundLocalError before reaching this point.
         import numpy as np
         import gc
-        from sunpy.map import Map
         n_frames = 0
         sum_exp = 0.0
         combined_data = None
@@ -2104,11 +2147,17 @@ async def serve_asset(subpath: str):
 
 # -------------------------------------------------------------------
 # Local dev: serve frontend assets at exact paths so /docs and /api/* are not shadowed.
+# No-cache headers ensure iterative edits show up on reload without hitting
+# stale browser caches. In production this adds a negligible revalidation
+# round-trip per asset on each navigation, which is the right tradeoff for
+# an app that pushes small frontend fixes often.
 # -------------------------------------------------------------------
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+
 @app.get("/solar-archive.js")
 async def serve_js():
-    return FileResponse(Path(__file__).parent / "solar-archive.js", media_type="application/javascript")
+    return FileResponse(Path(__file__).parent / "solar-archive.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 @app.get("/solar-archive.css")
 async def serve_css():
-    return FileResponse(Path(__file__).parent / "solar-archive.css", media_type="text/css")
+    return FileResponse(Path(__file__).parent / "solar-archive.css", media_type="text/css", headers=_NO_CACHE_HEADERS)

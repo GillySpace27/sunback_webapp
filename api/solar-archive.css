@@ -249,16 +249,12 @@ input[type="date"]:focus, select:focus {
 
 /* Match option shows mode color (set in JS); when selected, .active provides outline and bold */
 
-/* HQ RHEF option — gold accent to signal premium quality */
+/* HQ RHEF option — matches sibling filter options. A subtle star cue in the
+   label signals "premium/slow" without the old gold treatment that tested as
+   intimidating to click. When selected, it uses the same accent-corona as
+   the other filters. */
 #hqRhefFilterOpt {
-  border-color: rgba(255, 196, 0, 0.35);
-  color: #c9a800;
-}
-#hqRhefFilterOpt:has(input:checked),
-#hqRhefFilterOpt.active {
-  background: #b8860b;
-  border-color: #c9a800;
-  color: #fff;
+  color: var(--text-secondary);
 }
 
 .filter-opt input[type="radio"] {
@@ -831,6 +827,31 @@ html.dark .image-stage {
   color: var(--text-dim);
 }
 
+/* Tiny upper-left glyph that persists once the mockup loads. Beta testers
+   asked for an at-a-glance product-type indicator so they can scan the grid
+   without reading each name — this is the same fa-icon that renders pre-load,
+   shrunk to a corner badge. The backdrop is semi-opaque for legibility on
+   both light-product and dark-product mockups. */
+.product-preview .product-icon-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 22, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  font-size: 24px;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 2;
+}
+
 .product-info {
   padding: 14px;
 }
@@ -952,6 +973,34 @@ html.dark .image-stage {
   background: var(--accent-corona);
   border-color: var(--accent-corona);
   color: #fff;
+}
+
+/* Loading state for the modal's Create/Confirm button. While the Promise
+   returned by onConfirm is pending the button shows a spinner + label so
+   users see the click registered and compute is underway. Both buttons are
+   disabled until the handler settles. */
+.modal-actions .btn-confirm.is-loading {
+  opacity: 0.88;
+  cursor: progress;
+  /* Keep background full-strength so "loading" reads as active, not inert. */
+}
+.modal-actions button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.modal-actions .btn-confirm .btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
 }
 
 .hidden { display: none !important; }
@@ -1350,45 +1399,74 @@ html.dark .image-stage {
 .variant-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
+  gap: 4px;
+  margin-top: 6px;
 }
 
+/* Variant row is now a tile: label left, price middle, Select button right.
+   Each row is its own commit point — there's no passive "confirm" click. */
 .variant-row {
-  display: block;
-  font-size: 0.72rem;
-  padding: 4px 8px;
-  border-radius: 4px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  padding: 6px 8px;
+  border-radius: 6px;
   border: 1px solid transparent;
-  cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   background: var(--bg-deep);
 }
 
 .variant-row:hover {
   background: var(--border);
-  color: var(--text-primary);
-}
-
-.variant-row.pending {
-  border-color: var(--accent-sun);
-  background: rgba(255, 152, 0, 0.12);
-  color: var(--text-primary);
 }
 
 .variant-row.confirmed {
   border-color: var(--accent-cool);
   background: rgba(123, 97, 255, 0.15);
-  color: var(--text-primary);
   font-weight: 600;
 }
 
+.variant-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .variant-price {
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   color: var(--text-dim);
-  margin-left: 4px;
-  font-weight: 400;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.variant-price-empty { min-width: 28px; }
+
+.variant-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 5px;
+  border: 1px solid var(--accent-cool);
+  background: transparent;
+  color: var(--accent-cool);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+.variant-select-btn:hover {
+  background: var(--accent-cool);
+  color: #fff;
+}
+.variant-select-btn i { font-size: 0.65rem; }
+.variant-row.confirmed .variant-select-btn {
+  background: var(--accent-cool);
+  color: #fff;
 }
 
 .variant-clock-note {
@@ -1796,4 +1874,479 @@ html.dark .image-stage {
     width: 100%;
     position: static;
   }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Feedback widget — floating action button + modal. Sits above all
+   other app chrome (z-index above the catalog modal) so users can
+   reach it from any state of the flow.
+   ─────────────────────────────────────────────────────────────── */
+.feedback-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9990;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(123, 97, 255, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.feedback-fab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(123, 97, 255, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.feedback-fab:active { transform: translateY(0); }
+.feedback-fab i { font-size: 1rem; }
+
+@media (max-width: 480px) {
+  /* Shrink to an icon-only pill on narrow screens so it doesn't steal space */
+  .feedback-fab-label { display: none; }
+  .feedback-fab { padding: 12px; }
+}
+
+.feedback-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9995;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.feedback-modal.hidden { display: none; }
+.feedback-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 20, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.feedback-modal-panel {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: #17192a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 28px 24px 24px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  color: var(--text-primary, #e9eaf5);
+}
+.feedback-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary, #9898b8);
+  border: 0;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.feedback-close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.feedback-modal-title {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.feedback-modal-sub {
+  margin: 0 0 18px;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #9898b8);
+}
+
+.feedback-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 18px;
+}
+.feedback-tab {
+  flex: 1;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.feedback-tab:hover { color: var(--text-primary, #e9eaf5); }
+.feedback-tab.active {
+  color: #fff;
+  border-bottom-color: var(--accent-corona, #7b61ff);
+}
+.feedback-tab i { margin-right: 6px; }
+
+.feedback-tab-panel { display: block; }
+.feedback-tab-panel.hidden { display: none; }
+
+.feedback-field-label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary, #9898b8);
+  letter-spacing: 0.02em;
+}
+.feedback-field-opt {
+  font-weight: 400;
+  color: var(--text-dim, #6a6a8a);
+}
+
+.feedback-modal textarea,
+.feedback-modal input[type="text"],
+.feedback-modal input[type="email"],
+.feedback-modal select {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f1120;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary, #e9eaf5);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.feedback-modal textarea { resize: vertical; min-height: 88px; }
+.feedback-modal textarea:focus,
+.feedback-modal input:focus,
+.feedback-modal select:focus {
+  border-color: var(--accent-corona, #7b61ff);
+  background: #12152a;
+}
+.feedback-field-error {
+  border-color: #ff5a5f !important;
+  animation: feedback-shake 0.24s ease;
+}
+@keyframes feedback-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.feedback-context-note {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(123, 97, 255, 0.08);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #9898b8);
+  line-height: 1.4;
+}
+.feedback-context-note i { color: var(--accent-corona, #7b61ff); margin-top: 2px; }
+
+.feedback-submit-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+.feedback-submit-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.feedback-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.feedback-submit-btn i { margin-right: 6px; }
+.feedback-submit-secondary {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.feedback-product-hint {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #9898b8);
+}
+.feedback-product-hint.hidden { display: none; }
+
+.feedback-product-results {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.feedback-product-placeholder {
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  color: var(--text-dim, #6a6a8a);
+  text-align: center;
+}
+.feedback-product-hit {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #0f1120;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  color: var(--text-primary, #e9eaf5);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.feedback-product-hit:hover {
+  background: #151832;
+  border-color: rgba(123, 97, 255, 0.3);
+}
+.feedback-product-hit-title { font-weight: 600; }
+.feedback-product-hit-brand {
+  font-size: 0.72rem;
+  color: var(--text-dim, #6a6a8a);
+  white-space: nowrap;
+}
+
+.feedback-product-chosen {
+  margin-top: 14px;
+  padding: 12px;
+  background: rgba(123, 97, 255, 0.06);
+  border: 1px solid rgba(123, 97, 255, 0.2);
+  border-radius: 8px;
+}
+.feedback-product-chosen.hidden { display: none; }
+.feedback-chosen-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.feedback-chosen-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.feedback-chosen-brand {
+  font-size: 0.72rem;
+  color: var(--text-dim, #6a6a8a);
+  margin-top: 2px;
+}
+.feedback-chosen-clear {
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary, #9898b8);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.feedback-chosen-clear:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.feedback-thanks {
+  text-align: center;
+  padding: 20px 10px;
+}
+.feedback-thanks i {
+  font-size: 2.6rem;
+  color: #3ddc84;
+  margin-bottom: 10px;
+}
+.feedback-thanks h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+.feedback-thanks p {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #9898b8);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Pre-editor confirmation modal — previews the product & variant
+   after the user clicks "Select this product" and before the editor
+   loads. Smaller than the feedback modal since it's a single action
+   with a compact metadata readout.
+   ─────────────────────────────────────────────────────────────── */
+.confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9994;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.confirm-modal.hidden { display: none; }
+.confirm-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 20, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.confirm-modal-panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: #17192a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 26px 22px 20px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  color: var(--text-primary, #e9eaf5);
+}
+.confirm-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary, #9898b8);
+  border: 0;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.confirm-modal-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.confirm-modal-title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.confirm-modal-sub {
+  margin: 0 0 16px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #9898b8);
+}
+.confirm-metadata {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: #0f1120;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+}
+.confirm-metadata dt {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim, #6a6a8a);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.confirm-metadata dd {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--text-primary, #e9eaf5);
+  font-weight: 500;
+}
+.confirm-modal-note {
+  margin: 0 0 14px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9898b8);
+  line-height: 1.4;
+}
+.confirm-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+.confirm-modal-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+.confirm-modal-btn-primary {
+  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
+  color: #fff;
+}
+.confirm-modal-btn-primary:hover { transform: translateY(-1px); }
+.confirm-modal-btn-secondary {
+  background: transparent;
+  color: var(--text-primary, #e9eaf5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.confirm-modal-btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* ───────────────────────────────────────────────────────────────
+   Session-only "Your Requests" section — cards the user submitted
+   via the feedback modal, visible immediately in their session
+   before admin approval.
+   ─────────────────────────────────────────────────────────────── */
+.user-requests-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.user-requests-section.hidden { display: none; }
+.user-requests-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.user-requests-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary, #e9eaf5);
+}
+.user-requests-sub {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9898b8);
+}
+.product-card.product-card-requested {
+  border-color: rgba(123, 97, 255, 0.3);
+}
+.product-card-requested .product-name::before {
+  content: "Requested";
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  background: rgba(123, 97, 255, 0.15);
+  border: 1px solid rgba(123, 97, 255, 0.35);
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #c0afff;
+  vertical-align: middle;
 }
