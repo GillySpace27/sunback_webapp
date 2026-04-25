@@ -702,6 +702,15 @@
           slideImg.alt = "Real mockup";
           slideshow.appendChild(slideImg);
 
+          // Translucent "loading next mockup" overlay. Printify's CDN takes
+          // noticeable time to serve a fresh mockup — without this, clicking
+          // next/prev left the stale image on screen during the fetch and
+          // the UI felt broken. Shown on nav-click, hidden on img load/error.
+          var slideLoader = document.createElement("div");
+          slideLoader.className = "slide-loader hidden";
+          slideLoader.innerHTML = '<span class="slide-spinner"></span>';
+          slideshow.appendChild(slideLoader);
+
           var prevBtn = document.createElement("button");
           prevBtn.className = "slide-nav slide-prev";
           prevBtn.innerHTML = "&#8249;";
@@ -718,27 +727,32 @@
           slideCounter.className = "slide-counter";
           slideshow.appendChild(slideCounter);
 
-          prevBtn.addEventListener("click", function() {
-            var pid = state.selectedProduct;
-            var imgs = state.mockups[pid] && state.mockups[pid].images || [];
-            if (imgs.length < 2) return;
-            var idx = (state.mockupSlideIndex[pid] || 0) - 1;
-            if (idx < 0) idx = imgs.length - 1;
-            state.mockupSlideIndex[pid] = idx;
-            slideshow.querySelector(".preview-real-mockup").src = imgs[idx].src;
-            slideshow.querySelector(".slide-counter").textContent = (idx + 1) + " / " + imgs.length;
-          });
+          // Wire load/error on the single <img> so any subsequent src change
+          // (from either button) clears the loader when the new image lands.
+          function hideSlideLoader() { slideLoader.classList.add("hidden"); }
+          function showSlideLoader() { slideLoader.classList.remove("hidden"); }
+          slideImg.addEventListener("load", hideSlideLoader);
+          slideImg.addEventListener("error", hideSlideLoader);
 
-          nextBtn.addEventListener("click", function() {
+          function navSlide(delta) {
             var pid = state.selectedProduct;
             var imgs = state.mockups[pid] && state.mockups[pid].images || [];
             if (imgs.length < 2) return;
-            var idx = (state.mockupSlideIndex[pid] || 0) + 1;
+            var idx = (state.mockupSlideIndex[pid] || 0) + delta;
+            if (idx < 0) idx = imgs.length - 1;
             if (idx >= imgs.length) idx = 0;
             state.mockupSlideIndex[pid] = idx;
-            slideshow.querySelector(".preview-real-mockup").src = imgs[idx].src;
+            showSlideLoader();
+            var imgEl = slideshow.querySelector(".preview-real-mockup");
+            imgEl.src = imgs[idx].src;
             slideshow.querySelector(".slide-counter").textContent = (idx + 1) + " / " + imgs.length;
-          });
+            // If the browser served the image from cache, load may have
+            // already fired before we attached the listener for this change.
+            if (imgEl.complete && imgEl.naturalWidth > 0) hideSlideLoader();
+          }
+
+          prevBtn.addEventListener("click", function() { navSlide(-1); });
+          nextBtn.addEventListener("click", function() { navSlide(+1); });
 
           mockupContainer.appendChild(slideshow);
         }
@@ -1239,10 +1253,21 @@
         div.innerHTML = '<div class="wl-thumb-spinner"></div>';
         div.classList.remove("loaded");
 
+        // Tile thumbnails must use the backend proxy (same-origin) — the
+        // earlier direct-to-Helioviewer URL fails on browsers behind
+        // corporate web filters that block outbound to public APIs, leaving
+        // the wavelength picker visually empty even when the rest of the
+        // app (which already routes through the proxy) loads fine. The
+        // backend's helioviewer_thumb endpoint already handles network
+        // resilience (direct → env-proxy fallback) and caches responses.
         var directUrl = "https://api.helioviewer.org/v2/takeScreenshot/?" +
           "date=" + encodeURIComponent(isoDate) +
           "&imageScale=11.7&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
           "&x0=0&y0=0&width=256&height=256&display=true&watermark=false";
+        var proxyUrl256 = API_BASE
+          ? API_BASE + "/api/helioviewer_thumb?date=" +
+              encodeURIComponent(isoDate) + "&wavelength=" + wl + "&image_scale=12&size=256"
+          : null;
 
         var tileImg = document.createElement("img");
         tileImg.alt = wl + " Å";
@@ -1254,12 +1279,10 @@
           thumbCache[wl] = { raw: null, canvas2048: null, rhef: null };
           div.classList.add("loaded");
           tileLog("loaded", wl);
-          // Kick off a background backend-proxy fetch to warm the canvas cache.
-          // The backend proxy bypasses CORS (Helioviewer blocks cross-origin canvas reads),
-          // so this is the only reliable way to get a drawable canvas from Helioviewer data.
-          // 512px gives good preview quality and is fast enough to load before the user clicks.
+          // Warm the 512px canvas cache for editor preview. Goes through the
+          // same proxy so it's reliable behind corp filters.
           if (API_BASE) {
-            var proxyUrl = API_BASE + "/api/helioviewer_thumb?date=" +
+            var canvasUrl = API_BASE + "/api/helioviewer_thumb?date=" +
               encodeURIComponent(isoDate) + "&wavelength=" + wl + "&image_scale=12&size=512";
             var proxyImg = new Image();
             proxyImg.onload = function() {
@@ -1268,7 +1291,6 @@
                 c.width  = proxyImg.naturalWidth  || 512;
                 c.height = proxyImg.naturalHeight || 512;
                 c.getContext("2d").drawImage(proxyImg, 0, 0);
-                // Guard: thumbCache entry may be gone if user changed date rapidly
                 if (thumbCache[String(wl)]) thumbCache[String(wl)].canvas2048 = c;
                 tileLog("proxy canvas cached for", wl);
               } catch(e) {
@@ -1278,16 +1300,26 @@
             proxyImg.onerror = function() {
               tileLog("proxy canvas fetch failed for", wl);
             };
-            proxyImg.src = proxyUrl;
+            proxyImg.src = canvasUrl;
           }
         };
+        // If the proxy is unreachable for any reason (backend down, CORS),
+        // fall back to a direct Helioviewer fetch — better to occasionally
+        // succeed than always-empty tiles.
+        var triedFallback = false;
         tileImg.onerror = function() {
+          if (!triedFallback && proxyUrl256 && tileImg.src !== directUrl) {
+            triedFallback = true;
+            tileLog("tile proxy failed, falling back to direct for", wl);
+            tileImg.src = directUrl;
+            return;
+          }
           div.innerHTML = "";
           tileLog("error", wl);
         };
         div.innerHTML = "";
         div.appendChild(tileImg);
-        tileImg.src = directUrl;
+        tileImg.src = proxyUrl256 || directUrl;
       });
     }
 
@@ -5032,34 +5064,51 @@
             ctrBadge.textContent = (cardSlideIdx + 1) + "/" + mockImages.length;
             previewEl.appendChild(ctrBadge);
 
-            (function(pid, imgs, imgEl, badge) {
+            // Translucent "loading next mockup" overlay — Printify's CDN can
+            // take a couple seconds to serve a fresh mockup, so without this
+            // the UI shows the stale image during the fetch, making the nav
+            // feel broken. Shown on nav-click, hidden on img load/error.
+            var slideLoader = document.createElement("div");
+            slideLoader.className = "card-slide-loader hidden";
+            slideLoader.innerHTML = '<span class="card-slide-spinner"></span>';
+            previewEl.appendChild(slideLoader);
+
+            (function(pid, imgs, imgEl, badge, loader) {
+              function showLoader() { loader.classList.remove("hidden"); }
+              function hideLoader() { loader.classList.add("hidden"); }
+              imgEl.addEventListener("load", hideLoader);
+              imgEl.addEventListener("error", hideLoader);
+
+              function go(delta) {
+                var idx = (state.mockupSlideIndex[pid] || 0) + delta;
+                if (idx < 0) idx = imgs.length - 1;
+                if (idx >= imgs.length) idx = 0;
+                state.mockupSlideIndex[pid] = idx;
+                badge.textContent = (idx + 1) + "/" + imgs.length;
+                // If the target image is already decoded in cache, the load
+                // event may fire synchronously — show the loader first, then
+                // set src, so hideLoader's handler can reliably clear it.
+                showLoader();
+                imgEl.src = imgs[idx].src;
+                // Safety net: if the browser's cache already has the image
+                // complete=true, the load event may have already fired before
+                // we attached — check and hide immediately.
+                if (imgEl.complete && imgEl.naturalWidth > 0) hideLoader();
+              }
+
               var prevBtn = document.createElement("button");
               prevBtn.className = "card-slide-nav card-slide-prev";
               prevBtn.innerHTML = "&#8249;";
-              prevBtn.addEventListener("click", function(e) {
-                e.stopPropagation();
-                var idx = (state.mockupSlideIndex[pid] || 0) - 1;
-                if (idx < 0) idx = imgs.length - 1;
-                state.mockupSlideIndex[pid] = idx;
-                imgEl.src = imgs[idx].src;
-                badge.textContent = (idx + 1) + "/" + imgs.length;
-              });
+              prevBtn.addEventListener("click", function(e) { e.stopPropagation(); go(-1); });
 
               var nextBtn = document.createElement("button");
               nextBtn.className = "card-slide-nav card-slide-next";
               nextBtn.innerHTML = "&#8250;";
-              nextBtn.addEventListener("click", function(e) {
-                e.stopPropagation();
-                var idx = (state.mockupSlideIndex[pid] || 0) + 1;
-                if (idx >= imgs.length) idx = 0;
-                state.mockupSlideIndex[pid] = idx;
-                imgEl.src = imgs[idx].src;
-                badge.textContent = (idx + 1) + "/" + imgs.length;
-              });
+              nextBtn.addEventListener("click", function(e) { e.stopPropagation(); go(+1); });
 
               previewEl.appendChild(prevBtn);
               previewEl.appendChild(nextBtn);
-            })(p.id, mockImages, img, ctrBadge);
+            })(p.id, mockImages, img, ctrBadge, slideLoader);
           }
           _addIconBadge(previewEl, p.icon);
         } else if (state.originalImage && solarCanvas.width > 0) {

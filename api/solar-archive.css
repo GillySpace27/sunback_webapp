@@ -1815,6 +1815,42 @@ html.dark .image-stage {
   white-space: nowrap;
 }
 
+/* Loading overlay for the big selected-product preview pane's mockup
+   slideshow. Shown while the next/prev Printify mockup image is fetching
+   from the CDN, hidden when img load/error fires. Sized larger than the
+   product-card variant since this pane is the hero preview. Nav buttons
+   remain clickable (z-index:3 above this layer's z-index:2). */
+.mockup-slideshow .slide-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 22, 0.55);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 140ms ease-out;
+  border-radius: inherit;
+}
+.mockup-slideshow .slide-loader.hidden {
+  opacity: 0;
+}
+.mockup-slideshow .slide-spinner {
+  display: inline-block;
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  animation: mockup-slide-spin 0.75s linear infinite;
+}
+@keyframes mockup-slide-spin {
+  to { transform: rotate(360deg); }
+}
+.mockup-slideshow .slide-nav { z-index: 3; }
+
 /* ── Mockup slideshow (product card grid) ── */
 .card-slide-counter {
   position: absolute;
@@ -1864,6 +1900,42 @@ html.dark .image-stage {
 
 .card-slide-prev { left: 2px; }
 .card-slide-next { right: 2px; }
+
+/* Loading overlay shown while the next/prev mockup image is fetching from
+   Printify's CDN. Covers only the preview square (the nav buttons sit at
+   z-index 3 so they stay clickable above the overlay). Kept deliberately
+   subtle — thin translucent gray, small centered spinner — so it reads as
+   "fetching" not "the app is broken." */
+.card-slide-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 22, 0.52);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.card-slide-loader.hidden {
+  opacity: 0;
+}
+.card-slide-spinner {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(255, 255, 255, 0.88);
+  border-radius: 50%;
+  animation: card-slide-spin 0.7s linear infinite;
+}
+@keyframes card-slide-spin {
+  to { transform: rotate(360deg); }
+}
+/* Nav buttons must sit above the loader so users can re-click during load. */
+.card-slide-nav { z-index: 3; }
 
 @media (max-width: 740px) {
   .editor-with-preview {
