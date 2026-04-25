@@ -133,12 +133,50 @@
     <div class="edit-toolbar">
       <!-- Row 1: Filter toggle + Change Wavelength -->
       <div class="edit-toolbar-row">
-        <div class="filter-toggle editor-filter" id="editorFilterToggle">
-          <span class="field-label" style="margin:0; margin-right:8px;">Filter</span>
-          <label class="filter-opt" title="Standard colorized JPG — what most people want. Fast preview, great for screens and most prints."><input type="radio" name="editorFilter" value="jpg" checked> JPG</label>
-          <label class="filter-opt" title="Raw telescope data, grayscale. Scientific view with no color mapping."><input type="radio" name="editorFilter" value="raw"> Raw</label>
-          <label class="filter-opt" title="Radial Histogram Equalizing Filter — boosts faint features across the Sun's surface and corona."><input type="radio" name="editorFilter" value="rhef"> RHEF</label>
-          <label class="filter-opt" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes; checkout will wait for it automatically."><input type="radio" name="editorFilter" value="hq_rhef"> <i class="fas fa-star" style="font-size:0.6em;opacity:0.65;"></i> HQ RHEF</label>
+        <!-- Filter progress timeline.
+             The four image versions load in sequence (JPG instant → Raw → RHEF
+             → HQ RHEF), and each step's status icon reflects ready/loading/
+             locked. Clicking a ready step jumps the canvas back to that
+             quality level; the timeline auto-advances forward as higher
+             versions land unless the user explicitly picked an earlier one.
+             Underlying radio inputs are kept for accessibility/keyboard nav. -->
+        <div class="filter-timeline editor-filter" id="editorFilterToggle" role="radiogroup" aria-label="Image quality">
+          <span class="filter-timeline-label">Quality</span>
+          <div class="filter-step" data-filter="jpg" title="Colorized JPG — loads instantly. Great for screens and quick previews.">
+            <span class="filter-step-num"><i class="fas fa-bolt"></i></span>
+            <span class="filter-step-info">
+              <span class="filter-step-name">JPG</span>
+              <span class="filter-step-status" data-status="locked"></span>
+            </span>
+            <input type="radio" name="editorFilter" value="jpg" checked aria-label="JPG quality" tabindex="-1">
+          </div>
+          <div class="filter-step-connector"></div>
+          <div class="filter-step" data-filter="raw" title="Raw telescope data, grayscale. Scientific view with no color mapping.">
+            <span class="filter-step-num"><i class="fas fa-satellite"></i></span>
+            <span class="filter-step-info">
+              <span class="filter-step-name">Raw</span>
+              <span class="filter-step-status" data-status="locked"></span>
+            </span>
+            <input type="radio" name="editorFilter" value="raw" aria-label="Raw quality" tabindex="-1">
+          </div>
+          <div class="filter-step-connector"></div>
+          <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalizing Filter — boosts faint features across the Sun's surface and corona.">
+            <span class="filter-step-num"><i class="fas fa-magic"></i></span>
+            <span class="filter-step-info">
+              <span class="filter-step-name">RHEF</span>
+              <span class="filter-step-status" data-status="locked"></span>
+            </span>
+            <input type="radio" name="editorFilter" value="rhef" aria-label="RHEF quality" tabindex="-1">
+          </div>
+          <div class="filter-step-connector"></div>
+          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes.">
+            <span class="filter-step-num"><i class="fas fa-star"></i></span>
+            <span class="filter-step-info">
+              <span class="filter-step-name">HQ RHEF</span>
+              <span class="filter-step-status" data-status="locked"></span>
+            </span>
+            <input type="radio" name="editorFilter" value="hq_rhef" aria-label="HQ RHEF quality" tabindex="-1">
+          </div>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
         <div class="edit-toolbar-nav-group" style="margin-left:auto;display:flex;gap:6px;">
@@ -483,22 +521,22 @@
 <!-- Catalog modal (rendered by JS) -->
 <div id="catalogModal" class="catalog-modal hidden"></div>
 
-<!-- Pre-editor confirmation modal: previews the product/variant before opening the editor -->
+<!-- Pre-editor confirmation modal: combines variant picker + product preview
+     so first-time users finish selection in a single step. The mockup at top
+     re-renders when the user picks a different variant (aspect ratios shift).
+     Continue commits whatever variant is highlighted in the picker. -->
 <div class="confirm-modal hidden" id="confirmSelectModal" role="dialog" aria-modal="true" aria-labelledby="confirmSelectTitle">
   <div class="confirm-modal-backdrop" id="confirmSelectBackdrop"></div>
   <div class="confirm-modal-panel">
     <button class="confirm-modal-close" id="confirmSelectClose" type="button" aria-label="Close">&#x2715;</button>
-    <h2 class="confirm-modal-title" id="confirmSelectTitle">Ready to customize?</h2>
-    <p class="confirm-modal-sub">Review your selection, then we'll open the editor.</p>
-    <!-- Mock mockup preview — rendered at open-time from the live solar canvas
-         so users see "this is how your image will look on the product" before
-         they commit. Hidden when no image is loaded yet (falls back to icon). -->
+    <h2 class="confirm-modal-title" id="confirmSelectTitle">Pick a variant</h2>
+    <p class="confirm-modal-sub" id="confirmSelectSub">Tap a variant to preview, then continue to the editor.</p>
     <div class="confirm-mockup" id="confirmSelectMockup" aria-hidden="true"></div>
-    <dl class="confirm-metadata" id="confirmSelectMetadata"></dl>
+    <div class="confirm-variant-summary" id="confirmSelectSummary"></div>
+    <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
     <div class="confirm-modal-actions">
-      <button class="confirm-modal-btn confirm-modal-btn-secondary" id="confirmSelectChange" type="button">Change variant</button>
-      <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue</button>
+      <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to editor</button>
     </div>
   </div>
 </div>

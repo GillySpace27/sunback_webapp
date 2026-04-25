@@ -261,6 +261,166 @@ input[type="date"]:focus, select:focus {
   display: none;
 }
 
+/* ── Filter quality timeline ──
+   Replaces the JPG/Raw/RHEF/HQ-RHEF radio row with a stepper that reads as
+   "image quality progresses through these tiers": locked tiers show a small
+   lock icon, loading tiers spin, ready tiers get a check, the active tier
+   gets the accent treatment. Connectors between steps fill in as each tier
+   becomes ready. Underlying radio inputs are kept hidden for a11y. */
+.filter-timeline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.filter-timeline-label {
+  /* Own row so the four steps align vertically — beta tester noted the
+     prior layout staggered "QUALITY" inline next to JPG which made the
+     stages drift across rows. */
+  flex: 0 0 100%;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 2px;
+}
+.filter-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, opacity 0.15s ease;
+  color: var(--text-dim);
+  user-select: none;
+}
+.filter-step input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.filter-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.filter-step-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
+.filter-step-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.filter-step-status {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  margin-top: 1px;
+  min-height: 1em;
+}
+.filter-step-status::before {
+  content: "";
+  display: inline-block;
+  vertical-align: middle;
+}
+.filter-step-status[data-status="locked"]::before {
+  content: "\f023 Locked";
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.4em;
+  color: var(--text-dim);
+}
+.filter-step-status[data-status="loading"]::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid rgba(123, 97, 255, 0.35);
+  border-top-color: var(--accent-corona, #7b61ff);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin-right: 4px;
+}
+.filter-step-status[data-status="loading"]::after {
+  content: "Loading…";
+  color: var(--accent-corona, #7b61ff);
+}
+.filter-step-status[data-status="ready"]::before {
+  content: "\f00c Ready";
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.4em;
+  color: #3ddc84;
+}
+.filter-step-status[data-status="active"]::before {
+  content: "\f00c Active";
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.4em;
+  color: #fff;
+}
+
+/* Locked steps are dimmed and not clickable (cursor stays default) — but
+   we still allow the click so the existing handleFilterChange() can show
+   the "starting fetch…" toast. The cursor cue communicates "not yet". */
+.filter-step.locked {
+  opacity: 0.55;
+  cursor: progress;
+}
+.filter-step.ready:hover {
+  background: rgba(123, 97, 255, 0.08);
+  color: var(--text-primary);
+}
+.filter-step.ready .filter-step-num {
+  background: rgba(61, 220, 132, 0.18);
+  color: #3ddc84;
+}
+.filter-step.loading .filter-step-num {
+  background: rgba(123, 97, 255, 0.18);
+  color: var(--accent-corona, #7b61ff);
+}
+.filter-step.active {
+  background: var(--accent-corona, #7b61ff);
+  color: #fff;
+  font-weight: 700;
+}
+.filter-step.active .filter-step-num {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+/* Connector line between steps. Thicker + accent when both flanking steps
+   are ready; muted otherwise. */
+.filter-step-connector {
+  flex: 0 0 18px;
+  height: 2px;
+  background: var(--border);
+  border-radius: 2px;
+  transition: background-color 0.18s ease;
+}
+.filter-step-connector.completed {
+  background: linear-gradient(90deg, #3ddc84, var(--accent-corona, #7b61ff));
+}
+
+/* Defensive: hide any leftover old-markup labels on caches that haven't
+   reloaded. */
+.filter-timeline .filter-opt { display: none; }
+
 .filter-status-line {
   font-size: 0.7rem;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
@@ -477,7 +637,11 @@ input[type="date"]:focus, select:focus {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Image Display */
+/* Image Display.
+   Sharp corners on the editor canvas — beta tester pointed out that the
+   rounded image-stage corners weren't a faithful preview of the final
+   physical product (acrylic / canvas / poster prints have square edges).
+   Outer panel still has its own rounding via .section. */
 .image-stage {
   position: relative;
   background-color: #fff;
@@ -488,7 +652,7 @@ input[type="date"]:focus, select:focus {
     linear-gradient(-45deg, transparent 75%, #c8c8c8 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 8px;
-  border-radius: var(--radius-md);
+  border-radius: 0;
   overflow: hidden;
   min-height: 200px;
   display: flex;
@@ -594,11 +758,24 @@ html.dark .image-stage {
   font-weight: 600;
 }
 
-/* Clock tab specific styling */
+/* Clock tab specific styling — when visible (wall_clock selected) the tab
+   pulses gently so first-time users notice the clock-face customization
+   controls. The pulse stops once the user activates the tab. */
+.edit-tab-clock:not(.hidden):not(.active) {
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #22c55e;
+  font-weight: 600;
+  animation: clock-tab-pulse 1.6s ease-in-out infinite;
+}
+@keyframes clock-tab-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18); }
+}
 .edit-tab-clock.active {
   color: #22c55e;
   border-color: #22c55e;
   background: rgba(34,197,94,0.08);
+  animation: none;
 }
 
 /* Tab content panels */
@@ -1403,8 +1580,10 @@ html.dark .image-stage {
   margin-top: 6px;
 }
 
-/* Variant row is now a tile: label left, price middle, Select button right.
-   Each row is its own commit point — there's no passive "confirm" click. */
+/* Variant row in the inline pane is read-only: label left, price middle,
+   optional "✓ Selected" badge on the active row. Selection happens only
+   through the "Pick a variant" modal — these rows just summarise what's
+   available so users can see the catalog without committing. */
 .variant-row {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -1419,9 +1598,8 @@ html.dark .image-stage {
   background: var(--bg-deep);
 }
 
-.variant-row:hover {
-  background: var(--border);
-}
+.variant-list-readonly .variant-row { cursor: default; }
+.variant-list-readonly .variant-row:hover { background: var(--bg-deep); }
 
 .variant-row.confirmed {
   border-color: var(--accent-cool);
@@ -1444,30 +1622,26 @@ html.dark .image-stage {
 }
 .variant-price-empty { min-width: 28px; }
 
-.variant-select-btn {
+/* Read-only "Selected" pill on the active variant row in the inline pane.
+   Replaces the old per-row Select button now that selection lives in the
+   modal — keeps the list informative without offering a hidden second
+   commit path. */
+.variant-row-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
+  padding: 3px 8px;
+  font-size: 0.7rem;
   font-weight: 600;
-  border-radius: 5px;
-  border: 1px solid var(--accent-cool);
-  background: transparent;
-  color: var(--accent-cool);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  border-radius: 999px;
+  background: var(--accent-cool);
+  color: #fff;
   white-space: nowrap;
 }
-.variant-select-btn:hover {
-  background: var(--accent-cool);
-  color: #fff;
-}
-.variant-select-btn i { font-size: 0.65rem; }
-.variant-row.confirmed .variant-select-btn {
-  background: var(--accent-cool);
-  color: #fff;
-}
+.variant-row-badge i { font-size: 0.62rem; }
+/* Defensive: hide any leftover Select buttons from older renders that
+   haven't been re-rendered yet. */
+.variant-select-btn { display: none !important; }
 
 .variant-clock-note {
   font-size: 0.7rem;
@@ -1475,6 +1649,14 @@ html.dark .image-stage {
   margin: 6px 0 0;
   font-style: italic;
 }
+
+.variant-pick-hint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin: 8px 0 0;
+  text-align: center;
+}
+.variant-pick-hint strong { color: var(--accent-cool); }
 
 .mockup-status {
   font-size: 0.82rem;
@@ -1554,6 +1736,22 @@ html.dark .image-stage {
 
 .btn-buy-in-editor.hidden {
   display: none;
+}
+
+/* Locked state: shown until a real Printify mockup has been generated, so
+   the user can verify their preview matches what they'll get on Shopify. */
+.btn-buy-in-editor:disabled,
+.btn-buy-in-editor.buy-locked {
+  background: #333344;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+.btn-buy-in-editor:disabled:hover,
+.btn-buy-in-editor.buy-locked:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 /* Checkout progress overlay */
@@ -1713,14 +1911,35 @@ html.dark .image-stage {
   color: var(--text-dim);
   margin-bottom: 2px;
 }
+/* Make the variant select look like a real dropdown — beta tester didn't
+   realize it was clickable. Adds a chevron, hover/focus affordances, and
+   purple accent border to match the editor's interactive controls. */
 .selected-product-preview .preview-variant-wrap select {
   width: 100%;
-  padding: 6px 8px;
-  font-size: 0.78rem;
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
+  padding: 8px 32px 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background-color: var(--bg-deep);
+  /* Inline SVG chevron — no font-awesome dependency, scales cleanly. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%237b61ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l5 5 5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
+  border: 1.5px solid var(--accent-corona, #7b61ff);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.selected-product-preview .preview-variant-wrap select:hover {
+  background-color: rgba(123, 97, 255, 0.08);
+}
+.selected-product-preview .preview-variant-wrap select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(123, 97, 255, 0.3);
 }
 .selected-product-preview .preview-variant-note {
   font-size: 0.7rem;
@@ -2287,13 +2506,20 @@ html.dark .image-stage {
 .confirm-modal-panel {
   position: relative;
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
+  /* Cap to viewport height so the new variant picker grid (which can be tall
+     for products with 78+ variants) doesn't push the Continue button below
+     the fold. The picker has its own scroll inside. */
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
   background: #17192a;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   padding: 26px 22px 20px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
   color: var(--text-primary, #e9eaf5);
+  overflow-y: auto;
 }
 .confirm-modal-close {
   position: absolute;
@@ -2398,6 +2624,111 @@ html.dark .image-stage {
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 .confirm-modal-btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* ───────────────────────────────────────────────────────────────
+   Variant picker inside the confirm modal (single-step selection).
+   Replaces the older inline collapsible pane on product cards as the
+   primary flow — testers found two-step "expand → row-Select → confirm"
+   too cluttered.
+   ─────────────────────────────────────────────────────────────── */
+.confirm-variant-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #9898b8);
+}
+.confirm-variant-summary strong { color: var(--text-primary, #e9eaf5); font-weight: 600; }
+.confirm-variant-summary .confirm-summary-dot { opacity: 0.5; }
+.confirm-variant-summary .confirm-summary-price {
+  color: var(--accent-corona, #7b61ff);
+  font-weight: 600;
+}
+
+.confirm-variant-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0 0 14px;
+  padding: 4px 2px;
+  /* Subtle inset so the scroll area reads as its own region. */
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.confirm-variant-picker::-webkit-scrollbar { width: 8px; }
+.confirm-variant-picker::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.confirm-variant-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(20, 22, 36, 0.6);
+  color: var(--text-primary, #e9eaf5);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.84rem;
+  line-height: 1.25;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
+}
+.confirm-variant-tile:hover {
+  border-color: rgba(123, 97, 255, 0.55);
+  background: rgba(40, 30, 70, 0.55);
+}
+.confirm-variant-tile.active {
+  border-color: var(--accent-corona, #7b61ff);
+  background: rgba(123, 97, 255, 0.16);
+  box-shadow: 0 0 0 1px var(--accent-corona, #7b61ff) inset;
+}
+.confirm-variant-tile:active { transform: scale(0.98); }
+.confirm-variant-tile-label {
+  font-weight: 600;
+  /* Allow long labels to wrap to a second line rather than truncate — beta
+     reported truncated labels (Athletic Heather / XL Long T → "Athletic He…")
+     hid critical information. The tile grows in height; the grid flexes. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.confirm-variant-tile-price {
+  font-size: 0.74rem;
+  color: var(--text-secondary, #9898b8);
+  font-family: 'JetBrains Mono', monospace;
+}
+.confirm-variant-tile.active .confirm-variant-tile-price { color: var(--accent-corona, #7b61ff); }
+.confirm-variant-tile-dims {
+  font-size: 0.7rem;
+  color: var(--text-dim, #6b6b85);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.02em;
+}
+
+.confirm-variant-loading,
+.confirm-variant-empty {
+  grid-column: 1 / -1;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.85rem;
+}
 
 /* ───────────────────────────────────────────────────────────────
    Session-only "Your Requests" section — cards the user submitted

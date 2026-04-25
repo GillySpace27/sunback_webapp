@@ -557,30 +557,33 @@
     // target for "show me the variants of this."
     function _bindGridEvents(gridEl) {
       if (!gridEl) return;
-      gridEl.addEventListener("click", function(e) {
-        if (e.target.closest(".variant-panel")) return;
-        // Let the disclosure button's own handler fire; don't also toggle here.
-        if (e.target.closest(".product-buy-btn")) return;
-        var card = e.target.closest(".product-card");
-        if (!card) return;
+      // Card body (non-button) click + Enter both go to the modal picker too,
+      // so the entire card is a consistent "open the variant chooser" target.
+      // Variant-panel internals still bubble through their own handlers; the
+      // disclosure button's own click handler runs first when clicking it.
+      function _cardOpenPicker(card) {
         var productId = card.dataset.productId;
         if (!productId) return;
         var product = PRODUCTS.find(function(p) { return p.id === productId; });
         if (!product) return;
         var btn = card.querySelector(".product-select-btn");
         if (btn && btn.disabled) return;
-        toggleVariantPane(product, card, btn);
+        if (!state.originalImage || !product.blueprintId || !product.printProviderId) return;
+        showConfirmSelectModal(product, function() { commitProductSelection(product); });
+      }
+      gridEl.addEventListener("click", function(e) {
+        if (e.target.closest(".variant-panel")) return;
+        if (e.target.closest(".product-buy-btn")) return;
+        var card = e.target.closest(".product-card");
+        if (!card) return;
+        _cardOpenPicker(card);
       });
       gridEl.addEventListener("keydown", function(e) {
         var card = e.target.closest(".product-card");
-        if (!card || e.key !== "Enter" && e.key !== " ") return;
+        if (!card || (e.key !== "Enter" && e.key !== " ")) return;
         e.preventDefault();
         e.stopPropagation();
-        var productId = card.dataset.productId;
-        var product = PRODUCTS.find(function(p) { return p.id === productId; });
-        if (!product) return;
-        var btn = card.querySelector(".product-select-btn");
-        toggleVariantPane(product, card, btn);
+        _cardOpenPicker(card);
       });
     }
     _bindGridEvents(productGrid);
@@ -605,7 +608,8 @@
       previewPane.classList.remove("hidden");
       previewPane.querySelector(".preview-product-name").textContent = product.name;
       var ar = getEffectiveAspectRatio(product);
-      var ratioText = ar ? ar.w + ":" + ar.h : "flexible";
+      var arSimple = ar ? simplifyAspectRatio(ar.w, ar.h) : null;
+      var ratioText = arSimple ? arSimple.w + ":" + arSimple.h : "flexible";
       previewPane.querySelector(".preview-product-ratio").textContent = "Aspect ratio: " + ratioText;
 
       // Update create button label. Price intentionally omitted — the price
@@ -840,6 +844,7 @@
           if (typeof renderProducts === "function") renderProducts();
           updatePreviewPaneMockupState();
           refreshLivePreview();
+          if (typeof updateBuyButtonState === "function") updateBuyButtonState();
           showToast("Reset to mock mockup — preview matches canvas again.");
         } else {
           if (!state.originalImage) {
@@ -1105,6 +1110,7 @@
                 jpgImg.onload = function() {
                   state.jpgImage = jpgImg;
                   if (state.editorFilter === "jpg") renderCanvas();
+                  if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
                 };
                 jpgImg.src = jpgUrl;
               }
@@ -1121,6 +1127,7 @@
               // Stay on whatever filter the user currently has selected — just re-render
               // to make the cached images available.
               renderCanvas();
+              if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
               // RHEF preview is ready — kick off HQ generation in the background.
               // The HQ image will auto-upgrade the canvas to hq_rhef when it arrives.
               startHqFilterGeneration(dateVal, wl, "rhef");
@@ -1494,16 +1501,93 @@
       imgB.src = dataUrlB;
     }
 
-    function _syncFilterToggleUI(filterValue) {
+    // ── Filter quality timeline ──
+    // The four image versions form a progression: JPG (instant) → Raw → RHEF
+    // → HQ RHEF (highest quality). Each step's status icon reflects whether
+    // its underlying image is locked, loading, or ready. Selection auto-
+    // advances forward as new versions land — unless the user manually
+    // clicked an earlier step, in which case we honor their choice and don't
+    // override it on subsequent ready events. All four images are
+    // co-registered in renderCanvas via the per-format scaleImg adjustment,
+    // so panning/cropping survives a quality jump.
+    var FILTER_ORDER = ["jpg", "raw", "rhef", "hq_rhef"];
+    function _filterIsReady(f) {
+      if (f === "jpg") return !!(state.jpgImage || state.originalImage);
+      if (f === "raw") return !!state.rawBackendImage;
+      if (f === "rhef") return !!state.rhefImage;
+      if (f === "hq_rhef") return !!(state.hqFilterImage && state.hqFormat === "rhef");
+      return false;
+    }
+    function _filterIsLoading(f) {
+      if (f === "raw" || f === "rhef") return !!state.rhefFetching;
+      if (f === "hq_rhef") return !!state.hqFetching;
+      return false;
+    }
+    function updateFilterTimelineUI() {
       var toggleEl = document.getElementById("editorFilterToggle");
       if (!toggleEl) return;
-      var radio = toggleEl.querySelector('input[name="editorFilter"][value="' + filterValue + '"]');
-      if (radio) radio.checked = true;
-      toggleEl.querySelectorAll(".filter-opt").forEach(function(opt) {
-        opt.classList.remove("active");
+      var current = state.editorFilter;
+      // Determine the highest-index ready step — used so the connectors
+      // between ready steps render in the "completed" color.
+      var maxReadyIdx = -1;
+      FILTER_ORDER.forEach(function(f, i) { if (_filterIsReady(f)) maxReadyIdx = i; });
+      toggleEl.querySelectorAll(".filter-step").forEach(function(step, idx) {
+        var f = step.dataset.filter;
+        var ready = _filterIsReady(f);
+        var loading = _filterIsLoading(f);
+        var active = (f === current);
+        var status = active ? "active" : (loading ? "loading" : (ready ? "ready" : "locked"));
+        step.classList.toggle("active", active);
+        step.classList.toggle("ready", ready && !active);
+        step.classList.toggle("loading", loading);
+        step.classList.toggle("locked", !ready && !loading && !active);
+        var statusEl = step.querySelector(".filter-step-status");
+        if (statusEl) statusEl.dataset.status = status;
+        var radio = step.querySelector('input[name="editorFilter"]');
+        if (radio) radio.checked = active;
       });
-      var activeLabel = radio && radio.closest(".filter-opt");
-      if (activeLabel) activeLabel.classList.add("active");
+      toggleEl.querySelectorAll(".filter-step-connector").forEach(function(c, i) {
+        // connector at index i sits between step i and step i+1.
+        c.classList.toggle("completed", i < maxReadyIdx);
+      });
+    }
+    // Backwards-compat: existing call sites pass the *intended* filter value
+    // and expect us to redraw the toggle to match. Do NOT mutate
+    // state.editorFilter here — applyFilterInstant() short-circuits when
+    // newFilter === state.editorFilter, so setting it here before that call
+    // would silently no-op every quality click. The visual update reads
+    // state.editorFilter directly.
+    function _syncFilterToggleUI(_filterValue) {
+      updateFilterTimelineUI();
+    }
+    /**
+     * Auto-advance to the highest-quality ready filter when a new tier lands,
+     * unless the user has explicitly clicked an earlier step. Tracked via
+     * `state._userFilterPick` set in the click handler — we only advance past
+     * what they last picked. Falls through to renderCanvas to keep crop/pan
+     * co-registered.
+     */
+    function maybeAutoAdvanceFilter() {
+      if (!state.originalImage) return;
+      var current = state.editorFilter;
+      var pinIdx = state._userFilterPick != null ? FILTER_ORDER.indexOf(state._userFilterPick) : -1;
+      var bestIdx = -1;
+      FILTER_ORDER.forEach(function(f, i) { if (_filterIsReady(f)) bestIdx = i; });
+      if (bestIdx < 0) { updateFilterTimelineUI(); return; }
+      var currentIdx = FILTER_ORDER.indexOf(current);
+      // Don't downgrade on a re-render. Only move FORWARD, and only past the
+      // user's manually-pinned step (so they can stay on JPG if they want to).
+      var target = current;
+      if (bestIdx > currentIdx && bestIdx > pinIdx) {
+        target = FILTER_ORDER[bestIdx];
+      }
+      if (target !== current) {
+        state.editorFilter = target;
+        updateFilterTimelineUI();
+        if (typeof renderCanvas === "function") renderCanvas();
+      } else {
+        updateFilterTimelineUI();
+      }
     }
 
     // ── Mockup display switching ────────────────────────────────
@@ -1560,6 +1644,7 @@
             // Cache the early JPG preview but don't force-switch the user's active filter.
             // Only re-render so the cached image is used if editorFilter is already "jpg".
             if (state.editorFilter === "jpg") renderCanvas();
+            if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
           };
           jpgImg.src = jpgUrl;
         }
@@ -1582,6 +1667,7 @@
           // (e.g. user is on "raw" and rawBackendImage just arrived).
           renderCanvas();
         }
+        if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
       }).catch(function(err) {
         console.error("[Preview] Fetch failed:", err);
         state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
@@ -1639,16 +1725,23 @@
         }
         applyFilterInstant(newFilter);
       }
-      // Single click handler with preventDefault to avoid double-fire from
-      // label default behavior (which would trigger a second change event
-      // that reverts the radio during async fetches).
+      // Click delegate covers both the new .filter-step timeline buttons and
+      // any leftover .filter-opt labels (defensive, in case some other code
+      // path renders the old markup). preventDefault keeps the underlying
+      // radio's default-label behavior from double-firing during async
+      // fetches and reverting the user's pick.
       editorFilterToggleEl.addEventListener("click", function(e) {
-        var opt = e.target.closest(".filter-opt");
+        var opt = e.target.closest(".filter-step, .filter-opt");
         if (!opt || !editorFilterToggleEl.contains(opt)) return;
         var radio = opt.querySelector('input[name="editorFilter"]');
         if (!radio) return;
         e.preventDefault();
         if (radio.value === state.editorFilter) return;
+        // Track the user's manual pick so the auto-advance respects it. If
+        // they tap a step that isn't ready yet, treat it as a request (the
+        // existing handleFilterChange flow shows the right toast/dialog and
+        // schedules the fetch).
+        state._userFilterPick = radio.value;
         radio.checked = true;
         _syncFilterToggleUI(radio.value);
         handleFilterChange(radio);
@@ -1820,9 +1913,12 @@
 
     function updateRhefLoadingUI() {
       var el = document.getElementById("filterLoadingIndicator");
-      if (!el) return;
-      if (state.rhefFetching || state.hqFetching) el.classList.remove("hidden");
-      else el.classList.add("hidden");
+      if (el) {
+        if (state.rhefFetching || state.hqFetching) el.classList.remove("hidden");
+        else el.classList.add("hidden");
+      }
+      // Refresh timeline status so loading/ready badges track the fetch state.
+      if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
     }
 
     // ── Backend Health Check ─────────────────────────────────────
@@ -2161,6 +2257,7 @@
             hideProgress();
             updateFilterStatusLine("Full-res RHEF ready!", "success");
             _hqApplyUpgrade(format);
+            if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
             showToast("Full-resolution RHEF ready! \u2728", "success");
             return img;
           });
@@ -2245,15 +2342,20 @@
     function _renderCanvasInner() {
       var img;
       var fmt = state.editorFilter;
-      if (fmt === "jpg" && state.hqFilterImage && state.hqFormat === "jpg") img = state.hqFilterImage;
-      else if (fmt === "jpg") img = state.jpgImage || state.originalImage;
-      else if (fmt === "raw" && state.hqFilterImage && state.hqFormat === "raw") img = state.hqFilterImage;
-      else if (fmt === "raw" && state.rawBackendImage) img = state.rawBackendImage;
-      else if (fmt === "rhef" && state.hqFilterImage && state.hqFormat === "rhef") img = state.hqFilterImage;
-      else if (fmt === "rhef" && state.rhefImage) img = state.rhefImage;
-      // hq_rhef: use the full-res image when ready, fall back to preview RHEF while generating
-      else if (fmt === "hq_rhef" && state.hqFilterImage && state.hqFormat === "rhef") img = state.hqFilterImage;
-      else if (fmt === "hq_rhef") img = state.rhefImage || state.originalImage;
+      // Each tier resolves to the IMAGE THAT TIER ACTUALLY REPRESENTS, never
+      // upgrading silently. Earlier code auto-upgraded "rhef" to hqFilterImage
+      // when HQ was loaded, which made RHEF and HQ RHEF render byte-identical
+      // and hid the quality progression — beta tester reported "they look
+      // the same even at max zoom." Now: each tier shows its own source, and
+      // hq_rhef falls back to rhef only as a placeholder while HQ is still
+      // generating (the timeline status shows it as Loading in that case).
+      if (fmt === "jpg") img = state.jpgImage || state.originalImage;
+      else if (fmt === "raw") img = state.rawBackendImage || state.jpgImage || state.originalImage;
+      else if (fmt === "rhef") img = state.rhefImage || state.jpgImage || state.originalImage;
+      else if (fmt === "hq_rhef") {
+        if (state.hqFilterImage && state.hqFormat === "rhef") img = state.hqFilterImage;
+        else img = state.rhefImage || state.jpgImage || state.originalImage;
+      }
       else img = state.originalImage;
       var ctx = solarCanvas.getContext("2d");
 
@@ -2280,15 +2382,45 @@
         }
       }
 
+      // ── Canvas-resolution bump when HQ is the active source ──────────
+      // Without this, an HQ image (e.g. 4096×4096) gets downsampled back to
+      // preview resolution because the canvas is sized to originalImage's
+      // dimensions (~512 px). The HQ detail is therefore invisible at any
+      // zoom level. Solution: when the active img is meaningfully bigger
+      // than the originalImage reference, scale the canvas (and pan/ref
+      // coords) up so the user sees the actual HQ pixels. Capped at 1536 px
+      // longest side during interactive edits so slider perf stays usable —
+      // export bypasses the cap via state._fullResRender.
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var canvasScale = 1;
+      var imgIsHQ = (img && img !== state.originalImage && img !== state.jpgImage
+                       && img.naturalWidth > refCW * 1.25);
+      if (imgIsHQ) {
+        var MAX_DIM = state._fullResRender
+          ? Math.max(img.naturalWidth, img.naturalHeight)
+          : 1536;
+        canvasScale = Math.min(img.naturalWidth / refCW, MAX_DIM / Math.max(refCW, refCH));
+        canvasScale = Math.max(1, canvasScale);
+      }
+      // Stash so pan-drag handler (which works in canvas-pixel coords) can
+      // convert deltas back to ref-space when canvas != ref size.
+      state._canvasScale = canvasScale;
+      // Apply scale to all logical-space dims used downstream. Persisted
+      // state.panX/panY remain in REF space; we just project them into the
+      // current canvas-pixel space here.
+      cw    = Math.round(cw    * canvasScale);
+      ch    = Math.round(ch    * canvasScale);
+      refCW = refCW * canvasScale;
+      refCH = refCH * canvasScale;
+
       solarCanvas.width = cw;
       solarCanvas.height = ch;
       ctx.clearRect(0, 0, cw, ch);
 
-      var iw = img.naturalWidth;
-      var ih = img.naturalHeight;
       var zoom = (state.cropZoom || 100) / 100;
-      var panX = state.panX != null ? state.panX : refCW / 2;
-      var panY = state.panY != null ? state.panY : refCH / 2;
+      var panX = (state.panX != null ? state.panX : (refCW / canvasScale) / 2) * canvasScale;
+      var panY = (state.panY != null ? state.panY : (refCH / canvasScale) / 2) * canvasScale;
 
       // Image moves behind fixed frame: ref (panX, panY) at canvas center, scale zoom.
       ctx.save();
@@ -2533,9 +2665,20 @@
         var cy = ch / 2;
         var half = Math.min(cw, ch) / 2;
         var r = (cn.radiusPct != null ? cn.radiusPct : 42) / 100 * half;
-        var size = cn.size != null ? cn.size : 28;
+        // Font size + stroke width are scaled by half / CLOCK_REF_HALF so the
+        // numerals are always the same fraction of the clock face regardless
+        // of whether the canvas is 512 (preview) or 1536 (HQ active) or 65
+        // (mockup). Without this, after the HQ canvas-resolution bump the
+        // user's "size = 28" became invisible in the editor and the mockup
+        // path used a different multiplier — the two panes drifted out of
+        // sync. CLOCK_REF_HALF=256 matches the original 512-px canvas so
+        // existing slider values look the same as before.
+        var CLOCK_REF_HALF = 256;
+        var sizeUnit = cn.size != null ? cn.size : 28;
+        var sizePx = sizeUnit * (half / CLOCK_REF_HALF);
+        var strokePx = (cn.strokeWidth || 0) * 2 * (half / CLOCK_REF_HALF);
         ctx.save();
-        ctx.font = "bold " + size + "px '" + (cn.font || "Inter") + "', sans-serif";
+        ctx.font = "bold " + sizePx + "px '" + (cn.font || "Inter") + "', sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         for (var h = 1; h <= 12; h++) {
@@ -2545,9 +2688,9 @@
           var x = cx + r * Math.sin(angle);
           var y = cy - r * Math.cos(angle);
           var numLabel = (cn.style === "roman") ? ROMAN_NUMERALS[h] : String(h);
-          if (cn.strokeWidth > 0) {
+          if (strokePx > 0) {
             ctx.strokeStyle = cn.strokeColor || "#000";
-            ctx.lineWidth = (cn.strokeWidth || 0) * 2;
+            ctx.lineWidth = strokePx;
             ctx.lineJoin = "round";
             ctx.strokeText(numLabel, x, y);
           }
@@ -2788,6 +2931,19 @@
           tab.classList.add("active");
           var panel = document.getElementById("tabPanel_" + tab.dataset.tab);
           if (panel) panel.classList.remove("hidden");
+          // Activating the Clock tab on a wall_clock product seeds
+          // state.clockNumbers from the panel's defaults so the 12 numerals
+          // appear in both the editor canvas AND the mock mockups
+          // immediately — without this the user had to wiggle a slider
+          // before any numerals showed up at all.
+          if (tab.dataset.tab === "clock"
+              && state.selectedProduct === "wall_clock"
+              && !state.clockNumbers
+              && typeof applyClockNumbersFromPanel === "function") {
+            applyClockNumbersFromPanel();
+            if (typeof refreshLivePreview === "function") refreshLivePreview();
+            if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
+          }
         });
       });
     }());
@@ -3443,6 +3599,12 @@
     }
     function liveUpdateClockNumbers() {
       applyClockNumbersFromPanel();
+      // applyClockNumbersFromPanel calls renderCanvas (main editor) but the
+      // mock mockups (live preview pane + product cards' canvas thumbs) are
+      // separate paint paths. Refresh both so the user sees the numerals in
+      // their fast preview, not only in the editor canvas.
+      if (typeof refreshLivePreview === "function") refreshLivePreview();
+      if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
     }
     if (clockNumbersStrokeWidth && clockNumbersStrokeVal) {
       clockNumbersStrokeWidth.addEventListener("input", function() {
@@ -3586,8 +3748,12 @@
         e.preventDefault();
         var cur = getCanvasCoords(e);
         var zoom = (state.cropZoom || 100) / 100;
-        state.panX = panStartPanX - (cur.x - panStartCanvasX) / zoom;
-        state.panY = panStartPanY - (cur.y - panStartCanvasY) / zoom;
+        // getCanvasCoords returns CANVAS-pixel space. When canvas is scaled
+        // up (HQ active), divide by state._canvasScale to project the delta
+        // back into REF space — that's where state.panX lives.
+        var cs = state._canvasScale || 1;
+        state.panX = panStartPanX - (cur.x - panStartCanvasX) / (zoom * cs);
+        state.panY = panStartPanY - (cur.y - panStartCanvasY) / (zoom * cs);
         applyCanvasView();
         scheduleCanvasRender();
         scheduleMockupRefresh();
@@ -4239,31 +4405,37 @@
         drawCropped(cx - r, cy - r, r * 2, r * 2);
         mctx.restore();
 
-        // Determine colors from variant label
+        // Determine colors from variant — clock variants have SEPARATE
+        // options.color (base/frame) and options.hands fields. The earlier
+        // implementation joined all option values into one string and let a
+        // single regex pick both colors, which mis-rendered combos like
+        // "Wooden Base / White Hands" as wood-with-brown-hands. Parse them
+        // independently so each variant previews its actual pairing.
+        function _colorForToken(token, kind) {
+          // kind = "frame" or "hand". Defaults bias toward neutral grays.
+          if (!token) return kind === "hand" ? "#ffffff" : "#999999";
+          var s = String(token).toLowerCase();
+          if (/rose.?gold/.test(s))   return kind === "hand" ? "#d4848c" : "#c07880";
+          if (/\bgold\b/.test(s))     return kind === "hand" ? "#d4a520" : "#c8a840";
+          if (/silver/.test(s))       return kind === "hand" ? "#c8c8d0" : "#b8b8c0";
+          if (/black/.test(s))        return kind === "hand" ? "#1a1a1a" : "#333333";
+          if (/wood|natural|walnut|bamboo/.test(s)) return kind === "hand" ? "#3a1a04" : "#8B5E3C";
+          if (/white/.test(s))        return kind === "hand" ? "#f0f0f0" : "#d8d8d8";
+          return kind === "hand" ? "#ffffff" : "#999999";
+        }
         var handColor = "#ffffff";
         var frameColor = "#999999";
-        if (variant) {
-          var parts = [variant.title].filter(Boolean);
-          if (variant.options) {
-            Object.keys(variant.options).forEach(function(k) {
-              var v = variant.options[k];
-              if (v != null && v !== "") parts.push(String(v));
-            });
-          }
-          var optsStr = parts.join(" ").toLowerCase();
-          if (/rose.?gold/i.test(optsStr)) {
-            handColor = "#d4848c"; frameColor = "#c07880";
-          } else if (/gold/i.test(optsStr)) {
-            handColor = "#d4a520"; frameColor = "#c8a840";
-          } else if (/silver/i.test(optsStr)) {
-            handColor = "#c8c8d0"; frameColor = "#b8b8c0";
-          } else if (/black/i.test(optsStr)) {
-            handColor = "#1a1a1a"; frameColor = "#333333";
-          } else if (/wood|natural|walnut|bamboo/i.test(optsStr)) {
-            handColor = "#3a1a04"; frameColor = "#8B5E3C";
-          } else if (/white/i.test(optsStr)) {
-            handColor = "#f0f0f0"; frameColor = "#d8d8d8";
-          }
+        if (variant && variant.options) {
+          // Frame: prefer options.color (Printify wall_clock convention),
+          // fall back to options.frame / options.base.
+          var frameToken = variant.options.color
+            || variant.options.frame
+            || variant.options.base
+            || "";
+          // Hand: options.hands is the canonical key on Printify.
+          var handToken  = variant.options.hands || variant.options.hand || "";
+          frameColor = _colorForToken(frameToken, "frame");
+          handColor  = _colorForToken(handToken,  "hand");
         }
 
         // Draw rim
@@ -4272,6 +4444,42 @@
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
         mctx.stroke();
+
+        // Clock numbers preview — mirrors state.clockNumbers from the editor.
+        // Uses the SAME fixed reference half (256) as the editor's clock
+        // numbers draw so font size + stroke are always the same fraction of
+        // the clock face, whether rendered on a 65-px-half mockup or a
+        // 768-px-half HQ editor canvas. Beta tester noticed the previous
+        // formula scaled mockup numerals against the live editor canvas
+        // size, so when the editor canvas grew (HQ res bump) the mockup
+        // numerals shrunk out of proportion.
+        if (state.clockNumbers && state.selectedProduct === "wall_clock") {
+          var cn = state.clockNumbers;
+          var CLOCK_REF_HALF = 256;
+          var radiusPct = (cn.radiusPct != null ? cn.radiusPct : 42) / 100;
+          var numR = radiusPct * r;
+          var numSize = (cn.size != null ? cn.size : 28) * (r / CLOCK_REF_HALF);
+          var numStroke = (cn.strokeWidth || 0) * 2 * (r / CLOCK_REF_HALF);
+          mctx.save();
+          mctx.font = "bold " + numSize + "px '" + (cn.font || "Inter") + "', sans-serif";
+          mctx.textAlign = "center";
+          mctx.textBaseline = "middle";
+          for (var nh = 1; nh <= 12; nh++) {
+            var ang = nh * (Math.PI * 2 / 12);
+            var nx = cx + numR * Math.sin(ang);
+            var ny = cy - numR * Math.cos(ang);
+            var label = (cn.style === "roman") ? ROMAN_NUMERALS[nh] : String(nh);
+            if (numStroke > 0) {
+              mctx.strokeStyle = cn.strokeColor || "#000";
+              mctx.lineWidth = numStroke;
+              mctx.lineJoin = "round";
+              mctx.strokeText(label, nx, ny);
+            }
+            mctx.fillStyle = cn.color || "#fff";
+            mctx.fillText(label, nx, ny);
+          }
+          mctx.restore();
+        }
 
         // Draw clock hands (10:10 display position — classic watch ad pose)
         // Hour hand pointing to ~10 o'clock
@@ -4546,10 +4754,18 @@
     function parseVariantAspectRatio(variant) {
       if (!variant) return null;
 
-      // 1. Parse "WxH" / "W x H" from title or the first option value (clean human ratios)
+      // 1. Parse "WxH" / "W x H" from title or the first option value (clean human ratios).
+      // Some Printify variants use unicode prime / smart-quote characters in the title
+      // (e.g. `10″ x 8″` for variant 82060) — strip those before the regex so the
+      // dimensions can be matched. Without this we fall through to the pixel-placeholder
+      // path, which gives ugly ratios like 21:17 for what's really a 10:8 → 5:4 print.
       var opts = variant.options || {};
       var txt = variant.title || opts.size || (Object.keys(opts).length ? opts[Object.keys(opts)[0]] : "") || "";
-      txt = String(txt).replace(/"/g, "").replace(/\bin\b/gi, "").trim();
+      txt = String(txt)
+        .replace(/[″"\u201C\u201D]/g, "")  // double quotes (straight + prime + curly)
+        .replace(/[\u2032'\u2018\u2019]/g, "")  // single quotes (straight + prime + curly)
+        .replace(/\bin\b/gi, "")
+        .trim();
       var m = txt.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
       if (m) {
         var ww = parseFloat(m[1]);
@@ -4649,6 +4865,89 @@
     // ── Variant info panel ───────────────────────────────────────
     var variantCache = {};        // keyed by "blueprintId_printProviderId" → variant array
     var variantFetchInFlight = {}; // deduplication: same key → shared in-flight Promise
+    var variantPricingCache = {}; // keyed by "blueprintId_printProviderId" → { variantId: { cost, price } }
+    var variantPricingFetchInFlight = {};
+
+    /**
+     * Fetch real per-variant cost data from the backend, which scans the
+     * shop's existing Printify products to build a {variant_id: {cost, price}}
+     * map (the catalog API doesn't expose costs). First call for a given
+     * blueprint+provider is slow (~30-60s on a cold backend cache), but the
+     * backend caches for 30 minutes and the frontend caches for the session.
+     * Resolves to {} on failure so callers can degrade gracefully.
+     */
+    function loadVariantPricing(product) {
+      var key = product.blueprintId + "_" + product.printProviderId;
+      if (variantPricingCache[key]) return Promise.resolve(variantPricingCache[key]);
+      if (variantPricingFetchInFlight[key]) return variantPricingFetchInFlight[key];
+      var p = fetchWithTimeout(
+        API_BASE + "/api/printify/blueprints/" + product.blueprintId + "/providers/" + product.printProviderId + "/pricing",
+        {}, 90000
+      )
+        .then(function(r) { return r.ok ? r.json() : { variants: {} }; })
+        .then(function(data) {
+          variantPricingCache[key] = data && data.variants ? data.variants : {};
+          delete variantPricingFetchInFlight[key];
+          return variantPricingCache[key];
+        })
+        .catch(function() {
+          variantPricingCache[key] = {};
+          delete variantPricingFetchInFlight[key];
+          return {};
+        });
+      variantPricingFetchInFlight[key] = p;
+      return p;
+    }
+
+    function formatCents(cents) {
+      if (cents == null) return null;
+      return "$" + (cents / 100).toFixed(2);
+    }
+
+    /**
+     * Reduce an aspect-ratio fraction with a "no awkward big primes" rule:
+     * when either side is greater than 20 and odd, subtract 1 from it (making
+     * it even), then GCD-reduce. Iterates until stable. The 20-cutoff lets
+     * legitimate ratios like 11:16 stay readable instead of collapsing to
+     * something less faithful.
+     *   41:61 → 40:60 → 2:3
+     *   22:33 → 22:32 → 11:16 (stops here under the new rule)
+     *   23:7  → 22:7
+     *   11:16 → 11:16 (unchanged — both ≤ 20)
+     *   3319:3761 → 6:7
+     */
+    function simplifyAspectRatio(w, h) {
+      w = Math.round(Math.max(0, w || 0));
+      h = Math.round(Math.max(0, h || 0));
+      if (!w || !h) return { w: w, h: h };
+      for (var safety = 0; safety < 16; safety++) {
+        var changed = false;
+        if (w > 20 && (w % 2) === 1) { w -= 1; changed = true; }
+        if (h > 20 && (h % 2) === 1) { h -= 1; changed = true; }
+        var g = gcd(w, h);
+        if (g > 1) { w = w / g; h = h / g; changed = true; }
+        if (!changed) break;
+      }
+      return { w: w, h: h };
+    }
+
+    /**
+     * Pull a print-area dimension (width and height in inches at 300 DPI) off
+     * a variant's `placeholders` array. Printify's "front" placeholder defines
+     * the printable region — dividing pixel dimensions by 300 gives a usable
+     * physical size for the user. Returns null when no placeholders exist.
+     */
+    function getVariantPrintDims(variant) {
+      if (!variant || !variant.placeholders || !variant.placeholders.length) return null;
+      var ph = variant.placeholders.find(function(x) { return x && x.position === "front"; })
+            || variant.placeholders[0];
+      if (!ph || !ph.width || !ph.height) return null;
+      // 300 DPI is Printify's standard print resolution.
+      return {
+        widthIn:  ph.width  / 300,
+        heightIn: ph.height / 300,
+      };
+    }
 
     /**
      * Shared variant loader — returns a Promise<variants[]>.
@@ -4769,7 +5068,16 @@
       var parts = [];
       Object.keys(opts).forEach(function(k) {
         var val = opts[k];
-        if (val != null && val !== "") parts.push(String(val).trim());
+        if (val == null || val === "") return;
+        var str = String(val).trim();
+        // Wall clock variants split base color + hand color into two options.
+        // The bare "Black" / "White" on the `hands` key is ambiguous next to
+        // a "Black Base" / "White Base" / "Wooden Base" — beta tester asked
+        // for "Black hands" / "White hands" so the two columns read clearly.
+        if (k === "hands" && /^(black|white|gold|silver|rose\s*gold)$/i.test(str)) {
+          str = str + " hands";
+        }
+        parts.push(str);
       });
       return parts.length ? parts.join(" / ") : "Variant #" + v.id;
     }
@@ -4904,10 +5212,11 @@
         var selPrice = getVariantPrice(product, selectedVariant);
         html += '<div class="variant-selected-msg">Selected: ' + variantLabel(selectedVariant) + (selPrice ? " \u2014 " + selPrice : "") + '</div>';
       }
-      // Each variant is rendered as a tile: label on the left, price, and a
-      // Select button on the right that commits this specific variant and
-      // opens the editor via the confirmation modal.
-      html += '<div class="variant-list">';
+      // The inline pane is read-only — variants are listed for browsing only,
+      // and selection happens through the "Pick a variant" modal so users
+      // always go through the same single-step picker. Each row is just
+      // label + price, with a "✓ Selected" pill on the active row.
+      html += '<div class="variant-list variant-list-readonly">';
       variants.forEach(function(v) {
         var isConfirmed = (selectedId === v.id);
         var rowClass = "variant-row" + (isConfirmed ? " confirmed" : "");
@@ -4917,67 +5226,35 @@
         // label plus the price. The visible label is often truncated with
         // ellipsis on narrow columns (beta reported variants like "Athletic
         // Heather / XL Long T" getting cut) — the hover text is the escape
-        // hatch for confirming exactly which variant this is before clicking.
+        // hatch for confirming exactly which variant this is.
         var tooltipText = label + (price ? " — " + price : "");
         var tooltipAttr = ' title="' + escapeHtmlSimple(tooltipText) + '"';
         html +=
           '<div class="' + rowClass + '" data-variant-id="' + v.id + '"' + tooltipAttr + '>' +
             '<span class="variant-row-label"' + tooltipAttr + '>' + label + '</span>' +
             (price ? '<span class="variant-price">' + price + '</span>' : '<span class="variant-price variant-price-empty"></span>') +
-            '<button class="variant-select-btn" data-variant-id="' + v.id + '" type="button"' + tooltipAttr + '>' +
-              (isConfirmed ? '<i class="fas fa-check"></i> Selected' : '<i class="fas fa-chevron-right"></i> Select') +
-            '</button>' +
+            (isConfirmed ? '<span class="variant-row-badge"><i class="fas fa-check"></i> Selected</span>' : '') +
           '</div>';
       });
       html += '</div>';
       if (product.id === "wall_clock") {
         html += '<p class="variant-clock-note">Some options differ by hand color (white vs black).</p>';
       }
+      html += '<p class="variant-pick-hint">Tap <strong>Pick a variant</strong> above to change.</p>';
       html += '</div>';
       panel.innerHTML = html;
 
-      // Event delegation: one listener on the panel node survives innerHTML re-renders and
-      // renderProducts() rebuilds. Remove any previous delegate before re-attaching.
-      if (panel._variantClickDelegate) panel.removeEventListener("click", panel._variantClickDelegate);
-      if (panel._variantKeyDelegate)   panel.removeEventListener("keydown", panel._variantKeyDelegate);
-
-      function handleVariantSelect(vid) {
-        // Single-click on a variant's Select button: commit this variant and
-        // route through the confirm modal into the editor. Sets the chosen
-        // variant and updates aspect-ratio state before opening.
-        state.selectedVariantByProduct[product.id] = vid;
-        state.pendingVariantByProduct[product.id] = undefined;
-
-        var cacheKey = product.blueprintId + "_" + product.printProviderId;
-        var freshVariants = variantCache[cacheKey] || variants;
-
-        var clickedVariant = freshVariants.find(function(v) { return v.id === vid; });
-        if (clickedVariant) {
-          var parsedAR = parseVariantAspectRatio(clickedVariant);
-          if (parsedAR) state.variantAspectRatioByProduct[product.id] = parsedAR;
-          else delete state.variantAspectRatioByProduct[product.id];
-        }
-
-        // Open the confirmation modal, then commit + open editor on confirm.
-        showConfirmSelectModal(product, function() { commitProductSelection(product); });
+      // Drop any prior click/keydown delegates — the read-only pane has no
+      // interactive controls, and we don't want stale listeners firing on
+      // accidental clicks once renderProducts() rebuilds the DOM.
+      if (panel._variantClickDelegate) {
+        panel.removeEventListener("click", panel._variantClickDelegate);
+        panel._variantClickDelegate = null;
       }
-
-      panel._variantClickDelegate = function(e) {
-        var btn = e.target.closest(".variant-select-btn");
-        if (!btn) return;
-        e.stopPropagation();
-        handleVariantSelect(parseInt(btn.dataset.variantId, 10));
-      };
-      panel._variantKeyDelegate = function(e) {
-        if (e.key !== "Enter" && e.key !== " ") return;
-        var btn = e.target.closest(".variant-select-btn");
-        if (!btn) return;
-        e.preventDefault();
-        e.stopPropagation();
-        handleVariantSelect(parseInt(btn.dataset.variantId, 10));
-      };
-      panel.addEventListener("click", panel._variantClickDelegate);
-      panel.addEventListener("keydown", panel._variantKeyDelegate);
+      if (panel._variantKeyDelegate) {
+        panel.removeEventListener("keydown", panel._variantKeyDelegate);
+        panel._variantKeyDelegate = null;
+      }
     }
 
     function renderProducts() {
@@ -5006,7 +5283,7 @@
         var selectLabel = !state.originalImage
           ? '<i class="fas fa-lock"></i> Select wavelength first'
           : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving\u2026'
-              : '<i class="fas fa-chevron-down"></i> <span class="product-select-btn-label">Pick a variant</span>');
+              : '<i class="fas fa-arrow-right"></i> <span class="product-select-btn-label">Pick a variant</span>');
 
         card.className = "product-card";
         card.dataset.productId = p.id;
@@ -5159,9 +5436,17 @@
           var productId = btn.dataset.productId;
           var product = PRODUCTS.find(function(p) { return p.id === productId; });
           if (!product) return;
-          var card = btn.closest(".product-card");
-          if (!card) return;
-          toggleVariantPane(product, card, btn);
+          if (!state.originalImage || !product.blueprintId || !product.printProviderId) return;
+          // Primary flow: open the variant picker + confirm modal in one step.
+          // The inline collapsible pane (toggleVariantPane / renderVariantPanel)
+          // is no longer the entry point for selection — it's still rendered
+          // when restored on the editor-engaged card so the user can change
+          // variants without going through the modal again, but the click
+          // here goes straight to the modal so first-time users finish in one
+          // dialog instead of inline-expand → row-Select → confirm.
+          showConfirmSelectModal(product, function() {
+            commitProductSelection(product);
+          });
         });
       });
 
@@ -5222,15 +5507,18 @@
       editSection.classList.remove("hidden");
       syncCropRatioUI();
 
-      // Default the editor to "Full" crop + "Off" vignette so the user lands
-      // on the widest, cleanest view of their image every time a product is
-      // first engaged. Full fits the entire source inside the print area
-      // (no cropping); users can always tighten later with Fit/Fill/Tile or
-      // the slider. Vignette is off to match: "here is your whole image, as
-      // clean as possible." Reset also clears vigWidth and the crop-edge
-      // feather so stale state from an earlier product doesn't leak over.
-      if (state.originalImage && typeof computeFullCropZoom === "function") {
-        state.cropZoom = computeFullCropZoom();
+      // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
+      // vignette so the print area is covered completely the moment the
+      // editor opens. Earlier we used "Full" (fits the whole source inside
+      // the frame, may letterbox) but tester feedback was that the empty
+      // bars looked like a bug. Users can switch to Fit/Full/Tile any time.
+      // Reset also clears vigWidth and crop-edge feather so stale state
+      // from an earlier product doesn't leak over.
+      // If the user already adjusted cropZoom in the modal (variant pick) we
+      // keep that value — _selectInModal also defaults it to 100, so this
+      // branch usually no-ops on first engagement.
+      if (state.originalImage) {
+        if (state.cropZoom == null) state.cropZoom = 100;
         state.vignette = 0;
         state.vignetteWidth = 0;
         state.cropEdgeFeather = 0;
@@ -5247,16 +5535,55 @@
 
       renderCanvas();
       updateProductSectionHeader();
+      if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+      // Reveal the clock-customisation tab (and auto-activate it) when the
+      // user picks a wall_clock product. Hidden for everything else. Without
+      // this, the modal-driven selection path never showed the clock-numbers
+      // controls — beta tester noticed they couldn't add 12 numerals around
+      // the clock face anymore.
+      if (typeof updateClockNumbersButtonVisibility === "function") updateClockNumbersButtonVisibility();
+      if (product.id === "wall_clock") {
+        var clockTabBtn = document.querySelector('.edit-tab[data-tab="clock"]');
+        if (clockTabBtn && !clockTabBtn.classList.contains("active")) clockTabBtn.click();
+      }
       editSection.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    // Buy button in editor: start checkout for the selected product
+    // Buy button in editor: start checkout for the selected product. Gated
+    // on having a real Printify mockup generated — the canvas mockup is only
+    // an approximation, and beta testers reported being surprised when their
+    // Shopify product looked different than the editor preview. Forcing a
+    // real mockup before "Create on Shopify" gives the user a true preview
+    // to confirm against.
+    function _hasRealMockup() {
+      var pid = state.selectedProduct;
+      if (!pid) return false;
+      var entry = state.mockups[pid];
+      return !!(entry && entry.images && entry.images.length > 0);
+    }
+    function updateBuyButtonState() {
+      if (!btnBuyInEditor) return;
+      var ready = !!state.selectedProduct && _hasRealMockup();
+      btnBuyInEditor.disabled = !ready;
+      // The visual state is driven by [disabled] in CSS; we also swap the
+      // tooltip and label so the user knows what unlocks the action.
+      if (ready) {
+        btnBuyInEditor.title = "Create this product on Shopify and complete your purchase.";
+        btnBuyInEditor.classList.remove("buy-locked");
+      } else {
+        btnBuyInEditor.title = "Generate a real mockup first (Reset to mock mockup → Generate real mockup) so you can preview before publishing.";
+        btnBuyInEditor.classList.add("buy-locked");
+      }
+    }
     if (btnBuyInEditor) {
       btnBuyInEditor.addEventListener("click", function() {
+        if (btnBuyInEditor.disabled) return;
         if (!state.selectedProduct) return;
+        if (!_hasRealMockup()) return;
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
         if (product) startCheckout(product);
       });
+      updateBuyButtonState();
     }
 
     // ── Full Catalog Browser ──────────────────────────────────────
@@ -5621,14 +5948,22 @@
         done++;
         mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Mockup ' + done + '/' + total + ': ' + product.name + '\u2026';
 
+        // Use the user's currently-selected variant if they've picked one —
+        // beta testers picked "Wooden Base / White hands" on the clock and
+        // got back a black-base mockup because we were sending the catalog
+        // default variantId (Black Base / Black) every time. Falls back to
+        // product.variantId for products the user hasn't yet customised.
+        var pickedVariantId = (state.selectedVariantByProduct[product.id] != null)
+          ? state.selectedVariantByProduct[product.id]
+          : product.variantId;
         var payload = {
           title: "[MOCKUP] Solar Preview — " + product.name,
           description: "Auto-generated mockup preview",
           blueprint_id: product.blueprintId,
           print_provider_id: product.printProviderId,
-          variants: [{ id: product.variantId, price: 100, is_enabled: true }],
+          variants: [{ id: pickedVariantId, price: 100, is_enabled: true }],
           print_areas: [{
-            variant_ids: [product.variantId],
+            variant_ids: [pickedVariantId],
             placeholders: [{
               position: product.position || "front",
               images: [{ id: printifyImageId, x: 0.5, y: 0.5, scale: 1, angle: 0 }]
@@ -5653,6 +5988,7 @@
             state.mockups[product.id] = { images: images, printifyProductId: prodData.id };
           }
           renderProducts();
+          if (typeof updateBuyButtonState === "function") updateBuyButtonState();
           createNext();
         })
         .catch(function(err) {
@@ -5999,121 +6335,238 @@
     // renderProducts() is called by _installPreviewImage() once a date is selected and the
     // solar preview loads, ensuring cards only populate after the user picks a date.
 
-    // ── Pre-editor confirmation popup ────────────────────────────
-    // Shown after the user clicks "Select this product" on a card. It previews
-    // the chosen variant's metadata (title, size, aspect ratio, price) so the
-    // customer can bail out or change variant before the editor opens — acts
-    // as the safety net that makes the auto-default-variant behavior tolerable.
+    // ── Pre-editor variant picker + confirmation modal ────────────
+    // Single-step variant selection: clicking "Pick a variant" on a product
+    // card opens this modal with a scrollable list of variants, a live mockup
+    // preview, and a Continue button. Tapping a variant updates the mockup
+    // and the summary line; Continue commits the highlighted variant and
+    // opens the editor. Replaces the previous two-step flow (inline collapse
+    // → per-row Select → confirm dialog) that beta testers found cluttered.
     function showConfirmSelectModal(product, onContinue) {
       var modal = document.getElementById("confirmSelectModal");
-      var metaEl = document.getElementById("confirmSelectMetadata");
-      if (!modal || !metaEl) {
-        // Safety fallback: just run the continuation if the modal isn't wired
+      var listEl = document.getElementById("confirmSelectVariantList");
+      var summaryEl = document.getElementById("confirmSelectSummary");
+      var mockupEl = document.getElementById("confirmSelectMockup");
+      var titleEl = document.getElementById("confirmSelectTitle");
+      var subEl = document.getElementById("confirmSelectSub");
+      var continueBtn = document.getElementById("confirmSelectContinue");
+      var closeBtn = document.getElementById("confirmSelectClose");
+      var backdrop = document.getElementById("confirmSelectBackdrop");
+
+      if (!modal || !listEl || !continueBtn) {
         if (onContinue) onContinue();
         return;
       }
 
-      // Resolve the active variant: user's manual pick if present, else product default.
-      var activeVariantId = state.selectedVariantByProduct[product.id] != null
-        ? state.selectedVariantByProduct[product.id]
-        : product.variantId;
       var cacheKey = product.blueprintId + "_" + product.printProviderId;
-      var variants = variantCache[cacheKey] || [];
-      var activeVariant = variants.find(function(v) { return v.id === activeVariantId; }) || null;
-      var variantText = activeVariant ? variantLabel(activeVariant) : (activeVariantId ? ("ID " + activeVariantId) : "default");
+      // Snapshot original state so a Cancel/Esc/backdrop click restores it —
+      // the modal mutates state.selectedVariantByProduct + variantAspectRatio
+      // + cropZoom live so the mockup re-renders correctly on each tile tap.
+      var originalVariantId = state.selectedVariantByProduct[product.id];
+      var originalAR = state.variantAspectRatioByProduct[product.id];
+      var originalCropZoom = state.cropZoom;
 
-      var ar = getEffectiveAspectRatio(product);
-      var arText = ar ? (ar.w + ":" + ar.h) : "flexible";
+      var pendingVariantId = (originalVariantId != null) ? originalVariantId : product.variantId;
 
-      var priceText = (activeVariant ? getVariantPrice(product, activeVariant) : null) || product.price || "";
-
-      // Build metadata rows. Omit empty values so the popup stays compact.
-      var rows = [
-        { label: "Product", value: product.name },
-        { label: "Variant", value: variantText },
-        { label: "Aspect ratio", value: arText },
-        { label: "Price", value: priceText },
-      ];
-      if (product._isUserRequested) {
-        rows.push({ label: "Status", value: "Your request (pending review)" });
+      if (titleEl) titleEl.textContent = product.name;
+      if (subEl) {
+        subEl.textContent = product._isUserRequested
+          ? "Your request (pending review). Tap a variant, then continue."
+          : "Tap a variant to preview, then continue to the editor.";
       }
-      metaEl.innerHTML = rows.filter(function(r) { return r.value; }).map(function(r) {
-        return '<dt>' + escapeHtmlSimple(r.label) + '</dt>' +
-               '<dd>' + escapeHtmlSimple(r.value) + '</dd>';
-      }).join("");
 
-      // Render the same canvas mockup the product grid uses, sized larger so
-      // the modal delivers a "here's how your sun looks on this product"
-      // preview. If no image is loaded yet, hide the mockup box so we don't
-      // render a blank placeholder. Falls back silently if drawProductMockup
-      // fails (bad state shouldn't block the confirm flow).
-      var mockupContainer = document.getElementById("confirmSelectMockup");
-      if (mockupContainer) {
-        mockupContainer.innerHTML = "";
-        var canDrawMockup = !!state.originalImage && typeof drawProductMockup === "function"
-          && solarCanvas && solarCanvas.width > 0;
-        if (canDrawMockup) {
-          try {
-            var mockCanvas = document.createElement("canvas");
-            mockCanvas.width = 320;
-            mockCanvas.height = 320;
-            mockCanvas.className = "confirm-mockup-canvas";
-            var mctx = mockCanvas.getContext("2d");
-            // Scale up the mockup's 160×160 draw space to fill the 320×320
-            // display canvas. drawProductMockup draws at a fixed 160 internal
-            // size, so scale the context before calling.
-            mctx.scale(2, 2);
-            drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height, activeVariant);
-            mockupContainer.appendChild(mockCanvas);
-            mockupContainer.classList.remove("empty");
-          } catch (e) {
-            mockupContainer.classList.add("empty");
-          }
-        } else {
-          mockupContainer.classList.add("empty");
+      function _variantsList() {
+        return filterVariantsForProduct(product, variantCache[cacheKey] || []);
+      }
+      function _pricingMap() {
+        return variantPricingCache[cacheKey] || {};
+      }
+      function _priceForVariant(v) {
+        // Prefer the real Printify cost (in cents) if we have it; otherwise
+        // fall back to manual sizePricing entries, then the product's "From
+        // $X.XX" string. Always returns a non-empty label so every tile shows
+        // something — silent absence reads as missing data.
+        if (v) {
+          var pricing = _pricingMap()[v.id];
+          if (pricing && pricing.cost != null) return formatCents(pricing.cost);
         }
+        var manual = v ? getVariantPrice(product, v) : null;
+        if (manual) return manual;
+        return product.price || "";
+      }
+      function _renderSummary(variant) {
+        if (!summaryEl) return;
+        var ar = getEffectiveAspectRatio(product);
+        var simplified = ar ? simplifyAspectRatio(ar.w, ar.h) : null;
+        var arText = simplified ? (simplified.w + ":" + simplified.h) : "flexible";
+        var price = _priceForVariant(variant);
+        summaryEl.innerHTML =
+          '<span class="confirm-summary-aspect">Aspect ratio <strong>' + escapeHtmlSimple(arText) + '</strong></span>' +
+          (price ? ' <span class="confirm-summary-dot">·</span> <span class="confirm-summary-price">' + escapeHtmlSimple(price) + '</span>' : '');
+      }
+      function _renderMockup(variant) {
+        if (!mockupEl) return;
+        mockupEl.innerHTML = "";
+        var canDraw = !!state.originalImage && typeof drawProductMockup === "function"
+          && solarCanvas && solarCanvas.width > 0;
+        if (!canDraw) { mockupEl.classList.add("empty"); return; }
+        try {
+          var c = document.createElement("canvas");
+          c.width = 320; c.height = 320;
+          c.className = "confirm-mockup-canvas";
+          var mctx = c.getContext("2d");
+          mctx.scale(2, 2);
+          drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height, variant);
+          mockupEl.appendChild(c);
+          mockupEl.classList.remove("empty");
+        } catch (e) { mockupEl.classList.add("empty"); }
+      }
+      function _selectInModal(vid) {
+        pendingVariantId = vid;
+        // Mutate live state so getEffectiveAspectRatio() reflects this choice
+        // when re-rendering the mockup, and so the editor opens with the
+        // correct frame on Continue. Restored on Cancel.
+        state.selectedVariantByProduct[product.id] = vid;
+        var variants = _variantsList();
+        var v = variants.find(function(x) { return x.id === vid; });
+        if (v) {
+          var parsedAR = parseVariantAspectRatio(v);
+          if (parsedAR) state.variantAspectRatioByProduct[product.id] = parsedAR;
+          else delete state.variantAspectRatioByProduct[product.id];
+        }
+        // Variant-driven aspect ratios should use FILL (cropZoom=100) so the
+        // print area is covered edge-to-edge — switching variants while
+        // letterboxing is in effect leaves dead bars that don't match the
+        // print outcome. Fill is the most faithful preview of "your image
+        // covers this surface."
+        state.cropZoom = 100;
+        listEl.querySelectorAll(".confirm-variant-tile").forEach(function(t) {
+          var match = parseInt(t.dataset.variantId, 10) === vid;
+          t.classList.toggle("active", match);
+          t.setAttribute("aria-selected", match ? "true" : "false");
+        });
+        _renderSummary(v);
+        _renderMockup(v);
+      }
+      function _renderTiles() {
+        var variants = _variantsList();
+        if (!variants.length) {
+          listEl.innerHTML = '<div class="confirm-variant-empty">No variant info available</div>';
+          return;
+        }
+        if (!variants.find(function(v) { return v.id === pendingVariantId; })) {
+          pendingVariantId = variants[0].id;
+        }
+        var html = "";
+        // Round products read as "diameter", everything else reads "tall".
+        // Printify's clock variants are square print areas (1:1) so width
+        // and height converge — the user-facing word matters, not the math.
+        var isRound = (product.id === "wall_clock");
+        variants.forEach(function(v) {
+          var label = variantLabel(v);
+          var price = _priceForVariant(v);
+          var dims = getVariantPrintDims(v);
+          var dimSuffix = isRound ? '" diameter' : '" tall';
+          var heightText = dims ? dims.heightIn.toFixed(1) + dimSuffix : "";
+          var isActive = (v.id === pendingVariantId);
+          var tooltip = label + (price ? " — " + price : "") + (dims ? " — " + dims.widthIn.toFixed(1) + '" × ' + dims.heightIn.toFixed(1) + '"' : "");
+          html +=
+            '<button type="button" role="option"' +
+              ' class="confirm-variant-tile' + (isActive ? ' active' : '') + '"' +
+              ' aria-selected="' + (isActive ? "true" : "false") + '"' +
+              ' data-variant-id="' + v.id + '"' +
+              ' title="' + escapeHtmlSimple(tooltip) + '">' +
+              '<span class="confirm-variant-tile-label">' + escapeHtmlSimple(label) + '</span>' +
+              (price ? '<span class="confirm-variant-tile-price">' + escapeHtmlSimple(price) + '</span>' : '') +
+              (heightText ? '<span class="confirm-variant-tile-dims">' + escapeHtmlSimple(heightText) + '</span>' : '') +
+            '</button>';
+        });
+        listEl.innerHTML = html;
+        var active = listEl.querySelector(".confirm-variant-tile.active");
+        if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+      }
+      function _refreshAfterPricing() {
+        // Re-render tiles + summary so the real Printify cost replaces the
+        // placeholder "From $X.XX" label. Active variant + scroll position
+        // preserved by _renderTiles' active-class lookup.
+        _renderTiles();
+        var variants = _variantsList();
+        var v = variants.find(function(x) { return x.id === pendingVariantId; });
+        _renderSummary(v || null);
+      }
+      function _bootstrap() {
+        // Variants AND per-variant pricing are needed for the full picker.
+        // Variants are fast (catalog API), pricing is slower (must scan shop
+        // products on cold cache). Show variants as soon as they arrive so
+        // the user can interact, then re-render the price labels in place
+        // when pricing lands.
+        if (variantCache[cacheKey]) {
+          _renderTiles();
+          _selectInModal(pendingVariantId);
+        } else {
+          listEl.innerHTML = '<div class="confirm-variant-loading"><div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:-3px;margin-right:6px;"></div> Loading sizes &amp; colors…</div>';
+          _renderSummary(null);
+          _renderMockup(null);
+          loadVariants(product).then(function() {
+            _renderTiles();
+            var variants = _variantsList();
+            var first = variants.find(function(v) { return v.id === pendingVariantId; }) || variants[0];
+            if (first) _selectInModal(first.id);
+            else _renderSummary(null);
+          }).catch(function() {
+            listEl.innerHTML = '<div class="confirm-variant-empty">Could not load variants. Try again in a moment.</div>';
+          });
+        }
+        // Pricing fetch runs in parallel — refresh tiles when it lands.
+        loadVariantPricing(product).then(function() {
+          if (modal.classList.contains("hidden")) return; // user closed already
+          _refreshAfterPricing();
+        });
       }
 
-      var backdrop = document.getElementById("confirmSelectBackdrop");
-      var closeBtn = document.getElementById("confirmSelectClose");
-      var continueBtn = document.getElementById("confirmSelectContinue");
-      var changeBtn = document.getElementById("confirmSelectChange");
-
-      function close() {
+      function _close(restoreState) {
         modal.classList.add("hidden");
+        if (restoreState) {
+          if (originalVariantId == null) delete state.selectedVariantByProduct[product.id];
+          else state.selectedVariantByProduct[product.id] = originalVariantId;
+          if (originalAR == null) delete state.variantAspectRatioByProduct[product.id];
+          else state.variantAspectRatioByProduct[product.id] = originalAR;
+          state.cropZoom = originalCropZoom;
+        }
+        listEl.removeEventListener("click", onListClick);
         continueBtn.removeEventListener("click", onContinueClick);
-        changeBtn.removeEventListener("click", onChangeClick);
-        closeBtn.removeEventListener("click", close);
-        backdrop.removeEventListener("click", close);
+        closeBtn.removeEventListener("click", onCancel);
+        backdrop.removeEventListener("click", onCancel);
         document.removeEventListener("keydown", onKey);
       }
+      function onCancel() { _close(true); }
       function onContinueClick() {
-        close();
+        // Commit the picker's pending variant. selectedVariantByProduct is
+        // already set; clear pending and reset _close so it doesn't restore.
+        state.selectedVariantByProduct[product.id] = pendingVariantId;
+        state.pendingVariantByProduct[product.id] = undefined;
+        _close(false);
         if (onContinue) onContinue();
       }
-      function onChangeClick() {
-        close();
-        // Leave the variant panel open on the card so the user can pick a
-        // different variant without extra clicks.
-        var card = productGrid.querySelector('.product-card[data-product-id="' + product.id + '"]');
-        if (card) {
-          var panel = card.querySelector(".variant-panel");
-          if (panel) panel.classList.remove("hidden");
-          card.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+      function onListClick(e) {
+        var tile = e.target.closest(".confirm-variant-tile");
+        if (!tile) return;
+        e.preventDefault();
+        _selectInModal(parseInt(tile.dataset.variantId, 10));
       }
       function onKey(e) {
-        if (e.key === "Escape") close();
-        if (e.key === "Enter") { e.preventDefault(); onContinueClick(); }
+        if (e.key === "Escape") onCancel();
+        else if (e.key === "Enter") { e.preventDefault(); onContinueClick(); }
       }
 
+      listEl.addEventListener("click", onListClick);
       continueBtn.addEventListener("click", onContinueClick);
-      changeBtn.addEventListener("click", onChangeClick);
-      closeBtn.addEventListener("click", close);
-      backdrop.addEventListener("click", close);
+      closeBtn.addEventListener("click", onCancel);
+      backdrop.addEventListener("click", onCancel);
       document.addEventListener("keydown", onKey);
 
       modal.classList.remove("hidden");
+      _bootstrap();
       setTimeout(function() { continueBtn.focus(); }, 40);
     }
 
