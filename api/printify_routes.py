@@ -308,6 +308,101 @@ async def list_variants(blueprint_id: int, provider_id: int):
 
 
 # ────────────────────────────────────────────────
+# Variant pricing — Printify catalog endpoint does NOT include variant cost
+# (only id/title/options/placeholders), so the only way to surface per-variant
+# pricing is to scan the shop's existing products and read the cost+price
+# fields off matching variants. We page through all shop products once and
+# build an index keyed by (blueprint_id, print_provider_id, variant_id).
+# Cached for 30 minutes — pricing changes are rare and a 12-request scan is
+# slow on a cold cache (1k+ products at 100/page).
+# ────────────────────────────────────────────────
+_pricing_cache: dict = {}     # {(bp, pp): {variant_id: {"cost": cents, "price": cents}}}
+_pricing_index_built_at: float = 0.0
+_PRICING_TTL = 30 * 60         # seconds
+
+def _build_pricing_index_sync() -> None:
+    """Scan all shop products, populate _pricing_cache. Idempotent — replaces
+    the whole cache on each rebuild so deleted/edited products are reflected."""
+    global _pricing_cache, _pricing_index_built_at
+    shop_id = _shop_id()
+    new_cache: dict = {}
+    page = 1
+    # Printify caps shop products list at limit=50 (validation error 8150 above).
+    limit = 50
+    pages_walked = 0
+    total_products = 0
+    while True:
+        resp = _printify_request(
+            "GET",
+            f"{PRINTIFY_BASE}/shops/{shop_id}/products.json?limit={limit}&page={page}",
+            headers=_headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        items = body.get("data") or []
+        total_products = body.get("total", total_products)
+        if not items:
+            break
+        for prod in items:
+            bp = prod.get("blueprint_id")
+            pp = prod.get("print_provider_id")
+            if bp is None or pp is None:
+                continue
+            key = (int(bp), int(pp))
+            bucket = new_cache.setdefault(key, {})
+            for v in (prod.get("variants") or []):
+                vid = v.get("id")
+                if vid is None:
+                    continue
+                # Keep the cheapest cost we've seen per variant — different
+                # products with the same blueprint may have set retail prices
+                # differently, but Printify's `cost` (their charge to us) is
+                # consistent across products. We display cost preferentially.
+                existing = bucket.get(int(vid))
+                cost = v.get("cost")
+                price = v.get("price")
+                if existing is None or (cost is not None and (existing.get("cost") is None or cost < existing["cost"])):
+                    bucket[int(vid)] = {"cost": cost, "price": price}
+        pages_walked += 1
+        if len(items) < limit:
+            break
+        # Hard safety cap so a runaway pagination doesn't hammer Printify.
+        # 50 pages × 50 = 2500 products covers any reasonable shop.
+        if pages_walked > 50:
+            _log(f"[printify][pricing] stopped at {pages_walked} pages (safety cap)")
+            break
+        page += 1
+    _pricing_cache = new_cache
+    _pricing_index_built_at = time.time()
+    _log(f"[printify][pricing] index built: {pages_walked} pages, "
+         f"{total_products} products, {len(new_cache)} (bp, pp) combos")
+
+
+def _ensure_pricing_index_sync() -> None:
+    if (time.time() - _pricing_index_built_at) > _PRICING_TTL or not _pricing_cache:
+        _build_pricing_index_sync()
+
+
+@router.get("/blueprints/{blueprint_id}/providers/{provider_id}/pricing")
+async def variant_pricing(blueprint_id: int, provider_id: int):
+    """Returns per-variant cost+price for a blueprint+provider. Sourced from
+    the shop's existing products (the catalog API doesn't expose costs)."""
+    try:
+        await run_in_threadpool(_ensure_pricing_index_sync)
+        bucket = _pricing_cache.get((int(blueprint_id), int(provider_id)), {})
+        return JSONResponse(content={
+            "blueprint_id": blueprint_id,
+            "print_provider_id": provider_id,
+            "variants": bucket,
+            "built_at": _pricing_index_built_at,
+        })
+    except Exception as e:
+        _log(f"[printify][pricing] blueprint={blueprint_id} provider={provider_id} error: {e}")
+        return JSONResponse(status_code=500, content={"detail": f"Failed to load pricing: {e}"})
+
+
+# ────────────────────────────────────────────────
 # 6.  Publish a product to the connected store
 # ────────────────────────────────────────────────
 def _publish_product_sync(product_id: str) -> None:
