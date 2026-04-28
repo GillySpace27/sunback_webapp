@@ -3132,14 +3132,19 @@
       fill: 100,                 // frame edge-to-edge
       tile: 150,                 // zoomed-in detail crop
     };
-    var VIGNETTE_MODES = {
-      // vignette (0-100 intensity) and vignetteWidth (feather width). Edge=0 is
-      // a crisp circle; higher edge = soft feathered fade. Sharp's values are
-      // aligned with the editor's default state so the Sharp button appears
-      // active on initial load, reflecting what's already rendered on-canvas.
-      off:   { vignette: 0,  vignetteWidth: 0  },
-      soft:  { vignette: 24, vignetteWidth: 22 },
-      sharp: { vignette: 24, vignetteWidth: 0  },
+    // Vignette is split into two presets so each axis is independently
+    // selectable: EDGE controls feather softness (vignetteWidth), RADIUS
+    // controls how much of the image is inside the clear region (vignette
+    // intensity, where 0 = no vignette and higher = tighter circle).
+    var VIGNETTE_EDGE_MODES = {
+      sharp: 0,   // crisp circle
+      soft:  22,  // feathered fade
+    };
+    var VIGNETTE_RADIUS_MODES = {
+      off:  0,    // no vignette
+      full: 12,   // gentle fade — vignette only catches the corners
+      fit:  24,   // disk + breathing room (default)
+      fill: 48,   // tight — close to the solar disk
     };
 
     function applyCropMode(modeName) {
@@ -3157,19 +3162,28 @@
       scheduleMockupRefresh();
     }
 
-    function applyVignetteMode(modeName) {
-      var m = VIGNETTE_MODES[modeName];
-      if (!m) return;
-      state.vignette = m.vignette;
-      state.vignetteWidth = m.vignetteWidth;
-      state.cropEdgeFeather = 0;
-      var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
+    function applyVignetteEdgeMode(modeName) {
+      var w = VIGNETTE_EDGE_MODES[modeName];
+      if (w == null) return;
+      state.vignetteWidth = w;
       var vws = $("#vigWidthSlider"), vwv = $("#vigWidthVal");
-      var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
+      if (vws) { vws.value = w; vwv.textContent = w; }
+      _syncPresetActiveButtons();
+      applyCanvasView();
+      renderCanvas();
+      scheduleMockupRefresh();
+    }
+
+    function applyVignetteRadiusMode(modeName) {
+      var v = VIGNETTE_RADIUS_MODES[modeName];
+      if (v == null) return;
+      state.vignette = v;
+      state.cropEdgeFeather = 0;
       // vignetteSlider stores 100 - intensity (per existing convention at line 2609)
-      if (vs)  { vs.value  = 100 - m.vignette;     vv.textContent  = m.vignette; }
-      if (vws) { vws.value = m.vignetteWidth;      vwv.textContent = m.vignetteWidth; }
-      if (ces) { ces.value = 0;                    cev.textContent = 0; }
+      var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
+      var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
+      if (vs)  { vs.value  = 100 - v; vv.textContent  = v; }
+      if (ces) { ces.value = 0;       cev.textContent = 0; }
       _syncPresetActiveButtons();
       applyCanvasView();
       renderCanvas();
@@ -3188,21 +3202,30 @@
       document.querySelectorAll(".preset-btn[data-crop]").forEach(function(btn) {
         btn.classList.toggle("active", btn.dataset.crop === cropMode);
       });
-      var vigMode = null;
-      Object.keys(VIGNETTE_MODES).forEach(function(k) {
-        var m = VIGNETTE_MODES[k];
-        if (state.vignette === m.vignette && state.vignetteWidth === m.vignetteWidth) vigMode = k;
+      var vigEdgeMode = null;
+      Object.keys(VIGNETTE_EDGE_MODES).forEach(function(k) {
+        if (state.vignetteWidth === VIGNETTE_EDGE_MODES[k]) vigEdgeMode = k;
       });
-      document.querySelectorAll(".preset-btn[data-vignette]").forEach(function(btn) {
-        btn.classList.toggle("active", btn.dataset.vignette === vigMode);
+      document.querySelectorAll(".preset-btn[data-vignette-edge]").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.vignetteEdge === vigEdgeMode);
+      });
+      var vigRadiusMode = null;
+      Object.keys(VIGNETTE_RADIUS_MODES).forEach(function(k) {
+        if (state.vignette === VIGNETTE_RADIUS_MODES[k]) vigRadiusMode = k;
+      });
+      document.querySelectorAll(".preset-btn[data-vignette-radius]").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.vignetteRadius === vigRadiusMode);
       });
     }
 
     document.querySelectorAll(".preset-btn[data-crop]").forEach(function(btn) {
       btn.addEventListener("click", function() { applyCropMode(this.dataset.crop); });
     });
-    document.querySelectorAll(".preset-btn[data-vignette]").forEach(function(btn) {
-      btn.addEventListener("click", function() { applyVignetteMode(this.dataset.vignette); });
+    document.querySelectorAll(".preset-btn[data-vignette-edge]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyVignetteEdgeMode(this.dataset.vignetteEdge); });
+    });
+    document.querySelectorAll(".preset-btn[data-vignette-radius]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyVignetteRadiusMode(this.dataset.vignetteRadius); });
     });
     // Initial sync so buttons reflect default state on load.
     _syncPresetActiveButtons();
@@ -4093,6 +4116,22 @@
     }
 
     /**
+     * Fit a rectangle of aspect ratio `ar` inside `maxW × maxH` so the print
+     * area in the live preview mockup matches the editor canvas's effective
+     * aspect ratio. Without this, square-hardcoded mockup print rects (e.g.
+     * canvas/metal/acrylic) letterbox or crop the editor view differently
+     * from the canvas itself, which beta testers flagged as confusing.
+     */
+    function _fitPrintRectToAR(maxW, maxH, ar) {
+      if (!ar || !ar.w || !ar.h) return { w: maxW, h: maxH };
+      var R = ar.w / ar.h;
+      var w, h;
+      if (R >= maxW / maxH) { w = maxW; h = maxW / R; }
+      else                  { h = maxH; w = maxH * R; }
+      return { w: Math.round(w), h: Math.round(h) };
+    }
+
+    /**
      * Compute a center-crop source rect so the solar canvas fills a destination
      * area with the correct aspect ratio (no stretching, no letterboxing).
      * Returns { sx, sy, sw, sh } to pass as the source slice of drawImage().
@@ -4245,19 +4284,25 @@
       }
 
       if (productId === "mug_15oz" || productId === "mug_15oz_black" || productId === "tumbler_20oz") {
-        // Unwrapped drinkware view — the 2:1 printable strip laid flat, with
-        // the image cover-cropped edge-to-edge (matches object-fit:cover).
-        // The sun stays round (no distortion) and the strip fills completely.
-        // Center-crops top/bottom of a square source to fit 2:1; tumblers
-        // render as a plain strip without handles.
-        var bodyL = 22, bodyR = 138, bodyT = 58, bodyB = 115; // 116x57 (~2:1)
+        // Unwrapped drinkware view — the printable strip laid flat. The body
+        // rect is sized to the variant's effective aspect ratio so the strip
+        // here reads identically to what the editor canvas (and the real
+        // Printify mockup) shows — beta tester noted the tumbler card looked
+        // visibly different from its editor preview because the body was
+        // hardcoded to ~1.7:1 while the actual print area is 2:1.
         var isTumbler = (productId === "tumbler_20oz");
-        if (isTumbler) {
-          // Tumbler has a subtle taper; render a narrower unwrap strip
-          bodyL = 24; bodyR = 136; bodyT = 52; bodyB = 118;
-        }
-        var bodyW = bodyR - bodyL;
-        var bodyH = bodyB - bodyT;
+        var _muProd = PRODUCTS.find(function(p){ return p.id === productId; });
+        var _muAR = _muProd ? getEffectiveAspectRatio(_muProd) : { w: 2, h: 1 };
+        // Mugs leave room on each side for the dashed handles; tumblers don't.
+        var _muMaxW = isTumbler ? 130 : 116;
+        var _muMaxH = 66;
+        var _muFit = _fitPrintRectToAR(_muMaxW, _muMaxH, _muAR || { w: 2, h: 1 });
+        var bodyW = _muFit.w;
+        var bodyH = _muFit.h;
+        var bodyL = Math.round((W - bodyW) / 2);
+        var bodyT = Math.round(85 - bodyH / 2);
+        var bodyR = bodyL + bodyW;
+        var bodyB = bodyT + bodyH;
 
         mctx.save();
         mctx.beginPath();
@@ -4318,8 +4363,16 @@
         mctx.fillText("unwrapped view", W / 2, bodyB + 12);
         mctx.textAlign = "start";
       } else if (productId === "desk_mat") {
-        // Desk mat — wide 2:1 flat rectangle, no handle.
-        var dmL = 5, dmR = 155, dmT = 45, dmB = 115;
+        // Desk mat — wide flat rectangle. Match the editor's effective AR so
+        // the preview crop matches what the editor canvas shows.
+        var _dmProd = PRODUCTS.find(function(p){ return p.id === productId; });
+        var _dmAR = _dmProd ? getEffectiveAspectRatio(_dmProd) : { w: 2, h: 1 };
+        var _dmFit = _fitPrintRectToAR(150, 90, _dmAR || { w: 2, h: 1 });
+        var dmCx = W / 2, dmCy = 80;
+        var dmL = Math.round(dmCx - _dmFit.w / 2);
+        var dmT = Math.round(dmCy - _dmFit.h / 2);
+        var dmR = dmL + _dmFit.w;
+        var dmB = dmT + _dmFit.h;
         mctx.save();
         mctx.beginPath();
         mctx.moveTo(dmL, dmT + 3);
@@ -4365,8 +4418,15 @@
         drawCropped(45, 42, 70, 70);
         mctx.restore();
       } else if (productId === "poster_matte" || productId === "framed_poster") {
-        // Poster 11:14 — taller than wide
-        var pL = 25, pT = 10, pW = 110, pH = 140;
+        // Poster — sized to the editor's effective AR so the preview crop
+        // matches the editor canvas (variant flips, e.g. portrait↔landscape,
+        // would otherwise leave the mockup stuck at a hardcoded 11:14 shape).
+        var _pProd = PRODUCTS.find(function(p){ return p.id === productId; });
+        var _pAR = _pProd ? getEffectiveAspectRatio(_pProd) : { w: 11, h: 14 };
+        var _pFit = _fitPrintRectToAR(120, 140, _pAR || { w: 11, h: 14 });
+        var pW = _pFit.w, pH = _pFit.h;
+        var pL = Math.round((W - pW) / 2);
+        var pT = Math.round((H - pH) / 2 - 5);
         mctx.fillStyle = "rgba(0,0,0,0.4)";
         mctx.fillRect(pL + 4, pT + 4, pW, pH);
         mctx.fillStyle = "#fff";
@@ -4378,8 +4438,15 @@
           mctx.strokeRect(pL, pT, pW, pH);
         }
       } else if (productId === "canvas_stretched" || productId === "metal_sign" || productId === "acrylic_print") {
-        // Square wall art
-        var wL = 15, wT = 15, wW = 130, wH = 130;
+        // Wall art — print rect matches the editor's effective AR (variant
+        // dependent), so e.g. an 11×14 metal sign preview is no longer a
+        // hardcoded square that crops differently from the editor.
+        var _wProd = PRODUCTS.find(function(p){ return p.id === productId; });
+        var _wAR = _wProd ? getEffectiveAspectRatio(_wProd) : { w: 1, h: 1 };
+        var _wFit = _fitPrintRectToAR(130, 130, _wAR || { w: 1, h: 1 });
+        var wW = _wFit.w, wH = _wFit.h;
+        var wL = Math.round((W - wW) / 2);
+        var wT = Math.round((H - wH) / 2);
         mctx.fillStyle = "rgba(0,0,0,0.35)";
         mctx.fillRect(wL + 5, wT + 5, wW, wH);
         drawCropped(wL, wT, wW, wH);
@@ -5091,6 +5158,77 @@
       return null;
     }
 
+    /**
+     * Customer-facing retail price for a variant, in display form ("$12.34").
+     *
+     * Sources, in priority order:
+     *   1. Real Printify cost from variantPricingCache, anchored to the
+     *      product's advertised checkoutPrice. The cheapest variant in the
+     *      blueprint+provider bucket is pinned to checkoutPrice (so the
+     *      advertised "From $X.XX" matches what shows up next to the
+     *      cheapest tile), and every other variant scales by its cost
+     *      differential. This is what makes per-variant prices actually
+     *      vary in the UI — beta tester noted every variant in the picker
+     *      showed the same number because we used to surface raw wholesale
+     *      cost (often identical across colors).
+     *   2. Manual product.sizePricing entries (used by stickers).
+     *   3. The product-level "From $X.XX" string fallback.
+     *
+     * Returns null if nothing usable is available — callers render an
+     * empty pill rather than a misleading number.
+     */
+    function priceForVariantDisplay(product, variant) {
+      if (!product || !variant) return null;
+      var key = product.blueprintId + "_" + product.printProviderId;
+      var bucket = variantPricingCache[key];
+      if (bucket && bucket[variant.id] && bucket[variant.id].cost != null) {
+        var costs = [];
+        for (var k in bucket) {
+          if (bucket[k] && bucket[k].cost != null) costs.push(bucket[k].cost);
+        }
+        var minCost = costs.length ? Math.min.apply(null, costs) : bucket[variant.id].cost;
+        var anchor = product.checkoutPrice != null ? product.checkoutPrice : 0;
+        var markup = Math.max(0, anchor - minCost);
+        return formatCents(bucket[variant.id].cost + markup);
+      }
+      var manual = getVariantPrice(product, variant);
+      if (manual) return manual;
+      return product.price || null;
+    }
+
+    /**
+     * Stable sort variants by retail price ascending. The intent is grouping:
+     * variants with similar features tend to share a price tier (e.g. all
+     * S/M/L/XL t-shirts at $24.99, all 2XL at $27.55), so a price sort keeps
+     * those tiers visually adjacent in the picker. Variants whose price we
+     * can't resolve sink to the bottom rather than disrupting the order.
+     * Original ordering is the secondary key so within a tier we still get
+     * the catalog order Printify returned (color groups stay together).
+     */
+    function sortVariantsByPrice(product, variants) {
+      var priceCents = function(v) {
+        var key = product.blueprintId + "_" + product.printProviderId;
+        var bucket = variantPricingCache[key];
+        if (bucket && bucket[v.id] && bucket[v.id].cost != null) {
+          var costs = [];
+          for (var k in bucket) {
+            if (bucket[k] && bucket[k].cost != null) costs.push(bucket[k].cost);
+          }
+          var minCost = costs.length ? Math.min.apply(null, costs) : bucket[v.id].cost;
+          var anchor = product.checkoutPrice != null ? product.checkoutPrice : 0;
+          return bucket[v.id].cost + Math.max(0, anchor - minCost);
+        }
+        return Number.POSITIVE_INFINITY;
+      };
+      // Capture original index up front so the secondary key is stable.
+      var indexed = variants.map(function(v, i) { return { v: v, i: i, p: priceCents(v) }; });
+      indexed.sort(function(a, b) {
+        if (a.p !== b.p) return a.p - b.p;
+        return a.i - b.i;
+      });
+      return indexed.map(function(x) { return x.v; });
+    }
+
     function getSelectedVariantForProduct(productId) {
       var p = PRODUCTS.find(function(pr) { return pr.id === productId; });
       if (!p || !p.blueprintId || !p.printProviderId) return null;
@@ -5118,7 +5256,7 @@
         variants.forEach(function(v) {
           var opt = document.createElement("option");
           opt.value = v.id;
-          var price = getVariantPrice(product, v);
+          var price = priceForVariantDisplay(product, v);
           opt.textContent = variantLabel(v) + (price ? " — " + price : "");
           select.appendChild(opt);
         });
@@ -5130,7 +5268,7 @@
       }
 
       if (variantCache[cacheKey]) {
-        fillSelect(filterVariantsForProduct(product, variantCache[cacheKey]));
+        fillSelect(sortVariantsByPrice(product, filterVariantsForProduct(product, variantCache[cacheKey])));
         return;
       }
       select.innerHTML = "<option value=''>Loading…</option>";
@@ -5140,7 +5278,7 @@
       // Use shared loadVariants() so this never double-fetches with showVariantPanel
       loadVariants(product)
         .then(function(variants) {
-          fillSelect(filterVariantsForProduct(product, variants));
+          fillSelect(sortVariantsByPrice(product, filterVariantsForProduct(product, variants)));
           if (state.selectedProduct === product.id) {
             var effectiveAR = getEffectiveAspectRatio(product);
             if (effectiveAR && effectiveAR.w && effectiveAR.h) {
@@ -5203,13 +5341,28 @@
         return;
       }
 
+      // Kick off the pricing fetch (no-op if already cached) and re-render
+      // when it lands. Without this, the inline panel only had access to
+      // sizePricing — which is set on stickers only — so every other product
+      // showed empty price pills until the user opened the modal.
+      var pricingKey = product.blueprintId + "_" + product.printProviderId;
+      if (!variantPricingCache[pricingKey]) {
+        loadVariantPricing(product).then(function() {
+          if (panel.isConnected) renderVariantPanel(panel, product, variants);
+        });
+      }
+
+      // Sort by price so feature groups (size tiers, finish levels) stay
+      // adjacent regardless of the order Printify's catalog returns them in.
+      variants = sortVariantsByPrice(product, variants);
+
       var selectedId = state.selectedVariantByProduct[product.id];
       var selectedVariant = selectedId ? variants.find(function(v) { return v.id === selectedId; }) : null;
 
       var html = '<div class="variant-summary">';
       html += '<span class="variant-count">' + variants.length + ' variant' + (variants.length === 1 ? '' : 's') + '</span>';
       if (selectedVariant) {
-        var selPrice = getVariantPrice(product, selectedVariant);
+        var selPrice = priceForVariantDisplay(product, selectedVariant);
         html += '<div class="variant-selected-msg">Selected: ' + variantLabel(selectedVariant) + (selPrice ? " \u2014 " + selPrice : "") + '</div>';
       }
       // The inline pane is read-only — variants are listed for browsing only,
@@ -5221,7 +5374,7 @@
         var isConfirmed = (selectedId === v.id);
         var rowClass = "variant-row" + (isConfirmed ? " confirmed" : "");
         var label = variantLabel(v);
-        var price = getVariantPrice(product, v);
+        var price = priceForVariantDisplay(product, v);
         // Tooltip (title attr) shows the full, un-truncated "Color / Size"
         // label plus the price. The visible label is often truncated with
         // ellipsis on narrow columns (beta reported variants like "Athletic
@@ -6376,23 +6529,16 @@
       }
 
       function _variantsList() {
-        return filterVariantsForProduct(product, variantCache[cacheKey] || []);
+        return sortVariantsByPrice(product, filterVariantsForProduct(product, variantCache[cacheKey] || []));
       }
       function _pricingMap() {
         return variantPricingCache[cacheKey] || {};
       }
       function _priceForVariant(v) {
-        // Prefer the real Printify cost (in cents) if we have it; otherwise
-        // fall back to manual sizePricing entries, then the product's "From
-        // $X.XX" string. Always returns a non-empty label so every tile shows
-        // something — silent absence reads as missing data.
-        if (v) {
-          var pricing = _pricingMap()[v.id];
-          if (pricing && pricing.cost != null) return formatCents(pricing.cost);
-        }
-        var manual = v ? getVariantPrice(product, v) : null;
-        if (manual) return manual;
-        return product.price || "";
+        // Delegates to the shared retail formula (cost + markup anchored to
+        // product.checkoutPrice) so the inline read-only panel and this
+        // modal can't drift apart.
+        return priceForVariantDisplay(product, v) || product.price || "";
       }
       function _renderSummary(variant) {
         if (!summaryEl) return;
