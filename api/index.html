@@ -224,12 +224,18 @@
           <button class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
           <button class="edit-btn preset-btn" data-crop="tile" title="Zoom in close — detail shot of the Sun's surface">Tile</button>
         </div>
-        <!-- Vignette presets: soft feather vs hard edge -->
+        <!-- Vignette presets — split: edge controls feather, radius controls size -->
         <div class="preset-row">
-          <span class="preset-row-label">Vignette</span>
-          <button class="edit-btn preset-btn" data-vignette="off"   title="No vignette">Off</button>
-          <button class="edit-btn preset-btn" data-vignette="soft"  title="Soft feathered vignette">Soft</button>
-          <button class="edit-btn preset-btn" data-vignette="sharp" title="Hard-edge circular vignette">Sharp</button>
+          <span class="preset-row-label">Vig. Edge</span>
+          <button class="edit-btn preset-btn" data-vignette-edge="soft"  title="Soft feathered vignette edge">Soft</button>
+          <button class="edit-btn preset-btn" data-vignette-edge="sharp" title="Hard-edge circular vignette">Sharp</button>
+        </div>
+        <div class="preset-row">
+          <span class="preset-row-label">Vig. Radius</span>
+          <button class="edit-btn preset-btn" data-vignette-radius="off"  title="No vignette">Off</button>
+          <button class="edit-btn preset-btn" data-vignette-radius="full" title="Vignette circle reaches the frame corners">Full</button>
+          <button class="edit-btn preset-btn" data-vignette-radius="fit"  title="Vignette around the solar disk with breathing room">Fit</button>
+          <button class="edit-btn preset-btn" data-vignette-radius="fill" title="Tight vignette filling close to the solar disk">Fill</button>
         </div>
         <div class="edit-toolbar-break"></div>
         <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
