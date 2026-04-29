@@ -49,6 +49,14 @@
         <input type="date" id="solarDate">
       </div>
       <div class="field-group">
+        <span class="field-label">Time (UTC)</span>
+        <input type="time" id="solarTime" value="12:00" step="60"
+               title="Time of day in UTC. Defaults to 12:00 (noon UTC), where AIA's coverage is densest.">
+      </div>
+      <!-- Mission Data is hidden until we add a second mission option.
+           Kept in the DOM so any code that reads `#missionSelect.value`
+           still gets "SDO" without conditional checks. -->
+      <div class="field-group" style="display:none;">
         <span class="field-label">Mission Data</span>
         <select id="missionSelect">
           <option value="SDO">SDO / AIA (2010–present)</option>
@@ -222,7 +230,6 @@
           <button class="edit-btn preset-btn" data-crop="full" title="Fit the entire image inside the print area — no cropping, may letterbox">Full</button>
           <button class="edit-btn preset-btn" data-crop="fit"  title="Fit the full solar disk with breathing room around it">Fit</button>
           <button class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
-          <button class="edit-btn preset-btn" data-crop="tile" title="Zoom in close — detail shot of the Sun's surface">Tile</button>
         </div>
         <!-- Vignette presets — split: edge controls feather, radius controls size -->
         <div class="preset-row">
@@ -237,6 +244,19 @@
           <button class="edit-btn preset-btn" data-vignette-radius="fit"  title="Vignette around the solar disk with breathing room">Fit</button>
           <button class="edit-btn preset-btn" data-vignette-radius="fill" title="Tight vignette filling close to the solar disk">Fill</button>
         </div>
+        <!-- Crop-edge feather presets — quick toggles that sync the
+             Crop Edge X / Y sliders below. Hard = no feather, sharp
+             cut at the frame; Soft = noticeable fade-to-bg-colour. -->
+        <div class="preset-row">
+          <span class="preset-row-label">Crop Edge X</span>
+          <button class="edit-btn preset-btn" data-crop-edge-x="hard" title="Sharp left/right edges (no feather)">Hard</button>
+          <button class="edit-btn preset-btn" data-crop-edge-x="soft" title="Soft feather on left and right edges">Soft</button>
+        </div>
+        <div class="preset-row">
+          <span class="preset-row-label">Crop Edge Y</span>
+          <button class="edit-btn preset-btn" data-crop-edge-y="hard" title="Sharp top/bottom edges (no feather)">Hard</button>
+          <button class="edit-btn preset-btn" data-crop-edge-y="soft" title="Soft feather on top and bottom edges">Soft</button>
+        </div>
         <div class="edit-toolbar-break"></div>
         <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
         <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
@@ -250,9 +270,14 @@
           <span class="slider-val" id="cropVal">100%</span>
         </div>
         <div class="slider-row">
-          <label>Crop Edge</label>
-          <input type="range" id="cropEdgeSlider" min="0" max="100" value="0">
-          <span class="slider-val" id="cropEdgeVal">0</span>
+          <label>Crop Edge X</label>
+          <input type="range" id="cropEdgeXSlider" min="0" max="100" value="0" title="Horizontal crop-edge feather (left/right edges)">
+          <span class="slider-val" id="cropEdgeXVal">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Crop Edge Y</label>
+          <input type="range" id="cropEdgeYSlider" min="0" max="100" value="0" title="Vertical crop-edge feather (top/bottom edges)">
+          <span class="slider-val" id="cropEdgeYVal">0</span>
         </div>
         <div class="slider-row">
           <label>Vignette</label>
@@ -344,6 +369,29 @@
       <!-- Tools tab (last) -->
       <div class="edit-tab-panel hidden" id="tabPanel_tools">
         <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
+        <!-- Timestamp toggle: a toggle, not a modal — flips a tiny art-style
+             timestamp on or off on the image. The label is built from the
+             active date + noon UTC + wavelength so it reads as a caption,
+             not a debug string. -->
+        <button class="edit-btn" data-tool="timestamp" id="toolTimestampBtn"
+                title="Add a small caption with the date, time, and wavelength">
+          <i class="fas fa-clock"></i> Timestamp
+        </button>
+
+        <!-- Position picker: 2 rows × 3 columns, one radio per corner +
+             top-/bottom-center. Hidden until the timestamp is enabled so
+             it doesn't clutter the panel for users who don't want it. -->
+        <div class="timestamp-pos hidden" id="timestampPosGroup" role="radiogroup" aria-label="Timestamp position">
+          <span class="timestamp-pos-label">Position</span>
+          <div class="timestamp-pos-grid">
+            <label class="timestamp-pos-cell" title="Top left"><input type="radio" name="timestampPos" value="top-left"> <i class="fas fa-arrow-up-long" style="transform:rotate(-45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Top center"><input type="radio" name="timestampPos" value="top-center"> <i class="fas fa-arrow-up"></i></label>
+            <label class="timestamp-pos-cell" title="Top right"><input type="radio" name="timestampPos" value="top-right"> <i class="fas fa-arrow-up-long" style="transform:rotate(45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Bottom left"><input type="radio" name="timestampPos" value="bottom-left"> <i class="fas fa-arrow-down-long" style="transform:rotate(45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Bottom center"><input type="radio" name="timestampPos" value="bottom-center"> <i class="fas fa-arrow-down"></i></label>
+            <label class="timestamp-pos-cell" title="Bottom right"><input type="radio" name="timestampPos" value="bottom-right" checked> <i class="fas fa-arrow-down-long" style="transform:rotate(-45deg);"></i></label>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -503,10 +551,6 @@
       <div class="product-grid" id="userRequestsGrid"></div>
     </div>
 
-    <button class="btn-catalog" id="btnCatalog">
-      <i class="fas fa-th-large"></i> Browse More Products
-    </button>
-
     <div class="mockup-status" id="mockupStatus"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
@@ -547,13 +591,24 @@
   </div>
 </div>
 
-<!-- Feedback floating action button — opens the feedback modal -->
-<button class="feedback-fab" id="feedbackFab" type="button"
-        title="Leave feedback or request a product"
-        aria-label="Open feedback panel">
-  <i class="fas fa-comment-dots"></i>
-  <span class="feedback-fab-label">Feedback</span>
-</button>
+<!-- Feedback floating action — split into two pills so the two flows
+     (request a new product vs. leave a comment) read as distinct entry
+     points without burying one inside a tab. The modal still has both
+     tabs so users can switch once they're inside. -->
+<div class="feedback-fab-group" id="feedbackFabGroup">
+  <button class="feedback-fab feedback-fab-request" id="feedbackFabRequest" type="button"
+          title="Request a product we don't carry yet"
+          aria-label="Open product-request panel">
+    <i class="fas fa-tags"></i>
+    <span class="feedback-fab-label">Request new item</span>
+  </button>
+  <button class="feedback-fab feedback-fab-comment" id="feedbackFabComment" type="button"
+          title="Leave a comment for the team"
+          aria-label="Open comment panel">
+    <i class="fas fa-comment-dots"></i>
+    <span class="feedback-fab-label">Leave a comment</span>
+  </button>
+</div>
 
 <!-- Feedback modal -->
 <div class="feedback-modal hidden" id="feedbackModal" role="dialog" aria-labelledby="feedbackModalTitle" aria-modal="true">
@@ -591,6 +646,11 @@
     <div class="feedback-tab-panel hidden" id="feedbackPanelProduct">
       <label class="feedback-field-label" for="feedbackProductSearch">Search Printify's catalog</label>
       <input type="text" id="feedbackProductSearch" placeholder="e.g. tote bag, beach towel, wine tumbler&hellip;" autocomplete="off">
+      <!-- Category chips — Printify groups its catalog by product family
+           (Apparel, Drinkware, Wall Art, etc.). Their public API doesn't
+           expose the categories, so we infer one per blueprint from its
+           title and let the user click a chip to filter the search list. -->
+      <div class="feedback-category-row" id="feedbackCategoryRow"></div>
       <div class="feedback-product-hint" id="feedbackProductHint">
         <i class="fas fa-spinner fa-spin"></i> Loading catalog&hellip;
       </div>
@@ -603,15 +663,35 @@
           <button class="feedback-chosen-clear" id="feedbackChosenClear" type="button" aria-label="Clear selection">&#x2715;</button>
         </div>
         <div class="feedback-chosen-brand" id="feedbackChosenBrand"></div>
+        <!-- Generic mockup carried over from the search row, so the user
+             confirms which product they picked once the search list collapses. -->
+        <div class="feedback-chosen-mockup" id="feedbackChosenMockup"></div>
 
-        <label class="feedback-field-label" for="feedbackProviderSelect">Print provider</label>
-        <select id="feedbackProviderSelect"></select>
+        <div class="feedback-provider-row" id="feedbackProviderRow">
+          <label class="feedback-field-label" for="feedbackProviderSelect">Print provider</label>
+          <select id="feedbackProviderSelect"></select>
+        </div>
+        <div class="feedback-provider-auto hidden" id="feedbackProviderAuto"></div>
 
         <label class="feedback-field-label" for="feedbackVariantSelect">Variant</label>
         <select id="feedbackVariantSelect"></select>
 
+        <!-- Printify's catalog only exposes a bounding-box width/height for
+             each variant's print area, never the actual shape. Most products
+             print to a rectangle, but a few (round wall clocks, the circular
+             pet-leash button, sticker rounds, etc.) crop to a circle. The
+             user picks here so the editor can clip the preview correctly. -->
+        <div class="feedback-shape-row">
+          <span class="feedback-field-label">Print area shape</span>
+          <label class="feedback-shape-opt"><input type="radio" name="feedbackPrintShape" value="rectangle" checked> <i class="fas fa-square"></i> Rectangle</label>
+          <label class="feedback-shape-opt"><input type="radio" name="feedbackPrintShape" value="circle"> <i class="fas fa-circle"></i> Circle</label>
+        </div>
+
         <label class="feedback-field-label" for="feedbackProductNote">Note <span class="feedback-field-opt">(optional)</span></label>
         <textarea id="feedbackProductNote" rows="2" placeholder="Anything we should know? (color preference, sizing, etc.)"></textarea>
+
+        <label class="feedback-field-label" for="feedbackProductEmail">Email <span class="feedback-field-opt">(so we can let you know when it's live)</span></label>
+        <input type="email" id="feedbackProductEmail" placeholder="you@example.com">
 
         <button class="feedback-submit-btn" id="feedbackProductSubmit" type="button">
           <i class="fas fa-star"></i> Request this product

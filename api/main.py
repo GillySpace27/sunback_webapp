@@ -95,6 +95,10 @@ from tqdm import tqdm
 
 class PreviewRequest(BaseModel):
     date: str
+    # User-picked time of day in UTC, "HH:MM" (e.g. "12:00"). Optional —
+    # historical clients (and the older default) anchored everything to
+    # noon, so missing/blank reads as "12:00".
+    time: str | None = "12:00"
     wavelength: int
     mission: str | None = "SDO"
     annotate: bool | None = False
@@ -470,8 +474,13 @@ def fetch_first_fits(dt, wl):
     from parfive import Downloader
     # Enforce HTTPS for VSO URL
     client = VSOClient()
+    # Anchor to noon UTC to match the Helioviewer JPG (`hour=12`). A
+    # date-only `dt` from the frontend parses to midnight, which would
+    # otherwise put the FITS ~12 hours off the JPG taken later in the
+    # render pipeline.
+    dt_query = dt.replace(hour=12, minute=0, second=0, microsecond=0)
     attrs = [
-        a.Time(dt, dt + timedelta(minutes=1)),
+        a.Time(dt_query, dt_query + timedelta(minutes=1)),
         a.Detector("AIA"),
         a.Wavelength(wl * u.angstrom),
         a.Source("SDO"),
@@ -516,7 +525,11 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     PREVIEW_SIZE = 384
     os.makedirs(os.path.dirname(out_path_jpg), exist_ok=True)
     try:
-        hv_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+        # Use the user's exact time (passed in via `dt`) so the JPG and
+        # the FITS query below ask Helioviewer / VSO for the same instant.
+        # Previously this was forced to noon, which created the JPG-vs-
+        # RHEF time drift the user reported.
+        hv_dt = dt.replace(second=0, microsecond=0)
         hv_date_str = hv_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         scale = 3000.0 / 1024.0
         url = (
@@ -601,13 +614,18 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                 log_to_queue(f"[generate_preview] {label}: all {len(qr)} rows failed, skipping day.")
                 return None
 
-            # Try exact day first, then walk outward day-by-day
-            fits_path = _try_download(dt, f"exact day {dt.date()}")
+            # FITS query honours the user's exact time. The frontend now
+            # carries an explicit time-of-day field, so `dt` already has
+            # the right hour/minute set — no override needed. JPG above
+            # uses the same `dt`, so JPG and FITS land on the same instant.
+            dt_query = dt.replace(second=0, microsecond=0)
+            ts_label = dt_query.strftime("%H:%M UTC")
+            fits_path = _try_download(dt_query, f"exact day {dt_query.date()} {ts_label}")
             if not fits_path:
                 log_to_queue(f"[generate_preview] Scanning nearby days...")
                 for offset in range(1, 8):
-                    for candidate in [dt - timedelta(days=offset), dt + timedelta(days=offset)]:
-                        fits_path = _try_download(candidate, f"offset {offset:+}d ({candidate.date()})")
+                    for candidate in [dt_query - timedelta(days=offset), dt_query + timedelta(days=offset)]:
+                        fits_path = _try_download(candidate, f"offset {offset:+}d ({candidate.date()} {ts_label})")
                         if fits_path:
                             break
                     if fits_path:
@@ -623,7 +641,9 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             # Fallback: NASA DRMS often times out; use Helioviewer PNG so user still gets a preview.
             log_to_queue("[generate_preview] VSO/DRMS failed; trying Helioviewer fallback...")
             try:
-                hv_dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+                # Same instant the JPG+FITS used above (now user-picked,
+                # not hard-coded to noon).
+                hv_dt = dt.replace(second=0, microsecond=0)
                 hv_date_str = hv_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 scale = 3000.0 / 1024.0
                 url = (
@@ -664,6 +684,50 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     import matplotlib.pyplot as plt
     from skimage.measure import block_reduce
     smap = Map(fits_path)
+
+    # ── JPG ↔ FITS co-registration ──────────────────────────────
+    # Helioviewer's takeScreenshot snaps to the nearest available
+    # frame at its own discretion, which can drift hours from the
+    # FITS frame VSO actually returned (beta tester reported the JPG
+    # vs RAW/RHEF panes were not on the same observation). Re-issue
+    # the Helioviewer fetch using the FITS file's DATE-OBS so the JPG
+    # pane is forced to the same instant. If the re-fetch fails we
+    # keep the earlier JPG rather than blowing up the preview path.
+    try:
+        fits_obs_dt = getattr(smap, "date", None)
+        fits_obs_dt = fits_obs_dt.to_datetime() if fits_obs_dt is not None else None
+        if fits_obs_dt is not None:
+            hv_obs_str = fits_obs_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            hv_scale = 3000.0 / 1024.0
+            hv_url = (
+                f"{HELIOVIEWER_BASE}/?"
+                f"date={requests.utils.quote(hv_obs_str)}"
+                f"&imageScale={hv_scale}"
+                f"&layers=[SDO,AIA,AIA,{wl},1,100]"
+                f"&x0=0&y0=0&width=1024&height=1024&display=true&watermark=false"
+            )
+            hv_content, _hv_meta = _fetch_helioviewer_screenshot(hv_url)
+            import io as _io2
+            import matplotlib.pyplot as _plt_jpg3
+            from skimage.transform import resize as _sk_resize2
+            _arr = _plt_jpg3.imread(_io2.BytesIO(hv_content))
+            _h, _w = _arr.shape[0], _arr.shape[1]
+            if (_h, _w) != (PREVIEW_SIZE, PREVIEW_SIZE):
+                _preserve = _arr.dtype == np.uint8 or np.issubdtype(_arr.dtype, np.integer)
+                _arr = _sk_resize2(
+                    _arr, (PREVIEW_SIZE, PREVIEW_SIZE) + (_arr.shape[2:] if _arr.ndim == 3 else ()),
+                    preserve_range=_preserve, anti_aliasing=True,
+                )
+                if _preserve:
+                    _arr = np.clip(_arr, 0, 255).astype(np.uint8)
+            _plt_jpg3.imsave(out_path_jpg, _arr)
+            log_to_queue(
+                f"[generate_preview] JPG re-fetched at FITS DATE-OBS={hv_obs_str} "
+                f"(co-registered with RAW/RHEF)"
+            )
+    except Exception as _coreg_err:
+        log_to_queue(f"[generate_preview] JPG co-registration skipped: {_coreg_err}")
+
     data = np.array(smap.data, dtype=np.float32)
     data[data <= 0] = np.nan
     h, w = data.shape
@@ -744,12 +808,25 @@ async def generate_preview(req: PreviewRequest = Body(...)):
     """
     Warm the science-image cache: if preview PNG exists return it; if we already know
     this date/wl has no data, return preview_url=null; otherwise run FITS+RHEF in background.
-    Only one background task per (date, wavelength) is allowed at a time.
+    Only one background task per (date+time, wavelength) is allowed at a time.
     """
     try:
-        dt = datetime.strptime(req.date, "%Y-%m-%d")
+        # Combine the user's date with their picked time of day so the
+        # JPG (Helioviewer) and the RAW/RHEF (VSO/SunPy) fetches both
+        # land on the same observation. Defaults to noon UTC for back-
+        # compat with clients that don't send the field yet.
+        time_raw = (req.time or "12:00").strip()
+        try:
+            hh, mm = time_raw.split(":")
+            hour = max(0, min(23, int(hh)))
+            minute = max(0, min(59, int(mm)))
+        except Exception:
+            hour, minute = 12, 0
+        dt = datetime.strptime(req.date, "%Y-%m-%d").replace(hour=hour, minute=minute)
         wl = int(req.wavelength)
-        date_str = dt.strftime("%Y%m%d")
+        # File slug includes the time so different times of day cache
+        # independently — e.g. "20260421_1200" vs "20260421_1830".
+        date_str = dt.strftime("%Y%m%d_%H%M")
         key = (date_str, wl)
         base = f"preview_SDO_{wl}_{date_str}"
         out_path_raw = os.path.join(PREVIEW_DIR, f"{base}_raw.png")
@@ -841,8 +918,13 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         with status_lock:
             tasks[task_id] = {"status": "started", "message": "HQ generation started"}
             log_to_queue(f"[hq-task][{task_id}] Status: started")
-        # Convert date/wavelength types
-        dt = datetime.strptime(date, "%Y-%m-%d")
+        # Convert date/wavelength types. Accepts both YYYY-MM-DD (legacy
+        # callers) and YYYY-MM-DDTHH:MM:SS (frontend after the time-of-day
+        # field landed). fromisoformat handles both shapes.
+        try:
+            dt = datetime.fromisoformat(date.replace("Z", ""))
+        except ValueError:
+            dt = datetime.strptime(date, "%Y-%m-%d")
         wl = int(wavelength)
         # Run HQ generation in a thread (format_type ignored for now; only RHEF is produced)
         png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector)
@@ -929,14 +1011,28 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
 @app.post("/api/generate")
 async def start_generate(background_tasks: BackgroundTasks, payload: dict):
     """Start the HQ generation task asynchronously and return a task_id.
-    Optional 'format': 'jpg' | 'raw' | 'rhef' (default rhef). Currently only rhef is implemented."""
+    Optional 'format': 'jpg' | 'raw' | 'rhef' (default rhef). Currently only rhef is implemented.
+    Optional 'time' (HH:MM UTC) gets folded into `date` so the HQ render
+    targets the same instant as the preview pipeline."""
     date = payload.get("date")
+    time_raw = (payload.get("time") or "12:00").strip()
     wavelength = payload.get("wavelength")
     mission = payload.get("mission", "SDO")
     detector = payload.get("detector", "AIA")
     format_type = payload.get("format", "rhef")
     if not date or not wavelength:
         raise HTTPException(status_code=400, detail="Missing date or wavelength")
+    # Fold time into the date string the worker receives so we don't
+    # have to plumb a new arg through `run_generation_task` and its
+    # downstream callers. fido_fetch_map already handles ISO datetimes.
+    try:
+        hh, mm = time_raw.split(":")
+        hour = max(0, min(23, int(hh)))
+        minute = max(0, min(59, int(mm)))
+        date = f"{date}T{hour:02d}:{minute:02d}:00"
+    except Exception:
+        # Bad time → leave date as-is; downstream parser falls back to noon.
+        pass
     task_id = str(uuid.uuid4())
     with status_lock:
         tasks[task_id] = {"status": "queued", "message": "HQ generation queued"}
@@ -1242,6 +1338,7 @@ def debug_env():
 # ──────────────────────────────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     date: str = Field(..., description="YYYY-MM-DD (UTC) to render")
+    time: Optional[str] = Field("12:00", description="HH:MM (UTC). Defaults to 12:00 for back-compat.")
     mission: Optional[Literal["SDO", "SOHO-EIT", "SOHO-LASCO"]] = "SDO"
     wavelength: Optional[int] = Field(None, description="Angstroms for AIA/EIT (e.g., 211 or 195)")
     detector: Optional[Literal["AIA", "C2", "C3"]] = "AIA"
@@ -1383,9 +1480,12 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         mission = "SOHO-EIT"
     start_time = time.time()
 
-    # small search window to find nearest frame on that date
-    t0 = dt
-    t1 = dt + timedelta(minutes=2)
+    # Small search window to find nearest frame on that date. Anchored to
+    # noon UTC so SOHO-EIT / LASCO queries land on the same instant as
+    # the SDO/AIA path (and the Helioviewer JPG preview), keeping all
+    # backends consistent for a date-only request.
+    t0 = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+    t1 = t0 + timedelta(minutes=2)
 
     # Caching for combined (summed) AIA data
     import numpy as np
@@ -1435,8 +1535,16 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
 
         # Enforce HTTPS for VSO URL
 
+        # Honour the user-picked time if `dt` already carries hours/
+        # minutes; otherwise fall back to noon UTC (the historical
+        # default — keeps API callers without a time field aligned with
+        # the JPG preview, which also still defaults to noon).
+        if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
+            dt_query = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+        else:
+            dt_query = dt.replace(second=0, microsecond=0)
         qr = client.search(
-                a.Time(dt, dt + timedelta(minutes=2)),
+                a.Time(dt_query, dt_query + timedelta(minutes=2)),
                 a.Detector("AIA"),
                 a.Wavelength(wavelength * u.angstrom),
                 a.Source("SDO"),
@@ -1445,7 +1553,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
             qr = Fido.search(
-                a.Time(dt - timedelta(minutes=10), dt + timedelta(minutes=10)),
+                a.Time(dt_query - timedelta(minutes=10), dt_query + timedelta(minutes=10)),
                 a.Detector("AIA"), a.Provider("VSO"),
                 a.Source("SDO"),
                 a.Wavelength(wl * u.angstrom),
@@ -1453,7 +1561,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results in ±10min, retrying ±1 day...")
             qr = Fido.search(
-                a.Time(dt - timedelta(days=1), dt + timedelta(days=1)),
+                a.Time(dt_query - timedelta(days=1), dt_query + timedelta(days=1)),
                 a.Detector("AIA"), a.Provider("VSO"),
                 a.Source("SDO"),
                 a.Wavelength(wl * u.angstrom),
@@ -2045,8 +2153,11 @@ def fetch_quicklook_fits(mission: str, date_str: str, wavelength: int):
 
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
-    t0 = dt
-    t1 = dt + timedelta(minutes=2)
+    # Noon-anchored to match the JPG preview and the rest of the FITS
+    # query paths in this module — see _generate_preview_sync and
+    # fido_fetch_map for the same convention.
+    t0 = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+    t1 = t0 + timedelta(minutes=2)
     client = VSOClient()
 
     def reduce_and_save(file_path):

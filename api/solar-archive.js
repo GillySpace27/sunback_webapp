@@ -58,11 +58,24 @@
       vignetteWidth: 0,
       vignetteFade: "black",         // "transparent" | "black" | "white" | "mode" | "custom"
       vignetteFadeColor: "#000000",
-      cropEdgeFeather: 0,          // 0–100: feather at edges of crop viewport
+      // Crop-edge feather is now split per-axis so users can soften the
+      // left/right edges independently of the top/bottom (e.g. a wide
+      // mug strip wants strong horizontal feather but minimal vertical).
+      // 0–100 each; the SVG mask's feGaussianBlur takes "X Y" as
+      // stdDeviation, so two channels map cleanly into one filter.
+      cropEdgeFeatherX: 0,
+      cropEdgeFeatherY: 0,
       textMode: false,
       hqImageUrl: null,   // URL of completed HQ PNG (separate from originalImage)
       hqTaskId: null,     // running HQ background task ID
       textOverlay: null,  // { text, x, y, size, font, color, strokeColor, strokeWidth }
+      // Caption stamp (Tools → Timestamp). Just an on/off flag; the
+      // displayed text is composed at render time from the active date,
+      // noon UTC (matches the FITS/JPG fetch time), and wavelength.
+      timestampStamp: false,
+      // 2×3 grid: "top|bottom" + "-" + "left|center|right". Default to
+      // bottom-right so the original placement is preserved.
+      timestampPos: "bottom-right",
       clockNumbers: null, // wall_clock only: { font, color, strokeColor, strokeWidth, size, radiusPct }
       mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
       uploadedPrintifyId: null,  // reusable image ID from Printify upload
@@ -182,11 +195,20 @@
       // Opinionated default so the card renders — admin sets final pricing when approving.
       var price = (opts && opts.price) || "Custom — pricing TBD";
       var checkoutPrice = (opts && opts.checkoutPrice) || 2499;
+      // Print-area shape: passed in from the request modal (or carried
+      // on the request payload if it's already there). "circle" makes
+      // the editor clip the image to a disc and centres the vignette
+      // on the inscribed circle, matching how products like the round
+      // pet-leash button or wall clock face actually print.
+      var printShape =
+        (opts && opts.printShape) ||
+        (req && req.printShape) ||
+        "rectangle";
       return {
         id: id,
         name: title,
         desc: req.variantTitle ? ("Variant: " + req.variantTitle) : "User-requested product",
-        icon: "fa-sparkles",
+        icon: printShape === "circle" ? "fa-circle" : "fa-sparkles",
         price: price,
         checkoutPrice: checkoutPrice,
         blueprintId: req.blueprintId,
@@ -194,6 +216,7 @@
         variantId: req.variantId || null,
         position: "front",
         aspectRatio: ar,
+        printShape: printShape,
         _isUserRequested: true,
       };
     }
@@ -434,6 +457,19 @@
     // ── DOM refs ─────────────────────────────────────────────────
     var $ = function(sel) { return document.querySelector(sel); };
     var dateInput = $("#solarDate");
+    var timeInput = $("#solarTime");
+
+    // Helper: read the time field (HH:MM) and normalise to "HH:MM".
+    // Defaults to "12:00" when blank or malformed so backends that don't
+    // yet honor the time param see the same noon fallback as before.
+    function _solarTimeValue() {
+      var raw = (timeInput && timeInput.value) || "";
+      var m = /^(\d{1,2}):(\d{2})/.exec(raw);
+      if (!m) return "12:00";
+      var hh = Math.max(0, Math.min(23, parseInt(m[1], 10) || 0));
+      var mm = Math.max(0, Math.min(59, parseInt(m[2], 10) || 0));
+      return (hh < 10 ? "0" + hh : "" + hh) + ":" + (mm < 10 ? "0" + mm : "" + mm);
+    }
     var wlGrid = $("#wlGrid");
     var progressTrack = $("#progressTrack");
     var progressFill = $("#progressFill");
@@ -639,8 +675,9 @@
         existing.width = pw;
         existing.height = ph;
       }
-      // Circular preview for round products (wall_clock)
-      if (product.id === "wall_clock") {
+      // Circular preview for round products — wall_clock plus any user-
+      // requested product tagged with `printShape === "circle"`.
+      if (product.id === "wall_clock" || product.printShape === "circle") {
         existing.classList.add("circular");
       } else {
         existing.classList.remove("circular");
@@ -937,7 +974,7 @@
       } else {
         // Fetch preview for main canvas via backend proxy (512px — fast & reliable from Helioviewer,
         // image_scale=12 → ~1.5 R_sun FOV). 2048px was unreliable; 512px is sufficient for editing.
-        var isoDate = dateVal + "T12:00:00Z";
+        var isoDate = dateVal + "T" + _solarTimeValue() + ":00Z";
         var url = API_BASE + "/api/helioviewer_thumb?date=" +
           encodeURIComponent(isoDate) + "&wavelength=" + wl +
           "&image_scale=12&size=512";
@@ -1053,7 +1090,8 @@
       state.vignetteWidth = 0;
       state.vignetteFade = "black";
       state.vignetteFadeColor = "#000000";
-      state.cropEdgeFeather = 0;
+      state.cropEdgeFeatherX = 0;
+      state.cropEdgeFeatherY = 0;
       state.textOverlay = null;
       state.textMode = false;
       state.mockups = {};
@@ -1245,13 +1283,18 @@
       // No fallback: tiles only load after the user explicitly picks a date.
       var thumbDivs = document.querySelectorAll(".wl-thumb");
       var thumbCount = thumbDivs ? thumbDivs.length : 0;
-      var alreadyLoadedThisDate = dateVal === lastThumbDate && Object.keys(thumbCache).length > 0;
+      // Cache key now includes the time so changing the time-of-day
+      // re-fetches the wavelength tiles (otherwise we'd serve thumbs
+      // that are stuck at noon while the editor panes refresh to the
+      // new time).
+      var thumbCacheKey = dateVal + "T" + _solarTimeValue();
+      var alreadyLoadedThisDate = thumbCacheKey === lastThumbDate && Object.keys(thumbCache).length > 0;
       tileLog("loadWavelengthThumbnails", { dateVal: dateVal, lastThumbDate: lastThumbDate, thumbCount: thumbCount, alreadyLoadedThisDate: alreadyLoadedThisDate });
       if (!dateVal || alreadyLoadedThisDate) return;
-      lastThumbDate = dateVal;
-      thumbCache = {};  // clear cache for new date
+      lastThumbDate = thumbCacheKey;
+      thumbCache = {};  // clear cache for new date/time
 
-      var isoDate = dateVal + "T12:00:00Z";
+      var isoDate = dateVal + "T" + _solarTimeValue() + ":00Z";
 
       thumbDivs.forEach(function(div) {
         var wl = parseInt(div.dataset.wl, 10);
@@ -1339,10 +1382,11 @@
       dateStr = (dateStr || "").trim();
       if (!dateStr || !wavelength) return Promise.reject(new Error("Missing date or wavelength"));
       if (onProgress) onProgress(10, "Requesting RHE…");
+      var timeStr = _solarTimeValue();
       return fetch(API_BASE + "/api/generate_preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: dateStr, wavelength: wavelength, mission: "SDO" })
+        body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" })
       }).then(function(res) { return res.json().then(function(data) { return { status: res.status, data: data }; }); })
         .then(function(result) {
           if (result.data.preview_url) {
@@ -1363,7 +1407,7 @@
                 fetch(API_BASE + "/api/generate_preview", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ date: dateStr, wavelength: wavelength, mission: "SDO" })
+                  body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" })
                 }).then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
                   .then(function(pollResult) {
                     var d = pollResult.data;
@@ -1753,6 +1797,15 @@
     if (dateInput) {
       dateInput.addEventListener("change", loadWavelengthThumbnails);
       dateInput.addEventListener("input", loadWavelengthThumbnails);
+    }
+    // Time changes: same flow as date, since JPG previews and FITS queries
+    // are now anchored to the user-picked time of day. We re-load the
+    // wavelength thumbnails (Helioviewer JPGs) and let any active wave
+    // re-trigger a preview fetch through the existing date pipeline.
+    if (timeInput) {
+      timeInput.addEventListener("change", loadWavelengthThumbnails);
+    }
+    if (dateInput) {
       // Default to one week ago so users see wavelength tiles on first paint
       // AND land on a date where the HQ RHEF science images are reliably
       // available. The JPG previews publish within hours of observation, but
@@ -2206,7 +2259,7 @@
       // the existing fetch lifecycle.
       if (_attempt === 1 && state.hqFetching) return Promise.resolve();
 
-      var cacheKey = date + "_" + wavelength + "_hq_" + format;
+      var cacheKey = date + "T" + _solarTimeValue() + "_" + wavelength + "_hq_" + format;
       var cached = hqCache[cacheKey];
       if (cached && cached.imageObj) {
         state.hqFilterImage = cached.imageObj;
@@ -2228,6 +2281,7 @@
 
       return postJSON(API_BASE + "/api/generate", {
         date: date,
+        time: _solarTimeValue(),
         wavelength: wavelength,
         mission: "SDO",
         detector: "AIA",
@@ -2318,6 +2372,33 @@
         };
         img.src = url;
       });
+    }
+
+    // ── Timestamp caption helpers ─────────────────────────────
+    // Builds the user-facing caption: "21 April 2026 · 12:00 UTC · 171 Å".
+    // Date is parsed from the picker (an ISO yyyy-mm-dd string), formatted
+    // with the locale's full month name; time is fixed at 12:00 UTC because
+    // every fetch path in the app is anchored there. Wavelength comes from
+    // the active state.wavelength. Returns "" if any required piece is
+    // missing rather than emitting half a caption.
+    var _MONTH_NAMES = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    function _composeTimestampCaption() {
+      var dateInputEl = document.getElementById("solarDate");
+      var dateStr = dateInputEl ? dateInputEl.value : "";
+      var wl = state.wavelength;
+      if (!dateStr || !wl) return "";
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+      if (!m) return "";
+      var year = parseInt(m[1], 10);
+      var month = parseInt(m[2], 10);
+      var day = parseInt(m[3], 10);
+      var monthName = _MONTH_NAMES[month - 1] || ("Month " + month);
+      // Day-first reads more like a print caption than ISO ordering ("21
+      // April 2026" vs "April 21, 2026"). · = mid-dot separator.
+      return day + " " + monthName + " " + year + " · 12:00 UTC · " + wl + " Å";
     }
 
     // ── Canvas rendering ─────────────────────────────────────────
@@ -2444,8 +2525,12 @@
       ctx.restore();
 
       // Determine whether this is a round product — needed both by the pixel loop
-      // (for vignette centering) and by the circular-clip code below.
-      var isCircularProduct = (state.selectedProduct === "wall_clock");
+      // (for vignette centering) and by the circular-clip code below. Originally
+      // wall_clock was the only round product, but user-requested products with
+      // `printShape === "circle"` (e.g. the pet-leash button print) need the
+      // same treatment, so we now check the resolved product's shape flag too.
+      var isCircularProduct = (state.selectedProduct === "wall_clock") ||
+        (product && product.printShape === "circle");
 
       // Apply brightness/contrast/saturation via pixel manipulation.
       //
@@ -2458,7 +2543,8 @@
       // latency that the cheap paths can't cover.
       var ENABLE_INTERACTIVE_DOWNSAMPLE = false;
       var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
-                           state.saturation !== 100 || state.inverted || state.vignette > 0;
+                           state.saturation !== 100 || state.inverted || state.vignette > 0 ||
+                           (state.cropEdgeFeatherX || 0) > 0 || (state.cropEdgeFeatherY || 0) > 0;
       if (needsPixelWork) {
         var useDownsampled = ENABLE_INTERACTIVE_DOWNSAMPLE && !state._fullResRender;
         var workCw = cw, workCh = ch;
@@ -2503,6 +2589,15 @@
         var vigR = maxR * radiusFactor;
         // vignetteWidth: 0 = hard crop (no feather), 100 = full smooth feather
         var vigWidthFactor = state.vignetteWidth / 100;
+
+        // Crop-edge feather: how far inward from each edge the fade reaches.
+        // 100% on the slider extends the fade ~25% of the canvas dimension
+        // inward from each edge, leaving the central ~50% untouched. The
+        // smoothstep inside the loop softens that into a clean ramp.
+        var applyEdgeFeatherX = (state.cropEdgeFeatherX || 0) > 0;
+        var applyEdgeFeatherY = (state.cropEdgeFeatherY || 0) > 0;
+        var edgeFeatherWidthX = ((state.cropEdgeFeatherX || 0) / 100) * (workCw * 0.25);
+        var edgeFeatherWidthY = ((state.cropEdgeFeatherY || 0) / 100) * (workCh * 0.25);
 
         // Mode (match canvas): always compute from displayed pixels (excluding black/white) for Match button preview and for vignette when selected
         if (needsPixelWork) {
@@ -2606,6 +2701,67 @@
             }
           }
 
+          // Crop-edge feather (X/Y) — fades the canvas toward the configured
+          // vignetteFade colour as pixels approach the left/right or top/
+          // bottom edges. The CSS-only mask approach (still wired up for
+          // editor responsiveness) only affected display, so mockups and
+          // exports rendered without the fade. Baking it into the pixel
+          // data here means the snapshot used for product cards / preview
+          // mockups carries the same effect end-to-end.
+          if (applyEdgeFeatherX || applyEdgeFeatherY) {
+            var epx = (i / 4) % workCw;
+            var epy = Math.floor((i / 4) / workCw);
+            var eTx = 0, eTy = 0;
+            if (applyEdgeFeatherX) {
+              var distEdgeX = Math.min(epx, (workCw - 1) - epx);
+              if (distEdgeX < edgeFeatherWidthX) {
+                var rawX = 1 - (distEdgeX / edgeFeatherWidthX);
+                eTx = rawX * rawX * (3 - 2 * rawX);
+              }
+            }
+            if (applyEdgeFeatherY) {
+              var distEdgeY = Math.min(epy, (workCh - 1) - epy);
+              if (distEdgeY < edgeFeatherWidthY) {
+                var rawY = 1 - (distEdgeY / edgeFeatherWidthY);
+                eTy = rawY * rawY * (3 - 2 * rawY);
+              }
+            }
+            // Closer-to-any-edge wins so the fade reads as directional
+            // when only one axis is enabled (proof of concept for the
+            // user request: dialing X up should darken the left/right
+            // edges to black without touching top/bottom).
+            var eT = eTx > eTy ? eTx : eTy;
+            if (eT > 0) {
+              var eFade = state.vignetteFade || "transparent";
+              if (eFade === "transparent") {
+                d[i + 3] = d[i + 3] * (1 - eT);
+              } else if (eFade === "black") {
+                r = r * (1 - eT);
+                g = g * (1 - eT);
+                b = b * (1 - eT);
+              } else if (eFade === "white") {
+                r = r * (1 - eT) + 255 * eT;
+                g = g * (1 - eT) + 255 * eT;
+                b = b * (1 - eT) + 255 * eT;
+              } else if (eFade === "custom") {
+                var ehex = (state.vignetteFadeColor || "#000000").replace(/^#/, "");
+                var efr = parseInt(ehex.substr(0, 2), 16);
+                var efg = parseInt(ehex.substr(2, 2), 16);
+                var efb = parseInt(ehex.substr(4, 2), 16);
+                r = r * (1 - eT) + efr * eT;
+                g = g * (1 - eT) + efg * eT;
+                b = b * (1 - eT) + efb * eT;
+              } else if (eFade === "mode") {
+                var emR = state._vignetteModeR !== undefined ? state._vignetteModeR : 0;
+                var emG = state._vignetteModeG !== undefined ? state._vignetteModeG : 0;
+                var emB = state._vignetteModeB !== undefined ? state._vignetteModeB : 0;
+                r = r * (1 - eT) + emR * eT;
+                g = g * (1 - eT) + emG * eT;
+                b = b * (1 - eT) + emB * eT;
+              }
+            }
+          }
+
           d[i] = Math.max(0, Math.min(255, r));
           d[i + 1] = Math.max(0, Math.min(255, g));
           d[i + 2] = Math.max(0, Math.min(255, b));
@@ -2618,6 +2774,45 @@
           // pixel loop and the slight interpolation blur is invisible to the
           // user at slider-drag speeds. Export bypasses this branch entirely.
           ctx.drawImage(workCanvas, 0, 0, cw, ch);
+        }
+      }
+
+      // ── Timestamp caption (Tools → Timestamp) ─────────────────
+      // A small art-style caption stamped on the print area:
+      // "21 April 2026 · 12:00 UTC · 171 Å". Sans-serif, lightly
+      // shadowed for legibility on bright corona. Drawn after pixel
+      // effects (vignette/feather) so it stays crisp.
+      if (state.timestampStamp) {
+        var tsText = _composeTimestampCaption();
+        if (tsText) {
+          ctx.save();
+          // Font sized to the canvas (so the caption is the same fraction
+          // of the image whether the canvas is 512px preview or 1536px
+          // HQ).
+          var tsRefH = Math.min(cw, ch);
+          var tsSize = Math.max(11, Math.round(tsRefH * 0.028));
+          var tsInset = Math.max(8, Math.round(tsRefH * 0.025));
+          ctx.font = "500 " + tsSize + "px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif";
+          // Position resolves to one of six anchors (top|bottom × left|center|right).
+          var tsPos = state.timestampPos || "bottom-right";
+          var tsParts = tsPos.split("-");
+          var tsV = tsParts[0] === "top" ? "top" : "bottom";
+          var tsH = (tsParts[1] === "left" || tsParts[1] === "center") ? tsParts[1] : "right";
+          var tsX, tsY;
+          if (tsH === "left")        { ctx.textAlign = "left";   tsX = tsInset; }
+          else if (tsH === "center") { ctx.textAlign = "center"; tsX = cw / 2; }
+          else                       { ctx.textAlign = "right";  tsX = cw - tsInset; }
+          if (tsV === "top")         { ctx.textBaseline = "top";        tsY = tsInset; }
+          else                       { ctx.textBaseline = "alphabetic"; tsY = ch - tsInset; }
+          // Soft shadow so the caption reads on either a bright disk or
+          // a dark vignette without needing a heavy stroke.
+          ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+          ctx.shadowBlur = Math.max(2, Math.round(tsSize * 0.2));
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 1;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+          ctx.fillText(tsText, tsX, tsY);
+          ctx.restore();
         }
       }
 
@@ -2847,7 +3042,8 @@
         state.vignetteWidth = 0;
         state.vignetteFade = "black";
         state.vignetteFadeColor = "#000000";
-        state.cropEdgeFeather = 0;
+        state.cropEdgeFeatherX = 0;
+        state.cropEdgeFeatherY = 0;
         state.textOverlay = null;
         state.textMode = false;
         if (state.selectedProduct) state.aspectFlippedByProduct[state.selectedProduct] = false;
@@ -2858,7 +3054,8 @@
         $("#saturationSlider").value = 100;
         $("#vignetteSlider").value = 100 - 24;
         $("#vigWidthSlider").value = 0;
-        if ($("#cropEdgeSlider")) { $("#cropEdgeSlider").value = 0; $("#cropEdgeVal").textContent = "0"; }
+        if ($("#cropEdgeXSlider")) { $("#cropEdgeXSlider").value = 0; $("#cropEdgeXVal").textContent = "0"; }
+        if ($("#cropEdgeYSlider")) { $("#cropEdgeYSlider").value = 0; $("#cropEdgeYVal").textContent = "0"; }
         $("#brightnessVal").textContent = "0";
         $("#contrastVal").textContent = "0";
         $("#saturationVal").textContent = "100";
@@ -3130,7 +3327,6 @@
       full: computeFullCropZoom, // fits entire image inside print area
       fit:  71,                  // full solar disk with breathing room
       fill: 100,                 // frame edge-to-edge
-      tile: 150,                 // zoomed-in detail crop
     };
     // Vignette is split into two presets so each axis is independently
     // selectable: EDGE controls feather softness (vignetteWidth), RADIUS
@@ -3145,6 +3341,13 @@
       full: 12,   // gentle fade — vignette only catches the corners
       fit:  24,   // disk + breathing room (default)
       fill: 48,   // tight — close to the solar disk
+    };
+    // Crop-edge presets, per-axis. The crop-edge sliders go 0–100;
+    // 38 reads as a clear softness without eating much of the print
+    // area. (Started at 75; user feedback was that was too aggressive.)
+    var CROP_EDGE_MODES = {
+      hard: 0,
+      soft: 38,
     };
 
     function applyCropMode(modeName) {
@@ -3178,12 +3381,34 @@
       var v = VIGNETTE_RADIUS_MODES[modeName];
       if (v == null) return;
       state.vignette = v;
-      state.cropEdgeFeather = 0;
       // vignetteSlider stores 100 - intensity (per existing convention at line 2609)
       var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
-      var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
-      if (vs)  { vs.value  = 100 - v; vv.textContent  = v; }
-      if (ces) { ces.value = 0;       cev.textContent = 0; }
+      if (vs)   { vs.value   = 100 - v; vv.textContent   = v; }
+      _syncPresetActiveButtons();
+      applyCanvasView();
+      renderCanvas();
+      scheduleMockupRefresh();
+    }
+
+    // Crop-edge feather presets, per axis. Sets only its own state field
+    // and re-syncs the corresponding slider; the other axis is untouched.
+    function applyCropEdgeXMode(modeName) {
+      var v = CROP_EDGE_MODES[modeName];
+      if (v == null) return;
+      state.cropEdgeFeatherX = v;
+      var s = $("#cropEdgeXSlider"), val = $("#cropEdgeXVal");
+      if (s) { s.value = v; val.textContent = v; }
+      _syncPresetActiveButtons();
+      applyCanvasView();
+      renderCanvas();
+      scheduleMockupRefresh();
+    }
+    function applyCropEdgeYMode(modeName) {
+      var v = CROP_EDGE_MODES[modeName];
+      if (v == null) return;
+      state.cropEdgeFeatherY = v;
+      var s = $("#cropEdgeYSlider"), val = $("#cropEdgeYVal");
+      if (s) { s.value = v; val.textContent = v; }
       _syncPresetActiveButtons();
       applyCanvasView();
       renderCanvas();
@@ -3216,6 +3441,18 @@
       document.querySelectorAll(".preset-btn[data-vignette-radius]").forEach(function(btn) {
         btn.classList.toggle("active", btn.dataset.vignetteRadius === vigRadiusMode);
       });
+      // Crop-edge X / Y presets
+      var cexMode = null, ceyMode = null;
+      Object.keys(CROP_EDGE_MODES).forEach(function(k) {
+        if ((state.cropEdgeFeatherX || 0) === CROP_EDGE_MODES[k]) cexMode = k;
+        if ((state.cropEdgeFeatherY || 0) === CROP_EDGE_MODES[k]) ceyMode = k;
+      });
+      document.querySelectorAll(".preset-btn[data-crop-edge-x]").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.cropEdgeX === cexMode);
+      });
+      document.querySelectorAll(".preset-btn[data-crop-edge-y]").forEach(function(btn) {
+        btn.classList.toggle("active", btn.dataset.cropEdgeY === ceyMode);
+      });
     }
 
     document.querySelectorAll(".preset-btn[data-crop]").forEach(function(btn) {
@@ -3226,6 +3463,12 @@
     });
     document.querySelectorAll(".preset-btn[data-vignette-radius]").forEach(function(btn) {
       btn.addEventListener("click", function() { applyVignetteRadiusMode(this.dataset.vignetteRadius); });
+    });
+    document.querySelectorAll(".preset-btn[data-crop-edge-x]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyCropEdgeXMode(this.dataset.cropEdgeX); });
+    });
+    document.querySelectorAll(".preset-btn[data-crop-edge-y]").forEach(function(btn) {
+      btn.addEventListener("click", function() { applyCropEdgeYMode(this.dataset.cropEdgeY); });
     });
     // Initial sync so buttons reflect default state on load.
     _syncPresetActiveButtons();
@@ -3343,34 +3586,46 @@
     }
 
     // ── Crop edge: feather the edges of the crop viewport ──
+    // The X/Y feather is now baked into the pixel data inside
+    // renderCanvas() so it propagates to mockups and exports. This
+    // function used to also apply an SVG mask via CSS for the editor
+    // canvas — now redundant and would double the effect, so we just
+    // clear any leftover mask styles. Kept as a callable function so
+    // other code paths that still call it don't need to change.
     function applyCropEdgeMask() {
       if (!solarCanvas) return;
-      var v = state.cropEdgeFeather || 0;
-      var blurEl = document.getElementById("cropEdgeFeatherBlur");
-      if (blurEl) blurEl.setAttribute("stdDeviation", (v / 100) * 0.25);
-      if (v <= 0) {
-        solarCanvas.style.maskImage = "";
-        solarCanvas.style.maskSize = "";
-        solarCanvas.style.maskRepeat = "";
-        solarCanvas.style.webkitMaskImage = "";
-        solarCanvas.style.webkitMaskSize = "";
-        solarCanvas.style.webkitMaskRepeat = "";
-      } else {
-        solarCanvas.style.maskImage = "url(#cropEdgeMask)";
-        solarCanvas.style.maskSize = "100% 100%";
-        solarCanvas.style.maskRepeat = "no-repeat";
-        solarCanvas.style.webkitMaskImage = "url(#cropEdgeMask)";
-        solarCanvas.style.webkitMaskSize = "100% 100%";
-        solarCanvas.style.webkitMaskRepeat = "no-repeat";
-      }
+      solarCanvas.style.maskImage = "";
+      solarCanvas.style.maskSize = "";
+      solarCanvas.style.maskRepeat = "";
+      solarCanvas.style.webkitMaskImage = "";
+      solarCanvas.style.webkitMaskSize = "";
+      solarCanvas.style.webkitMaskRepeat = "";
     }
-    var cropEdgeSlider = $("#cropEdgeSlider");
-    var cropEdgeVal = $("#cropEdgeVal");
-    if (cropEdgeSlider) {
-      cropEdgeSlider.addEventListener("input", function() {
-        state.cropEdgeFeather = parseInt(cropEdgeSlider.value, 10);
-        cropEdgeVal.textContent = state.cropEdgeFeather;
+    var cropEdgeXSlider = $("#cropEdgeXSlider");
+    var cropEdgeXVal = $("#cropEdgeXVal");
+    if (cropEdgeXSlider) {
+      cropEdgeXSlider.addEventListener("input", function() {
+        state.cropEdgeFeatherX = parseInt(cropEdgeXSlider.value, 10);
+        cropEdgeXVal.textContent = state.cropEdgeFeatherX;
+        // Re-render the canvas so the new feather bakes into the pixel
+        // data — the mockup snapshot reads the canvas directly, so the
+        // edge fade now propagates into product cards / preview pane
+        // (the previous CSS-only mask only affected the editor view).
         applyCropEdgeMask();
+        if (typeof _syncPresetActiveButtons === "function") _syncPresetActiveButtons();
+        scheduleCanvasRender();
+        scheduleMockupRefresh();
+      });
+    }
+    var cropEdgeYSlider = $("#cropEdgeYSlider");
+    var cropEdgeYVal = $("#cropEdgeYVal");
+    if (cropEdgeYSlider) {
+      cropEdgeYSlider.addEventListener("input", function() {
+        state.cropEdgeFeatherY = parseInt(cropEdgeYSlider.value, 10);
+        cropEdgeYVal.textContent = state.cropEdgeFeatherY;
+        applyCropEdgeMask();
+        if (typeof _syncPresetActiveButtons === "function") _syncPresetActiveButtons();
+        scheduleCanvasRender();
         scheduleMockupRefresh();
       });
     }
@@ -3594,6 +3849,44 @@
     $("#cancelText").addEventListener("click", function() {
       exitTextMode();
     });
+
+    // ── Timestamp tool ─────────────────────────────────────────
+    // Toggle, not a modal: flips state.timestampStamp and re-renders.
+    // Caption text is composed at draw time from date + wavelength so
+    // it stays correct if the user changes either after toggling on.
+    var toolTimestampBtn = document.getElementById("toolTimestampBtn");
+    var timestampPosGroup = document.getElementById("timestampPosGroup");
+    if (toolTimestampBtn) {
+      function _syncTimestampBtn() {
+        toolTimestampBtn.classList.toggle("active", !!state.timestampStamp);
+        if (timestampPosGroup) timestampPosGroup.classList.toggle("hidden", !state.timestampStamp);
+      }
+      _syncTimestampBtn();
+      toolTimestampBtn.addEventListener("click", function() {
+        state.timestampStamp = !state.timestampStamp;
+        _syncTimestampBtn();
+        if (state.timestampStamp && (!dateInput.value || !state.wavelength)) {
+          showToast("Pick a date and wavelength first so the timestamp can read both.");
+        }
+        renderCanvas();
+        scheduleMockupRefresh();
+      });
+    }
+    // Position picker: 6 radios, one per top/bottom × left/center/right
+    // anchor. Mark the matching radio on load (default bottom-right) and
+    // re-render on change. The actual placement math lives in renderCanvas.
+    if (timestampPosGroup) {
+      var _posRadios = timestampPosGroup.querySelectorAll('input[type="radio"][name="timestampPos"]');
+      _posRadios.forEach(function(rb) {
+        if (rb.value === (state.timestampPos || "bottom-right")) rb.checked = true;
+        rb.addEventListener("change", function() {
+          if (!rb.checked) return;
+          state.timestampPos = rb.value;
+          renderCanvas();
+          scheduleMockupRefresh();
+        });
+      });
+    }
 
     // ── Clock numbers panel (wall_clock only) ───────────────────
     var clockNumbersPanel = document.getElementById("clockNumbersPanel");
@@ -3897,8 +4190,10 @@
       cropOverlay.style.top = (offsetY + y1 * scaleY) + "px";
       cropOverlay.style.width = (w * scaleX) + "px";
       cropOverlay.style.height = (h * scaleY) + "px";
-      // Circular overlay for round products (wall_clock)
-      if (state.selectedProduct === "wall_clock") {
+      // Circular overlay for round products — wall_clock and any user-
+      // requested product tagged with printShape === "circle".
+      var _selProd = state.selectedProduct ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; }) : null;
+      if (state.selectedProduct === "wall_clock" || (_selProd && _selProd.printShape === "circle")) {
         cropOverlay.classList.add("circular");
       } else {
         cropOverlay.classList.remove("circular");
@@ -3943,7 +4238,8 @@
 
       // Apply pixel adjustments (brightness, contrast, saturation, vignette, invert)
       var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
-                           state.saturation !== 100 || state.inverted || state.vignette > 0;
+                           state.saturation !== 100 || state.inverted || state.vignette > 0 ||
+                           (state.cropEdgeFeatherX || 0) > 0 || (state.cropEdgeFeatherY || 0) > 0;
       if (needsPixelWork) {
         var imageData = tctx.getImageData(0, 0, cw, ch);
         var d = imageData.data;
@@ -4060,9 +4356,18 @@
         state.panY || 0,
         state.cropZoom || 0,
         state.vignette || 0,
+        state.vignetteWidth || 0,
+        state.cropEdgeFeatherX || 0,
+        state.cropEdgeFeatherY || 0,
         state.brightness || 0,
         state.contrast || 0,
         state.saturation || 100,
+        // Timestamp caption: changing the toggle, the position, the
+        // date, or the wavelength all change what's burned into the snapshot.
+        state.timestampStamp ? 1 : 0,
+        state.timestampPos || "",
+        (document.getElementById("solarDate") && document.getElementById("solarDate").value) || "",
+        state.wavelength || 0,
         t ? (t.text + "|" + t.x + "|" + t.y + "|" + t.size + "|" + t.color + "|" + (t.rotation || 0)) : ""
       ].join(":");
     }
@@ -4795,8 +5100,30 @@
         mctx.fillStyle = "rgba(0,0,0,0.28)";
         mctx.fillRect(bpL + 6, bpT + bpH + 6, bpW - 12, 14);
       } else {
-        // Generic square fallback
-        drawCropped(10, 10, 140, 140);
+        // Generic fallback for unknown product ids (e.g. user-requested
+        // products from the feedback flow). If the product carries
+        // printShape === "circle", clip the image to a disc so round
+        // print areas (pet-leash button, sticker rounds, etc.) render
+        // correctly on the gallery card and the live-preview pane.
+        var _fallbackProd = (typeof PRODUCTS !== "undefined")
+          ? PRODUCTS.find(function(p) { return p.id === productId; })
+          : null;
+        if (_fallbackProd && _fallbackProd.printShape === "circle") {
+          mctx.save();
+          mctx.beginPath();
+          mctx.arc(80, 80, 70, 0, Math.PI * 2);
+          mctx.clip();
+          drawCropped(10, 10, 140, 140);
+          mctx.restore();
+          // Subtle rim so the disc reads as a printed surface, not just a clip.
+          mctx.strokeStyle = "rgba(255,255,255,0.18)";
+          mctx.lineWidth = 1;
+          mctx.beginPath();
+          mctx.arc(80, 80, 70, 0, Math.PI * 2);
+          mctx.stroke();
+        } else {
+          drawCropped(10, 10, 140, 140);
+        }
       }
     }
 
@@ -5674,15 +6001,18 @@
         if (state.cropZoom == null) state.cropZoom = 100;
         state.vignette = 0;
         state.vignetteWidth = 0;
-        state.cropEdgeFeather = 0;
+        state.cropEdgeFeatherX = 0;
+        state.cropEdgeFeatherY = 0;
         var cs = $("#cropSlider"),  cv  = $("#cropVal");
         var vs = $("#vignetteSlider"), vv = $("#vignetteVal");
         var vws = $("#vigWidthSlider"), vwv = $("#vigWidthVal");
-        var ces = $("#cropEdgeSlider"), cev = $("#cropEdgeVal");
-        if (cs)  { cs.value  = state.cropZoom;    cv.textContent  = state.cropZoom + "%"; }
-        if (vs)  { vs.value  = 100 - state.vignette; vv.textContent = state.vignette; }
-        if (vws) { vws.value = state.vignetteWidth;  vwv.textContent = state.vignetteWidth; }
-        if (ces) { ces.value = state.cropEdgeFeather; cev.textContent = state.cropEdgeFeather; }
+        var cesx = $("#cropEdgeXSlider"), cevx = $("#cropEdgeXVal");
+        var cesy = $("#cropEdgeYSlider"), cevy = $("#cropEdgeYVal");
+        if (cs)   { cs.value   = state.cropZoom;    cv.textContent   = state.cropZoom + "%"; }
+        if (vs)   { vs.value   = 100 - state.vignette; vv.textContent = state.vignette; }
+        if (vws)  { vws.value  = state.vignetteWidth;  vwv.textContent = state.vignetteWidth; }
+        if (cesx) { cesx.value = state.cropEdgeFeatherX; cevx.textContent = state.cropEdgeFeatherX; }
+        if (cesy) { cesy.value = state.cropEdgeFeatherY; cevy.textContent = state.cropEdgeFeatherY; }
         if (typeof _syncPresetActiveButtons === "function") _syncPresetActiveButtons();
       }
 
@@ -5743,9 +6073,11 @@
     var catalogModal = document.getElementById("catalogModal");
     var catalogCache = null; // cached blueprint list
 
-    $("#btnCatalog").addEventListener("click", function() {
-      openCatalog();
-    });
+    // The "Browse More Products" entry button was removed in favour of
+    // the in-modal catalog search inside the Request-a-product feedback
+    // pane (which has chips, prices, and mockups). The openCatalog()
+    // / catalogModal flow below is left for now in case we want to
+    // re-attach an entry point — nothing else calls it.
 
     function openCatalog() {
       catalogModal.classList.remove("hidden");
@@ -6607,7 +6939,9 @@
         // Round products read as "diameter", everything else reads "tall".
         // Printify's clock variants are square print areas (1:1) so width
         // and height converge — the user-facing word matters, not the math.
-        var isRound = (product.id === "wall_clock");
+        // Honors printShape so user-requested round products get the
+        // right label too.
+        var isRound = (product.id === "wall_clock") || (product && product.printShape === "circle");
         variants.forEach(function(v) {
           var label = variantLabel(v);
           var price = _priceForVariant(v);
@@ -6732,9 +7066,13 @@
     // was looking at when they submitted.
     // ───────────────────────────────────────────────────────────────
     (function setupFeedbackWidget() {
-      var fab = document.getElementById("feedbackFab");
+      // Two FABs (Request / Comment) replace the prior single Feedback pill.
+      // Each opens the modal directly to the matching tab; the modal still
+      // has both tabs so users can switch once inside.
+      var fabRequest = document.getElementById("feedbackFabRequest");
+      var fabComment = document.getElementById("feedbackFabComment");
       var modal = document.getElementById("feedbackModal");
-      if (!fab || !modal) return;
+      if ((!fabRequest && !fabComment) || !modal) return;
 
       var backdrop = document.getElementById("feedbackModalBackdrop");
       var closeBtn = document.getElementById("feedbackCloseBtn");
@@ -6749,13 +7087,18 @@
       var productSearch = document.getElementById("feedbackProductSearch");
       var productHint = document.getElementById("feedbackProductHint");
       var productResults = document.getElementById("feedbackProductResults");
+      var categoryRow = document.getElementById("feedbackCategoryRow");
       var productChosen = document.getElementById("feedbackProductChosen");
       var chosenName = document.getElementById("feedbackChosenName");
       var chosenBrand = document.getElementById("feedbackChosenBrand");
+      var chosenMockup = document.getElementById("feedbackChosenMockup");
       var chosenClear = document.getElementById("feedbackChosenClear");
       var providerSelect = document.getElementById("feedbackProviderSelect");
+      var providerRow = document.getElementById("feedbackProviderRow");
+      var providerAuto = document.getElementById("feedbackProviderAuto");
       var variantSelect = document.getElementById("feedbackVariantSelect");
       var productNote = document.getElementById("feedbackProductNote");
+      var productEmail = document.getElementById("feedbackProductEmail");
       var productSubmit = document.getElementById("feedbackProductSubmit");
       var thanksMsg = document.getElementById("feedbackThanksMsg");
       var thanksAnother = document.getElementById("feedbackThanksAnother");
@@ -6764,6 +7107,46 @@
       var _blueprints = null;
       var _blueprintsLoading = null;
       var _chosenBlueprint = null;
+      // Map of {blueprint_id: cheapest_cost_cents} from /blueprints/cheapest_costs.
+      // Populated alongside the catalog on first Request-tab open. Blueprints
+      // the shop has never produced are simply absent from the map — we
+      // surface "Pricing on request" rather than fabricating a number.
+      var _cheapestCosts = null;
+      // Active category filter — null means "show everything".
+      var _activeCategory = null;
+
+      // Printify groups its catalog by product family on its website but
+      // doesn't expose the grouping via the public API. We infer a category
+      // per blueprint from its title using ordered keyword regexes — the
+      // first match wins, so put more-specific categories before generic
+      // ones (e.g. "phone case" before "accessories"). Anything that doesn't
+      // match falls into "Other" so nothing disappears from the list.
+      var FEEDBACK_CATEGORIES = [
+        { key: "drinkware", label: "Drinkware",   icon: "fa-mug-hot",      match: /\b(mug|tumbler|stein|wine glass|water bottle|sport bottle|coaster|drinkware|shot glass|coffee|sippy)\b/i },
+        { key: "wall_art",  label: "Wall Art",    icon: "fa-image",        match: /\b(poster|canvas|metal sign|metal art|acrylic|wall art|framed|tapestry|wood print|wall hanging|photo print|matte paper)\b/i },
+        { key: "stickers",  label: "Stickers",    icon: "fa-sticky-note",  match: /\b(sticker|decal|bumper|kiss[- ]?cut|magnet)\b/i },
+        { key: "phone",     label: "Phone",       icon: "fa-mobile-screen",match: /\b(phone case|phone grip|popsocket|airpod|airtag|tablet case)\b/i },
+        { key: "tech",      label: "Tech & Office", icon: "fa-laptop",     match: /\b(laptop sleeve|laptop case|mouse ?pad|mousepad|desk mat|keyboard|stylus|sanitizer|charger|wireless)\b/i },
+        { key: "bags",      label: "Bags",        icon: "fa-bag-shopping", match: /\b(tote|backpack|duffle|messenger|fanny pack|drawstring|pouch|wallet|purse|shopping bag)\b/i },
+        { key: "home",      label: "Home & Living", icon: "fa-couch",      match: /\b(pillow|blanket|throw|shower curtain|bath mat|towel|rug|placemat|tablecloth|table runner|napkin|apron|oven mitt|cutting board|garden flag|stocking|christmas|ornament|car mat)\b/i },
+        { key: "puzzle",    label: "Puzzles & Games", icon: "fa-puzzle-piece", match: /\b(puzzle|jigsaw|playing cards|board game|game)\b/i },
+        { key: "stationery", label: "Stationery", icon: "fa-book",         match: /\b(journal|notebook|sketchbook|planner|notepad|postcard|business card|sticky note|calendar|greeting card|pen|pencil|notepad|envelope)\b/i },
+        { key: "jewelry",   label: "Jewelry",     icon: "fa-gem",          match: /\b(necklace|earring|bracelet|charm|pendant|cufflink|jewelry)\b/i },
+        { key: "pets",      label: "Pets",        icon: "fa-paw",          match: /\b(pet |dog |cat |doggie|leash|collar|pet bowl|pet bed)\b/i },
+        { key: "footwear",  label: "Footwear",    icon: "fa-shoe-prints",  match: /\b(socks?|sneaker|shoes?|slippers?|sandals?|boots?|flip[- ]?flops?)\b/i },
+        { key: "headwear",  label: "Hats & Headwear", icon: "fa-hat-cowboy", match: /\b(hat|cap|beanie|visor|bandana|headband)\b/i },
+        { key: "apparel",   label: "Apparel",     icon: "fa-shirt",        match: /\b(tee|t[- ]?shirt|hoodie|sweatshirt|tank top|crewneck|polo|jersey|jacket|cardigan|joggers|shorts?|leggings?|yoga|swim|underwear|romper|robe|gown|dress|skirt|kimono|onesie|vest|long sleeve|short sleeve|raglan|crop top|muscle|baby|infant|toddler|kids?|youth|women|men|unisex)\b/i },
+        { key: "auto",      label: "Auto",        icon: "fa-car",          match: /\b(license plate|car decal|sun shade|car mat)\b/i },
+        { key: "accessories", label: "Accessories", icon: "fa-tags",       match: /\b(scarf|gloves|mittens|sunglasses|tie\b|keychain|lanyard|patch|bandana|umbrella|fan)\b/i },
+      ];
+      function _categorize(bp) {
+        if (!bp) return "other";
+        var hay = (bp.title || "") + " " + (bp.brand || "");
+        for (var i = 0; i < FEEDBACK_CATEGORIES.length; i++) {
+          if (FEEDBACK_CATEGORIES[i].match.test(hay)) return FEEDBACK_CATEGORIES[i].key;
+        }
+        return "other";
+      }
       // Fallback API base when served from a different origin (e.g., Shopify).
       var API_BASE = (typeof window !== "undefined" && window.location && window.location.origin) || "";
 
@@ -6786,12 +7169,15 @@
         return ctx;
       }
 
-      function openModal() {
+      function openModal(initialTab) {
         modal.classList.remove("hidden");
-        // Reset to comment tab each open
-        showTab("comment");
+        // Default to comment if no tab specified — preserves prior behavior
+        // for any caller that doesn't pass an explicit tab name.
+        var tab = initialTab === "product" ? "product" : "comment";
+        showTab(tab);
         setTimeout(function() {
-          if (commentBody) commentBody.focus();
+          if (tab === "comment" && commentBody) commentBody.focus();
+          else if (tab === "product" && productSearch) productSearch.focus();
         }, 60);
       }
 
@@ -6803,7 +7189,13 @@
         if (productSearch) productSearch.value = "";
         if (productResults) productResults.innerHTML = "";
         if (productNote) productNote.value = "";
+        if (productEmail) productEmail.value = "";
+        _activeCategory = null;
+        if (_blueprints) renderCategoryChips();
         clearChosen();
+        // Hide any floating mockup popover so it doesn't outlive the modal.
+        var pop = document.querySelector(".feedback-hit-popover");
+        if (pop) pop.classList.remove("visible");
       }
 
       function showTab(name) {
@@ -6831,11 +7223,20 @@
         }
         productHint.classList.remove("hidden");
         productHint.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading catalog\u2026';
-        _blueprintsLoading = fetch(API_BASE + "/api/printify/blueprints")
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            _blueprints = Array.isArray(data) ? data : [];
+        // Fetch the catalog and the cached "cheapest cost per blueprint" map
+        // in parallel \u2014 the catalog is the slow path, the cost map is small
+        // and lets us render prices on the search rows.
+        _blueprintsLoading = Promise.all([
+          fetch(API_BASE + "/api/printify/blueprints").then(function(r) { return r.json(); }),
+          fetch(API_BASE + "/api/printify/blueprints/cheapest_costs")
+            .then(function(r) { return r.ok ? r.json() : { costs: {} }; })
+            .catch(function() { return { costs: {} }; }),
+        ])
+          .then(function(results) {
+            _blueprints = Array.isArray(results[0]) ? results[0] : [];
+            _cheapestCosts = (results[1] && results[1].costs) || {};
             productHint.classList.add("hidden");
+            renderCategoryChips();
             renderResults(productSearch.value.trim());
           })
           .catch(function(err) {
@@ -6845,29 +7246,107 @@
           .finally(function() { _blueprintsLoading = null; });
       }
 
+      function renderCategoryChips() {
+        if (!categoryRow || !_blueprints) return;
+        // Count blueprints per category so the chip labels read as
+        // "Apparel · 412" — gives the user a sense of breadth before they
+        // commit to a click.
+        var counts = {};
+        _blueprints.forEach(function(b) {
+          var k = _categorize(b);
+          counts[k] = (counts[k] || 0) + 1;
+        });
+        // Render in declared order (most relevant first), then "Other" at
+        // the end if anything fell through. Chips with zero hits are
+        // hidden so we don't surface empty filters.
+        var html = "";
+        FEEDBACK_CATEGORIES.forEach(function(cat) {
+          var n = counts[cat.key] || 0;
+          if (!n) return;
+          var active = (_activeCategory === cat.key) ? " active" : "";
+          html += '<button type="button" class="feedback-category-chip' + active + '" data-cat="' + cat.key + '">' +
+                  '<i class="fas ' + cat.icon + '"></i> ' + escapeHtml(cat.label) +
+                  ' <span class="feedback-category-chip-count">' + n + '</span>' +
+                  '</button>';
+        });
+        if (counts.other) {
+          var activeOther = (_activeCategory === "other") ? " active" : "";
+          html += '<button type="button" class="feedback-category-chip' + activeOther + '" data-cat="other">' +
+                  '<i class="fas fa-ellipsis"></i> Other' +
+                  ' <span class="feedback-category-chip-count">' + counts.other + '</span>' +
+                  '</button>';
+        }
+        categoryRow.innerHTML = html;
+      }
+
+      // NOTE: Per-variant mockups (e.g. a red shirt photo for the "Red"
+      // variant) require Printify's Mockup Generator API — uploading a
+      // design and round-tripping through their async renderer. We don't
+      // have a design at "request a product" time, so we just keep the
+      // generic blueprint image until we wire up that pipeline.
+
+      function _bpThumbUrl(bp) {
+        // Catalog blueprints carry an `images` array; prefer the first
+        // entry if present, falling back to a placeholder mark.
+        if (bp && Array.isArray(bp.images) && bp.images.length) return bp.images[0];
+        return null;
+      }
+      function _bpPriceLabel(bp) {
+        if (!_cheapestCosts || !bp) return null;
+        var c = _cheapestCosts[bp.id];
+        if (c == null) return null;
+        return "From $" + (c / 100).toFixed(2);
+      }
+
       function renderResults(query) {
         if (!_blueprints) return;
         if (!productResults) return;
         query = (query || "").toLowerCase().trim();
-        var items;
-        if (!query) {
-          // No query: show a compact hint + recent popular categories
-          productResults.innerHTML = '<div class="feedback-product-placeholder">Type above to search \u2014 try "tote", "wine", "pet", "ornament"&hellip;</div>';
+        // Query and category chip stack \u2014 both must match for a row to land
+        // in the list. With neither set we show the empty-state hint so the
+        // modal doesn't dump 1300+ rows.
+        var hasQuery = !!query;
+        var hasCategory = !!_activeCategory;
+        if (!hasQuery && !hasCategory) {
+          productResults.innerHTML = '<div class="feedback-product-placeholder">Type above to search \u2014 try "tote", "wine", "pet", "ornament"&hellip; or pick a category.</div>';
           return;
         }
-        items = _blueprints.filter(function(b) {
-          var t = (b.title || "").toLowerCase();
-          var br = (b.brand || "").toLowerCase();
-          return t.indexOf(query) !== -1 || br.indexOf(query) !== -1;
+        var items = _blueprints.filter(function(b) {
+          if (hasCategory && _categorize(b) !== _activeCategory) return false;
+          if (hasQuery) {
+            var t = (b.title || "").toLowerCase();
+            var br = (b.brand || "").toLowerCase();
+            if (t.indexOf(query) === -1 && br.indexOf(query) === -1) return false;
+          }
+          return true;
         }).slice(0, 20);
         if (!items.length) {
-          productResults.innerHTML = '<div class="feedback-product-placeholder">No matches for \u201c' + escapeHtml(query) + '\u201d.</div>';
+          var empty = hasQuery
+            ? 'No matches for \u201c' + escapeHtml(query) + '\u201d' + (hasCategory ? ' in this category.' : '.')
+            : 'Nothing in this category.';
+          productResults.innerHTML = '<div class="feedback-product-placeholder">' + empty + '</div>';
           return;
         }
         productResults.innerHTML = items.map(function(b) {
-          return '<button type="button" class="feedback-product-hit" data-bp="' + b.id + '">' +
-                   '<span class="feedback-product-hit-title">' + escapeHtml(b.title || "") + '</span>' +
-                   '<span class="feedback-product-hit-brand">' + escapeHtml(b.brand || "") + '</span>' +
+          var thumb = _bpThumbUrl(b);
+          var priceLabel = _bpPriceLabel(b);
+          var thumbHtml = thumb
+            ? '<img class="feedback-product-hit-thumb" src="' + escapeHtml(thumb) + '" alt="" loading="lazy">'
+            : '<span class="feedback-product-hit-thumb-empty"><i class="fas fa-image"></i></span>';
+          var priceHtml = priceLabel
+            ? '<span class="feedback-product-hit-price">' + escapeHtml(priceLabel) + '</span>'
+            : '<span class="feedback-product-hit-price-empty">Pricing on request</span>';
+          // The full-size mockup URL is stashed in a data attribute and
+          // surfaced by a JS-driven popover (appended to <body>) so it
+          // floats above the scrollable result list without getting clipped.
+          var popoverAttr = thumb ? ' data-popover-img="' + escapeHtml(thumb) + '"' : '';
+          return '<button type="button" class="feedback-product-hit" data-bp="' + b.id + '"' + popoverAttr + '>' +
+                   thumbHtml +
+                   '<span class="feedback-product-hit-text">' +
+                     '<span class="feedback-product-hit-title">' + escapeHtml(b.title || "") + '</span>' +
+                     '<span class="feedback-product-hit-brand">' + escapeHtml(b.brand || "") + '</span>' +
+                   '</span>' +
+                   priceHtml +
                  '</button>';
         }).join("");
       }
@@ -6883,12 +7362,29 @@
       function chooseBlueprint(bp) {
         _chosenBlueprint = bp;
         chosenName.textContent = bp.title || ("Blueprint " + bp.id);
-        chosenBrand.textContent = bp.brand ? ("Brand: " + bp.brand) : "";
+        var priceLabel = _bpPriceLabel(bp);
+        chosenBrand.textContent =
+          (bp.brand ? "Brand: " + bp.brand : "") +
+          (bp.brand && priceLabel ? " · " : "") +
+          (priceLabel || "");
+        // Carry the row's mockup image into the chosen pane so the user
+        // sees what they picked once the result list collapses.
+        if (chosenMockup) {
+          var thumb = _bpThumbUrl(bp);
+          if (thumb) {
+            chosenMockup.innerHTML = '<img src="' + escapeHtml(thumb) + '" alt="' + escapeHtml(bp.title || "") + '">';
+            chosenMockup.classList.remove("hidden");
+          } else {
+            chosenMockup.innerHTML = '<span class="feedback-chosen-mockup-empty"><i class="fas fa-image"></i> No preview available</span>';
+          }
+        }
         productChosen.classList.remove("hidden");
         productResults.innerHTML = "";
         if (productSearch) productSearch.value = "";
         // Load providers
         providerSelect.innerHTML = '<option>Loading providers\u2026</option>';
+        if (providerRow) providerRow.classList.remove("hidden");
+        if (providerAuto) providerAuto.classList.add("hidden");
         variantSelect.innerHTML = '<option>Pick a provider first</option>';
         fetch(API_BASE + "/api/printify/blueprints/" + encodeURIComponent(bp.id) + "/providers")
           .then(function(r) { return r.ok ? r.json() : null; })
@@ -6900,6 +7396,21 @@
             if (!Array.isArray(providers) || !providers.length) {
               providerSelect.innerHTML = '<option value="">(provider lookup unavailable — we\u2019ll assign one)</option>';
               variantSelect.innerHTML = '<option value="">(any)</option>';
+              return;
+            }
+            // Single provider: skip the dropdown entirely. Picking from a
+            // one-item list is busywork, and the user still sees who's
+            // fulfilling via the read-only "Fulfilled by ..." line.
+            if (providers.length === 1) {
+              var only = providers[0];
+              providerSelect.innerHTML = '<option value="' + only.id + '">' + escapeHtml(only.title || ("Provider " + only.id)) + '</option>';
+              providerSelect.value = String(only.id);
+              if (providerRow) providerRow.classList.add("hidden");
+              if (providerAuto) {
+                providerAuto.classList.remove("hidden");
+                providerAuto.innerHTML = '<i class="fas fa-truck"></i> Fulfilled by <strong>' + escapeHtml(only.title || ("Provider " + only.id)) + '</strong>';
+              }
+              loadVariants(bp.id, only.id);
               return;
             }
             providerSelect.innerHTML = '<option value="">Pick a provider\u2026</option>' +
@@ -6924,7 +7435,17 @@
             variantSelect.innerHTML = '<option value="">Any variant is fine</option>' +
               vs.map(function(v) {
                 var opts = v.options ? Object.keys(v.options).map(function(k) { return v.options[k]; }).join(" · ") : "";
-                return '<option value="' + v.id + '" data-title="' + escapeHtml(v.title || "") + '">' +
+                // Stash the print-area placeholder dimensions on the
+                // <option> so the submit handler can derive an aspect
+                // ratio without re-fetching the variant list. Prefer the
+                // "front" placeholder (the most common print position),
+                // fall back to whichever the variant exposes first.
+                var phs = Array.isArray(v.placeholders) ? v.placeholders : [];
+                var ph = phs.find(function(p) { return p && p.position === "front"; }) || phs[0] || null;
+                var phAttr = (ph && ph.width && ph.height)
+                  ? ' data-ph-w="' + ph.width + '" data-ph-h="' + ph.height + '"'
+                  : '';
+                return '<option value="' + v.id + '" data-title="' + escapeHtml(v.title || "") + '"' + phAttr + '>' +
                        escapeHtml(v.title || ("Variant " + v.id)) + (opts ? (" (" + escapeHtml(opts) + ")") : "") +
                        '</option>';
               }).join("");
@@ -6939,6 +7460,7 @@
         if (productChosen) productChosen.classList.add("hidden");
         if (providerSelect) providerSelect.innerHTML = "";
         if (variantSelect) variantSelect.innerHTML = "";
+        if (chosenMockup) chosenMockup.innerHTML = "";
       }
 
       function submitComment() {
@@ -6979,10 +7501,14 @@
         var variantId = variantSelect.value ? parseInt(variantSelect.value, 10) : null;
         var variantTitle = variantSelect.selectedOptions[0] ? variantSelect.selectedOptions[0].dataset.title : null;
         var note = (productNote.value || "").trim();
+        var emailVal = (productEmail && productEmail.value || "").trim() || null;
+        var shapeRadio = document.querySelector('input[name="feedbackPrintShape"]:checked');
+        var printShape = shapeRadio ? shapeRadio.value : "rectangle";
 
         var payload = {
           kind: "product_request",
           body: note || ("Request: " + (_chosenBlueprint.title || ("BP " + _chosenBlueprint.id))),
+          email: emailVal,
           url: window.location.href,
           user_agent: navigator.userAgent,
           context: captureContext(),
@@ -6993,22 +7519,26 @@
             printProviderId: providerId,
             variantId: variantId,
             variantTitle: variantTitle || null,
+            printShape: printShape,
           },
         };
         productSubmit.disabled = true;
         productSubmit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending\u2026';
 
-        // Derive aspect ratio from the variant's placeholder if we can — the
-        // rendering path needs something non-null to avoid showing a generic
-        // 1:1 square for a 2:1 print area.
+        // Derive aspect ratio straight from the variant's print-area
+        // placeholder (width × height in pixels). This is the actual
+        // bounding box Printify uses for the print, so 791×791 → 1:1
+        // for the round leash button, 3319×3761 → ~7:8 for the front
+        // of a tee, etc. Fall back to parsing dimensions out of the
+        // variant title if the placeholder is missing, then 1:1.
         var aspectRatio = { w: 1, h: 1 };
         try {
           var opts = variantSelect.selectedOptions[0];
-          var vid = parseInt(opts && opts.value, 10);
-          // variantSelect options were populated from /variants; we can re-resolve
-          // placeholder dimensions by refetching, but for session purposes the
-          // variant's size title carries enough signal. Default 1:1 is safe.
-          if (opts && /(\d+)\s*[x×]\s*(\d+)/i.test(opts.textContent || "")) {
+          var phW = opts && parseInt(opts.dataset.phW, 10);
+          var phH = opts && parseInt(opts.dataset.phH, 10);
+          if (phW && phH && phW > 0 && phH > 0) {
+            aspectRatio = { w: phW, h: phH };
+          } else if (opts && /(\d+)\s*[x×]\s*(\d+)/i.test(opts.textContent || "")) {
             var m = (opts.textContent || "").match(/(\d+)\s*[x×]\s*(\d+)/i);
             if (m) aspectRatio = { w: parseInt(m[1], 10), h: parseInt(m[2], 10) };
           }
@@ -7019,12 +7549,17 @@
             // Build a session-only product entry so the user can use what they
             // just requested without waiting for admin approval.
             if (typeof makeProductFromRequest === "function" && typeof addToSessionCatalog === "function") {
-              var sessionEntry = makeProductFromRequest(payload.product_request, { aspectRatio: aspectRatio });
+              var sessionEntry = makeProductFromRequest(payload.product_request, { aspectRatio: aspectRatio, printShape: printShape });
               if (sessionEntry) {
                 addToSessionCatalog(sessionEntry);
-                // Merge into the live PRODUCTS array if not already present
-                if (typeof PRODUCTS !== "undefined" && !PRODUCTS.find(function(p) { return p.id === sessionEntry.id; })) {
-                  PRODUCTS.push(sessionEntry);
+                // Merge into the live PRODUCTS array. Replace any existing
+                // entry with the same id rather than skipping, so re-
+                // submissions actually update fields like printShape and
+                // aspectRatio (we used to silently keep the original).
+                if (typeof PRODUCTS !== "undefined") {
+                  var existingIdx = PRODUCTS.findIndex(function(p) { return p.id === sessionEntry.id; });
+                  if (existingIdx >= 0) PRODUCTS[existingIdx] = sessionEntry;
+                  else PRODUCTS.push(sessionEntry);
                 }
                 // Re-render so the Your Requests section picks it up immediately
                 if (typeof renderProducts === "function") renderProducts();
@@ -7053,7 +7588,8 @@
       }
 
       // Wire events
-      fab.addEventListener("click", openModal);
+      if (fabRequest) fabRequest.addEventListener("click", function() { openModal("product"); });
+      if (fabComment) fabComment.addEventListener("click", function() { openModal("comment"); });
       backdrop.addEventListener("click", closeModal);
       closeBtn.addEventListener("click", closeModal);
       tabComment.addEventListener("click", function() { showTab("comment"); });
@@ -7070,6 +7606,19 @@
         searchTimer = setTimeout(function() { renderResults(productSearch.value.trim()); }, 120);
       });
 
+      // Category chip clicks toggle the filter — clicking the active chip
+      // again clears the filter, so the row doubles as a "clear" affordance.
+      if (categoryRow) {
+        categoryRow.addEventListener("click", function(e) {
+          var chip = e.target.closest(".feedback-category-chip");
+          if (!chip) return;
+          var key = chip.dataset.cat;
+          _activeCategory = (_activeCategory === key) ? null : key;
+          renderCategoryChips();
+          renderResults(productSearch.value.trim());
+        });
+      }
+
       // Delegated click for product hits
       productResults.addEventListener("click", function(e) {
         var hit = e.target.closest(".feedback-product-hit");
@@ -7078,6 +7627,57 @@
         var bp = (_blueprints || []).find(function(b) { return b.id === bpId; });
         if (bp) chooseBlueprint(bp);
       });
+
+      // Floating mockup popover for hovered rows. We append to <body>
+      // (instead of relying on CSS :hover within the row) so the popover
+      // can escape the scrollable result list's overflow clipping.
+      var _popoverEl = null;
+      function _ensurePopover() {
+        if (_popoverEl) return _popoverEl;
+        _popoverEl = document.createElement("div");
+        _popoverEl.className = "feedback-hit-popover";
+        _popoverEl.setAttribute("aria-hidden", "true");
+        _popoverEl.appendChild(document.createElement("img"));
+        document.body.appendChild(_popoverEl);
+        return _popoverEl;
+      }
+      function _showPopover(hit) {
+        var src = hit.getAttribute("data-popover-img");
+        if (!src) return;
+        var pop = _ensurePopover();
+        pop.querySelector("img").src = src;
+        // Anchor to the right of the row, vertically centered, but flip
+        // to the left if there's not enough room (e.g. modal hugging the
+        // right edge on a narrow window).
+        var r = hit.getBoundingClientRect();
+        var popW = 200, popH = 200, gap = 12;
+        var left = r.right + gap;
+        if (left + popW > window.innerWidth - 8) left = r.left - gap - popW;
+        if (left < 8) left = 8;
+        var top = r.top + (r.height / 2) - (popH / 2);
+        if (top < 8) top = 8;
+        if (top + popH > window.innerHeight - 8) top = window.innerHeight - popH - 8;
+        pop.style.left = left + "px";
+        pop.style.top = top + "px";
+        pop.classList.add("visible");
+      }
+      function _hidePopover() {
+        if (_popoverEl) _popoverEl.classList.remove("visible");
+      }
+      productResults.addEventListener("mouseover", function(e) {
+        var hit = e.target.closest(".feedback-product-hit");
+        if (!hit) return;
+        if (e.relatedTarget && hit.contains(e.relatedTarget)) return;
+        _showPopover(hit);
+      });
+      productResults.addEventListener("mouseout", function(e) {
+        var hit = e.target.closest(".feedback-product-hit");
+        if (!hit) return;
+        if (e.relatedTarget && hit.contains(e.relatedTarget)) return;
+        _hidePopover();
+      });
+      // Hide on scroll so a stale popover doesn't drift past the row.
+      productResults.addEventListener("scroll", _hidePopover, { passive: true });
 
       // Variant list depends on provider selection
       providerSelect.addEventListener("change", function() {
