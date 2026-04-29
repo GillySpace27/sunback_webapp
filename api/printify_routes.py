@@ -384,6 +384,36 @@ def _ensure_pricing_index_sync() -> None:
         _build_pricing_index_sync()
 
 
+@router.get("/blueprints/cheapest_costs")
+async def blueprints_cheapest_costs():
+    """Returns {blueprint_id: cheapest_cost_cents} for blueprints the shop
+    has at least one product for. Catalogue blueprints the shop has never
+    sold are absent — we have no pricing for those without a costly per-
+    blueprint provider+variant scan, and the feedback search list is OK
+    showing "Pricing on request" for those rows.
+
+    Built from the same _pricing_cache the per-variant pricing endpoint
+    uses, so this is essentially free after the index is warm.
+    """
+    try:
+        await run_in_threadpool(_ensure_pricing_index_sync)
+        # _pricing_cache is keyed by (bp, pp); flatten across all variants
+        # within each (bp, pp) and keep the global min per blueprint id.
+        cheapest: dict = {}
+        for (bp, _pp), bucket in _pricing_cache.items():
+            for _vid, entry in bucket.items():
+                cost = entry.get("cost") if entry else None
+                if cost is None:
+                    continue
+                prev = cheapest.get(int(bp))
+                if prev is None or cost < prev:
+                    cheapest[int(bp)] = int(cost)
+        return JSONResponse(content={"costs": cheapest, "built_at": _pricing_index_built_at})
+    except Exception as e:
+        _log(f"[printify][cheapest_costs] error: {e}")
+        return JSONResponse(status_code=500, content={"detail": f"Failed: {e}"})
+
+
 @router.get("/blueprints/{blueprint_id}/providers/{provider_id}/pricing")
 async def variant_pricing(blueprint_id: int, provider_id: int):
     """Returns per-variant cost+price for a blueprint+provider. Sourced from

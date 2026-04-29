@@ -183,6 +183,7 @@ body::before {
 }
 
 input[type="date"],
+input[type="time"],
 select {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -196,7 +197,9 @@ select {
   -webkit-appearance: none;
 }
 
-input[type="date"]:focus, select:focus {
+input[type="date"]:focus,
+input[type="time"]:focus,
+select:focus {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 3px var(--glow-corona);
@@ -824,6 +827,58 @@ html.dark .image-stage {
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.25);
 }
 .edit-btn-clock.active { border-color: #22c55e; background: rgba(34, 197, 94, 0.2); color: #16a34a; }
+
+/* Timestamp position picker — 2×3 of small radio cells. Sits inline
+   alongside the Tools-tab buttons; hidden until the user enables the
+   timestamp so it doesn't crowd the panel for users who don't need it. */
+.timestamp-pos {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.timestamp-pos.hidden { display: none; }
+.timestamp-pos-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.timestamp-pos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(2, 22px);
+  gap: 4px;
+}
+.timestamp-pos-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.timestamp-pos-cell input[type="radio"] { display: none; }
+.timestamp-pos-cell:hover {
+  color: var(--text-primary, #e9eaf5);
+  background: rgba(123, 97, 255, 0.1);
+}
+.timestamp-pos-cell:has(input:checked) {
+  background: linear-gradient(135deg, rgba(123, 97, 255, 0.35), rgba(192, 107, 255, 0.35));
+  border-color: rgba(123, 97, 255, 0.6);
+  color: #fff;
+}
 
 /* Preset buttons row */
 .preset-row {
@@ -2179,25 +2234,39 @@ html.dark .image-stage {
    other app chrome (z-index above the catalog modal) so users can
    reach it from any state of the flow.
    ─────────────────────────────────────────────────────────────── */
-.feedback-fab {
+/* Two-pill FAB group — Request on the left, Comment on the right.
+   Stays bottom-right via the group container; each pill is a normal
+   inline-flex button so they read as siblings rather than a stack. */
+.feedback-fab-group {
   position: fixed;
   right: 18px;
   bottom: 18px;
   z-index: 9990;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.feedback-fab {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
   border-radius: 999px;
   border: 0;
-  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
   color: #fff;
   font-weight: 600;
   font-size: 0.85rem;
   letter-spacing: 0.02em;
   cursor: pointer;
-  box-shadow: 0 6px 20px rgba(123, 97, 255, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.feedback-fab-request {
+  /* Warmer gradient so the "request" CTA reads as the action-y one */
+  background: linear-gradient(135deg, #ff8a3d, #c06bff);
+}
+.feedback-fab-comment {
+  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
 }
 .feedback-fab:hover {
   transform: translateY(-1px);
@@ -2206,8 +2275,9 @@ html.dark .image-stage {
 .feedback-fab:active { transform: translateY(0); }
 .feedback-fab i { font-size: 1rem; }
 
-@media (max-width: 480px) {
-  /* Shrink to an icon-only pill on narrow screens so it doesn't steal space */
+@media (max-width: 600px) {
+  /* On narrow screens, hide labels so the two pills stay icon-only and
+     don't crowd each other — full label still appears in the title attr. */
   .feedback-fab-label { display: none; }
   .feedback-fab { padding: 12px; }
 }
@@ -2391,6 +2461,46 @@ html.dark .image-stage {
 }
 .feedback-product-hint.hidden { display: none; }
 
+/* Category chips — horizontal scroll on narrow modals so all categories
+   stay reachable without wrapping into 4+ rows that crowd the search. */
+.feedback-category-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.feedback-category-row.hidden { display: none; }
+.feedback-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.feedback-category-chip:hover {
+  background: rgba(123, 97, 255, 0.08);
+  color: var(--text-primary, #e9eaf5);
+}
+.feedback-category-chip.active {
+  background: linear-gradient(135deg, rgba(123, 97, 255, 0.18), rgba(192, 107, 255, 0.18));
+  border-color: rgba(123, 97, 255, 0.5);
+  color: #fff;
+}
+.feedback-category-chip i { font-size: 0.78rem; }
+.feedback-category-chip-count {
+  font-weight: 500;
+  color: var(--text-dim, #6a6a8a);
+  font-size: 0.7rem;
+}
+.feedback-category-chip.active .feedback-category-chip-count { color: rgba(255, 255, 255, 0.7); }
+
 .feedback-product-results {
   margin-top: 8px;
   display: flex;
@@ -2406,9 +2516,10 @@ html.dark .image-stage {
   text-align: center;
 }
 .feedback-product-hit {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  position: relative; /* anchor for the hover-mockup popover */
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
   gap: 10px;
   padding: 8px 12px;
   background: #0f1120;
@@ -2424,11 +2535,159 @@ html.dark .image-stage {
   background: #151832;
   border-color: rgba(123, 97, 255, 0.3);
 }
-.feedback-product-hit-title { font-weight: 600; }
+.feedback-product-hit-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: #08091a;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.feedback-product-hit-thumb-empty {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: #08091a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim, #6a6a8a);
+  font-size: 0.9rem;
+}
+.feedback-product-hit-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.feedback-product-hit-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .feedback-product-hit-brand {
   font-size: 0.72rem;
   color: var(--text-dim, #6a6a8a);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feedback-product-hit-price {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-corona, #7b61ff);
+  white-space: nowrap;
+}
+.feedback-product-hit-price-empty {
+  font-size: 0.7rem;
+  color: var(--text-dim, #6a6a8a);
+  white-space: nowrap;
+  font-style: italic;
+}
+/* Hover popover — JS-driven (appended to <body>) so it floats above
+   the search-results container without getting clipped by its
+   overflow:auto. Anchored next to the hovered row by JS. */
+.feedback-hit-popover {
+  position: fixed;
+  width: 200px;
+  height: 200px;
+  background: #08091a;
+  border: 1px solid rgba(123, 97, 255, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  pointer-events: none;
+  z-index: 10000;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.feedback-hit-popover.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+.feedback-hit-popover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+/* When a blueprint has a single print provider, we hide the dropdown
+   and surface the picked provider as a small read-only line so the user
+   still sees who'll fulfill the order without an extra interaction. */
+.feedback-provider-row.hidden { display: none; }
+.feedback-provider-auto {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(123, 97, 255, 0.06);
+  border: 1px dashed rgba(123, 97, 255, 0.18);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #9898b8);
+}
+.feedback-provider-auto.hidden { display: none; }
+.feedback-provider-auto strong { color: var(--text-primary, #e9eaf5); font-weight: 600; }
+
+/* Print-area shape picker on the chosen-blueprint pane. Two radios laid
+   out side-by-side; the active option highlights so the choice reads
+   clearly. */
+.feedback-shape-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.feedback-shape-row .feedback-field-label { margin: 0 8px 0 0; }
+.feedback-shape-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.feedback-shape-opt input[type="radio"] { display: none; }
+.feedback-shape-opt:hover { color: var(--text-primary, #e9eaf5); }
+.feedback-shape-opt:has(input:checked) {
+  background: linear-gradient(135deg, rgba(123, 97, 255, 0.18), rgba(192, 107, 255, 0.18));
+  border-color: rgba(123, 97, 255, 0.5);
+  color: #fff;
+}
+.feedback-shape-opt i { font-size: 0.72rem; opacity: 0.85; }
+
+/* Big mockup on the chosen-blueprint pane — confirms which product was
+   picked once the search list collapses. */
+.feedback-chosen-mockup {
+  width: 100%;
+  max-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #08091a;
+  border-radius: 8px;
+  margin: 10px 0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+.feedback-chosen-mockup img {
+  max-width: 100%;
+  max-height: 184px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.feedback-chosen-mockup-empty {
+  color: var(--text-dim, #6a6a8a);
+  font-size: 0.78rem;
+  padding: 24px 0;
 }
 
 .feedback-product-chosen {
