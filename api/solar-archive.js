@@ -76,6 +76,10 @@
       // 2×3 grid: "top|bottom" + "-" + "left|center|right". Default to
       // bottom-right so the original placement is preserved.
       timestampPos: "bottom-right",
+      // Pixel-fraction offset from the chosen vertical anchor, 0..100 →
+      // 0..30% of the canvas's shorter dimension. Lets users nudge the
+      // caption inward when it gets clipped by a corona / mockup bezel.
+      timestampVOffset: 0,
       clockNumbers: null, // wall_clock only: { font, color, strokeColor, strokeWidth, size, radiusPct }
       mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
       uploadedPrintifyId: null,  // reusable image ID from Printify upload
@@ -2802,8 +2806,13 @@
           if (tsH === "left")        { ctx.textAlign = "left";   tsX = tsInset; }
           else if (tsH === "center") { ctx.textAlign = "center"; tsX = cw / 2; }
           else                       { ctx.textAlign = "right";  tsX = cw - tsInset; }
-          if (tsV === "top")         { ctx.textBaseline = "top";        tsY = tsInset; }
-          else                       { ctx.textBaseline = "alphabetic"; tsY = ch - tsInset; }
+          // Vertical offset is a 0..100 slider mapped to up-to-30% of the
+          // shorter canvas dimension, applied INWARD from the chosen
+          // vertical anchor. Lets users nudge the caption away from a
+          // corona / mockup bezel that clips it.
+          var tsOffsetPx = ((state.timestampVOffset || 0) / 100) * (tsRefH * 0.30);
+          if (tsV === "top")         { ctx.textBaseline = "top";        tsY = tsInset + tsOffsetPx; }
+          else                       { ctx.textBaseline = "alphabetic"; tsY = ch - tsInset - tsOffsetPx; }
           // Soft shadow so the caption reads on either a bright disk or
           // a dark vignette without needing a heavy stroke.
           ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
@@ -3887,6 +3896,20 @@
         });
       });
     }
+    // Vertical-offset slider — nudges the caption inward from the chosen
+    // vertical anchor (0..100 → 0..30% of the canvas's shorter side).
+    var tsOffsetSlider = document.getElementById("timestampOffsetSlider");
+    var tsOffsetValEl = document.getElementById("timestampOffsetVal");
+    if (tsOffsetSlider && tsOffsetValEl) {
+      tsOffsetSlider.value = state.timestampVOffset || 0;
+      tsOffsetValEl.textContent = tsOffsetSlider.value;
+      tsOffsetSlider.addEventListener("input", function() {
+        state.timestampVOffset = parseInt(tsOffsetSlider.value, 10) || 0;
+        tsOffsetValEl.textContent = state.timestampVOffset;
+        renderCanvas();
+        scheduleMockupRefresh();
+      });
+    }
 
     // ── Clock numbers panel (wall_clock only) ───────────────────
     var clockNumbersPanel = document.getElementById("clockNumbersPanel");
@@ -4363,9 +4386,11 @@
         state.contrast || 0,
         state.saturation || 100,
         // Timestamp caption: changing the toggle, the position, the
-        // date, or the wavelength all change what's burned into the snapshot.
+        // offset, the date, or the wavelength all change what's burned
+        // into the snapshot.
         state.timestampStamp ? 1 : 0,
         state.timestampPos || "",
+        state.timestampVOffset || 0,
         (document.getElementById("solarDate") && document.getElementById("solarDate").value) || "",
         state.wavelength || 0,
         t ? (t.text + "|" + t.x + "|" + t.y + "|" + t.size + "|" + t.color + "|" + (t.rotation || 0)) : ""

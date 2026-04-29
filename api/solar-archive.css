@@ -880,6 +880,26 @@ html.dark .image-stage {
   color: #fff;
 }
 
+/* Vertical-offset slider — sits to the right of the position grid so
+   the user can nudge the caption inward from the chosen edge. */
+.timestamp-pos-offset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 130px;
+}
+.timestamp-pos-offset input[type="range"] {
+  width: 70px;
+  height: 4px;
+}
+.timestamp-pos-offset .slider-val {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary, #9898b8);
+  min-width: 18px;
+  text-align: right;
+}
+
 /* Preset buttons row */
 .preset-row {
   display: flex;
