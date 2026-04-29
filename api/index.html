@@ -379,8 +379,11 @@
         </button>
 
         <!-- Position picker: 2 rows × 3 columns, one radio per corner +
-             top-/bottom-center. Hidden until the timestamp is enabled so
-             it doesn't clutter the panel for users who don't want it. -->
+             top-/bottom-center, plus a vertical-offset slider that nudges
+             the caption inward from the chosen vertical anchor (so the
+             user can move it past corona bleed / mockup bezels that
+             would otherwise clip it). Hidden until the timestamp is
+             enabled. -->
         <div class="timestamp-pos hidden" id="timestampPosGroup" role="radiogroup" aria-label="Timestamp position">
           <span class="timestamp-pos-label">Position</span>
           <div class="timestamp-pos-grid">
@@ -390,6 +393,11 @@
             <label class="timestamp-pos-cell" title="Bottom left"><input type="radio" name="timestampPos" value="bottom-left"> <i class="fas fa-arrow-down-long" style="transform:rotate(45deg);"></i></label>
             <label class="timestamp-pos-cell" title="Bottom center"><input type="radio" name="timestampPos" value="bottom-center"> <i class="fas fa-arrow-down"></i></label>
             <label class="timestamp-pos-cell" title="Bottom right"><input type="radio" name="timestampPos" value="bottom-right" checked> <i class="fas fa-arrow-down-long" style="transform:rotate(-45deg);"></i></label>
+          </div>
+          <div class="timestamp-pos-offset" title="Inset the caption further from the chosen edge — useful when a corona or mockup bezel clips it">
+            <span class="timestamp-pos-label">Offset</span>
+            <input type="range" id="timestampOffsetSlider" min="0" max="100" value="0">
+            <span class="slider-val" id="timestampOffsetVal">0</span>
           </div>
         </div>
       </div>
