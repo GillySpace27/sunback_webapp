@@ -1945,9 +1945,22 @@
       statusMsg.innerHTML = (loading ? '<div class="spinner"></div>' : "") + msg;
     }
 
-    // ── Filter status line (console output under toggle) ────────
+    // ── Filter status line ──────────────────────────────────────
+    // The Quality timeline (JPG / Raw / RHEF / HQ RHEF stepper) already
+    // tells the user which tier is loading / ready / active, with a
+    // spinner next to the "Quality" label while anything is in flight.
+    // The big "Full-res RHEF rendering…" bar duplicated that signal,
+    // so it's now suppressed; errors fall through to showToast() which
+    // is the existing transient-error path. Pass-through stub keeps
+    // the call sites quiet.
     var _filterStatusTimer = null;
     function updateFilterStatusLine(msg, type) {
+      var el = document.getElementById("filterStatusLine");
+      if (el) { el.style.display = "none"; el.textContent = ""; el.className = "filter-status-line"; }
+      if (type === "error" && msg && typeof showToast === "function") showToast(msg, "error");
+    }
+    // Legacy impl preserved so re-enabling the inline bar later is a one-line swap.
+    function _legacyUpdateFilterStatusLine(msg, type) {
       var el = document.getElementById("filterStatusLine");
       if (!el) return;
       clearTimeout(_filterStatusTimer);
@@ -1968,11 +1981,74 @@
       }
     }
 
+    // ── HQ ETA bookkeeping ──────────────────────────────────────
+    // The HQ RHEF render runs on the backend (FITS download → log10 →
+    // colour LUT → RHEF filter → save PNG) and takes ~90s on a warm
+    // FITS cache, longer cold. To make the wait less ambiguous we
+    // stamp a start time the moment hqFetching flips on, then tick
+    // a "elapsed / estimate" readout into the same loading indicator.
+    var _HQ_TYPICAL_SECONDS = 120;  // ~2 min on a warm cache
+    var _HQ_LONG_SECONDS = 300;     // 5 min — beyond this we soften the estimate
+    var _hqEtaTickHandle = null;
+    var _lastHqFetching = false;
+    function _formatMmSs(totalSec) {
+      totalSec = Math.max(0, Math.round(totalSec));
+      var m = Math.floor(totalSec / 60);
+      var s = totalSec - m * 60;
+      return m + "m " + (s < 10 ? "0" : "") + s + "s";
+    }
     function updateRhefLoadingUI() {
       var el = document.getElementById("filterLoadingIndicator");
+      // HQ ETA: stamp start the first tick we see hqFetching flip on,
+      // clear it when we see it flip off.
+      if (state.hqFetching && !_lastHqFetching) {
+        state._hqStartedAt = Date.now();
+      } else if (!state.hqFetching && _lastHqFetching) {
+        state._hqStartedAt = null;
+      }
+      _lastHqFetching = !!state.hqFetching;
       if (el) {
-        if (state.rhefFetching || state.hqFetching) el.classList.remove("hidden");
-        else el.classList.add("hidden");
+        if (state.rhefFetching || state.hqFetching) {
+          el.classList.remove("hidden");
+          // Compose the indicator label based on what's running. RHEF
+          // alone is fast (a few seconds, no ETA worth printing). HQ is
+          // long enough that an elapsed/ETA readout actually helps.
+          if (state.hqFetching && state._hqStartedAt) {
+            var elapsed = (Date.now() - state._hqStartedAt) / 1000;
+            var labelHtml;
+            if (elapsed < _HQ_TYPICAL_SECONDS) {
+              labelHtml = '<span class="filter-loading-spinner"></span> HQ render · ' +
+                          _formatMmSs(elapsed) + ' / ~' + _formatMmSs(_HQ_TYPICAL_SECONDS);
+            } else if (elapsed < _HQ_LONG_SECONDS) {
+              labelHtml = '<span class="filter-loading-spinner"></span> HQ render · ' +
+                          _formatMmSs(elapsed) + ' (still working&hellip;)';
+            } else {
+              labelHtml = '<span class="filter-loading-spinner"></span> HQ render · ' +
+                          _formatMmSs(elapsed) + ' (large jobs can take 3&ndash;5 min)';
+            }
+            el.innerHTML = labelHtml;
+          } else {
+            el.innerHTML = '<span class="filter-loading-spinner"></span> Processing&hellip;';
+          }
+        } else {
+          el.classList.add("hidden");
+          el.innerHTML = '<span class="filter-loading-spinner"></span> Processing&hellip;';
+        }
+      }
+      // Tick: while HQ is in flight, refresh every second so the
+      // elapsed counter advances. Stops itself when hqFetching ends.
+      if (state.hqFetching && !_hqEtaTickHandle) {
+        _hqEtaTickHandle = setInterval(function() {
+          if (!state.hqFetching) {
+            clearInterval(_hqEtaTickHandle);
+            _hqEtaTickHandle = null;
+            return;
+          }
+          updateRhefLoadingUI();
+        }, 1000);
+      } else if (!state.hqFetching && _hqEtaTickHandle) {
+        clearInterval(_hqEtaTickHandle);
+        _hqEtaTickHandle = null;
       }
       // Refresh timeline status so loading/ready badges track the fetch state.
       if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
@@ -3124,17 +3200,32 @@
       }
     });
 
-    // ── Adjustments panel toggle ───────────────────────────────────
-    // Tab switching (Tools / Geometry / Adjust)
-    var adjustmentsBtnEl = null;   // no longer a standalone button — nulled so all guard checks are no-ops
-    var adjustmentsPanelEl = null; // same
+    // ── Tab toggle (Geometry / Adjust / Clock / Tools) ─────────────
+    // Collapsable: clicking the active tab again hides every panel and
+    // reveals the friendly hint, so first-time users see a calm editor
+    // rather than a wall of controls. Clicking a different tab swaps.
+    var adjustmentsBtnEl = null;   // no longer a standalone button
+    var adjustmentsPanelEl = null;
     (function() {
       var tabs = document.querySelectorAll(".edit-tab");
+      var hint = document.getElementById("editTabHint");
+      function _collapseAll() {
+        tabs.forEach(function(t) { t.classList.remove("active"); });
+        document.querySelectorAll(".edit-tab-panel").forEach(function(p) { p.classList.add("hidden"); });
+        if (hint) hint.classList.remove("hidden");
+      }
       tabs.forEach(function(tab) {
         tab.addEventListener("click", function() {
+          var alreadyActive = tab.classList.contains("active");
+          if (alreadyActive) {
+            // Toggle off — show the hint, no panel expanded.
+            _collapseAll();
+            return;
+          }
           tabs.forEach(function(t) { t.classList.remove("active"); });
           document.querySelectorAll(".edit-tab-panel").forEach(function(p) { p.classList.add("hidden"); });
           tab.classList.add("active");
+          if (hint) hint.classList.add("hidden");
           var panel = document.getElementById("tabPanel_" + tab.dataset.tab);
           if (panel) panel.classList.remove("hidden");
           // Activating the Clock tab on a wall_clock product seeds
