@@ -1382,6 +1382,15 @@
      * or rejects. Uses POST /api/generate_preview; if 202, polls for the preview URL until ready.
      * onProgress(pct, message) is optional and called during request/poll/load.
      */
+    // Helper: stash the latest server-reported queue depth so the
+    // loading-indicator chip can surface it (Queued · N ahead) when
+    // multiple users are pushing the heavy-render slot at once.
+    function _recordQueueDepth(data) {
+      if (!data || typeof data.queue_depth !== "number") return;
+      state._hqQueueDepth = data.queue_depth;
+      if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+    }
+
     function fetchBackendRHEPreview(dateStr, wavelength, onProgress) {
       dateStr = (dateStr || "").trim();
       if (!dateStr || !wavelength) return Promise.reject(new Error("Missing date or wavelength"));
@@ -1393,6 +1402,7 @@
         body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" })
       }).then(function(res) { return res.json().then(function(data) { return { status: res.status, data: data }; }); })
         .then(function(result) {
+          _recordQueueDepth(result.data);
           if (result.data.preview_url) {
             if (onProgress) onProgress(85, "Loading preview images…");
             var rawUrl = result.data.preview_raw_url ? API_BASE + result.data.preview_raw_url : null;
@@ -1415,6 +1425,7 @@
                 }).then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
                   .then(function(pollResult) {
                     var d = pollResult.data;
+                    _recordQueueDepth(d);
                     if (d.preview_url) {
                       if (onProgress) onProgress(85, "Loading preview images…");
                       var rawU = d.preview_raw_url ? API_BASE + d.preview_raw_url : null;
@@ -2010,10 +2021,20 @@
       if (el) {
         if (state.rhefFetching || state.hqFetching) {
           el.classList.remove("hidden");
-          // Compose the indicator label based on what's running. RHEF
-          // alone is fast (a few seconds, no ETA worth printing). HQ is
-          // long enough that an elapsed/ETA readout actually helps.
-          if (state.hqFetching && state._hqStartedAt) {
+          // Compose the indicator label based on what's running:
+          //  • Queue depth > 1 (someone else is rendering ahead of us)
+          //    → "Queued · N ahead"
+          //  • HQ in flight (depth 0 or 1, our slot)
+          //    → "HQ render · elapsed / ~ETA"
+          //  • Plain RHEF preview → "Processing…" (fast enough that an
+          //    ETA isn't worth the visual churn).
+          var qd = state._hqQueueDepth || 0;
+          if (state.hqFetching && qd > 1) {
+            // qd includes us. "ahead" = qd - 1.
+            var ahead = qd - 1;
+            el.innerHTML = '<span class="filter-loading-spinner"></span> Queued &middot; ' +
+                            ahead + ' ahead';
+          } else if (state.hqFetching && state._hqStartedAt) {
             var elapsed = (Date.now() - state._hqStartedAt) / 1000;
             var labelHtml;
             if (elapsed < _HQ_TYPICAL_SECONDS) {
@@ -2371,7 +2392,12 @@
         var statusUrl = API_BASE + res.status_url;
         setProgress(30);
         return pollStatus(statusUrl, function(data) {
-          if (data.status === "started" || data.status === "processing") {
+          _recordQueueDepth(data);
+          if (data.status === "queued") {
+            setProgress(35);
+            // Inline status bar is suppressed; updateRhefLoadingUI()
+            // surfaces "Queued \u00b7 N ahead" via _recordQueueDepth above.
+          } else if (data.status === "started" || data.status === "processing") {
             setProgress(50);
             updateFilterStatusLine("Full-res RHEF rendering\u2026", "loading");
           }

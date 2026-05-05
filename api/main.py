@@ -89,9 +89,83 @@ warnings.filterwarnings("ignore", category=UserWarning, module="parfive.download
 from fastapi import Body
 from fastapi.responses import StreamingResponse
 from tqdm import tqdm
+import threading
 
 # sunback/webapp/api/main.py
 # FastAPI backend for Solar Archive — date→FITS via SunPy→filtered PNG→Printify product creation
+
+# ──────────────────────────────────────────────────────────────────────
+# Heavy-render concurrency cap
+# ──────────────────────────────────────────────────────────────────────
+# A single AIA HQ render holds 500MB–1GB resident (sunpy + matplotlib +
+# numpy on a 4096² float array). Render's Standard plan has 2GB / 1 vCPU,
+# which means we can fit one comfortably and two if we're careful — three
+# OOMs the box. A semaphore around the heavy paths queues incoming jobs
+# instead of fanning out and blowing the instance over.
+_HEAVY_RENDER_SEMAPHORE = asyncio.Semaphore(1)
+# Number of jobs currently waiting OR running (waiting + 1 if anything is
+# active). Reported back to clients so the UI can show "Queued · N ahead"
+# instead of an unmoving spinner.
+_heavy_render_waiting = 0
+_heavy_render_lock = threading.Lock()
+
+def _heavy_queue_depth() -> int:
+    with _heavy_render_lock:
+        return _heavy_render_waiting
+
+class _HeavyRenderSlot:
+    """Async context manager that increments the queue counter on enter
+    and decrements on exit — independent of when the semaphore actually
+    grants the slot, so waiters show up in the depth count too."""
+    async def __aenter__(self):
+        global _heavy_render_waiting
+        with _heavy_render_lock:
+            _heavy_render_waiting += 1
+        await _HEAVY_RENDER_SEMAPHORE.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        global _heavy_render_waiting
+        _HEAVY_RENDER_SEMAPHORE.release()
+        with _heavy_render_lock:
+            _heavy_render_waiting -= 1
+        return False
+
+# ──────────────────────────────────────────────────────────────────────
+# External-API rate limiters (Helioviewer, VSO)
+# ──────────────────────────────────────────────────────────────────────
+# Both NASA APIs are rate-sensitive — Helioviewer specifically has been
+# known to throttle when slammed. We don't want a beta with 50 testers to
+# get our IP block-listed at NASA. Token-style limiter: each call to
+# .wait() blocks until enough time has elapsed since the last call to
+# satisfy the configured req-per-minute rate. Thread-safe (used from
+# inside threadpooled sync calls).
+class _RateLimiter:
+    def __init__(self, max_per_minute: int, name: str = ""):
+        self.interval = 60.0 / max(1, max_per_minute)
+        self.lock = threading.Lock()
+        self.next_at = 0.0
+        self.name = name or "rate-limiter"
+
+    def wait(self) -> None:
+        with self.lock:
+            now = time.time()
+            sleep_for = self.next_at - now
+            if sleep_for > 0:
+                # Release the lock while sleeping so we don't serialise
+                # threads that arrive at the same instant — they each
+                # update next_at and pick up correct staggered slots.
+                self.next_at = max(self.next_at, now) + self.interval
+            else:
+                self.next_at = now + self.interval
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+
+# Helioviewer: ~1 req/sec average. Generous (their public limit is far
+# higher), but caps a sudden burst.
+_HELIOVIEWER_LIMITER = _RateLimiter(60, "helioviewer")
+# VSO is heavier per-call (FITS download), so throttle it tighter.
+_VSO_LIMITER = _RateLimiter(30, "vso")
 
 class PreviewRequest(BaseModel):
     date: str
@@ -356,6 +430,10 @@ HELIOVIEWER_BASE = "https://api.helioviewer.org/v2/takeScreenshot"
 def _fetch_helioviewer_screenshot(url: str, timeout: int = 60):
     """Sync fetch so we can run in executor; returns (content, content_type) or raises.
 
+    Throttled by _HELIOVIEWER_LIMITER so a beta cohort doesn't slam
+    Helioviewer's takeScreenshot endpoint and trip its rate limit.
+    Each thread waits its turn before the actual outbound HTTP fires.
+
     Works across three network shapes without configuration:
       1. External / home wifi: no proxy in use, direct connection succeeds.
       2. Corporate network (dev): outbound direct is blocked, HTTPS_PROXY env
@@ -376,6 +454,10 @@ def _fetch_helioviewer_screenshot(url: str, timeout: int = 60):
     """
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    # Wait our turn at the rate limiter before any outbound attempt.
+    # Sleeps the calling thread; safe inside run_in_threadpool / asyncio.to_thread.
+    _HELIOVIEWER_LIMITER.wait()
 
     try:
         import certifi
@@ -486,11 +568,13 @@ def fetch_first_fits(dt, wl):
         a.Source("SDO"),
     ]
     print(f"[fetch_first_fits] Search attrs: {attrs}", flush=True)
+    _VSO_LIMITER.wait()
     qr = client.search(*attrs)
     if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
         raise HTTPException(status_code=502, detail="No VSO AIA data for this date/wavelength")
     target_dir = os.environ.get("SUNPY_DOWNLOADDIR", OUTPUT_DIR)
     dl = get_downloader()
+    _VSO_LIMITER.wait()
     files = Fido.fetch(qr[0], downloader=dl, path=target_dir)
     if not files or len(files) == 0:
         raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files")
@@ -589,6 +673,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
 
             def _try_download(candidate_dt, label):
                 """Search ±2min around candidate_dt, probe one row at a time. Use first successful download."""
+                _VSO_LIMITER.wait()
                 qr = client.search(
                     a.Time(candidate_dt, candidate_dt + timedelta(minutes=2)),
                     a.Detector("AIA"),
@@ -600,6 +685,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                 log_to_queue(f"[generate_preview] {label}: {len(qr)} records found, probing one at a time...")
                 for i in range(len(qr)):
                     one_row = qr[i:i+1]
+                    _VSO_LIMITER.wait()
                     result = Fido.fetch(one_row, path=download_dir, downloader=fast_downloader)
                     if result and len(result) > 0:
                         path = str(result[0])
@@ -859,23 +945,33 @@ async def generate_preview(req: PreviewRequest = Body(...)):
                         "preview_raw_url": None,
                         "preview_jpg_url": url_path_jpg,
                         "status": "rhef_generating",
+                        "queue_depth": _heavy_queue_depth(),
                     },
                     headers=CORS_HEADERS,
                 )
             return JSONResponse(
                 status_code=202,
-                content={"status": "in_progress", "preview_url": None},
+                content={
+                    "status": "in_progress",
+                    "preview_url": None,
+                    "queue_depth": _heavy_queue_depth(),
+                },
                 headers=CORS_HEADERS,
             )
         # Mark as in-progress and run in background so client gets 202 immediately
         _preview_in_progress.add(key)
         async def run():
+            # Funnel every heavy preview render through the same global
+            # semaphore so concurrent requests queue rather than fan out
+            # and OOM the box. The slot context-manager also keeps the
+            # queue-depth counter accurate while we're waiting.
             try:
-                await asyncio.to_thread(
-                    _generate_preview_sync, dt, wl, date_str,
-                    out_path_raw, out_path_filtered, out_path_jpg,
-                    url_path_raw, url_path_filtered, url_path_jpg
-                )
+                async with _HeavyRenderSlot():
+                    await asyncio.to_thread(
+                        _generate_preview_sync, dt, wl, date_str,
+                        out_path_raw, out_path_filtered, out_path_jpg,
+                        url_path_raw, url_path_filtered, url_path_jpg
+                    )
             except Exception as e:
                 _preview_failed.add(key)
                 print(f"[generate_preview] background failed: {e}", flush=True)
@@ -884,7 +980,11 @@ async def generate_preview(req: PreviewRequest = Body(...)):
         asyncio.create_task(run())
         return JSONResponse(
             status_code=202,
-            content={"status": "accepted", "preview_url": None},
+            content={
+                "status": "accepted",
+                "preview_url": None,
+                "queue_depth": _heavy_queue_depth(),
+            },
             headers=CORS_HEADERS,
         )
     except ValueError as e:
@@ -916,8 +1016,12 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
     """
     try:
         with status_lock:
-            tasks[task_id] = {"status": "started", "message": "HQ generation started"}
-            log_to_queue(f"[hq-task][{task_id}] Status: started")
+            tasks[task_id] = {
+                "status": "queued",
+                "message": "HQ generation queued",
+                "queue_depth": _heavy_queue_depth(),
+            }
+            log_to_queue(f"[hq-task][{task_id}] Status: queued (depth={_heavy_queue_depth()})")
         # Convert date/wavelength types. Accepts both YYYY-MM-DD (legacy
         # callers) and YYYY-MM-DDTHH:MM:SS (frontend after the time-of-day
         # field landed). fromisoformat handles both shapes.
@@ -926,8 +1030,16 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         except ValueError:
             dt = datetime.strptime(date, "%Y-%m-%d")
         wl = int(wavelength)
-        # Run HQ generation in a thread (format_type ignored for now; only RHEF is produced)
-        png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector)
+        # Heavy semaphore: queues this HQ render behind any preview/HQ
+        # already in flight. status flips from "queued" to "started" the
+        # instant we acquire the slot, so the UI can differentiate the
+        # waiting phase from the actually-rendering phase.
+        async with _HeavyRenderSlot():
+            with status_lock:
+                tasks[task_id] = {"status": "started", "message": "HQ generation started"}
+                log_to_queue(f"[hq-task][{task_id}] Status: started")
+            # format_type ignored for now; only RHEF is produced
+            png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector)
         # Check PNG existence
         png_path = os.path.join(OUTPUT_DIR, os.path.basename(png_url.lstrip("/")))
         if os.path.exists(png_path) and os.path.getsize(png_path) > 1000:
@@ -1543,6 +1655,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             dt_query = dt.replace(hour=12, minute=0, second=0, microsecond=0)
         else:
             dt_query = dt.replace(second=0, microsecond=0)
+        _VSO_LIMITER.wait()
         qr = client.search(
                 a.Time(dt_query, dt_query + timedelta(minutes=2)),
                 a.Detector("AIA"),
@@ -1552,6 +1665,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
 
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results found in ±1min, retrying ±10min...")
+            _VSO_LIMITER.wait()
             qr = Fido.search(
                 a.Time(dt_query - timedelta(minutes=10), dt_query + timedelta(minutes=10)),
                 a.Detector("AIA"), a.Provider("VSO"),
@@ -1560,6 +1674,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
             log_to_queue(f"[fetch] [AIA] No VSO results in ±10min, retrying ±1 day...")
+            _VSO_LIMITER.wait()
             qr = Fido.search(
                 a.Time(dt_query - timedelta(days=1), dt_query + timedelta(days=1)),
                 a.Detector("AIA"), a.Provider("VSO"),
