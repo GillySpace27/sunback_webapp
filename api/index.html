@@ -196,34 +196,30 @@
           </button>
         </div>
       </div>
-      <!-- Row 2: Background toggle -->
-      <div class="edit-toolbar-row" style="margin-top:4px;">
-        <div class="filter-toggle vignette-fade-toggle" id="vignetteFadeToggle">
-          <span class="field-label" style="margin:0; margin-right:8px;">Background</span>
-          <label class="filter-opt"><input type="radio" name="vignetteFade" value="transparent"> Transparent</label>
-          <label class="filter-opt active"><input type="radio" name="vignetteFade" value="black" checked> Black</label>
-          <label class="filter-opt"><input type="radio" name="vignetteFade" value="white"> White</label>
-          <label class="filter-opt filter-opt-mode" title="Use the most common color in the image so the vignette matches the canvas"><input type="radio" name="vignetteFade" value="mode"> Match</label>
-          <label class="filter-opt filter-opt-color" title="Custom color">
-            <input type="radio" name="vignetteFade" value="custom">
-            <input type="color" id="vignetteFadeColorPicker" value="#000000" class="vignette-fade-color-picker" title="Vignette fade color">
-            <span class="filter-opt-color-label">Custom</span>
-          </label>
-        </div>
-      </div>
+      <!-- Inline status line is intentionally suppressed — the Quality
+           timeline above already shows loading/ready state per tier. -->
       <div class="filter-status-line" id="filterStatusLine" style="display:none;"></div>
 
       <!-- Tab bar: Geometry · Adjust · Clock · Tools  |  Reset always visible -->
       <div class="edit-tab-bar">
-        <button class="edit-tab active" data-tab="geometry">Geometry</button>
+        <button class="edit-tab" data-tab="geometry">Geometry</button>
         <button class="edit-tab" data-tab="adjust">Adjust</button>
         <button class="edit-tab edit-tab-clock hidden" data-tab="clock"><i class="fas fa-clock"></i> Clock</button>
         <button class="edit-tab" data-tab="tools">Tools</button>
         <button class="edit-btn edit-btn-reset" data-tool="reset" title="Reset all edits"><i class="fas fa-undo"></i> Reset</button>
       </div>
 
-      <!-- Geometry tab (default) -->
-      <div class="edit-tab-panel" id="tabPanel_geometry">
+      <!-- Tab hint: shown when no tab is open. The defaults render a
+           publishable image, so we lead with "you can stop here" and
+           treat the tabs as a progressive-disclosure dive. Clicking
+           the active tab again collapses it back to this hint. -->
+      <div class="edit-tab-hint" id="editTabHint">
+        <i class="fas fa-wand-magic-sparkles"></i>
+        Looks good already? You can ship as-is. Tap a tab above to fine-tune crop, color, or add a caption.
+      </div>
+
+      <!-- Geometry tab (collapsed by default) -->
+      <div class="edit-tab-panel hidden" id="tabPanel_geometry">
         <!-- Crop presets: how much of the image fills the frame -->
         <div class="preset-row">
           <span class="preset-row-label">Crop</span>
@@ -243,6 +239,23 @@
           <button class="edit-btn preset-btn" data-vignette-radius="full" title="Vignette circle reaches the frame corners">Full</button>
           <button class="edit-btn preset-btn" data-vignette-radius="fit"  title="Vignette around the solar disk with breathing room">Fit</button>
           <button class="edit-btn preset-btn" data-vignette-radius="fill" title="Tight vignette filling close to the solar disk">Fill</button>
+        </div>
+        <!-- Background colour: technically a colour pick, but every
+             other geometry knob (vignette, crop-edge feather) is tuned
+             with a target background in mind, so it lives in this tab
+             rather than in its own row above. Wired to the same
+             vignetteFade radio name as before. -->
+        <div class="filter-toggle vignette-fade-toggle" id="vignetteFadeToggle" style="margin-top:8px;">
+          <span class="preset-row-label" style="margin-right:8px;">Background</span>
+          <label class="filter-opt"><input type="radio" name="vignetteFade" value="transparent"> Transparent</label>
+          <label class="filter-opt active"><input type="radio" name="vignetteFade" value="black" checked> Black</label>
+          <label class="filter-opt"><input type="radio" name="vignetteFade" value="white"> White</label>
+          <label class="filter-opt filter-opt-mode" title="Use the most common color in the image so the vignette matches the canvas"><input type="radio" name="vignetteFade" value="mode"> Match</label>
+          <label class="filter-opt filter-opt-color" title="Custom color">
+            <input type="radio" name="vignetteFade" value="custom">
+            <input type="color" id="vignetteFadeColorPicker" value="#000000" class="vignette-fade-color-picker" title="Vignette fade color">
+            <span class="filter-opt-color-label">Custom</span>
+          </label>
         </div>
         <!-- Crop-edge feather presets — quick toggles that sync the
              Crop Edge X / Y sliders below. Hard = no feather, sharp

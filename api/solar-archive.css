@@ -794,6 +794,29 @@ html.dark .image-stage {
 
 .edit-tab-panel.hidden { display: none; }
 
+/* Friendly hint shown when no tab panel is expanded — leans on the
+   "defaults are already great" message so the editor doesn't intimidate
+   on first open. Hidden via .hidden when a panel is active. */
+.edit-tab-hint {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm, 8px);
+  background: linear-gradient(135deg, rgba(123, 97, 255, 0.06), rgba(192, 107, 255, 0.06));
+  border: 1px dashed rgba(123, 97, 255, 0.18);
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.edit-tab-hint.hidden { display: none; }
+.edit-tab-hint i {
+  color: var(--accent-corona, #b692ff);
+  font-size: 0.95rem;
+}
+
 .edit-btn {
   display: flex;
   align-items: center;
