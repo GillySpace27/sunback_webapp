@@ -40,6 +40,15 @@ router = APIRouter(prefix="/feedback", tags=["Feedback"])
 FEEDBACK_FILE = Path(__file__).resolve().parent.parent / "feedback.jsonl"
 ADMIN_KEY_ENV = "FEEDBACK_ADMIN_KEY"
 WEBHOOK_ENV = "FEEDBACK_WEBHOOK_URL"
+# Resend (https://resend.com) email notification — solo operators need
+# real-time feedback in their inbox, not a Slack channel. Two env vars:
+#   RESEND_API_KEY        — issued at resend.com → API Keys
+#   FEEDBACK_NOTIFY_EMAIL — your inbox; comma-separated for multiple
+# If either is unset, email notifications are silently skipped — JSONL
+# append + Slack webhook still run regardless.
+RESEND_API_KEY_ENV = "RESEND_API_KEY"
+FEEDBACK_EMAIL_ENV = "FEEDBACK_NOTIFY_EMAIL"
+RESEND_FROM_ENV = "RESEND_FROM"  # optional override; default works on Resend's free tier
 
 # Cap one submission at ~8KB so a rogue client can't fill the disk. Individual
 # field caps below catch the common abuse (10MB textarea paste, etc.).
@@ -164,6 +173,150 @@ def _fire_webhook(record: dict, idx: int) -> None:
         _log(f"[feedback][webhook] error: {e}")
 
 
+def _format_email_html(record: dict, idx: int) -> tuple[str, str]:
+    """Return (subject, html_body) for the notification email.
+
+    The body lays out the user's message first (what the operator
+    actually cares about), then the structured context (date, wave-
+    length, product, IP) underneath, then a blueprint-detail block
+    when the submission is a product request. Inline CSS is used so
+    Gmail/Apple Mail render it cleanly without external assets.
+    """
+    kind = record.get("kind", "comment")
+    body = (record.get("body") or "").strip()
+    pr = record.get("product_request") or {}
+    if kind == "product_request":
+        pr_title = pr.get("title") or f"Blueprint {pr.get('blueprintId')}"
+        subject = f"[Solar Archive] Product request: {pr_title}"
+        header = "New product request"
+    else:
+        # First sentence of the body makes a useful subject preview.
+        snippet = body[:60].replace("\n", " ").strip()
+        if len(body) > 60:
+            snippet += "…"
+        subject = "[Solar Archive] " + (snippet or "New feedback")
+        header = "New feedback"
+
+    def _esc(s):
+        return (str(s)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;"))
+
+    rows = []
+    if body:
+        rows.append(
+            f'<div style="background:#f5f3ff;border-left:3px solid #7b61ff;'
+            f'padding:12px 14px;margin:0 0 16px;border-radius:4px;'
+            f'white-space:pre-wrap;font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
+            f'color:#1f1f2e;">{_esc(body)}</div>'
+        )
+    if kind == "product_request" and pr:
+        pr_lines = []
+        if pr.get("title"):
+            pr_lines.append(f"<strong>Title:</strong> {_esc(pr['title'])}")
+        if pr.get("brand"):
+            pr_lines.append(f"<strong>Brand:</strong> {_esc(pr['brand'])}")
+        if pr.get("blueprintId") is not None:
+            pr_lines.append(f"<strong>Blueprint ID:</strong> {_esc(pr['blueprintId'])}")
+        if pr.get("printProviderId") is not None:
+            pr_lines.append(f"<strong>Print provider:</strong> {_esc(pr['printProviderId'])}")
+        if pr.get("variantId") is not None:
+            pr_lines.append(f"<strong>Variant ID:</strong> {_esc(pr['variantId'])}")
+        if pr.get("variantTitle"):
+            pr_lines.append(f"<strong>Variant:</strong> {_esc(pr['variantTitle'])}")
+        if pr.get("printShape"):
+            pr_lines.append(f"<strong>Print shape:</strong> {_esc(pr['printShape'])}")
+        if pr_lines:
+            rows.append(
+                '<div style="font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
+                'color:#3a3a52;margin:0 0 16px;">'
+                + "<br>".join(pr_lines)
+                + "</div>"
+            )
+    email = record.get("email")
+    if email:
+        rows.append(
+            f'<div style="font:14px/1.5 -apple-system,sans-serif;color:#3a3a52;margin:0 0 8px;">'
+            f'<strong>Reply-to:</strong> <a href="mailto:{_esc(email)}" '
+            f'style="color:#7b61ff;">{_esc(email)}</a></div>'
+        )
+    ctx = record.get("context") or {}
+    if ctx:
+        ctx_items = [f"<strong>{_esc(k)}:</strong> {_esc(v)}"
+                     for k, v in ctx.items() if v not in (None, "")]
+        if ctx_items:
+            rows.append(
+                '<div style="font:13px/1.6 -apple-system,sans-serif;'
+                'color:#6a6a8a;margin:8px 0 16px;">'
+                "<br>".join(ctx_items)
+                + "</div>"
+            )
+    if record.get("url"):
+        rows.append(
+            f'<div style="font:13px/1.5 -apple-system,sans-serif;color:#6a6a8a;margin:0 0 8px;">'
+            f'<strong>Page:</strong> <a href="{_esc(record["url"])}" '
+            f'style="color:#7b61ff;">{_esc(record["url"])}</a></div>'
+        )
+    if record.get("ts"):
+        from datetime import datetime as _dt, timezone as _tz
+        ts_str = _dt.fromtimestamp(int(record["ts"]), tz=_tz.utc).strftime("%Y-%m-%d %H:%M UTC")
+        rows.append(
+            f'<div style="font:12px -apple-system,sans-serif;color:#9898b8;margin:8px 0 0;">'
+            f'#{idx} · {ts_str}</div>'
+        )
+
+    html = (
+        '<div style="max-width:560px;margin:0 auto;padding:24px;'
+        'background:#fff;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">'
+        f'<div style="font:600 16px -apple-system,sans-serif;color:#7b61ff;'
+        f'letter-spacing:0.04em;text-transform:uppercase;margin:0 0 16px;">{header}</div>'
+        + "".join(rows)
+        + "</div>"
+    )
+    return subject, html
+
+
+def _fire_email_notification(record: dict, idx: int) -> None:
+    api_key = os.getenv(RESEND_API_KEY_ENV, "").strip()
+    to_raw = os.getenv(FEEDBACK_EMAIL_ENV, "").strip()
+    if not api_key or not to_raw:
+        return
+    to_list = [a.strip() for a in to_raw.split(",") if a.strip()]
+    if not to_list:
+        return
+    # Resend's free tier ships from "onboarding@resend.dev" without any
+    # domain verification. If the operator has set up their own verified
+    # domain they can override via RESEND_FROM (e.g. "Solar Archive
+    # <noreply@solar-archive.com>").
+    from_addr = os.getenv(RESEND_FROM_ENV, "").strip() or "Solar Archive <onboarding@resend.dev>"
+    try:
+        subject, html = _format_email_html(record, idx)
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_addr,
+                "to": to_list,
+                "subject": subject,
+                "html": html,
+                # If the user filled in their email, set Reply-To so the
+                # operator can hit Reply in their mail client and respond
+                # directly. Resend also supports an array here.
+                "reply_to": record.get("email") or None,
+            },
+            timeout=8,
+        )
+        if resp.status_code >= 400:
+            _log(f"[feedback][email] non-2xx: {resp.status_code} {resp.text[:300]}")
+    except Exception as e:
+        _log(f"[feedback][email] error: {e}")
+
+
 def _count_lines(path: Path) -> int:
     if not path.exists():
         return 0
@@ -205,6 +358,14 @@ async def submit_feedback(entry: FeedbackSubmission, request: Request):
         await run_in_threadpool(_fire_webhook, record, idx)
     except Exception as e:
         _log(f"[feedback][webhook] dispatch error: {e}")
+
+    # Same for email — runs in the thread pool so a slow Resend POST
+    # doesn't keep the user staring at a spinner. Both notifiers fire
+    # independently; either, both, or neither can be configured.
+    try:
+        await run_in_threadpool(_fire_email_notification, record, idx)
+    except Exception as e:
+        _log(f"[feedback][email] dispatch error: {e}")
 
     return {"ok": True, "idx": idx}
 
