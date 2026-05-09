@@ -656,10 +656,13 @@
       // lives in the preview pane; a "create" button that also shows price
       // reads as "buy now" to beta testers and blurs the create vs. purchase
       // steps (purchase happens on Shopify after this).
+      // In beta mode the button is a local "Download Your Design" — leave
+      // the label untouched and let _applyBetaModeUI() reassert it.
       var buyLabel = document.getElementById("btnBuyLabel");
-      if (buyLabel) {
+      if (buyLabel && !BETA_MODE) {
         buyLabel.textContent = "Create on Shopify";
       }
+      if (BETA_MODE && typeof _applyBetaModeUI === "function") _applyBetaModeUI();
 
       // Create (or reuse) the persistent preview canvas.
       // Always use a square 260×260 canvas — the product shape drawn inside it communicates
@@ -6188,6 +6191,15 @@
     }
     function updateBuyButtonState() {
       if (!btnBuyInEditor) return;
+      // In beta mode the button is a local PNG download, so it doesn't
+      // need a generated Printify mockup to be ready — pick a product
+      // and you're good. _applyBetaModeUI() handles the label/icon.
+      if (BETA_MODE) {
+        btnBuyInEditor.disabled = !state.selectedProduct;
+        btnBuyInEditor.classList.toggle("buy-locked", !state.selectedProduct);
+        if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+        return;
+      }
       var ready = !!state.selectedProduct && _hasRealMockup();
       btnBuyInEditor.disabled = !ready;
       // The visual state is driven by [disabled] in CSS; we also swap the
@@ -6200,8 +6212,123 @@
         btnBuyInEditor.classList.add("buy-locked");
       }
     }
+    // Beta-mode: the same button does a local PNG download instead of
+    // triggering real Printify checkout. Keeps testers' credit cards
+    // (and the operator's Printify wholesale bill) safely out of the
+    // loop while still letting the full editor flow get exercised.
+    function _applyBetaModeUI() {
+      if (!btnBuyInEditor || !BETA_MODE) return;
+      var lbl = document.getElementById("btnBuyLabel");
+      if (lbl) lbl.textContent = "Download Your Design";
+      btnBuyInEditor.title = "Beta: save your design as a PNG. We'll let you know when this product launches.";
+      // Beta mode doesn't depend on a real Printify mockup — a tester
+      // who's just exploring the editor should be able to grab a PNG
+      // even before they generate the production mockup. So we relax
+      // the "needs real mockup" gate that the regular Shopify path
+      // enforces.
+      btnBuyInEditor.disabled = false;
+      btnBuyInEditor.classList.remove("buy-locked");
+      // Swap the icon for a download glyph.
+      var icon = btnBuyInEditor.querySelector("i");
+      if (icon) icon.className = "fas fa-download";
+    }
+
+    function _slugForFilename(s) {
+      return String(s || "design").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "design";
+    }
+
+    function _saveDesignLocally() {
+      // Render the canvas with edits baked in (no orange frame border)
+      // — same trick the clock/text "burn" path uses.
+      if (!solarCanvas) return;
+      var product = state.selectedProduct
+        ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
+        : null;
+      var prevBurning = state._burningCanvas;
+      state._burningCanvas = true;
+      try { renderCanvas(); } catch (_e) {}
+      state._burningCanvas = prevBurning || false;
+      var dateStr = (dateInput && dateInput.value) || "design";
+      var timeStr = _solarTimeValue ? _solarTimeValue() : "";
+      var wl = state.wavelength || "";
+      var pid = product ? product.id : "design";
+      var fileName = "solar-archive_" + _slugForFilename(dateStr)
+                     + (timeStr ? "_" + _slugForFilename(timeStr) : "")
+                     + (wl ? "_" + wl + "A" : "")
+                     + "_" + _slugForFilename(pid)
+                     + ".png";
+
+      // Trigger the download.
+      try {
+        if (typeof solarCanvas.toBlob === "function") {
+          solarCanvas.toBlob(function(blob) {
+            if (!blob) return;
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function() {
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }, 200);
+          }, "image/png");
+        } else {
+          var dataUrl = solarCanvas.toDataURL("image/png");
+          var a2 = document.createElement("a");
+          a2.href = dataUrl;
+          a2.download = fileName;
+          document.body.appendChild(a2);
+          a2.click();
+          document.body.removeChild(a2);
+        }
+      } catch (e) {
+        showToast("Couldn't save the design — try again or screenshot the canvas.", "error");
+        return;
+      }
+      // Re-render once more so the editor goes back to its non-burning
+      // state (frame border + handles re-appear).
+      try { renderCanvas(); } catch (_e) {}
+
+      // Notify the operator out-of-band so beta feedback shows up in
+      // the same email pipeline as regular comments. Body is a marker
+      // string the operator can filter on; structured detail rides in
+      // the context object that the email template already prints.
+      var noteBody = "[Beta design save] " + (product ? product.name : "(no product)") +
+                     " · " + dateStr + (timeStr ? " " + timeStr + " UTC" : "") +
+                     (wl ? " · " + wl + " Å" : "");
+      var ctx = (typeof captureContext === "function") ? captureContext() : {};
+      ctx.product = pid;
+      ctx.product_name = product ? product.name : null;
+      ctx.beta_mode = true;
+      // sendFeedback() is scoped inside the feedback IIFE — fire a
+      // direct fetch so we don't have to hoist it. Failures here only
+      // skip the operator email; the user's PNG is already on disk.
+      try {
+        fetch(API_BASE + "/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "comment",
+            body: noteBody,
+            url: window.location.href,
+            user_agent: navigator.userAgent,
+            context: ctx,
+          }),
+        }).catch(function() { /* best-effort */ });
+      } catch (_e) { /* best-effort */ }
+      showToast("Design saved! We'll let you know when this product launches.", "success");
+    }
+
     if (btnBuyInEditor) {
       btnBuyInEditor.addEventListener("click", function() {
+        // Beta path bypasses the disabled / mockup-required gate; users
+        // are saving a PNG, not creating a real product.
+        if (BETA_MODE) {
+          _saveDesignLocally();
+          return;
+        }
         if (btnBuyInEditor.disabled) return;
         if (!state.selectedProduct) return;
         if (!_hasRealMockup()) return;
@@ -6630,6 +6757,11 @@
     // ── Checkout flow: Buy button → create → publish → Shopify ────
     var sendHint = $("#sendHint");
     var SHOPIFY_STORE = "solar-archive.myshopify.com"; // updated at runtime from store-config
+    // Beta-mode flag: when true, "Create on Shopify" becomes "Download
+    // Your Design" so testers don't trigger real Printify orders. The
+    // operator sets BETA_MODE=1 on the backend and the flag rides in
+    // on /store-config below.
+    var BETA_MODE = false;
 
     // Fetch store config on load
     fetchWithTimeout(API_BASE + "/api/printify/store-config", {}, 10000)
@@ -6637,6 +6769,12 @@
       .then(function(data) {
         if (data && data.shopify_store_domain) {
           SHOPIFY_STORE = data.shopify_store_domain;
+        }
+        if (data && typeof data.beta_mode !== "undefined") {
+          BETA_MODE = !!data.beta_mode;
+          // Re-sync the buy button now that we know the mode.
+          if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+          if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
         }
       })
       .catch(function() { /* keep default */ });

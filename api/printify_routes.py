@@ -466,10 +466,28 @@ async def publish_product(product_id: str):
 SHOPIFY_STORE_DOMAIN = os.getenv("SHOPIFY_STORE_DOMAIN", "solar-archive.myshopify.com")
 
 
+def _is_beta_mode() -> bool:
+    """Beta mode disables real Shopify checkout in favour of a local
+    PNG download — keeps the operator from eating Printify wholesale +
+    shipping cost on every test order. Toggled by the BETA_MODE env var
+    (any truthy string: "1", "true", "yes" — case-insensitive)."""
+    raw = os.getenv("BETA_MODE", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 @router.get("/store-config")
 async def store_config():
-    """Returns the Shopify store domain for frontend redirects."""
-    return JSONResponse(content={"shopify_store_domain": SHOPIFY_STORE_DOMAIN})
+    """Returns store config + beta-mode flag for the frontend.
+
+    Frontend reads `beta_mode`; when true, the editor's "Create on
+    Shopify" button is swapped for "Download Your Design" so testers
+    can run through the full editor flow without triggering real
+    Printify orders (each of which would bill the operator the
+    wholesale cost + shipping)."""
+    return JSONResponse(content={
+        "shopify_store_domain": SHOPIFY_STORE_DOMAIN,
+        "beta_mode": _is_beta_mode(),
+    })
 
 
 # ────────────────────────────────────────────────
