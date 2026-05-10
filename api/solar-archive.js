@@ -2980,17 +2980,17 @@
         var cx = cw / 2;
         var cy = ch / 2;
         var half = Math.min(cw, ch) / 2;
-        var r = (cn.radiusPct != null ? cn.radiusPct : 42) / 100 * half;
+        var r = (cn.radiusPct != null ? cn.radiusPct : 80) / 100 * half;
         // Font size + stroke width are scaled by half / CLOCK_REF_HALF so the
         // numerals are always the same fraction of the clock face regardless
         // of whether the canvas is 512 (preview) or 1536 (HQ active) or 65
         // (mockup). Without this, after the HQ canvas-resolution bump the
-        // user's "size = 28" became invisible in the editor and the mockup
+        // user's "size = 50" became invisible in the editor and the mockup
         // path used a different multiplier — the two panes drifted out of
         // sync. CLOCK_REF_HALF=256 matches the original 512-px canvas so
         // existing slider values look the same as before.
         var CLOCK_REF_HALF = 256;
-        var sizeUnit = cn.size != null ? cn.size : 28;
+        var sizeUnit = cn.size != null ? cn.size : 50;
         var sizePx = sizeUnit * (half / CLOCK_REF_HALF);
         var strokePx = (cn.strokeWidth || 0) * 2 * (half / CLOCK_REF_HALF);
         ctx.save();
@@ -4071,8 +4071,8 @@
         color: clockNumbersColorPicker ? clockNumbersColorPicker.value : "#ffffff",
         strokeColor: clockNumbersStrokePicker ? clockNumbersStrokePicker.value : "#000000",
         strokeWidth: clockNumbersStrokeWidth ? parseInt(clockNumbersStrokeWidth.value, 10) : 2,
-        size: clockNumbersSizeSlider ? parseInt(clockNumbersSizeSlider.value, 10) : 28,
-        radiusPct: clockNumbersRadiusSlider ? parseInt(clockNumbersRadiusSlider.value, 10) : 42,
+        size: clockNumbersSizeSlider ? parseInt(clockNumbersSizeSlider.value, 10) : 50,
+        radiusPct: clockNumbersRadiusSlider ? parseInt(clockNumbersRadiusSlider.value, 10) : 80,
         style: clockNumbersStyleSelect ? clockNumbersStyleSelect.value : "arabic"
       };
       renderCanvas();
@@ -5043,9 +5043,9 @@
         if (state.clockNumbers && state.selectedProduct === "wall_clock") {
           var cn = state.clockNumbers;
           var CLOCK_REF_HALF = 256;
-          var radiusPct = (cn.radiusPct != null ? cn.radiusPct : 42) / 100;
+          var radiusPct = (cn.radiusPct != null ? cn.radiusPct : 80) / 100;
           var numR = radiusPct * r;
-          var numSize = (cn.size != null ? cn.size : 28) * (r / CLOCK_REF_HALF);
+          var numSize = (cn.size != null ? cn.size : 50) * (r / CLOCK_REF_HALF);
           var numStroke = (cn.strokeWidth || 0) * 2 * (r / CLOCK_REF_HALF);
           mctx.save();
           mctx.font = "bold " + numSize + "px '" + (cn.font || "Inter") + "', sans-serif";
