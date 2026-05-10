@@ -923,6 +923,21 @@ html.dark .image-stage {
   text-align: right;
 }
 
+/* Clock color presets — sits inline with the colour picker. Smaller
+   than the standard preset row so we can fit four chips + a picker
+   on one line, and tagged with the same `.preset-btn` styling so the
+   active-state highlight matches the crop/vignette presets above. */
+.clock-color-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.clock-color-presets .clock-color-preset {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+}
+
 /* Preset buttons row */
 .preset-row {
   display: flex;
@@ -1959,6 +1974,25 @@ html.dark .image-stage {
 .preview-close-btn:hover {
   color: var(--accent-flare);
   background: rgba(255,94,58,0.12);
+}
+
+/* Navigation row — three equal buttons (Change wavelength · product ·
+   variant). Each takes ~1/3 of the row at the natural toolbar width so
+   they read as a balanced triad rather than three different chip sizes. */
+.edit-toolbar-nav-group {
+  flex: 1 1 auto;
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  min-width: 0; /* allow buttons to shrink below their content width */
+}
+.edit-toolbar-nav-group .edit-btn-nav {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Navigation-style edit-btn (Change Wavelength etc.) */

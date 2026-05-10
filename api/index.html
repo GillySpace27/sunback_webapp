@@ -187,12 +187,15 @@
           </div>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
-        <div class="edit-toolbar-nav-group" style="margin-left:auto;display:flex;gap:6px;">
+        <div class="edit-toolbar-nav-group">
           <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change date or wavelength">
             <i class="fas fa-sun"></i> Change wavelength
           </button>
           <button class="edit-btn edit-btn-nav" id="btnChangeProduct" title="Scroll back up to pick a different product">
             <i class="fas fa-shapes"></i> Change product
+          </button>
+          <button class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
+            <i class="fas fa-swatchbook"></i> Change variant
           </button>
         </div>
       </div>
@@ -360,9 +363,15 @@
           <span class="field-label-sm">Font</span>
           <select id="clockNumbersFontSelect"><!-- populated by JS from FONT_CATALOG --></select>
         </div>
-        <div class="field-row">
+        <div class="field-row clock-color-presets">
           <span class="field-label-sm">Color</span>
-          <input type="color" id="clockNumbersColorPicker" value="#ffffff">
+          <button type="button" class="edit-btn preset-btn clock-color-preset" data-clock-color="black"  title="Black">Black</button>
+          <button type="button" class="edit-btn preset-btn clock-color-preset" data-clock-color="white"  title="White">White</button>
+          <button type="button" class="edit-btn preset-btn clock-color-preset" data-clock-color="mode"   title="Image's dominant color">Mode</button>
+          <button type="button" class="edit-btn preset-btn clock-color-preset" data-clock-color="lighter-mode" title="Dominant color, lightened so it pops">Lighter mode</button>
+          <input type="color" id="clockNumbersColorPicker" value="#ffffff" title="Pick a custom color">
+        </div>
+        <div class="field-row">
           <span class="field-label-sm">Stroke</span>
           <input type="color" id="clockNumbersStrokePicker" value="#000000">
           <span class="field-label-sm" style="min-width:30px;">W</span>
@@ -370,11 +379,8 @@
           <span class="slider-val" id="clockNumbersStrokeVal" style="min-width:20px;">2</span>
         </div>
         <div style="display:flex; gap:8px; margin-top:6px;">
-          <button class="edit-btn" id="burnClockNumbers" style="flex:1;justify-content:center;">
-            <i class="fas fa-check"></i> Burn Numbers Into Image
-          </button>
-          <button class="edit-btn" id="cancelClockNumbers">
-            <i class="fas fa-times"></i> Cancel
+          <button class="edit-btn" id="cancelClockNumbers" style="flex:1;justify-content:center;">
+            <i class="fas fa-eye-slash"></i> Hide numerals
           </button>
         </div>
       </div>
