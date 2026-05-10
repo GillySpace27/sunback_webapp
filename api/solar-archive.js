@@ -2933,8 +2933,15 @@
       // ── Text overlay (live preview, not burned in) ────────────
       if (state.textOverlay && state.textOverlay.text) {
         var tov = state.textOverlay;
+        // Resolve normalised position/size into pixel coords for THIS
+        // canvas. The text used to store absolute pixel x/y/size which
+        // drifted when the canvas resized (HQ swap, mockup snapshot,
+        // export) — text placed centred on a 512px canvas ended up in
+        // the upper-left of a 1536px snapshot. Normalised storage means
+        // "centre" stays centre regardless of resolution.
+        _resolveTextPx(tov, cw, ch);
         ctx.save();
-        ctx.font = "bold " + tov.size + "px '" + tov.font + "', sans-serif";
+        ctx.font = "bold " + tov._pixelSize + "px '" + tov.font + "', sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
@@ -2955,11 +2962,11 @@
             ctx.strokeStyle = tov.strokeColor;
             ctx.lineWidth = tov.strokeWidth * 2;
             ctx.lineJoin = "round";
-            ctx.strokeText(tov.text, tov.x, tov.y);
+            ctx.strokeText(tov.text, tov._pixelX, tov._pixelY);
           }
           if (!tov.outlined) {
             ctx.fillStyle = tov.color;
-            ctx.fillText(tov.text, tov.x, tov.y);
+            ctx.fillText(tov.text, tov._pixelX, tov._pixelY);
           }
         }
         ctx.restore();
@@ -3802,13 +3809,20 @@
       var clockPanel = document.getElementById("tabPanel_clock");
       if (clockPanel) clockPanel.classList.add("hidden");
 
-      // Initialise overlay at centre of current canvas
+      // Initialise overlay at centre of current canvas. Both legacy
+      // absolute (x/y/size) AND normalised (xNorm/yNorm/sizeNorm) are
+      // stored — the render path prefers norm, the slider readout still
+      // shows the absolute slider value the user picked.
       if (!state.textOverlay) {
+        var _sliderSize = parseInt(textSizeSlider.value, 10);
         state.textOverlay = {
           text: textInput.value || "Hello Sun",
           x: solarCanvas.width / 2,
           y: solarCanvas.height / 2,
-          size: parseInt(textSizeSlider.value, 10),
+          xNorm: 0.5,
+          yNorm: 0.5,
+          size: _sliderSize,
+          sizeNorm: _sliderSize / _TEXT_REF_SIZE,
           font: textFontSelect.value,
           color: textColorPicker.value,
           strokeColor: textStrokePicker.value,
@@ -3838,8 +3852,12 @@
     // synchronous canvas repaints while the user is still moving the thumb.
     function syncTextOverlay() {
       if (!state.textOverlay) return;
+      var sliderSize = parseInt(textSizeSlider.value, 10);
       state.textOverlay.text = textInput.value;
-      state.textOverlay.size = parseInt(textSizeSlider.value, 10);
+      state.textOverlay.size = sliderSize;
+      // Keep the normalised size in lockstep with the slider so the
+      // text scales correctly on canvas-size changes (HQ swap, snapshot).
+      state.textOverlay.sizeNorm = sliderSize / _TEXT_REF_SIZE;
       state.textOverlay.font = textFontSelect.value;
       state.textOverlay.color = textColorPicker.value;
       state.textOverlay.strokeColor = textStrokePicker.value;
@@ -3908,8 +3926,11 @@
     function drawArcText(ctx, tov) {
       var text = tov.text;
       var radius = tov.arc.radius;
-      var centerX = tov.x;
-      var centerY = tov.y + radius; // arc center is below the text anchor
+      // Use the resolved pixel coords (set by _resolveTextPx in the
+      // caller) so arc text follows canvas-size changes the same way
+      // straight text does.
+      var centerX = (tov._pixelX != null) ? tov._pixelX : tov.x;
+      var centerY = ((tov._pixelY != null) ? tov._pixelY : tov.y) + radius; // arc center is below the text anchor
 
       // Measure each character for proper angular spacing
       var chars = text.split("");
@@ -4131,29 +4152,63 @@
     });
 
     // ── Text drag handling on canvas ───────────────────────────
+    // Resolve text-overlay position + size from normalised storage into
+    // pixel coords for the given canvas. Falls back to the legacy
+    // absolute fields if the overlay was created before normalisation
+    // landed (or via a path that hasn't been updated yet) — in that
+    // case we ALSO write back the normalised fields so subsequent
+    // renders / drags use the correct reference. Sets tov._pixelX,
+    // tov._pixelY, tov._pixelSize.
+    var _TEXT_REF_SIZE = 512;  // historical default canvas dim
+    function _resolveTextPx(tov, cw, ch) {
+      if (!tov) return;
+      var refMin = Math.min(cw, ch) || _TEXT_REF_SIZE;
+      // Position: norm if present, else infer from absolute / centre.
+      if (tov.xNorm == null || tov.yNorm == null) {
+        var refX = (tov.x != null) ? tov.x : cw / 2;
+        var refY = (tov.y != null) ? tov.y : ch / 2;
+        // Treat legacy absolute coords as relative to the current
+        // canvas size — best we can do without knowing the size at
+        // which they were set. Subsequent edits will re-normalise.
+        tov.xNorm = refX / cw;
+        tov.yNorm = refY / ch;
+      }
+      if (tov.sizeNorm == null) {
+        // Slider values are interpreted relative to a 512-px reference
+        // canvas so the same "48" stays visually proportional across
+        // 512 preview vs 1536 HQ vs 4000 export.
+        tov.sizeNorm = (tov.size != null ? tov.size : 48) / _TEXT_REF_SIZE;
+      }
+      tov._pixelX = tov.xNorm * cw;
+      tov._pixelY = tov.yNorm * ch;
+      tov._pixelSize = Math.max(4, tov.sizeNorm * refMin);
+    }
+
     function isInsideText(canvasX, canvasY) {
       if (!state.textOverlay || !state.textOverlay.text) return false;
       var tov = state.textOverlay;
+      // Ensure pixel coords are fresh for the current canvas.
+      _resolveTextPx(tov, solarCanvas.width, solarCanvas.height);
 
       // Arc mode: use circular bounding region
       if (tov.arc && tov.arc.enabled) {
-        var arcCenterY = tov.y + tov.arc.radius;
-        var dx = canvasX - tov.x;
+        var arcCenterY = tov._pixelY + tov.arc.radius;
+        var dx = canvasX - tov._pixelX;
         var dy = canvasY - arcCenterY;
         var dist = Math.sqrt(dx * dx + dy * dy);
-        return Math.abs(dist - tov.arc.radius) < tov.size * 1.2;
+        return Math.abs(dist - tov.arc.radius) < tov._pixelSize * 1.2;
       }
 
       // Straight text: rectangle hit test
       var ctx = solarCanvas.getContext("2d");
       ctx.save();
-      ctx.font = "bold " + tov.size + "px '" + tov.font + "', sans-serif";
+      ctx.font = "bold " + tov._pixelSize + "px '" + tov.font + "', sans-serif";
       var metrics = ctx.measureText(tov.text);
       ctx.restore();
       var hw = metrics.width / 2;
-      var hh = tov.size / 2;
-      return canvasX >= tov.x - hw && canvasX <= tov.x + hw &&
-             canvasY >= tov.y - hh && canvasY <= tov.y + hh;
+      var hh = tov._pixelSize / 2;
+      return canvasX >= tov._pixelX - hw && canvasX <= tov._pixelX + hw &&
+             canvasY >= tov._pixelY - hh && canvasY <= tov._pixelY + hh;
     }
 
     var panDragging = false;
@@ -4193,8 +4248,13 @@
         if (isInsideText(coords.x, coords.y)) {
           e.preventDefault();
           textDragging = true;
-          textDragOffsetX = coords.x - state.textOverlay.x;
-          textDragOffsetY = coords.y - state.textOverlay.y;
+          // Drag relative to the resolved pixel coords (which
+          // isInsideText just refreshed) so a drag after a canvas
+          // resize starts from where the text actually is on screen,
+          // not from a stale absolute x/y.
+          var _tov = state.textOverlay;
+          textDragOffsetX = coords.x - (_tov._pixelX != null ? _tov._pixelX : _tov.x);
+          textDragOffsetY = coords.y - (_tov._pixelY != null ? _tov._pixelY : _tov.y);
           return;
         }
       }
@@ -4221,8 +4281,18 @@
       if (textDragging && state.textOverlay) {
         e.preventDefault();
         var coords = getCanvasCoords(e);
-        state.textOverlay.x = coords.x - textDragOffsetX;
-        state.textOverlay.y = coords.y - textDragOffsetY;
+        var newX = coords.x - textDragOffsetX;
+        var newY = coords.y - textDragOffsetY;
+        state.textOverlay.x = newX;
+        state.textOverlay.y = newY;
+        // Update normalised position so the drag survives a canvas
+        // resize (HQ swap, mockup snapshot, export) — without this the
+        // overlay drifted toward the upper-left whenever the canvas
+        // dimensions changed after the drag.
+        var _cw = solarCanvas.width || 1;
+        var _ch = solarCanvas.height || 1;
+        state.textOverlay.xNorm = newX / _cw;
+        state.textOverlay.yNorm = newY / _ch;
         scheduleCanvasRender();
         return;
       }
