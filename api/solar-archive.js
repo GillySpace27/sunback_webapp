@@ -864,6 +864,36 @@
       });
     }
 
+    // Re-open the variant picker for the currently-selected product.
+    // Falls back to clicking the matching product card's "Pick a
+    // variant" button if showConfirmSelectModal isn't reachable yet
+    // (it's defined later in the IIFE; the button lookup runs at
+    // page-init time but the click handler runs much later).
+    var btnChangeVariant = document.getElementById("btnChangeVariant");
+    if (btnChangeVariant) {
+      btnChangeVariant.addEventListener("click", function() {
+        if (!state.selectedProduct) {
+          showToast("Pick a product first.");
+          return;
+        }
+        var product = (typeof PRODUCTS !== "undefined")
+          ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
+          : null;
+        if (product && typeof showConfirmSelectModal === "function") {
+          // Direct modal entry. onContinue is a no-op — the modal's
+          // own logic re-selects the variant and updates the editor.
+          showConfirmSelectModal(product, function() { /* committed inside modal */ });
+          return;
+        }
+        // Fallback: synth-click the product card's Pick-a-variant
+        // button. Works for any layout the modal-direct path doesn't.
+        var card = document.querySelector('.product-card[data-product-id="' + state.selectedProduct + '"]');
+        var pick = card && card.querySelector(".product-select-btn");
+        if (pick) pick.click();
+        else showToast("Variant picker isn't ready yet — try again in a moment.");
+      });
+    }
+
     var btnChangeProduct = document.getElementById("btnChangeProduct");
     if (btnChangeProduct) {
       btnChangeProduct.addEventListener("click", function() {
@@ -4108,47 +4138,149 @@
     if (clockNumbersColorPicker) clockNumbersColorPicker.addEventListener("input", liveUpdateClockNumbers);
     if (clockNumbersStrokePicker) clockNumbersStrokePicker.addEventListener("input", liveUpdateClockNumbers);
     if (clockNumbersStyleSelect) clockNumbersStyleSelect.addEventListener("change", liveUpdateClockNumbers);
-    var burnClockNumbersBtn = document.getElementById("burnClockNumbers");
-    if (burnClockNumbersBtn) burnClockNumbersBtn.addEventListener("click", function() {
-      applyClockNumbersFromPanel();
-      // Render without frame overlay so the border isn't baked in
-      state._burningCanvas = true;
-      renderCanvas();
-      state._burningCanvas = false;
-      var dataUrlClock = solarCanvas.toDataURL("image/png");
-      var newImg = new Image();
-      newImg.onload = function() {
-        state.originalImage = newImg;
-        state.panX = newImg.naturalWidth / 2;
-        state.panY = newImg.naturalHeight / 2;
-        state.cropZoom = 100;
-        if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
-        state.jpgImage = null;
-        state.rawBackendImage = null;
-        state.rhefImage = null;
-        state.hqFilterImage = null;
-        state.hqFormat = null;
-        state.editorFilter = "jpg";
-        _syncFilterToggleUI("jpg");
-        state.clockNumbers = null;
-        var clockPanel = document.getElementById("tabPanel_clock");
-        if (clockPanel) clockPanel.classList.add("hidden");
-        var panBtn = document.querySelector('[data-tool="pan"]');
-        if (panBtn) panBtn.classList.add("active");
-        renderCanvas();
-        showToast("Clock numbers burned into image.");
-      };
-      newImg.src = dataUrlClock;
+    // Burn button removed: the numerals are kept as a live, non-destructive
+    // overlay so users can revisit the panel and change them later. The
+    // Hide-numerals button below sets state.clockNumbers = null when the
+    // user wants the face bare.
+
+    // ── Clock-numeral colour presets ───────────────────────────
+    // Quick-pick row above the colour picker: Black / White / Mode /
+    // Lighter Mode. "Mode" reads the dominant-image RGB the vignette
+    // pixel pass already computes (state._vignetteModeR/G/B), so it's
+    // always available as soon as the user has looked at the image
+    // with any pixel-touching effect enabled. "Lighter Mode" mixes
+    // that toward white so the numerals read clearly on a darker
+    // version of the same colour palette.
+    function _rgbToHex(r, g, b) {
+      function h(n) {
+        var v = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+        return v.length === 1 ? "0" + v : v;
+      }
+      return "#" + h(r) + h(g) + h(b);
+    }
+    // On-demand mode-colour computation. The existing pixel pass only
+    // populates state._vignetteModeR/G/B when needsPixelWork is true
+    // (any of brightness / contrast / saturation / vignette / crop-edge
+    // feather active). If the user picks the Mode preset on an otherwise
+    // untouched image, the cached value is missing — fall back to a
+    // direct sample of the current canvas. Bucketed 3-bit-per-channel
+    // histogram, identical convention to the pixel-pass version, but
+    // applied to whatever's on solarCanvas right now.
+    function _computeModeFromCanvas() {
+      if (!solarCanvas || solarCanvas.width === 0) return null;
+      try {
+        var ctx2 = solarCanvas.getContext("2d");
+        var img = ctx2.getImageData(0, 0, solarCanvas.width, solarCanvas.height);
+        var d = img.data;
+        var step = 32; // every 32nd pixel — plenty for a histogram of ~50k samples on a 1536² canvas
+        var buckets = {};
+        var maxCount = 0;
+        var maxKey = "16,16,16";
+        for (var si = 0; si < d.length; si += 4 * step) {
+          var aa = d[si + 3];
+          if (aa < 128) continue;
+          var rr = d[si], gg = d[si + 1], bb = d[si + 2];
+          if (rr <= 25 && gg <= 25 && bb <= 25) continue;
+          if (rr >= 230 && gg >= 230 && bb >= 230) continue;
+          var key = (rr >> 3) + "," + (gg >> 3) + "," + (bb >> 3);
+          buckets[key] = (buckets[key] || 0) + 1;
+          if (buckets[key] > maxCount) { maxCount = buckets[key]; maxKey = key; }
+        }
+        var parts = maxKey.split(",");
+        return {
+          r: (parseInt(parts[0], 10) << 3) + 4,
+          g: (parseInt(parts[1], 10) << 3) + 4,
+          b: (parseInt(parts[2], 10) << 3) + 4,
+        };
+      } catch (_e) {
+        return null;
+      }
+    }
+    function _modeColorHex() {
+      var r = state._vignetteModeR;
+      var g = state._vignetteModeG;
+      var b = state._vignetteModeB;
+      if (r == null || g == null || b == null) {
+        var sampled = _computeModeFromCanvas();
+        if (!sampled) return null;
+        r = sampled.r; g = sampled.g; b = sampled.b;
+        // Cache for "Lighter Mode" and other re-uses this frame.
+        state._vignetteModeR = r;
+        state._vignetteModeG = g;
+        state._vignetteModeB = b;
+      }
+      return _rgbToHex(r, g, b);
+    }
+    function _lighterModeHex() {
+      // Resolve the mode first (computes on-demand if not cached).
+      if (!_modeColorHex()) return null;
+      var r = state._vignetteModeR;
+      var g = state._vignetteModeG;
+      var b = state._vignetteModeB;
+      // Mix 55% toward white — enough to lift a dark corona red toward
+      // a peachy / pastel version that pops on the original mode bg.
+      var mix = 0.55;
+      return _rgbToHex(r + (255 - r) * mix, g + (255 - g) * mix, b + (255 - b) * mix);
+    }
+    function _resolveClockColorPreset(key) {
+      if (key === "black") return "#000000";
+      if (key === "white") return "#ffffff";
+      if (key === "mode") return _modeColorHex();
+      if (key === "lighter-mode") return _lighterModeHex();
+      return null;
+    }
+    document.querySelectorAll(".clock-color-preset[data-clock-color]").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var hex = _resolveClockColorPreset(btn.dataset.clockColor);
+        if (!hex) {
+          // Mode/Lighter Mode unavailable until the pixel pass has
+          // computed the dominant colour. Nudge the user.
+          if (typeof showToast === "function") {
+            showToast("Pick a vignette or brightness setting first so we can read the image's dominant color.");
+          }
+          return;
+        }
+        var picker = document.getElementById("clockNumbersColorPicker");
+        if (picker) {
+          picker.value = hex;
+          picker.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        // Highlight the active preset (visual feedback that the click
+        // landed). Any later picker-input clears the highlight since
+        // we can't tell custom hexes apart from a stale preset.
+        document.querySelectorAll(".clock-color-preset[data-clock-color]")
+          .forEach(function(b) { b.classList.toggle("active", b === btn); });
+      });
     });
+    var _clockPickerEl = document.getElementById("clockNumbersColorPicker");
+    if (_clockPickerEl) {
+      _clockPickerEl.addEventListener("input", function() {
+        document.querySelectorAll(".clock-color-preset[data-clock-color]")
+          .forEach(function(b) { b.classList.remove("active"); });
+      });
+    }
+    // Hide / Show toggle: flips state.clockNumbers between null (bare
+    // face) and a seeded object (numerals visible). Stays inside the
+    // clock tab so users can flip it on and off without navigating
+    // away. Label + icon swap to match the current state.
     var cancelClockNumbersBtn = document.getElementById("cancelClockNumbers");
+    function _syncClockToggleLabel() {
+      if (!cancelClockNumbersBtn) return;
+      var hasNums = !!state.clockNumbers;
+      cancelClockNumbersBtn.innerHTML = hasNums
+        ? '<i class="fas fa-eye-slash"></i> Hide numerals'
+        : '<i class="fas fa-eye"></i> Show numerals';
+    }
+    _syncClockToggleLabel();
     if (cancelClockNumbersBtn) cancelClockNumbersBtn.addEventListener("click", function() {
-      state.clockNumbers = null;
-      var panel = document.getElementById("clockNumbersPanel");
-      if (panel) panel.classList.add("hidden");
-      document.querySelectorAll(".edit-toolbar .edit-btn[data-tool]").forEach(function(b) { b.classList.remove("active"); });
-      var panBtn = document.querySelector('[data-tool="pan"]');
-      if (panBtn) panBtn.classList.add("active");
+      if (state.clockNumbers) {
+        state.clockNumbers = null;
+      } else if (typeof applyClockNumbersFromPanel === "function") {
+        applyClockNumbersFromPanel();
+      }
+      _syncClockToggleLabel();
       renderCanvas();
+      if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
     });
 
     // ── Text drag handling on canvas ───────────────────────────
