@@ -39,6 +39,7 @@
       brightness: 0,
       contrast: 0,
       saturation: 100,
+      hue: 0,            // degrees, -180..+180; 0 = no rotation
       rotation: 0,
       flipH: false,
       flipV: false,
@@ -1123,6 +1124,7 @@
       state.brightness = 0;
       state.contrast = 0;
       state.saturation = 100;
+      state.hue = 0;
       state.vignette = 24;
       state.vignetteWidth = 0;
       state.vignetteFade = "black";
@@ -2683,7 +2685,8 @@
       var ENABLE_INTERACTIVE_DOWNSAMPLE = false;
       var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
                            state.saturation !== 100 || state.inverted || state.vignette > 0 ||
-                           (state.cropEdgeFeatherX || 0) > 0 || (state.cropEdgeFeatherY || 0) > 0;
+                           (state.cropEdgeFeatherX || 0) > 0 || (state.cropEdgeFeatherY || 0) > 0 ||
+                           (state.hue || 0) !== 0;
       if (needsPixelWork) {
         var useDownsampled = ENABLE_INTERACTIVE_DOWNSAMPLE && !state._fullResRender;
         var workCw = cw, workCh = ch;
@@ -2707,6 +2710,24 @@
         var co = state.contrast / 100;
         var factor = (259 * (co * 255 + 255)) / (255 * (259 - co * 255));
         var sat = state.saturation / 100;
+        // Hue rotation — rotate the chroma vector around the luma axis.
+        // Pre-compute the YIQ rotation matrix so the per-pixel inner
+        // loop only does six multiply-adds. Skip the work entirely when
+        // hue is 0 (the common case).
+        var hueDeg = state.hue || 0;
+        var applyHue = (hueDeg % 360) !== 0;
+        var hueCos = applyHue ? Math.cos(hueDeg * Math.PI / 180) : 1;
+        var hueSin = applyHue ? Math.sin(hueDeg * Math.PI / 180) : 0;
+        // Standard YIQ→RGB hue-rotation matrix, derived offline.
+        var hrr = 0.213 + 0.787 * hueCos - 0.213 * hueSin;
+        var hrg = 0.715 - 0.715 * hueCos - 0.715 * hueSin;
+        var hrb = 0.072 - 0.072 * hueCos + 0.928 * hueSin;
+        var hgr = 0.213 - 0.213 * hueCos + 0.143 * hueSin;
+        var hgg = 0.715 + 0.285 * hueCos + 0.140 * hueSin;
+        var hgb = 0.072 - 0.072 * hueCos - 0.283 * hueSin;
+        var hbr = 0.213 - 0.213 * hueCos - 0.787 * hueSin;
+        var hbg = 0.715 - 0.715 * hueCos + 0.715 * hueSin;
+        var hbb = 0.072 + 0.928 * hueCos + 0.072 * hueSin;
 
         // Vignette params — always pinned to canvas centre so the radius stays
         // consistent regardless of pan position. Uses workCw/workCh so the
@@ -2796,6 +2817,17 @@
           r = gray + sat * (r - gray);
           g = gray + sat * (g - gray);
           b = gray + sat * (b - gray);
+
+          // Hue rotation — applies AFTER saturation so a desaturated
+          // pixel rotates around its (now-grey) luma axis and stays
+          // grey, which matches the intuitive "spin the colour wheel"
+          // mental model. Skips entirely when hue is zero.
+          if (applyHue) {
+            var hr = hrr * r + hrg * g + hrb * b;
+            var hg = hgr * r + hgg * g + hgb * b;
+            var hb = hbr * r + hbg * g + hbb * b;
+            r = hr; g = hg; b = hb;
+          }
 
           // Vignette — fade to transparent / black / white / color / mode outside radius.
           // Coords are in work-canvas space (matches cx/cy/maxR above).
@@ -3189,6 +3221,7 @@
         state.brightness = 0;
         state.contrast = 0;
         state.saturation = 100;
+        state.hue = 0;
         state.vignette = 24;
         state.vignetteWidth = 0;
         state.vignetteFade = "black";
@@ -3203,6 +3236,7 @@
         $("#brightnessSlider").value = 0;
         $("#contrastSlider").value = 0;
         $("#saturationSlider").value = 100;
+        if ($("#hueSlider")) { $("#hueSlider").value = 0; $("#hueVal").textContent = "0°"; }
         $("#vignetteSlider").value = 100 - 24;
         $("#vigWidthSlider").value = 0;
         if ($("#cropEdgeXSlider")) { $("#cropEdgeXSlider").value = 0; $("#cropEdgeXVal").textContent = "0"; }
@@ -3433,6 +3467,20 @@
 
     setupSlider("brightnessSlider", "brightnessVal", "brightness");
     setupSlider("contrastSlider", "contrastVal", "contrast");
+    // Hue: shares the same setup, but the readout needs a "°" suffix
+    // (otherwise it reads as a raw integer next to the other 0-200
+    // scales). Wired inline rather than extending setupSlider with
+    // a format-string param for a one-off.
+    var _hueSliderEl = $("#hueSlider");
+    var _hueValEl = $("#hueVal");
+    if (_hueSliderEl && _hueValEl) {
+      _hueSliderEl.addEventListener("input", function() {
+        state.hue = parseInt(_hueSliderEl.value, 10) || 0;
+        _hueValEl.textContent = state.hue + "°";
+        scheduleCanvasRender();
+        scheduleMockupRefresh();
+      });
+    }
     setupSlider("saturationSlider", "saturationVal", "saturation");
     // Vignette slider is inverted: slider 0 = max vignette (100), slider 100 = no vignette (0)
     var vignetteSliderEl = $("#vignetteSlider");
@@ -4584,7 +4632,8 @@
       // Apply pixel adjustments (brightness, contrast, saturation, vignette, invert)
       var needsPixelWork = state.brightness !== 0 || state.contrast !== 0 ||
                            state.saturation !== 100 || state.inverted || state.vignette > 0 ||
-                           (state.cropEdgeFeatherX || 0) > 0 || (state.cropEdgeFeatherY || 0) > 0;
+                           (state.cropEdgeFeatherX || 0) > 0 || (state.cropEdgeFeatherY || 0) > 0 ||
+                           (state.hue || 0) !== 0;
       if (needsPixelWork) {
         var imageData = tctx.getImageData(0, 0, cw, ch);
         var d = imageData.data;
@@ -4598,6 +4647,22 @@
         var radiusFactor = 1.0 - (state.vignette / 100) * 0.9;
         var vigR = maxR * radiusFactor;
         var vigWidthFactor = state.vignetteWidth / 100;
+        // Hue rotation — mirrors the main renderCanvas pixel pass so
+        // _cropFilterImage produces the same colour treatment when it
+        // re-bakes the JPG/Raw/RHEF/HQ-RHEF source onto the canvas.
+        var hueDeg2 = state.hue || 0;
+        var applyHue2 = (hueDeg2 % 360) !== 0;
+        var hueCos2 = applyHue2 ? Math.cos(hueDeg2 * Math.PI / 180) : 1;
+        var hueSin2 = applyHue2 ? Math.sin(hueDeg2 * Math.PI / 180) : 0;
+        var hrr2 = 0.213 + 0.787 * hueCos2 - 0.213 * hueSin2;
+        var hrg2 = 0.715 - 0.715 * hueCos2 - 0.715 * hueSin2;
+        var hrb2 = 0.072 - 0.072 * hueCos2 + 0.928 * hueSin2;
+        var hgr2 = 0.213 - 0.213 * hueCos2 + 0.143 * hueSin2;
+        var hgg2 = 0.715 + 0.285 * hueCos2 + 0.140 * hueSin2;
+        var hgb2 = 0.072 - 0.072 * hueCos2 - 0.283 * hueSin2;
+        var hbr2 = 0.213 - 0.213 * hueCos2 - 0.787 * hueSin2;
+        var hbg2 = 0.715 - 0.715 * hueCos2 + 0.715 * hueSin2;
+        var hbb2 = 0.072 + 0.928 * hueCos2 + 0.072 * hueSin2;
 
         for (var i = 0; i < d.length; i += 4) {
           var r = d[i], g = d[i + 1], b = d[i + 2];
@@ -4610,6 +4675,12 @@
           r = gray + sat * (r - gray);
           g = gray + sat * (g - gray);
           b = gray + sat * (b - gray);
+          if (applyHue2) {
+            var hr2 = hrr2 * r + hrg2 * g + hrb2 * b;
+            var hg2 = hgr2 * r + hgg2 * g + hgb2 * b;
+            var hb2 = hbr2 * r + hbg2 * g + hbb2 * b;
+            r = hr2; g = hg2; b = hb2;
+          }
           if (applyVignette) {
             var px = (i / 4) % cw;
             var py = Math.floor((i / 4) / cw);
@@ -4707,6 +4778,7 @@
         state.brightness || 0,
         state.contrast || 0,
         state.saturation || 100,
+        state.hue || 0,
         // Timestamp caption: changing the toggle, the position, the
         // offset, the date, or the wavelength all change what's burned
         // into the snapshot.
