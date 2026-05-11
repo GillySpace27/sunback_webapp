@@ -3495,6 +3495,34 @@
     }
     setupSlider("vigWidthSlider", "vigWidthVal", "vignetteWidth");
 
+    // ── Double-click any slider → reset it to its default ──────
+    // Every editor slider sets its HTML `value=` attribute to the
+    // intended default (brightness=0, crop=100, vignette=76 i.e.
+    // state.vignette=24 after inversion, hue=0, etc.). On dblclick we
+    // read the input's defaultValue (which reflects that HTML default
+    // even if the user has dragged it), assign it back, and dispatch
+    // an `input` event so every existing slider handler — including
+    // the inverted-mapping wrappers like vignetteSlider — runs through
+    // its normal wiring (state update + scheduleCanvasRender +
+    // scheduleMockupRefresh). One delegated handler covers every
+    // range input in the document, including ones added later by
+    // dynamic panels (clock numbers, text tool, etc.).
+    document.addEventListener("dblclick", function(e) {
+      var el = e.target;
+      if (!(el && el.tagName === "INPUT" && el.type === "range")) return;
+      // Respect explicit opt-out (so a slider that wants a custom
+      // default can carry data-no-dblclick-reset and skip this).
+      if (el.dataset && el.dataset.noDblclickReset != null) return;
+      var def = el.defaultValue;
+      if (def == null || def === "") return;
+      if (el.value === def) return; // nothing to do
+      el.value = def;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      // Some sliders also key off "change" rather than "input" (rare,
+      // but cheap insurance).
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
     // ── Crop & Vignette presets ───────────────────────────────────
     // Split into two independent axes so users can mix crop tightness with
     // vignette treatment freely, rather than picking from five combined
