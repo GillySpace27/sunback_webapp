@@ -161,9 +161,12 @@ class _RateLimiter:
         if sleep_for > 0:
             time.sleep(sleep_for)
 
-# Helioviewer: ~1 req/sec average. Generous (their public limit is far
-# higher), but caps a sudden burst.
-_HELIOVIEWER_LIMITER = _RateLimiter(60, "helioviewer")
+# Helioviewer: 3 req/sec. The wavelength tile picker fires 9 thumb
+# requests in parallel the moment a user picks a date, plus the
+# main-canvas preview, so 1/sec stretched the visible "all tiles
+# load" wait to ~9-10s. 3/sec gets the tile grid populated in
+# ~3-4s while still well below Helioviewer's public soft limit.
+_HELIOVIEWER_LIMITER = _RateLimiter(180, "helioviewer")
 # VSO is heavier per-call (FITS download), so throttle it tighter.
 _VSO_LIMITER = _RateLimiter(30, "vso")
 
