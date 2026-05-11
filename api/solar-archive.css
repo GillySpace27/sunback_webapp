@@ -3051,6 +3051,46 @@ html.dark .image-stage {
   border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* Size chips — same row pattern as the colour swatches, but textual.
+   Each chip carries one size value (S/M/L/XL/2XL/...); the active
+   chip matches the currently-selected variant's size. */
+.confirm-size-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0 2px;
+}
+.confirm-size-chips.hidden { display: none; }
+.confirm-size-chip {
+  min-width: 34px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.confirm-size-chip:hover {
+  color: var(--text-primary, #e9eaf5);
+  background: rgba(123, 97, 255, 0.12);
+}
+.confirm-size-chip.active {
+  background: linear-gradient(135deg, rgba(123, 97, 255, 0.35), rgba(192, 107, 255, 0.35));
+  border-color: rgba(123, 97, 255, 0.6);
+  color: #fff;
+}
+/* Size chips that are unavailable in the currently-selected color
+   appear dimmed — keeps the layout consistent but flags that picking
+   it will lose color match. */
+.confirm-size-chip[data-unavailable="true"] {
+  opacity: 0.35;
+}
+
 .confirm-variant-picker {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));

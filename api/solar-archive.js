@@ -6708,22 +6708,43 @@
         }
       } catch (_e) { /* best-effort — email still lands without the image */ }
       // sendFeedback() is scoped inside the feedback IIFE — fire a
-      // direct fetch so we don't have to hoist it. Failures here only
-      // skip the operator email; the user's PNG is already on disk.
+      // direct fetch so we don't have to hoist it. Failures here used
+      // to be silently swallowed; now we log a console.warn so it's
+      // diagnosable when the operator email doesn't arrive. The user's
+      // download still succeeds either way.
       try {
+        var payload = {
+          kind: "comment",
+          body: noteBody,
+          url: window.location.href,
+          user_agent: navigator.userAgent,
+          context: ctx,
+          canvas_image: canvasImageDataUrl,
+        };
+        // Drop canvas_image if it's somehow oversized — backend caps at
+        // ~2.5MB and rejects payloads larger than that altogether.
+        if (canvasImageDataUrl && canvasImageDataUrl.length > 2_300_000) {
+          console.warn("[betaSave] canvas dataURL too big (" + canvasImageDataUrl.length + " chars), dropping");
+          payload.canvas_image = null;
+        }
         fetch(API_BASE + "/api/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            kind: "comment",
-            body: noteBody,
-            url: window.location.href,
-            user_agent: navigator.userAgent,
-            context: ctx,
-            canvas_image: canvasImageDataUrl,
-          }),
-        }).catch(function() { /* best-effort */ });
-      } catch (_e) { /* best-effort */ }
+          body: JSON.stringify(payload),
+        })
+          .then(function(r) {
+            if (!r.ok) {
+              return r.text().then(function(t) {
+                console.warn("[betaSave] /api/feedback HTTP " + r.status + ": " + t.slice(0, 300));
+              });
+            }
+          })
+          .catch(function(err) {
+            console.warn("[betaSave] /api/feedback failed:", err);
+          });
+      } catch (e) {
+        console.warn("[betaSave] fetch threw synchronously:", e);
+      }
       var doneToast = mockupImages.length
         ? "Saved! Your design + " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") + " are in the zip."
         : "Design saved! We'll let you know when this product launches.";
@@ -7521,6 +7542,7 @@
       var listEl = document.getElementById("confirmSelectVariantList");
       var summaryEl = document.getElementById("confirmSelectSummary");
       var swatchesEl = document.getElementById("confirmSelectColorSwatches");
+      var sizeChipsEl = document.getElementById("confirmSelectSizeChips");
       var mockupEl = document.getElementById("confirmSelectMockup");
       var titleEl = document.getElementById("confirmSelectTitle");
       var subEl = document.getElementById("confirmSelectSub");
@@ -7623,6 +7645,10 @@
             s.classList.toggle("active", s.dataset.hex === newHex);
           });
         }
+        // Re-render the size chips so the active size + unavailable
+        // shading update when colour changes (a size dimmed under
+        // "Red" may light up again under "Black", etc.).
+        if (typeof _renderSizeChips === "function") _renderSizeChips();
         _renderSummary(v);
         _renderMockup(v);
       }
@@ -7687,16 +7713,118 @@
         var variants = _variantsList();
         // Try to keep the user on the same size when they switch colours.
         var current = variants.find(function(v) { return v.id === pendingVariantId; });
-        var currentSize = current && current.options && (current.options.size || current.options.Size);
+        var currentSize = _variantSize(current);
         var pool = variants.filter(function(v) {
           var c = _variantColorOption(v);
           return c && c.hex === hex;
         });
         if (!pool.length) return;
         var pick = currentSize
+          ? pool.find(function(v) { return _variantSize(v) === currentSize; }) || pool[0]
+          : pool[0];
+        _selectInModal(pick.id);
+      }
+
+      // Read whichever option key carries a size value. Most providers
+      // use lower-case "size"; a handful use "Size" or other casings,
+      // and a few products (mug 15oz) only have a single variant with
+      // no size key at all — _variantSize returns null in that case.
+      function _variantSize(v) {
+        if (!v || !v.options) return null;
+        var keys = Object.keys(v.options);
+        for (var i = 0; i < keys.length; i++) {
+          if (/^size$/i.test(keys[i])) {
+            var val = v.options[keys[i]];
+            if (val != null && val !== "") return String(val);
+          }
+        }
+        return null;
+      }
+
+      // Build the size-chip row. Ordered S → M → L → XL → 2XL → 3XL …
+      // by parsing common size tokens; anything that doesn't match
+      // falls back to original catalog order.
+      var _SIZE_ORDER_HINT = {
+        "xxs": 0, "xs": 1, "s": 2, "small": 2, "m": 3, "medium": 3,
+        "l": 4, "large": 4, "xl": 5, "2xl": 6, "xxl": 6, "3xl": 7, "xxxl": 7,
+        "4xl": 8, "5xl": 9, "6xl": 10,
+      };
+      function _sizeSortKey(label, fallbackIdx) {
+        var s = String(label || "").toLowerCase().trim();
+        if (_SIZE_ORDER_HINT[s] != null) return _SIZE_ORDER_HINT[s];
+        // "Size 10" / "10 oz" / "8 x 10" → try to peel off a leading number.
+        var m = /^(\d+)/.exec(s);
+        if (m) return 100 + parseInt(m[1], 10);
+        return 1000 + fallbackIdx;
+      }
+
+      function _renderSizeChips() {
+        if (!sizeChipsEl) return;
+        var variants = _variantsList();
+        // Bucket variants by size string; preserve first-seen order so
+        // unknown labels keep their original catalog ordering.
+        var bucketsBySize = {};
+        var orderedSizes = [];
+        variants.forEach(function(v) {
+          var sz = _variantSize(v);
+          if (!sz) return;
+          if (!bucketsBySize[sz]) {
+            bucketsBySize[sz] = { variants: [], firstIdx: orderedSizes.length };
+            orderedSizes.push(sz);
+          }
+          bucketsBySize[sz].variants.push(v);
+        });
+        if (orderedSizes.length < 2) {
+          // Hide the row when only 0 or 1 sizes exist — nothing to pick.
+          sizeChipsEl.classList.add("hidden");
+          sizeChipsEl.innerHTML = "";
+          return;
+        }
+        // Stable-sort with the hint table.
+        orderedSizes.sort(function(a, b) {
+          return _sizeSortKey(a, bucketsBySize[a].firstIdx) - _sizeSortKey(b, bucketsBySize[b].firstIdx);
+        });
+
+        var activeVariant = variants.find(function(v) { return v.id === pendingVariantId; });
+        var activeSize = _variantSize(activeVariant);
+        var activeColor = activeVariant && _variantColorOption(activeVariant);
+        var activeHex = activeColor && activeColor.hex;
+
+        var html = "";
+        orderedSizes.forEach(function(sz) {
+          var bucket = bucketsBySize[sz];
+          var isActive = (sz === activeSize) ? " active" : "";
+          // Mark unavailable if the active colour doesn't ship in this size.
+          var unavailable = false;
+          if (activeHex) {
+            unavailable = !bucket.variants.some(function(v) {
+              var c = _variantColorOption(v);
+              return c && c.hex === activeHex;
+            });
+          }
+          html += '<button type="button" role="option" class="confirm-size-chip' + isActive + '"' +
+                  ' data-size="' + escapeHtmlSimple(sz) + '"' +
+                  (unavailable ? ' data-unavailable="true"' : '') +
+                  ' title="' + escapeHtmlSimple(sz) + (unavailable ? " (not in this colour)" : "") + '">' +
+                  escapeHtmlSimple(sz) + '</button>';
+        });
+        sizeChipsEl.innerHTML = html;
+        sizeChipsEl.classList.remove("hidden");
+      }
+
+      function _onSizeChipClick(size) {
+        var variants = _variantsList();
+        // Match the active colour where possible; otherwise pick any
+        // variant with the chosen size.
+        var current = variants.find(function(v) { return v.id === pendingVariantId; });
+        var currentColor = current && _variantColorOption(current);
+        var currentHex = currentColor && currentColor.hex;
+        var pool = variants.filter(function(v) { return _variantSize(v) === size; });
+        if (!pool.length) return;
+        var pick = currentHex
           ? pool.find(function(v) {
-              var s = v.options && (v.options.size || v.options.Size);
-              return s === currentSize;
+              var c = _variantColorOption(v);
+              return c && c.hex === currentHex;
             }) || pool[0]
           : pool[0];
         _selectInModal(pick.id);
@@ -7747,6 +7875,7 @@
         // preserved by _renderTiles' active-class lookup.
         _renderTiles();
         _renderColorSwatches();
+        _renderSizeChips();
         var variants = _variantsList();
         var v = variants.find(function(x) { return x.id === pendingVariantId; });
         _renderSummary(v || null);
@@ -7760,15 +7889,18 @@
         if (variantCache[cacheKey]) {
           _renderTiles();
           _renderColorSwatches();
+          _renderSizeChips();
           _selectInModal(pendingVariantId);
         } else {
           listEl.innerHTML = '<div class="confirm-variant-loading"><div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:-3px;margin-right:6px;"></div> Loading sizes &amp; colors…</div>';
           if (swatchesEl) swatchesEl.classList.add("hidden");
+          if (sizeChipsEl) sizeChipsEl.classList.add("hidden");
           _renderSummary(null);
           _renderMockup(null);
           loadVariants(product).then(function() {
             _renderTiles();
             _renderColorSwatches();
+            _renderSizeChips();
             var variants = _variantsList();
             var first = variants.find(function(v) { return v.id === pendingVariantId; }) || variants[0];
             if (first) _selectInModal(first.id);
@@ -7795,6 +7927,7 @@
         }
         listEl.removeEventListener("click", onListClick);
         if (swatchesEl) swatchesEl.removeEventListener("click", onSwatchClick);
+        if (sizeChipsEl) sizeChipsEl.removeEventListener("click", onSizeChipClick);
         continueBtn.removeEventListener("click", onContinueClick);
         closeBtn.removeEventListener("click", onCancel);
         backdrop.removeEventListener("click", onCancel);
@@ -7821,6 +7954,12 @@
         e.preventDefault();
         _onSwatchClick(sw.dataset.hex);
       }
+      function onSizeChipClick(e) {
+        var chip = e.target.closest(".confirm-size-chip");
+        if (!chip) return;
+        e.preventDefault();
+        _onSizeChipClick(chip.dataset.size);
+      }
       function onKey(e) {
         if (e.key === "Escape") onCancel();
         else if (e.key === "Enter") { e.preventDefault(); onContinueClick(); }
@@ -7828,6 +7967,7 @@
 
       listEl.addEventListener("click", onListClick);
       if (swatchesEl) swatchesEl.addEventListener("click", onSwatchClick);
+      if (sizeChipsEl) sizeChipsEl.addEventListener("click", onSizeChipClick);
       continueBtn.addEventListener("click", onContinueClick);
       closeBtn.addEventListener("click", onCancel);
       backdrop.addEventListener("click", onCancel);

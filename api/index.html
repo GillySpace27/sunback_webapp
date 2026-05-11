@@ -616,6 +616,11 @@
          preserving size when possible so users can browse by colour
          without losing their place. -->
     <div class="confirm-color-swatches hidden" id="confirmSelectColorSwatches" role="listbox" aria-label="Color"></div>
+    <!-- Size chips: rendered when the product's variants carry a
+         `size` option with more than one distinct value. Click +
+         color-swatch act as orthogonal selectors — picking either
+         one resolves to the unique color+size variant. -->
+    <div class="confirm-size-chips hidden" id="confirmSelectSizeChips" role="listbox" aria-label="Size"></div>
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
     <div class="confirm-modal-actions">
