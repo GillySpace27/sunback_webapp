@@ -6687,6 +6687,26 @@
       ctx.product_name = product ? product.name : null;
       ctx.beta_mode = true;
       ctx.bundled_mockups = mockupImages.length;
+      // Inline a downscaled PNG snapshot for the operator email so the
+      // [Beta design save] notification carries what the tester
+      // actually downloaded — same pattern the feedback modal uses,
+      // but its _captureCanvasSnapshot helper is scoped inside the
+      // feedback IIFE so we re-do the 6 lines here rather than hoist.
+      var canvasImageDataUrl = null;
+      try {
+        var MAX_DIM = 800;
+        var sw = solarCanvas.width, sh = solarCanvas.height;
+        var scale = Math.min(1, MAX_DIM / Math.max(sw, sh));
+        if (scale >= 1) {
+          canvasImageDataUrl = solarCanvas.toDataURL("image/png");
+        } else {
+          var tmp = document.createElement("canvas");
+          tmp.width  = Math.max(1, Math.round(sw * scale));
+          tmp.height = Math.max(1, Math.round(sh * scale));
+          tmp.getContext("2d").drawImage(solarCanvas, 0, 0, tmp.width, tmp.height);
+          canvasImageDataUrl = tmp.toDataURL("image/png");
+        }
+      } catch (_e) { /* best-effort — email still lands without the image */ }
       // sendFeedback() is scoped inside the feedback IIFE — fire a
       // direct fetch so we don't have to hoist it. Failures here only
       // skip the operator email; the user's PNG is already on disk.
@@ -6700,6 +6720,7 @@
             url: window.location.href,
             user_agent: navigator.userAgent,
             context: ctx,
+            canvas_image: canvasImageDataUrl,
           }),
         }).catch(function() { /* best-effort */ });
       } catch (_e) { /* best-effort */ }
