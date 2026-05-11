@@ -2507,6 +2507,27 @@ html.dark .image-stage {
 }
 .feedback-context-note i { color: var(--accent-corona, #7b61ff); margin-top: 2px; }
 
+/* Include-canvas opt-out — checked by default. Looks like a regular
+   checkbox row, sits above the submit button. Sized to match the
+   field-label scale so it doesn't shout for attention. */
+.feedback-include-canvas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #9898b8);
+  cursor: pointer;
+  user-select: none;
+}
+.feedback-include-canvas input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--accent-corona, #7b61ff);
+}
+.feedback-include-canvas:hover { color: var(--text-primary, #e9eaf5); }
+
 .feedback-submit-btn {
   width: 100%;
   margin-top: 14px;

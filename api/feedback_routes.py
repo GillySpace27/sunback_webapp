@@ -74,6 +74,12 @@ class FeedbackSubmission(BaseModel):
     context: Optional[dict] = Field(default=None)
     # Populated only for kind="product_request"
     product_request: Optional[dict] = Field(default=None)
+    # Optional base64 PNG data-URI of the editor canvas at submission
+    # time. Sent by the frontend when the user hasn't unchecked the
+    # "Include a snapshot" checkbox. Embedded in the operator email
+    # (as <img src="data:…">) but intentionally NOT persisted to
+    # feedback.jsonl — keeps the log file readable and bounded.
+    canvas_image: Optional[str] = Field(default=None)
 
 
 def _clamp(s: Optional[str], limit: int) -> Optional[str]:
@@ -101,6 +107,19 @@ def _sanitize(entry: FeedbackSubmission) -> dict:
             product_request = json.loads(pr_serialized) if pr_serialized.strip().startswith("{") else None
         except Exception:
             product_request = None
+    # canvas_image is intentionally NOT clamped to _MAX_BODY_CHARS — a
+    # downscaled 800px PNG base64-encodes to ~50-200KB which exceeds the
+    # 4KB body cap by a lot. We do enforce an outer cap to keep a rogue
+    # client from posting a 50MB payload, and we validate the data-URI
+    # prefix so only PNG data sneaks through.
+    canvas_image = entry.canvas_image
+    if isinstance(canvas_image, str):
+        if not canvas_image.startswith("data:image/png;base64,"):
+            canvas_image = None
+        elif len(canvas_image) > 2_500_000:  # ~1.8 MB raw PNG
+            canvas_image = None
+    else:
+        canvas_image = None
     return {
         "kind": kind,
         "body": _clamp(entry.body, _MAX_BODY_CHARS) or "",
@@ -109,14 +128,20 @@ def _sanitize(entry: FeedbackSubmission) -> dict:
         "user_agent": _clamp(entry.user_agent, _MAX_URL_CHARS),
         "context": context_clean,
         "product_request": product_request,
+        # Held in-memory only — _append_to_disk strips this before writing.
+        "canvas_image": canvas_image,
     }
 
 
 def _append_to_disk(record: dict) -> None:
     FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Line-delimited JSON keeps appends atomic and lets you tail -f the file.
+    # canvas_image is sent inline in the operator email but isn't
+    # persisted — keeps feedback.jsonl readable + bounded. Strip a
+    # copy so the in-memory record still has the image for the email
+    # path that runs next.
+    persisted = {k: v for k, v in record.items() if k != "canvas_image"}
     with FEEDBACK_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        f.write(json.dumps(persisted, ensure_ascii=False) + "\n")
 
 
 def _public_base_url() -> str:
@@ -211,6 +236,21 @@ def _format_email_html(record: dict, idx: int) -> tuple[str, str]:
             f'padding:12px 14px;margin:0 0 16px;border-radius:4px;'
             f'white-space:pre-wrap;font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
             f'color:#1f1f2e;">{_esc(body)}</div>'
+        )
+    # Canvas snapshot — sent inline as a data-URI so the operator sees
+    # exactly what the tester was looking at. Gmail/Apple Mail render
+    # data: image sources inline; Outlook strips them, but operators
+    # using Outlook can still copy-paste the URI into a browser bar.
+    canvas_image = record.get("canvas_image")
+    if isinstance(canvas_image, str) and canvas_image.startswith("data:image/png;base64,"):
+        rows.append(
+            f'<div style="margin:0 0 16px;">'
+            f'<div style="font:12px -apple-system,sans-serif;color:#9898b8;'
+            f'margin:0 0 6px;text-transform:uppercase;letter-spacing:0.04em;">'
+            f'Tester’s canvas at submission</div>'
+            f'<img src="{canvas_image}" alt="Editor canvas snapshot" '
+            f'style="max-width:100%;border-radius:6px;border:1px solid #e2e2ec;display:block;">'
+            f'</div>'
         )
     if kind == "product_request" and pr:
         pr_lines = []

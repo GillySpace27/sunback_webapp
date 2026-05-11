@@ -664,6 +664,10 @@
       </div>
       <label class="feedback-field-label" for="feedbackCommentEmail">Email <span class="feedback-field-opt">(optional — so we can follow up)</span></label>
       <input type="email" id="feedbackCommentEmail" placeholder="you@example.com">
+      <label class="feedback-include-canvas">
+        <input type="checkbox" id="feedbackIncludeCanvasComment" checked>
+        <span>Include a snapshot of what I'm looking at right now</span>
+      </label>
       <button class="feedback-submit-btn" id="feedbackCommentSubmit" type="button">
         <i class="fas fa-paper-plane"></i> Send feedback
       </button>
@@ -719,6 +723,11 @@
 
         <label class="feedback-field-label" for="feedbackProductEmail">Email <span class="feedback-field-opt">(so we can let you know when it's live)</span></label>
         <input type="email" id="feedbackProductEmail" placeholder="you@example.com">
+
+        <label class="feedback-include-canvas">
+          <input type="checkbox" id="feedbackIncludeCanvasProduct" checked>
+          <span>Include a snapshot of what I'm looking at right now</span>
+        </label>
 
         <button class="feedback-submit-btn" id="feedbackProductSubmit" type="button">
           <i class="fas fa-star"></i> Request this product
