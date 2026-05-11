@@ -7945,6 +7945,35 @@
         if (chosenMockup) chosenMockup.innerHTML = "";
       }
 
+      // Capture a downscaled PNG dataURL of the editor canvas. Used by
+      // both submit paths when the "Include a snapshot…" checkbox is
+      // on. We scale the long side down to 800px so the payload stays
+      // ~50-200KB instead of multi-megabyte at HQ resolution; the
+      // operator just needs enough fidelity to see what the tester
+      // was looking at. Returns null if there's nothing to capture.
+      function _captureCanvasSnapshot() {
+        try {
+          if (!solarCanvas || !solarCanvas.width || !solarCanvas.height) return null;
+          var MAX_DIM = 800;
+          var sw = solarCanvas.width, sh = solarCanvas.height;
+          var scale = Math.min(1, MAX_DIM / Math.max(sw, sh));
+          var dw = Math.max(1, Math.round(sw * scale));
+          var dh = Math.max(1, Math.round(sh * scale));
+          if (dw === sw && dh === sh) {
+            return solarCanvas.toDataURL("image/png");
+          }
+          var tmp = document.createElement("canvas");
+          tmp.width = dw; tmp.height = dh;
+          var tctx = tmp.getContext("2d");
+          tctx.drawImage(solarCanvas, 0, 0, dw, dh);
+          return tmp.toDataURL("image/png");
+        } catch (_e) { return null; }
+      }
+      function _shouldIncludeCanvas(checkboxId) {
+        var cb = document.getElementById(checkboxId);
+        return !!(cb && cb.checked);
+      }
+
       function submitComment() {
         var body = (commentBody.value || "").trim();
         if (!body) {
@@ -7960,6 +7989,9 @@
           url: window.location.href,
           user_agent: navigator.userAgent,
           context: captureContext(),
+          canvas_image: _shouldIncludeCanvas("feedbackIncludeCanvasComment")
+            ? _captureCanvasSnapshot()
+            : null,
         };
         commentSubmit.disabled = true;
         commentSubmit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending\u2026';
@@ -7994,6 +8026,9 @@
           url: window.location.href,
           user_agent: navigator.userAgent,
           context: captureContext(),
+          canvas_image: _shouldIncludeCanvas("feedbackIncludeCanvasProduct")
+            ? _captureCanvasSnapshot()
+            : null,
           product_request: {
             blueprintId: _chosenBlueprint.id,
             title: _chosenBlueprint.title || null,
