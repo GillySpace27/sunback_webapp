@@ -5043,8 +5043,13 @@
         mctx.lineWidth = 1;
         mctx.strokeRect(dmL, dmT, dmR - dmL, dmB - dmT);
       } else if (productId === "tshirt_unisex" || productId === "hoodie_pullover" || productId === "crewneck_sweatshirt") {
-        // Apparel silhouette with image on chest (1:1 print area)
-        mctx.fillStyle = productId === "tshirt_unisex" ? "#e8e8e8" : "#d0d0d0";
+        // Apparel silhouette with image on chest (1:1 print area).
+        // Tinted from the variant's colour option when we can resolve
+        // one; falls back to the previous neutral grey so the silhouette
+        // still reads as fabric for variants we don't have a hex for.
+        var apparelFallback = productId === "tshirt_unisex" ? "#e8e8e8" : "#d0d0d0";
+        var apparelTint = _variantColorOption(variant);
+        mctx.fillStyle = apparelTint ? apparelTint.hex : apparelFallback;
         mctx.beginPath();
         mctx.moveTo(60, 18);
         mctx.quadraticCurveTo(80, 28, 100, 18);
@@ -5059,8 +5064,9 @@
         mctx.closePath();
         mctx.fill();
         if (productId === "hoodie_pullover") {
-          // Kangaroo pocket
-          mctx.fillStyle = "rgba(0,0,0,0.1)";
+          // Kangaroo pocket — subtle shadow that reads on every base
+          // colour without needing per-colour tuning.
+          mctx.fillStyle = "rgba(0,0,0,0.12)";
           mctx.fillRect(52, 105, 56, 35);
         }
         mctx.save();
@@ -5802,6 +5808,79 @@
           var freshPanel2 = freshCard2 ? freshCard2.querySelector(".variant-panel") : null;
           if (freshPanel2) freshPanel2.innerHTML = '<div class="variant-loading" style="color:var(--text-dim);">Could not load variants</div>';
         });
+    }
+
+    // ── Variant-colour palette helpers ────────────────────────
+    // Printify's catalog API names variant colours but doesn't expose
+    // hex values — every product/provider names "navy blue" slightly
+    // differently. This is a curated palette covering Printify's most
+    // common apparel + accessory tokens, normalised to lowercase.
+    // Used by:
+    //   • drawProductMockup's apparel/accessory branches to paint the
+    //     mock-mockup silhouette in the variant's actual colour
+    //     instead of a generic grey.
+    //   • The variant-picker swatch row, which shows one clickable
+    //     square per distinct colour so users can browse by colour
+    //     before drilling into sizes.
+    var _PRINTIFY_COLOR_HEX = {
+      "white": "#ffffff", "natural": "#f4ecd8", "ash": "#cdd0d4", "cream": "#efe5cb",
+      "light blue": "#a6c5e0", "carolina blue": "#7ba4d9", "sky blue": "#7fbcd9",
+      "blue": "#3b6cb8", "royal": "#1c3aa3", "royal blue": "#1c3aa3", "navy": "#1a2240",
+      "midnight navy": "#0f1a3c",
+      "aqua": "#5fcfd6", "teal": "#1f8a8a", "turquoise": "#3bb7b7",
+      "purple": "#5b3a9e", "violet": "#6a3aa8", "lavender": "#c4a6d6", "lilac": "#c8a8db",
+      "red": "#c2202c", "true red": "#c2202c", "cardinal red": "#a8202b", "cherry": "#a8232f",
+      "maroon": "#601822", "burgundy": "#5a1f29",
+      "pink": "#f4a3c5", "soft pink": "#f7c4d2", "heather pink": "#dca0b1", "berry": "#a83a73",
+      "orange": "#e25b27", "burnt orange": "#b85128", "rust": "#a3401f", "peach": "#f7c3a1",
+      "yellow": "#f3c100", "gold": "#cd9c2b", "old gold": "#a8842c", "daisy": "#fadc6e",
+      "mustard": "#c69a16",
+      "green": "#2f7d3a", "kelly": "#2f7d3a", "irish green": "#1f7a37", "mint": "#a8d8b2",
+      "forest green": "#1f4a2a", "forest": "#1f4a2a", "olive": "#5b5a30",
+      "military green": "#4a4f2c", "army": "#4a4f2c", "sage": "#8fa68a",
+      "heather grey": "#9aa1a8", "heather gray": "#9aa1a8", "athletic heather": "#b9bdc1",
+      "dark heather": "#4a4d51", "sport grey": "#9aa1a8", "sport gray": "#9aa1a8",
+      "heavy metal": "#6a6e72",
+      "grey": "#7e8489", "gray": "#7e8489", "charcoal": "#3f4347", "graphite heather": "#525558",
+      "graphite": "#36393d",
+      "black": "#1a1a1a", "deep black": "#0d0d0d", "vintage black": "#2a2a2a", "jet black": "#0a0a0a",
+      "silver": "#c8c8c8",
+      "brown": "#5a3a23", "chocolate": "#3a2618", "tan": "#b09373", "camel": "#a98763",
+      "khaki": "#a8956b", "sand": "#d4c39b"
+    };
+    function _hexForColorName(name) {
+      if (!name) return null;
+      var s = String(name).toLowerCase().trim();
+      if (_PRINTIFY_COLOR_HEX[s]) return _PRINTIFY_COLOR_HEX[s];
+      // Strip common provider-specific prefixes ("Solid Red" → "red",
+      // "Heavy Metal" already in palette, etc.) so we resolve the long
+      // tail of provider-coined names.
+      var stripped = s.replace(/^(solid|vintage|deep|light|dark|true|cardinal|sport|athletic|graphite|heavy)\s+/, "");
+      if (_PRINTIFY_COLOR_HEX[stripped]) return _PRINTIFY_COLOR_HEX[stripped];
+      var stripped2 = s.replace(/^heather\s+/, "");
+      if (_PRINTIFY_COLOR_HEX[stripped2]) return _PRINTIFY_COLOR_HEX[stripped2];
+      // Last-ditch substring scan ("solid midnight navy" → "navy").
+      for (var k in _PRINTIFY_COLOR_HEX) {
+        if (s.indexOf(k) !== -1) return _PRINTIFY_COLOR_HEX[k];
+      }
+      return null;
+    }
+    // Returns { name, hex } for a variant's colour option, or null if
+    // the variant carries no colour or the colour can't be resolved.
+    // Walks every option key because some products use "Color" rather
+    // than "color", and a few use "Frame" or other domain-specific labels.
+    function _variantColorOption(v) {
+      if (!v || !v.options) return null;
+      var keys = Object.keys(v.options);
+      // Prefer keys that LOOK like color labels first; otherwise scan all.
+      var preferred = keys.filter(function(k) { return /col?or|colour/i.test(k); });
+      var ordered = preferred.concat(keys.filter(function(k) { return preferred.indexOf(k) === -1; }));
+      for (var i = 0; i < ordered.length; i++) {
+        var v2 = v.options[ordered[i]];
+        var hex = _hexForColorName(v2);
+        if (hex) return { name: v2, hex: hex };
+      }
+      return null;
     }
 
     function variantLabel(v) {
@@ -7420,6 +7499,7 @@
       var modal = document.getElementById("confirmSelectModal");
       var listEl = document.getElementById("confirmSelectVariantList");
       var summaryEl = document.getElementById("confirmSelectSummary");
+      var swatchesEl = document.getElementById("confirmSelectColorSwatches");
       var mockupEl = document.getElementById("confirmSelectMockup");
       var titleEl = document.getElementById("confirmSelectTitle");
       var subEl = document.getElementById("confirmSelectSub");
@@ -7512,9 +7592,95 @@
           t.classList.toggle("active", match);
           t.setAttribute("aria-selected", match ? "true" : "false");
         });
+        // Update the swatch row's active highlight too — handles both
+        // tile clicks (which need the swatch to follow) and swatch
+        // clicks (which already routed through this function).
+        if (swatchesEl) {
+          var newColor = v && _variantColorOption(v);
+          var newHex = newColor && newColor.hex;
+          swatchesEl.querySelectorAll(".confirm-color-swatch").forEach(function(s) {
+            s.classList.toggle("active", s.dataset.hex === newHex);
+          });
+        }
         _renderSummary(v);
         _renderMockup(v);
       }
+      // Build the colour-swatch row: one square per distinct colour
+      // across the product's variants. Clicking a swatch jumps to a
+      // variant matching that colour, preferring one that shares the
+      // currently-active variant's size when possible (so toggling
+      // "Black → Red" on a 2XL stays on 2XL).
+      function _renderColorSwatches() {
+        if (!swatchesEl) return;
+        var variants = _variantsList();
+        // Map colourHex → { name, sample variants[] } keyed by hex so
+        // multiple "Solid Red"-ish names collapse onto a single swatch.
+        var bucketsByHex = {};
+        var orderedHexes = [];
+        variants.forEach(function(v) {
+          var c = _variantColorOption(v);
+          if (!c) return;
+          if (!bucketsByHex[c.hex]) {
+            bucketsByHex[c.hex] = { name: c.name, variants: [] };
+            orderedHexes.push(c.hex);
+          }
+          bucketsByHex[c.hex].variants.push(v);
+        });
+        if (orderedHexes.length < 2) {
+          // 0 colours → product has no colour option to swatch.
+          // 1 colour → swatch row is redundant; the variant list is the picker.
+          swatchesEl.classList.add("hidden");
+          swatchesEl.innerHTML = "";
+          return;
+        }
+        // Resolve the active variant's colour so we can mark a swatch
+        // as currently selected.
+        var activeVariant = variants.find(function(v) { return v.id === pendingVariantId; });
+        var activeColor = activeVariant && _variantColorOption(activeVariant);
+        var activeHex = activeColor && activeColor.hex;
+        // Detect "dark" swatches so the CSS can ring them with a
+        // lighter outline that's visible on the modal background.
+        function _isDark(hex) {
+          var r = parseInt(hex.slice(1, 3), 16);
+          var g = parseInt(hex.slice(3, 5), 16);
+          var b = parseInt(hex.slice(5, 7), 16);
+          // Standard relative luminance, threshold ≈ 28%.
+          return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.28;
+        }
+        var html = "";
+        orderedHexes.forEach(function(hex) {
+          var bucket = bucketsByHex[hex];
+          var isActive = (hex === activeHex) ? " active" : "";
+          var tone = _isDark(hex) ? "dark" : "light";
+          html += '<button type="button" role="option" class="confirm-color-swatch' + isActive + '"' +
+                  ' data-hex="' + hex + '"' +
+                  ' data-tone="' + tone + '"' +
+                  ' title="' + escapeHtmlSimple(bucket.name) + ' (' + bucket.variants.length + ')"' +
+                  ' style="background:' + hex + ';"></button>';
+        });
+        swatchesEl.innerHTML = html;
+        swatchesEl.classList.remove("hidden");
+      }
+
+      function _onSwatchClick(hex) {
+        var variants = _variantsList();
+        // Try to keep the user on the same size when they switch colours.
+        var current = variants.find(function(v) { return v.id === pendingVariantId; });
+        var currentSize = current && current.options && (current.options.size || current.options.Size);
+        var pool = variants.filter(function(v) {
+          var c = _variantColorOption(v);
+          return c && c.hex === hex;
+        });
+        if (!pool.length) return;
+        var pick = currentSize
+          ? pool.find(function(v) {
+              var s = v.options && (v.options.size || v.options.Size);
+              return s === currentSize;
+            }) || pool[0]
+          : pool[0];
+        _selectInModal(pick.id);
+      }
+
       function _renderTiles() {
         var variants = _variantsList();
         if (!variants.length) {
@@ -7559,6 +7725,7 @@
         // placeholder "From $X.XX" label. Active variant + scroll position
         // preserved by _renderTiles' active-class lookup.
         _renderTiles();
+        _renderColorSwatches();
         var variants = _variantsList();
         var v = variants.find(function(x) { return x.id === pendingVariantId; });
         _renderSummary(v || null);
@@ -7571,13 +7738,16 @@
         // when pricing lands.
         if (variantCache[cacheKey]) {
           _renderTiles();
+          _renderColorSwatches();
           _selectInModal(pendingVariantId);
         } else {
           listEl.innerHTML = '<div class="confirm-variant-loading"><div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:-3px;margin-right:6px;"></div> Loading sizes &amp; colors…</div>';
+          if (swatchesEl) swatchesEl.classList.add("hidden");
           _renderSummary(null);
           _renderMockup(null);
           loadVariants(product).then(function() {
             _renderTiles();
+            _renderColorSwatches();
             var variants = _variantsList();
             var first = variants.find(function(v) { return v.id === pendingVariantId; }) || variants[0];
             if (first) _selectInModal(first.id);
@@ -7603,6 +7773,7 @@
           state.cropZoom = originalCropZoom;
         }
         listEl.removeEventListener("click", onListClick);
+        if (swatchesEl) swatchesEl.removeEventListener("click", onSwatchClick);
         continueBtn.removeEventListener("click", onContinueClick);
         closeBtn.removeEventListener("click", onCancel);
         backdrop.removeEventListener("click", onCancel);
@@ -7623,12 +7794,19 @@
         e.preventDefault();
         _selectInModal(parseInt(tile.dataset.variantId, 10));
       }
+      function onSwatchClick(e) {
+        var sw = e.target.closest(".confirm-color-swatch");
+        if (!sw) return;
+        e.preventDefault();
+        _onSwatchClick(sw.dataset.hex);
+      }
       function onKey(e) {
         if (e.key === "Escape") onCancel();
         else if (e.key === "Enter") { e.preventDefault(); onContinueClick(); }
       }
 
       listEl.addEventListener("click", onListClick);
+      if (swatchesEl) swatchesEl.addEventListener("click", onSwatchClick);
       continueBtn.addEventListener("click", onContinueClick);
       closeBtn.addEventListener("click", onCancel);
       backdrop.addEventListener("click", onCancel);

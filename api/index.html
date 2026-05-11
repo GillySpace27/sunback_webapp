@@ -610,6 +610,12 @@
     <p class="confirm-modal-sub" id="confirmSelectSub">Tap a variant to preview, then continue to the editor.</p>
     <div class="confirm-mockup" id="confirmSelectMockup" aria-hidden="true"></div>
     <div class="confirm-variant-summary" id="confirmSelectSummary"></div>
+    <!-- Colour-swatch row: rendered only when this product's variants
+         carry a `color` option we can resolve to a hex. Clicking a
+         swatch jumps the picker to a variant matching that colour,
+         preserving size when possible so users can browse by colour
+         without losing their place. -->
+    <div class="confirm-color-swatches hidden" id="confirmSelectColorSwatches" role="listbox" aria-label="Color"></div>
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
     <div class="confirm-modal-actions">
