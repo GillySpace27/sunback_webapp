@@ -4841,6 +4841,98 @@
       return _cleanSnapshotCanvas;
     }
 
+    // ── Edited-shared-source cache for the product gallery ──────
+    // Every non-selected product card in the grid used to draw from
+    // state.originalImage, so colour edits (brightness / contrast /
+    // saturation / hue / invert) didn't propagate beyond the
+    // currently-edited card. This helper produces a canvas with those
+    // adjustments baked into the source image at its natural size,
+    // cached on a (filter + adjustment) signature so it only re-runs
+    // when one of the adjustments changes. Positional edits (vignette,
+    // crop-edge feather, timestamp / text / clock numerals) are NOT
+    // applied here — those shapes depend on the selected product's
+    // aspect ratio and would look wrong on cards for other products.
+    var _editedSharedCanvas = null;
+    var _editedSharedSig = null;
+    function _editedSharedSig_fn() {
+      var img = state.originalImage;
+      return [
+        img ? (img.src || "_") : "_",
+        state.editorFilter || "",
+        state.brightness || 0,
+        state.contrast || 0,
+        state.saturation || 100,
+        state.hue || 0,
+        state.inverted ? 1 : 0,
+      ].join(":");
+    }
+    function _getEditedSharedSource() {
+      var img = state.originalImage;
+      if (!img || !img.naturalWidth || !img.naturalHeight) return img || null;
+      // No colour edits → just return the raw image; saves a pixel
+      // loop and matches the previous gallery behaviour exactly.
+      var hasEdits = state.brightness !== 0 || state.contrast !== 0 ||
+                     state.saturation !== 100 || (state.hue || 0) !== 0 ||
+                     !!state.inverted;
+      if (!hasEdits) return img;
+      var sig = _editedSharedSig_fn();
+      if (_editedSharedCanvas && _editedSharedSig === sig) return _editedSharedCanvas;
+      try {
+        if (!_editedSharedCanvas) _editedSharedCanvas = document.createElement("canvas");
+        _editedSharedCanvas.width = img.naturalWidth;
+        _editedSharedCanvas.height = img.naturalHeight;
+        var ec = _editedSharedCanvas.getContext("2d");
+        ec.clearRect(0, 0, _editedSharedCanvas.width, _editedSharedCanvas.height);
+        ec.drawImage(img, 0, 0);
+        var imd = ec.getImageData(0, 0, _editedSharedCanvas.width, _editedSharedCanvas.height);
+        var d = imd.data;
+        var br = state.brightness;
+        var co = state.contrast / 100;
+        var factor = (259 * (co * 255 + 255)) / (255 * (259 - co * 255));
+        var sat = state.saturation / 100;
+        var hueDeg = state.hue || 0;
+        var applyHue = (hueDeg % 360) !== 0;
+        var hc = applyHue ? Math.cos(hueDeg * Math.PI / 180) : 1;
+        var hs = applyHue ? Math.sin(hueDeg * Math.PI / 180) : 0;
+        // Same YIQ-derived rotation matrix as renderCanvas / _cropFilterImage.
+        var hrr = 0.213 + 0.787 * hc - 0.213 * hs;
+        var hrg = 0.715 - 0.715 * hc - 0.715 * hs;
+        var hrb = 0.072 - 0.072 * hc + 0.928 * hs;
+        var hgr = 0.213 - 0.213 * hc + 0.143 * hs;
+        var hgg = 0.715 + 0.285 * hc + 0.140 * hs;
+        var hgb = 0.072 - 0.072 * hc - 0.283 * hs;
+        var hbr = 0.213 - 0.213 * hc - 0.787 * hs;
+        var hbg = 0.715 - 0.715 * hc + 0.715 * hs;
+        var hbb = 0.072 + 0.928 * hc + 0.072 * hs;
+        for (var i = 0; i < d.length; i += 4) {
+          var r = d[i], g = d[i + 1], b = d[i + 2];
+          if (state.inverted) { r = 255 - r; g = 255 - g; b = 255 - b; }
+          r += br; g += br; b += br;
+          r = factor * (r - 128) + 128;
+          g = factor * (g - 128) + 128;
+          b = factor * (b - 128) + 128;
+          var gy = 0.2989 * r + 0.587 * g + 0.114 * b;
+          r = gy + sat * (r - gy);
+          g = gy + sat * (g - gy);
+          b = gy + sat * (b - gy);
+          if (applyHue) {
+            var hr = hrr * r + hrg * g + hrb * b;
+            var hg = hgr * r + hgg * g + hgb * b;
+            var hb = hbr * r + hbg * g + hbb * b;
+            r = hr; g = hg; b = hb;
+          }
+          d[i]     = Math.max(0, Math.min(255, r));
+          d[i + 1] = Math.max(0, Math.min(255, g));
+          d[i + 2] = Math.max(0, Math.min(255, b));
+        }
+        ec.putImageData(imd, 0, 0);
+        _editedSharedSig = sig;
+        return _editedSharedCanvas;
+      } catch (_e) {
+        return img;
+      }
+    }
+
     /**
      * Return the crop box in canvas pixel coordinates. Fixed-frame model: the canvas is the frame,
      * so the box is always the full canvas (0,0,cw,ch). Same source for preview and mockups.
@@ -4915,18 +5007,22 @@
 
       // Source routing: the currently-edited product mirrors the live editor
       // canvas (so the user sees their edits); every other product in the
-      // gallery pulls from the shared state.originalImage with its own
-      // previewView framing so the gallery reads as variety. Both paths are
-      // a single drawImage call — no per-card bitmap allocations.
+      // gallery pulls from a *colour-edited* copy of state.originalImage so
+      // brightness / contrast / saturation / hue / invert propagate to the
+      // full gallery too. Positional edits (vignette, crop-edge feather,
+      // timestamp, text, clock numerals) stay tied to the selected product's
+      // preview — their geometry depends on its aspect ratio.
       var isSelected = (productId === state.selectedProduct);
       var sourceCanvas = null;
-      var shareSrc = null; // the shared raw solar image for non-selected cards
+      var shareSrc = null;
       if (isSelected) {
         sourceCanvas = (typeof getCleanCanvasSnapshot === "function")
           ? getCleanCanvasSnapshot()
           : solarCanvas;
       } else {
-        shareSrc = state.originalImage;
+        shareSrc = (typeof _getEditedSharedSource === "function")
+          ? _getEditedSharedSource()
+          : state.originalImage;
       }
 
       // Resolve the per-product preview framing (zoom + normalized center).
