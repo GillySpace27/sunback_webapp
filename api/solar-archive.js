@@ -6422,7 +6422,14 @@
       if (!btnBuyInEditor || !BETA_MODE) return;
       var lbl = document.getElementById("btnBuyLabel");
       if (lbl) lbl.textContent = "Download Your Design";
-      btnBuyInEditor.title = "Beta: save your design as a PNG. We'll let you know when this product launches.";
+      // Tooltip flips between "single PNG" and "zip with mockups" so the
+      // user knows whether to expect a one-file or a bundle.
+      var pid = state.selectedProduct;
+      var hasMocks = !!(pid && state.mockups && state.mockups[pid]
+                        && state.mockups[pid].images && state.mockups[pid].images.length);
+      btnBuyInEditor.title = hasMocks
+        ? "Beta: save your design + all generated product mockups as a .zip."
+        : "Beta: save your design as a PNG. (Generate a real mockup first to get the full mockup bundle.)";
       // Beta mode doesn't depend on a real Printify mockup — a tester
       // who's just exploring the editor should be able to grab a PNG
       // even before they generate the production mockup. So we relax
@@ -6437,6 +6444,77 @@
 
     function _slugForFilename(s) {
       return String(s || "design").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "design";
+    }
+
+    // Lazy-load JSZip from a CDN the first time we need to bundle the
+    // canvas + mockups. Cached on window so subsequent downloads in the
+    // same session don't re-fetch. Resolves to the JSZip constructor or
+    // rejects on script-load failure.
+    var _jszipPromise = null;
+    function _loadJSZip() {
+      if (_jszipPromise) return _jszipPromise;
+      if (window.JSZip) { _jszipPromise = Promise.resolve(window.JSZip); return _jszipPromise; }
+      _jszipPromise = new Promise(function(resolve, reject) {
+        var s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
+        s.async = true;
+        s.onload = function() {
+          if (window.JSZip) resolve(window.JSZip);
+          else reject(new Error("JSZip loaded but window.JSZip undefined"));
+        };
+        s.onerror = function() { reject(new Error("Failed to load JSZip CDN")); };
+        document.head.appendChild(s);
+      });
+      return _jszipPromise;
+    }
+
+    // Helper: canvas → Blob via the modern callback API, falling back
+    // to a dataURL→Blob conversion for stragglers.
+    function _canvasToBlob(canvas, mime) {
+      return new Promise(function(resolve, reject) {
+        if (typeof canvas.toBlob === "function") {
+          canvas.toBlob(function(b) {
+            if (b) resolve(b);
+            else reject(new Error("toBlob returned null"));
+          }, mime || "image/png");
+        } else {
+          try {
+            var dataUrl = canvas.toDataURL(mime || "image/png");
+            var byteString = atob(dataUrl.split(",")[1]);
+            var buf = new ArrayBuffer(byteString.length);
+            var bytes = new Uint8Array(buf);
+            for (var i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+            resolve(new Blob([buf], { type: mime || "image/png" }));
+          } catch (e) { reject(e); }
+        }
+      });
+    }
+
+    // Helper: fetch a remote image as a Blob. Printify CDN
+    // (images.printify.com) serves Access-Control-Allow-Origin:*, so
+    // a plain fetch works; we still set mode:"cors" explicitly so any
+    // future redirect to a stricter host fails loudly instead of
+    // returning an opaque response we can't put in the zip.
+    function _fetchImageAsBlob(url) {
+      return fetch(url, { mode: "cors", cache: "force-cache" })
+        .then(function(r) {
+          if (!r.ok) throw new Error("HTTP " + r.status + " fetching " + url);
+          return r.blob();
+        });
+    }
+
+    // Trigger a browser download for a Blob with the given filename.
+    function _downloadBlob(blob, fileName) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 200);
     }
 
     function _saveDesignLocally() {
@@ -6454,41 +6532,65 @@
       var timeStr = _solarTimeValue ? _solarTimeValue() : "";
       var wl = state.wavelength || "";
       var pid = product ? product.id : "design";
-      var fileName = "solar-archive_" + _slugForFilename(dateStr)
+      var baseName = "solar-archive_" + _slugForFilename(dateStr)
                      + (timeStr ? "_" + _slugForFilename(timeStr) : "")
                      + (wl ? "_" + wl + "A" : "")
-                     + "_" + _slugForFilename(pid)
-                     + ".png";
+                     + "_" + _slugForFilename(pid);
+      var canvasFileName = baseName + ".png";
 
-      // Trigger the download.
-      try {
-        if (typeof solarCanvas.toBlob === "function") {
-          solarCanvas.toBlob(function(blob) {
-            if (!blob) return;
-            var url = URL.createObjectURL(blob);
-            var a = document.createElement("a");
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(function() {
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            }, 200);
-          }, "image/png");
-        } else {
-          var dataUrl = solarCanvas.toDataURL("image/png");
-          var a2 = document.createElement("a");
-          a2.href = dataUrl;
-          a2.download = fileName;
-          document.body.appendChild(a2);
-          a2.click();
-          document.body.removeChild(a2);
+      // Find any generated Printify mockups for the selected product.
+      // If there are any, we'll bundle them with the canvas PNG into a
+      // single .zip so the tester walks away with the full preview set.
+      var mockupEntry = (state.mockups && pid && state.mockups[pid]) || null;
+      var mockupImages = (mockupEntry && Array.isArray(mockupEntry.images))
+        ? mockupEntry.images.filter(function(img) { return img && img.src; })
+        : [];
+
+      var startedMessage = mockupImages.length
+        ? "Packaging your design + " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") + "…"
+        : null;
+      if (startedMessage) showToast(startedMessage);
+
+      _canvasToBlob(solarCanvas, "image/png").then(function(canvasBlob) {
+        if (!mockupImages.length) {
+          // No mockups → fall back to the simple single-PNG download.
+          _downloadBlob(canvasBlob, canvasFileName);
+          return null;
         }
-      } catch (e) {
-        showToast("Couldn't save the design — try again or screenshot the canvas.", "error");
-        return;
-      }
+        // Otherwise bundle canvas + mockups into a zip.
+        return _loadJSZip().then(function(JSZip) {
+          var zip = new JSZip();
+          zip.file(canvasFileName, canvasBlob);
+          // Fetch each mockup in parallel; tolerate per-mockup failures
+          // by zipping only the ones that came back successfully.
+          var fetches = mockupImages.map(function(img, i) {
+            return _fetchImageAsBlob(img.src)
+              .then(function(b) {
+                var posSuffix = img.position ? "_" + _slugForFilename(img.position) : "";
+                var idxSuffix = "_" + String(i + 1).padStart(2, "0");
+                zip.file(baseName + "_mockup" + idxSuffix + posSuffix + ".png", b);
+              })
+              .catch(function(err) {
+                // Log and continue — better to ship a partial zip than fail outright.
+                console.warn("[saveDesign] mockup " + i + " failed:", err);
+              });
+          });
+          return Promise.all(fetches).then(function() {
+            return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+          }).then(function(zipBlob) {
+            _downloadBlob(zipBlob, baseName + ".zip");
+          });
+        });
+      }).catch(function(e) {
+        console.warn("[saveDesign] bundle path failed, falling back to canvas-only PNG", e);
+        // Best-effort fallback: just push the canvas PNG so the user
+        // still walks away with something.
+        _canvasToBlob(solarCanvas, "image/png")
+          .then(function(b) { _downloadBlob(b, canvasFileName); })
+          .catch(function() {
+            showToast("Couldn't save the design — try again or screenshot the canvas.", "error");
+          });
+      });
       // Re-render once more so the editor goes back to its non-burning
       // state (frame border + handles re-appear).
       try { renderCanvas(); } catch (_e) {}
@@ -6499,11 +6601,13 @@
       // the context object that the email template already prints.
       var noteBody = "[Beta design save] " + (product ? product.name : "(no product)") +
                      " · " + dateStr + (timeStr ? " " + timeStr + " UTC" : "") +
-                     (wl ? " · " + wl + " Å" : "");
+                     (wl ? " · " + wl + " Å" : "") +
+                     (mockupImages.length ? " · zipped with " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") : " · canvas only");
       var ctx = (typeof captureContext === "function") ? captureContext() : {};
       ctx.product = pid;
       ctx.product_name = product ? product.name : null;
       ctx.beta_mode = true;
+      ctx.bundled_mockups = mockupImages.length;
       // sendFeedback() is scoped inside the feedback IIFE — fire a
       // direct fetch so we don't have to hoist it. Failures here only
       // skip the operator email; the user's PNG is already on disk.
@@ -6520,7 +6624,10 @@
           }),
         }).catch(function() { /* best-effort */ });
       } catch (_e) { /* best-effort */ }
-      showToast("Design saved! We'll let you know when this product launches.", "success");
+      var doneToast = mockupImages.length
+        ? "Saved! Your design + " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") + " are in the zip."
+        : "Design saved! We'll let you know when this product launches.";
+      showToast(doneToast, "success");
     }
 
     if (btnBuyInEditor) {
