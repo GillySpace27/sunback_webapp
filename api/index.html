@@ -14,8 +14,16 @@
   <!-- Hero -->
   <div class="hero">
     <div class="hero-icon"></div>
-    <h1>Solar Archive</h1>
+    <h1 id="appTitle">Solar Archive</h1>
     <p>See the Sun on any date. Print it on anything.</p>
+    <!-- Beta banner — shown only when BETA_MODE is on (the /store-config
+         fetch sets the .beta-mode-active class on <body>, which un-hides
+         this block via CSS). Orange so it reads as an advisory, not an
+         error. -->
+    <div class="beta-banner" id="betaBanner">
+      <i class="fas fa-flask"></i>
+      Beta mode tests the front-end, but purchases are disabled.
+    </div>
   </div>
 
   <!-- CSP Notice (shown only when served from a different origin) -->
@@ -630,6 +638,30 @@
     <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
     <div class="confirm-modal-actions">
       <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to editor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Post-download thank-you modal. Surfaces after the beta-mode
+     "Download Your Design" flow completes so the tester gets a
+     friendly close-loop instead of a silent file-save. "Design a new
+     product" resets the picker back to the top of the page so they
+     can run the flow again with different settings. -->
+<div class="beta-thanks-modal hidden" id="betaThanksModal" role="dialog" aria-modal="true" aria-labelledby="betaThanksTitle">
+  <div class="beta-thanks-backdrop" id="betaThanksBackdrop"></div>
+  <div class="beta-thanks-panel">
+    <button class="beta-thanks-close" id="betaThanksClose" type="button" aria-label="Close">&#x2715;</button>
+    <div class="beta-thanks-icon"><i class="fas fa-sun"></i></div>
+    <h2 class="beta-thanks-title" id="betaThanksTitle">Thanks for testing Solar Archive!</h2>
+    <p class="beta-thanks-body">
+      Your design is saved to your downloads. Real product orders aren't
+      wired up yet — please check back in about a week and the full store
+      should be live.
+    </p>
+    <div class="beta-thanks-actions">
+      <button class="beta-thanks-btn beta-thanks-btn-primary" id="betaThanksReset" type="button">
+        <i class="fas fa-redo"></i> Design a new product
+      </button>
     </div>
   </div>
 </div>
