@@ -6694,6 +6694,23 @@
     // (and the operator's Printify wholesale bill) safely out of the
     // loop while still letting the full editor flow get exercised.
     function _applyBetaModeUI() {
+      // Page-level beta cues (title badge + orange sub-banner) are
+      // independent of the editor button — apply them whenever the
+      // flag is on, even if the user hasn't entered the editor yet.
+      if (BETA_MODE) {
+        document.body.classList.add("beta-mode-active");
+        var titleEl = document.getElementById("appTitle");
+        if (titleEl && !titleEl.querySelector(".app-title-beta-badge")) {
+          var badge = document.createElement("span");
+          badge.className = "app-title-beta-badge";
+          badge.textContent = "BETA";
+          titleEl.appendChild(badge);
+        }
+      } else {
+        document.body.classList.remove("beta-mode-active");
+        var existingBadge = document.querySelector("#appTitle .app-title-beta-badge");
+        if (existingBadge) existingBadge.remove();
+      }
       if (!btnBuyInEditor || !BETA_MODE) return;
       var lbl = document.getElementById("btnBuyLabel");
       if (lbl) lbl.textContent = "Download Your Design";
@@ -6945,7 +6962,70 @@
         ? "Saved! Your design + " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") + " are in the zip."
         : "Design saved! We'll let you know when this product launches.";
       showToast(doneToast, "success");
+      // Surface the thank-you popup a moment after the toast so the
+      // download save dialog has time to fire and the toast is visible
+      // mid-fade. The popup closes the loop with a clear "what next"
+      // CTA — without it the beta felt one-way (user clicks, file
+      // appears, nothing acknowledges them).
+      if (typeof _showBetaThanksPopup === "function") {
+        setTimeout(_showBetaThanksPopup, 400);
+      }
     }
+
+    // ── Beta thank-you popup ──────────────────────────────────
+    // Shown after _saveDesignLocally completes. "Design a new product"
+    // resets the workflow to the top of the page so the tester can
+    // run through the editor again with different settings, while
+    // keeping their date/wavelength/time intact (those are session-
+    // level choices the user almost never wants to redo).
+    function _showBetaThanksPopup() {
+      var modal = document.getElementById("betaThanksModal");
+      if (!modal) return;
+      modal.classList.remove("hidden");
+      // Trap focus on the primary button so Enter triggers it.
+      var primary = document.getElementById("betaThanksReset");
+      if (primary) setTimeout(function() { primary.focus(); }, 50);
+    }
+    function _hideBetaThanksPopup() {
+      var modal = document.getElementById("betaThanksModal");
+      if (modal) modal.classList.add("hidden");
+    }
+    function _resetWorkflowFromTop() {
+      _hideBetaThanksPopup();
+      // Drop product selection + mockups so the picker reads as fresh.
+      // We deliberately keep date/wavelength/time — those are higher-
+      // level choices the tester would have to re-enter otherwise.
+      state.selectedProduct = null;
+      state.mockups = {};
+      state.mockupSlideIndex = {};
+      // Close the live-preview pane if it's open.
+      var preview = document.getElementById("selectedProductPreview");
+      if (preview) preview.classList.add("hidden");
+      // Re-render the product grid so the "Selected" pill clears.
+      if (typeof renderProducts === "function") {
+        try { renderProducts(); } catch (_e) {}
+      }
+      // Hide the editor section since there's no product selected.
+      var editSection = document.getElementById("editSection");
+      if (editSection) editSection.classList.add("hidden");
+      // Scroll back to the date / wavelength picker so the workflow
+      // visibly starts over.
+      var top = document.querySelector(".section") || document.body;
+      top.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    (function _wireBetaThanksPopup() {
+      var primary = document.getElementById("betaThanksReset");
+      var closeBtn = document.getElementById("betaThanksClose");
+      var backdrop = document.getElementById("betaThanksBackdrop");
+      if (primary) primary.addEventListener("click", _resetWorkflowFromTop);
+      if (closeBtn) closeBtn.addEventListener("click", _hideBetaThanksPopup);
+      if (backdrop) backdrop.addEventListener("click", _hideBetaThanksPopup);
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape" && !document.getElementById("betaThanksModal").classList.contains("hidden")) {
+          _hideBetaThanksPopup();
+        }
+      });
+    })();
 
     if (btnBuyInEditor) {
       btnBuyInEditor.addEventListener("click", function() {

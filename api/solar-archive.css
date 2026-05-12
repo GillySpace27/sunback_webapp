@@ -112,6 +112,132 @@ body::before {
   font-weight: 300;
 }
 
+/* Beta-mode banner under the hero. Hidden by default; the
+   .beta-mode-active class on <body> (set by JS once /store-config
+   returns beta_mode:true) reveals it. Warm-orange so it reads as a
+   friendly advisory rather than a red error. */
+.beta-banner {
+  display: none;
+  margin: 12px auto 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 152, 0, 0.12);
+  border: 1px solid rgba(255, 152, 0, 0.45);
+  color: #ffb74d;
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  max-width: max-content;
+  align-items: center;
+  gap: 8px;
+}
+.beta-banner i {
+  color: #ffb74d;
+  font-size: 0.95rem;
+}
+body.beta-mode-active .beta-banner {
+  display: inline-flex;
+}
+/* Beta-mode title badge — appended as " BETA" to the existing
+   "Solar Archive" h1 via JS. Same warm orange so the header and
+   advisory banner read as one visual cue. */
+.app-title-beta-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 152, 0, 0.16);
+  border: 1px solid rgba(255, 152, 0, 0.5);
+  color: #ffb74d;
+  font-size: 0.42em;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  vertical-align: middle;
+  -webkit-text-fill-color: #ffb74d; /* override the gradient text-fill on h1 */
+}
+
+/* ── Post-download thank-you modal (beta flow only) ─────── */
+.beta-thanks-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.beta-thanks-modal.hidden { display: none; }
+.beta-thanks-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 9, 26, 0.72);
+  backdrop-filter: blur(2px);
+}
+.beta-thanks-panel {
+  position: relative;
+  background: var(--bg-elevated, #1a1a2e);
+  border: 1px solid rgba(255, 152, 0, 0.35);
+  border-radius: 12px;
+  padding: 28px 28px 24px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+}
+.beta-thanks-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim, #6a6a8a);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.beta-thanks-close:hover { color: var(--text-primary, #e9eaf5); }
+.beta-thanks-icon {
+  font-size: 2.4rem;
+  color: #ffb74d;
+  margin-bottom: 8px;
+}
+.beta-thanks-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--text-primary, #e9eaf5);
+}
+.beta-thanks-body {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text-secondary, #9898b8);
+  margin: 0 0 20px;
+}
+.beta-thanks-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.beta-thanks-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 0;
+  font: 600 0.92rem -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  transition: transform 0.06s ease, box-shadow 0.15s ease;
+}
+.beta-thanks-btn-primary {
+  background: linear-gradient(135deg, #7b61ff, #c06bff);
+  color: #fff;
+}
+.beta-thanks-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(123, 97, 255, 0.4);
+}
+
 /* Sections / Steps */
 .section {
   background: var(--bg-card);
