@@ -54,6 +54,7 @@ RESEND_FROM_ENV = "RESEND_FROM"  # optional override; default works on Resend's 
 # field caps below catch the common abuse (10MB textarea paste, etc.).
 _MAX_BODY_CHARS = 4000
 _MAX_EMAIL_CHARS = 200
+_MAX_NAME_CHARS = 120
 _MAX_URL_CHARS = 500
 _MAX_CONTEXT_CHARS = 2000
 
@@ -67,7 +68,12 @@ class FeedbackSubmission(BaseModel):
     # "comment" = free-text feedback; "product_request" = a specific Printify BP/variant ask.
     kind: str = Field(default="comment")
     body: str = Field(default="", description="The user's message or request note.")
-    email: Optional[str] = Field(default=None, description="Optional reply-to email.")
+    # Submitter contact info — collected by both feedback tabs so the
+    # operator can reply. Optional at the wire level because the
+    # background "[Beta design save]" auto-fire from _saveDesignLocally
+    # has no human typing into a form; the modal UI requires both.
+    name: Optional[str] = Field(default=None, description="Submitter's display name.")
+    email: Optional[str] = Field(default=None, description="Reply-to email.")
     url: Optional[str] = Field(default=None, description="Page URL at time of submission.")
     user_agent: Optional[str] = Field(default=None)
     # Page context at submission time (current wavelength / date / product / filter / etc).
@@ -123,6 +129,7 @@ def _sanitize(entry: FeedbackSubmission) -> dict:
     return {
         "kind": kind,
         "body": _clamp(entry.body, _MAX_BODY_CHARS) or "",
+        "name": _clamp(entry.name, _MAX_NAME_CHARS),
         "email": _clamp(entry.email, _MAX_EMAIL_CHARS),
         "url": _clamp(entry.url, _MAX_URL_CHARS),
         "user_agent": _clamp(entry.user_agent, _MAX_URL_CHARS),
@@ -174,9 +181,14 @@ def _format_slack_blocks(record: dict, idx: int) -> dict:
                 approve = f"{base}/api/feedback/admin/approve?idx={idx}&key={admin_key}"
                 reject = f"{base}/api/feedback/admin/reject?idx={idx}&key={admin_key}"
                 parts.append(f"<{approve}|Approve> · <{reject}|Reject>")
+    name = record.get("name")
     email = record.get("email")
-    if email:
-        parts.append("Reply-to: " + email)
+    if name and email:
+        parts.append("From: " + name + " <" + email + ">")
+    elif email:
+        parts.append("From: " + email)
+    elif name:
+        parts.append("From: " + name)
     ctx = record.get("context") or {}
     if ctx:
         ctx_flat = ", ".join(f"{k}={v}" for k, v in ctx.items() if v not in (None, ""))
@@ -275,12 +287,25 @@ def _format_email_html(record: dict, idx: int) -> tuple[str, str]:
                 + "<br>".join(pr_lines)
                 + "</div>"
             )
+    name = record.get("name")
     email = record.get("email")
-    if email:
+    if name or email:
+        # Render From: as one combined line so the operator can hit
+        # Reply and the mail client auto-fills with the tester's name.
+        # mailto with name uses the standard "Name <addr>" form.
+        if name and email:
+            mailto = f'mailto:{_esc(email)}?to=' + _esc(name) + ' <' + _esc(email) + '>'
+            who = (f'<a href="{mailto}" style="color:#7b61ff;">'
+                   f'{_esc(name)}</a> &lt;<a href="mailto:{_esc(email)}" style="color:#7b61ff;">'
+                   f'{_esc(email)}</a>&gt;')
+        elif email:
+            who = (f'<a href="mailto:{_esc(email)}" style="color:#7b61ff;">'
+                   f'{_esc(email)}</a>')
+        else:
+            who = _esc(name)
         rows.append(
             f'<div style="font:14px/1.5 -apple-system,sans-serif;color:#3a3a52;margin:0 0 8px;">'
-            f'<strong>Reply-to:</strong> <a href="mailto:{_esc(email)}" '
-            f'style="color:#7b61ff;">{_esc(email)}</a></div>'
+            f'<strong>From:</strong> {who}</div>'
         )
     ctx = record.get("context") or {}
     if ctx:
