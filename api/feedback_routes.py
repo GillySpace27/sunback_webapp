@@ -222,17 +222,36 @@ def _format_email_html(record: dict, idx: int) -> tuple[str, str]:
     kind = record.get("kind", "comment")
     body = (record.get("body") or "").strip()
     pr = record.get("product_request") or {}
+    # Subject-line prefixes: pick one bracket-tag per submission type so
+    # inbox triage is a glance, not a read. Three categories today:
+    #   [Product Request]    — explicit "make this product" asks
+    #   [Beta Design Save]   — background auto-fire from the download
+    #                          button (kind=comment, body starts with
+    #                          the literal "[Beta design save] " marker
+    #                          set by the client in solar-archive.js)
+    #   [Feedback]           — everything else from the comment tab
     if kind == "product_request":
         pr_title = pr.get("title") or f"Blueprint {pr.get('blueprintId')}"
-        subject = f"[Solar Archive] Product request: {pr_title}"
+        subject = f"[Product Request] {pr_title}"
         header = "New product request"
     else:
-        # First sentence of the body makes a useful subject preview.
-        snippet = body[:60].replace("\n", " ").strip()
-        if len(body) > 60:
-            snippet += "…"
-        subject = "[Solar Archive] " + (snippet or "New feedback")
-        header = "New feedback"
+        # Match the client-side marker case-insensitively so a typo
+        # ("Beta Design Save", "beta design save") still classifies.
+        BETA_MARKER = "[beta design save]"
+        if body[: len(BETA_MARKER)].lower() == BETA_MARKER:
+            rest = body[len(BETA_MARKER):].strip()
+            snippet = rest[:60].replace("\n", " ").strip()
+            if len(rest) > 60:
+                snippet += "…"
+            subject = "[Beta Design Save] " + (snippet or "design")
+            header = "Beta design save"
+        else:
+            # First sentence of the body makes a useful subject preview.
+            snippet = body[:60].replace("\n", " ").strip()
+            if len(body) > 60:
+                snippet += "…"
+            subject = "[Feedback] " + (snippet or "New feedback")
+            header = "New feedback"
 
     def _esc(s):
         return (str(s)
