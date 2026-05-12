@@ -6934,6 +6934,17 @@
           context: ctx,
           canvas_image: canvasImageDataUrl,
         };
+        // Attach saved name/email if the tester has filed a feedback
+        // entry earlier this session — gives the operator a "who
+        // downloaded what" lookup without forcing a second form.
+        try {
+          var savedRaw = localStorage.getItem("solarArchive.feedbackContact.v1");
+          if (savedRaw) {
+            var saved = JSON.parse(savedRaw);
+            if (saved && saved.name) payload.name = saved.name;
+            if (saved && saved.email) payload.email = saved.email;
+          }
+        } catch (_e) { /* private mode, etc. */ }
         // Drop canvas_image if it's somehow oversized — backend caps at
         // ~2.5MB and rejects payloads larger than that altogether.
         if (canvasImageDataUrl && canvasImageDataUrl.length > 2_300_000) {
@@ -8286,6 +8297,7 @@
       var panelProduct = document.getElementById("feedbackPanelProduct");
       var panelThanks = document.getElementById("feedbackPanelThanks");
       var commentBody = document.getElementById("feedbackCommentBody");
+      var commentName = document.getElementById("feedbackCommentName");
       var commentEmail = document.getElementById("feedbackCommentEmail");
       var commentSubmit = document.getElementById("feedbackCommentSubmit");
       var productSearch = document.getElementById("feedbackProductSearch");
@@ -8302,6 +8314,7 @@
       var providerAuto = document.getElementById("feedbackProviderAuto");
       var variantSelect = document.getElementById("feedbackVariantSelect");
       var productNote = document.getElementById("feedbackProductNote");
+      var productName = document.getElementById("feedbackProductName");
       var productEmail = document.getElementById("feedbackProductEmail");
       var productSubmit = document.getElementById("feedbackProductSubmit");
       var thanksMsg = document.getElementById("feedbackThanksMsg");
@@ -8373,12 +8386,46 @@
         return ctx;
       }
 
+      // ── Contact prefill / persistence ──────────────────────────
+      // Name + email are required on submit; remember whatever the
+      // user typed last so a tester filing a second comment doesn't
+      // have to re-type both. localStorage is fine — these are the
+      // user's own contact details, not anything sensitive.
+      var _CONTACT_KEY = "solarArchive.feedbackContact.v1";
+      function _loadContact() {
+        try {
+          var raw = localStorage.getItem(_CONTACT_KEY);
+          if (!raw) return null;
+          var obj = JSON.parse(raw);
+          return (obj && typeof obj === "object") ? obj : null;
+        } catch (_e) { return null; }
+      }
+      function _rememberContact(name, email) {
+        try {
+          localStorage.setItem(_CONTACT_KEY, JSON.stringify({ name: name || "", email: email || "" }));
+        } catch (_e) { /* private mode, etc. — silently skip */ }
+      }
+      // Very forgiving sanity check — just enough to catch "no @" and
+      // "ends with a dot or no dot at all". Server-side trims +
+      // length-caps, so we don't need a strict RFC validator here.
+      function _looksLikeEmail(s) {
+        return typeof s === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+      }
+      function _prefillContactFields() {
+        var saved = _loadContact() || {};
+        if (commentName && !commentName.value) commentName.value = saved.name || "";
+        if (commentEmail && !commentEmail.value) commentEmail.value = saved.email || "";
+        if (productName && !productName.value) productName.value = saved.name || "";
+        if (productEmail && !productEmail.value) productEmail.value = saved.email || "";
+      }
+
       function openModal(initialTab) {
         modal.classList.remove("hidden");
         // Default to comment if no tab specified — preserves prior behavior
         // for any caller that doesn't pass an explicit tab name.
         var tab = initialTab === "product" ? "product" : "comment";
         showTab(tab);
+        _prefillContactFields();
         setTimeout(function() {
           if (tab === "comment" && commentBody) commentBody.focus();
           else if (tab === "product" && productSearch) productSearch.focus();
@@ -8387,12 +8434,16 @@
 
       function closeModal() {
         modal.classList.add("hidden");
-        // Clear form state so next open starts clean
+        // Clear the bodies + email fields on close so next open starts
+        // clean. Name/email are intentionally NOT wiped — _prefillContactFields
+        // restores them from localStorage the next time the modal opens.
         if (commentBody) commentBody.value = "";
+        if (commentName) commentName.value = "";
         if (commentEmail) commentEmail.value = "";
         if (productSearch) productSearch.value = "";
         if (productResults) productResults.innerHTML = "";
         if (productNote) productNote.value = "";
+        if (productName) productName.value = "";
         if (productEmail) productEmail.value = "";
         _activeCategory = null;
         if (_blueprints) renderCategoryChips();
@@ -8698,16 +8749,26 @@
 
       function submitComment() {
         var body = (commentBody.value || "").trim();
-        if (!body) {
-          commentBody.focus();
-          commentBody.classList.add("feedback-field-error");
-          setTimeout(function() { commentBody.classList.remove("feedback-field-error"); }, 1500);
+        var nameVal = (commentName && commentName.value || "").trim();
+        var emailVal = (commentEmail.value || "").trim();
+        // Validate body, name, and email in that visual order so the
+        // first-error focus matches the form's top-to-bottom layout.
+        var bad = !body ? commentBody
+                : !nameVal ? commentName
+                : (!emailVal || !_looksLikeEmail(emailVal)) ? commentEmail
+                : null;
+        if (bad) {
+          bad.focus();
+          bad.classList.add("feedback-field-error");
+          setTimeout(function() { bad.classList.remove("feedback-field-error"); }, 1500);
           return;
         }
+        _rememberContact(nameVal, emailVal);
         var payload = {
           kind: "comment",
           body: body,
-          email: (commentEmail.value || "").trim() || null,
+          name: nameVal,
+          email: emailVal,
           url: window.location.href,
           user_agent: navigator.userAgent,
           context: captureContext(),
@@ -8737,13 +8798,28 @@
         var variantId = variantSelect.value ? parseInt(variantSelect.value, 10) : null;
         var variantTitle = variantSelect.selectedOptions[0] ? variantSelect.selectedOptions[0].dataset.title : null;
         var note = (productNote.value || "").trim();
-        var emailVal = (productEmail && productEmail.value || "").trim() || null;
+        var nameVal = (productName && productName.value || "").trim();
+        var emailVal = (productEmail && productEmail.value || "").trim();
+        // Validate contact fields BEFORE building the payload so we
+        // can shake the wrong one in place. Body is the bottom of the
+        // form so it's checked last; the picker already gates above.
+        var bad = !nameVal ? productName
+                : (!emailVal || !_looksLikeEmail(emailVal)) ? productEmail
+                : null;
+        if (bad) {
+          bad.focus();
+          bad.classList.add("feedback-field-error");
+          setTimeout(function() { bad.classList.remove("feedback-field-error"); }, 1500);
+          return;
+        }
+        _rememberContact(nameVal, emailVal);
         var shapeRadio = document.querySelector('input[name="feedbackPrintShape"]:checked');
         var printShape = shapeRadio ? shapeRadio.value : "rectangle";
 
         var payload = {
           kind: "product_request",
           body: note || ("Request: " + (_chosenBlueprint.title || ("BP " + _chosenBlueprint.id))),
+          name: nameVal,
           email: emailVal,
           url: window.location.href,
           user_agent: navigator.userAgent,
