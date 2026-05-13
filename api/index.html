@@ -548,6 +548,23 @@
           <select id="previewVariantSelect" aria-label="Override variant for this product"></select>
           <p class="preview-variant-note hidden" id="previewVariantClockNote">Some options differ by hand color (white vs black).</p>
         </div>
+        <!-- Dual-panel layout toggle. Shown only for products whose
+             Printify panel covers both front and back (throw pillow,
+             hardcover journal). JS unhides via #previewLayoutWrap when
+             the selected product has product.dualPanel = true. -->
+        <div class="preview-layout-wrap hidden" id="previewLayoutWrap" role="radiogroup" aria-label="Print layout">
+          <label class="preview-layout-label">Layout</label>
+          <div class="preview-layout-options">
+            <label class="preview-layout-opt" title="Print the same design on the front and the back. Recommended for a clean glance-test.">
+              <input type="radio" name="dualPanelMode" value="match" checked>
+              <span>Same both sides</span>
+            </label>
+            <label class="preview-layout-opt" title="One continuous design spans across both faces. Use this if you want the sun centred on the seam.">
+              <input type="radio" name="dualPanelMode" value="span">
+              <span>Spans across</span>
+            </label>
+          </div>
+        </div>
         <button type="button" class="btn-preview-mockup" id="btnPreviewMockup" title="Generate a real Printify mockup for this product, or reset back to the canvas preview.">
           <i class="fas fa-rocket btn-preview-mockup-icon"></i>
           <span class="btn-preview-mockup-spinner" aria-hidden="true"></span>
