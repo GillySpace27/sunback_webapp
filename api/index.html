@@ -238,6 +238,19 @@
           <button class="edit-btn preset-btn" data-crop="fit"  title="Fit the full solar disk with breathing room around it">Fit</button>
           <button class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
         </div>
+        <!-- Crop-edge feather presets — quick toggles that sync the
+             Crop Edge X / Y sliders below. X and Y share a row here
+             so the related "how should the print edges fade" controls
+             sit immediately under the Crop preset they modify. -->
+        <div class="preset-row">
+          <span class="preset-row-label">Crop Edge</span>
+          <span class="preset-axis-label">X</span>
+          <button class="edit-btn preset-btn" data-crop-edge-x="hard" title="Sharp left/right edges (no feather)">Hard</button>
+          <button class="edit-btn preset-btn" data-crop-edge-x="soft" title="Soft feather on left and right edges">Soft</button>
+          <span class="preset-axis-label">Y</span>
+          <button class="edit-btn preset-btn" data-crop-edge-y="hard" title="Sharp top/bottom edges (no feather)">Hard</button>
+          <button class="edit-btn preset-btn" data-crop-edge-y="soft" title="Soft feather on top and bottom edges">Soft</button>
+        </div>
         <!-- Vignette presets — split: edge controls feather, radius controls size -->
         <div class="preset-row">
           <span class="preset-row-label">Vig. Edge</span>
@@ -267,19 +280,6 @@
             <input type="color" id="vignetteFadeColorPicker" value="#000000" class="vignette-fade-color-picker" title="Vignette fade color">
             <span class="filter-opt-color-label">Custom</span>
           </label>
-        </div>
-        <!-- Crop-edge feather presets — quick toggles that sync the
-             Crop Edge X / Y sliders below. Hard = no feather, sharp
-             cut at the frame; Soft = noticeable fade-to-bg-colour. -->
-        <div class="preset-row">
-          <span class="preset-row-label">Crop Edge X</span>
-          <button class="edit-btn preset-btn" data-crop-edge-x="hard" title="Sharp left/right edges (no feather)">Hard</button>
-          <button class="edit-btn preset-btn" data-crop-edge-x="soft" title="Soft feather on left and right edges">Soft</button>
-        </div>
-        <div class="preset-row">
-          <span class="preset-row-label">Crop Edge Y</span>
-          <button class="edit-btn preset-btn" data-crop-edge-y="hard" title="Sharp top/bottom edges (no feather)">Hard</button>
-          <button class="edit-btn preset-btn" data-crop-edge-y="soft" title="Soft feather on top and bottom edges">Soft</button>
         </div>
         <div class="edit-toolbar-break"></div>
         <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>

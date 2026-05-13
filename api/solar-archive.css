@@ -773,15 +773,13 @@ select:focus {
    physical product (acrylic / canvas / poster prints have square edges).
    Outer panel still has its own rounding via .section. */
 .image-stage {
+  /* Default backdrop is solid black so transparency in the canvas
+     reads as "what you'll get printed against a dark fabric/medium"
+     rather than a generic editor checker. The .image-stage--checker
+     modifier opts back into the transparency-checker pattern for
+     users who want to visualise alpha explicitly. */
   position: relative;
-  background-color: #fff;
-  background-image:
-    linear-gradient(45deg, #c8c8c8 25%, transparent 25%),
-    linear-gradient(-45deg, #c8c8c8 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #c8c8c8 75%),
-    linear-gradient(-45deg, transparent 75%, #c8c8c8 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 8px;
+  background-color: #000;
   border-radius: 0;
   overflow: hidden;
   min-height: 200px;
@@ -791,6 +789,22 @@ select:focus {
 }
 
 html.dark .image-stage {
+  background-color: #000;
+}
+
+/* Opt-in: classic editor checker pattern. Not used today; kept so
+   a future "show transparency" toggle can flip the class. */
+.image-stage.image-stage--checker {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #c8c8c8 25%, transparent 25%),
+    linear-gradient(-45deg, #c8c8c8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #c8c8c8 75%),
+    linear-gradient(-45deg, transparent 75%, #c8c8c8 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 8px;
+}
+html.dark .image-stage.image-stage--checker {
   background-color: #1a1a2e;
   background-image:
     linear-gradient(45deg, #2a2a44 25%, transparent 25%),
@@ -1082,6 +1096,22 @@ html.dark .image-stage {
   color: var(--text-dim);
   margin-right: 2px;
   white-space: nowrap;
+}
+
+/* Inline axis-letter chip ("X", "Y") that sits between the two
+   Hard/Soft button pairs on the combined Crop Edge preset row.
+   Tighter than .preset-row-label so the four buttons + label still
+   fit one line on a desktop editor column. */
+.preset-axis-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  opacity: 0.9;
+  padding: 0 2px;
+  margin-left: 6px;
+}
+.preset-axis-label:first-of-type {
+  margin-left: 0;
 }
 
 .preset-btn {
