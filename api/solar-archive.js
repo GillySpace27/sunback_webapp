@@ -908,7 +908,36 @@
 
     var btnPreviewMockup = document.getElementById("btnPreviewMockup");
     if (btnPreviewMockup) {
+      // ── Button loading-state helpers ──────────────────────────
+      // The button shows a spinner + "Generating mockup…" label while
+      // a generation is in flight. We track the call with a token so a
+      // stale settle from an aborted run can't clear a fresh spinner.
+      var _mockupCallToken = 0;
+      // Hard ceiling: if onDone never fires (e.g. a fetch hangs past
+      // its own 90s timeout) we still clear the spinner after this
+      // long so the button isn't stuck forever. Generous because the
+      // upload+mockup chain can take ~60s for big canvases.
+      var MOCKUP_BUTTON_WATCHDOG_MS = 150000;
+      var _mockupWatchdog = null;
+      function _setMockupBtnLoading(loading) {
+        var labelEl = btnPreviewMockup.querySelector(".btn-preview-mockup-label");
+        if (loading) {
+          btnPreviewMockup.classList.add("is-loading");
+          btnPreviewMockup.setAttribute("aria-busy", "true");
+          btnPreviewMockup.disabled = true;
+          if (labelEl) labelEl.textContent = "Generating mockup…";
+        } else {
+          btnPreviewMockup.classList.remove("is-loading");
+          btnPreviewMockup.removeAttribute("aria-busy");
+          btnPreviewMockup.disabled = false;
+          // Don't force the label here — updatePreviewPaneMockupState()
+          // resets it to either "Generate real mockup" or "Reset to mock
+          // mockup" based on whether the cache landed.
+          if (typeof updatePreviewPaneMockupState === "function") updatePreviewPaneMockupState();
+        }
+      }
       btnPreviewMockup.addEventListener("click", function() {
+        if (btnPreviewMockup.disabled) return; // ignore clicks while in flight
         if (!state.selectedProduct) return;
         var productId = state.selectedProduct;
         var hasRealMockup = state.mockups[productId] && state.mockups[productId].images && state.mockups[productId].images.length > 0;
@@ -939,7 +968,30 @@
           state[mkUploadKey] = null;
           if (mockupVariant === "raw") state.uploadedPrintifyId = null; // legacy alias
 
-          if (typeof autoGenerateMockups === "function") autoGenerateMockups(mockupVariant, productId);
+          if (typeof autoGenerateMockups === "function") {
+            _setMockupBtnLoading(true);
+            var myToken = ++_mockupCallToken;
+            if (_mockupWatchdog) clearTimeout(_mockupWatchdog);
+            _mockupWatchdog = setTimeout(function() {
+              if (myToken === _mockupCallToken) {
+                _setMockupBtnLoading(false);
+                if (mockupStatus && !mockupStatus.querySelector(".fa-check-circle")) {
+                  mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockup is taking longer than expected — try again.</span>';
+                }
+              }
+            }, MOCKUP_BUTTON_WATCHDOG_MS);
+            autoGenerateMockups(mockupVariant, productId, function(err) {
+              // Drop late callbacks from prior clicks.
+              if (myToken !== _mockupCallToken) return;
+              if (_mockupWatchdog) { clearTimeout(_mockupWatchdog); _mockupWatchdog = null; }
+              _setMockupBtnLoading(false);
+              if (err) {
+                // Surface a short toast in addition to the mockupStatus
+                // bar so testers don't have to hunt for the error.
+                showToast("Mockup failed: " + (err.message || "unknown error"));
+              }
+            });
+          }
           showToast("Generating real mockup for this product…");
         }
       });
@@ -7315,20 +7367,29 @@
      * @param {string} variant - "raw" or "filtered". Determines which cache + upload ID to use.
      * @param {string} [productId] - If provided, generate mockup only for this product (e.g. from floating preview pane).
      */
-    function autoGenerateMockups(variant, productId) {
+    function autoGenerateMockups(variant, productId, onDone) {
       variant = variant || "raw";
+      // onDone(err|null) \u2014 optional completion callback. Called once,
+      // regardless of success or failure. The button click handler
+      // uses this to clear the spinner state. Other callers pass
+      // nothing and the callback is a no-op.
+      var _settle = (typeof onDone === "function") ? onDone : function() {};
       var isFiltered = (variant !== "raw");
       var targetCache = isFiltered ? state.mockupsFiltered : state.mockupsRaw;
       var uploadIdKey = isFiltered ? "uploadedPrintifyIdFiltered" : "uploadedPrintifyIdRaw";
 
       var ready = PRODUCTS.filter(function(p) { return p.blueprintId && p.printProviderId && p.variantId; });
       if (productId) ready = ready.filter(function(p) { return p.id === productId; });
-      if (ready.length === 0 || !state.originalImage) return;
+      if (ready.length === 0 || !state.originalImage) {
+        _settle(new Error(state.originalImage ? "Product not ready" : "No image loaded"));
+        return;
+      }
 
       var needsMockup = ready.filter(function(p) { return !targetCache[p.id]; });
       if (needsMockup.length === 0) {
         // Already fully mocked for this variant; just update display
         updateMockupDisplay();
+        _settle(null);
         return;
       }
 
@@ -7338,7 +7399,7 @@
           ? 'Generating mockup for ' + (needsMockup[0] ? needsMockup[0].name : productId) + '\u2026'
           : 'Generating ' + needsMockup.length + ' ' + variant + ' mockup(s)\u2026';
         mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> ' + statusMsg;
-        runMockupQueue(needsMockup, targetCache, state[uploadIdKey], variant, productId);
+        runMockupQueue(needsMockup, targetCache, state[uploadIdKey], variant, productId, _settle);
         return;
       }
 
@@ -7386,10 +7447,11 @@
           return p.blueprintId && p.printProviderId && p.variantId && !targetCache[p.id];
         });
         if (productId) unmocked = unmocked.filter(function(p) { return p.id === productId; });
-        runMockupQueue(unmocked, targetCache, data.id, variant, productId);
+        runMockupQueue(unmocked, targetCache, data.id, variant, productId, _settle);
       })
       .catch(function(err) {
         mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockups unavailable: ' + err.message + '</span>';
+        _settle(err);
       });
     }
 
@@ -7401,18 +7463,28 @@
      * @param {string} variant - "raw" or "filtered"
      * @param {string} [singleProductId] - If set, only one product; completion message is singular.
      */
-    function runMockupQueue(queue, targetCache, printifyImageId, variant, singleProductId) {
+    function runMockupQueue(queue, targetCache, printifyImageId, variant, singleProductId, onDone) {
       var total = queue.length;
       var done = 0;
+      // Track whether ANY product in this batch landed. A single-
+      // product run with one failure → reject; multi-product runs
+      // are still considered a success as long as at least one
+      // landed (the existing error toast already covers the rest).
+      var anySuccess = false;
+      var lastError = null;
+      var _settle = (typeof onDone === "function") ? onDone : function() {};
 
       function createNext() {
         if (queue.length === 0) {
           var doneMsg = singleProductId
             ? '<span style="color:#3ddc84;font-size:12px;"><i class="fas fa-check-circle"></i> Mockup ready</span>'
             : '<span style="color:#3ddc84;font-size:12px;"><i class="fas fa-check-circle"></i> All ' + total + ' ' + (variant || '') + ' mockup(s) ready</span>';
-          mockupStatus.innerHTML = doneMsg;
+          if (anySuccess) {
+            mockupStatus.innerHTML = doneMsg;
+          }
           updateMockupDisplay();
           if (singleProductId && typeof updatePreviewPaneMockupState === "function") updatePreviewPaneMockupState();
+          _settle(anySuccess ? null : (lastError || new Error("Mockup generation failed")));
           return;
         }
         var product = queue.shift();
@@ -7457,12 +7529,19 @@
             targetCache[product.id] = { images: images, printifyProductId: prodData.id };
             // Also update active mockups for display
             state.mockups[product.id] = { images: images, printifyProductId: prodData.id };
+            anySuccess = true;
+          } else {
+            // 200 OK but Printify returned no mockup images — treat as failure
+            // so the button doesn't go quiet. Real example: a placeholder
+            // mismatch can still come back 201-created but with images=[].
+            lastError = new Error(product.name + ": Printify returned no mockup images");
           }
           renderProducts();
           if (typeof updateBuyButtonState === "function") updateBuyButtonState();
           createNext();
         })
         .catch(function(err) {
+          lastError = err;
           mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> ' + product.name + ': ' + err.message + '</span>';
           setTimeout(createNext, 500);
         });

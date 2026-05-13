@@ -187,9 +187,139 @@ async def upload_image(request: Request):
 # ────────────────────────────────────────────────
 # 2.  Create a product in the Printify shop
 # ────────────────────────────────────────────────
+# ── Catalog-aware placeholder expansion ───────────────────────────
+# Some blueprints (all-over sublimation socks, leggings, mugs with
+# "default" wraps, etc.) DO NOT expose a "front" placeholder. Crew
+# socks for example only have front_left_leg / front_right_leg /
+# back_left_leg / back_right_leg. The client hardcodes
+# `position: "front"` for every product, so without expansion
+# Printify rejects those requests with a position-mismatch error
+# and the user sees a silent mockup failure.
+#
+# This helper introspects the catalog for the target variant, then
+# rewrites the print_areas placeholder list to use positions that
+# actually exist on the variant. Resolution order per requested
+# position:
+#   1. exact name match     ("front" matches "front")
+#   2. substring match      ("front" matches {"front_left_leg",
+#                            "front_right_leg"})   →   fan out
+#   3. fall back to ALL valid positions — best effort so the user
+#      gets SOMETHING printed on every panel rather than nothing.
+
+# Small in-process cache so we don't hit the catalog endpoint every
+# time the user generates a mockup. Catalog placeholder geometry is
+# effectively static, so a long TTL is fine. Keyed by (bp, pp).
+_variant_positions_cache: dict = {}
+_VARIANT_POS_TTL = 60 * 60  # 1 hour
+
+
+def _get_variant_positions(bp_id: int, pp_id: int, variant_id: int) -> list:
+    """Return the list of placeholder position names for one variant,
+    or [] if we can't look it up."""
+    try:
+        bp_id_i = int(bp_id)
+        pp_id_i = int(pp_id)
+        variant_id_i = int(variant_id)
+    except (TypeError, ValueError):
+        return []
+    key = (bp_id_i, pp_id_i)
+    now = time.time()
+    cached = _variant_positions_cache.get(key)
+    if cached and (now - cached[0]) < _VARIANT_POS_TTL:
+        variants_by_id = cached[1]
+    else:
+        try:
+            data = _list_variants_sync(bp_id_i, pp_id_i)
+        except Exception as e:
+            _log(f"[printify][expand-placeholders] catalog lookup failed bp={bp_id_i} pp={pp_id_i}: {e}")
+            return []
+        variants_by_id = {}
+        for v in (data.get("variants") or []):
+            vid = v.get("id")
+            if vid is None:
+                continue
+            positions = [
+                p.get("position")
+                for p in (v.get("placeholders") or [])
+                if p.get("position")
+            ]
+            variants_by_id[vid] = positions
+        _variant_positions_cache[key] = (now, variants_by_id)
+    return list(variants_by_id.get(variant_id_i) or [])
+
+
+def _expand_print_areas(body: dict) -> dict:
+    """Rewrite body['print_areas'] so every placeholder targets a
+    position that actually exists on the variant. Returns a NEW body
+    dict (does not mutate the input).
+    """
+    print_areas = body.get("print_areas") or []
+    if not print_areas:
+        return body
+    bp_id = body.get("blueprint_id")
+    pp_id = body.get("print_provider_id")
+    variants = body.get("variants") or []
+    # Use the first variant to look up valid positions. Printify
+    # requires that every variant in a single print_area share the
+    # same placeholder geometry, so any of them works.
+    primary_vid = variants[0].get("id") if variants else None
+    if not (bp_id and pp_id and primary_vid):
+        return body
+    valid_positions = _get_variant_positions(bp_id, pp_id, primary_vid)
+    if not valid_positions:
+        return body
+    valid_set = set(valid_positions)
+
+    new_print_areas = []
+    rewrote = False
+    for area in print_areas:
+        new_placeholders = []
+        for ph in (area.get("placeholders") or []):
+            pos = ph.get("position")
+            if pos in valid_set:
+                new_placeholders.append(ph)
+                continue
+            # Try a substring match — "front" → ["front_left_leg",
+            # "front_right_leg"]. Sock-shaped products want the same
+            # design on each matching panel.
+            substr_matches = [vp for vp in valid_positions if pos and pos in vp]
+            if not substr_matches:
+                # Last resort: stamp the design on every valid
+                # position. The user gets a working all-over preview
+                # instead of nothing.
+                substr_matches = valid_positions
+            for m in substr_matches:
+                clone = dict(ph)
+                clone["position"] = m
+                new_placeholders.append(clone)
+            rewrote = True
+        new_area = dict(area)
+        new_area["placeholders"] = new_placeholders
+        new_print_areas.append(new_area)
+
+    if not rewrote:
+        return body
+    out = dict(body)
+    out["print_areas"] = new_print_areas
+    requested = sorted({ph.get("position") for area in print_areas for ph in (area.get("placeholders") or [])})
+    final = sorted({ph.get("position") for area in new_print_areas for ph in (area.get("placeholders") or [])})
+    _log(
+        f"[printify][expand-placeholders] bp={bp_id} pp={pp_id} variant={primary_vid} "
+        f"requested={requested} → final={final}"
+    )
+    return out
+
+
 def _create_product_sync(body: dict) -> dict:
     """Blocking product creation — runs in a thread via run_in_threadpool."""
     shop_id = _shop_id()
+    # Auto-expand placeholders before posting so all-over products
+    # (socks, leggings, mugs with non-"front" placeholders) succeed
+    # even though the client hardcodes position="front".
+    try:
+        body = _expand_print_areas(body)
+    except Exception as e:
+        _log(f"[printify][product] placeholder-expansion skipped (continuing): {e}")
     _log(f"[printify][product] POST /v1/shops/{shop_id}/products.json")
     resp = _printify_request(
         "POST",
@@ -568,6 +698,15 @@ def _do_checkout_sync(
         ],
         "tags": tags,
     }
+
+    # Same placeholder-expansion pass used by /api/printify/product —
+    # otherwise crew socks (and any other all-over blueprint without a
+    # bare "front" position) fail at checkout the same way they fail
+    # at mockup time.
+    try:
+        product_payload = _expand_print_areas(product_payload)
+    except Exception as e:
+        _log(f"[checkout] placeholder-expansion skipped (continuing): {e}")
 
     create_resp = _printify_request(
         "POST",
