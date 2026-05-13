@@ -4751,6 +4751,7 @@
         panStartPanX = state.panX != null ? state.panX : (refW / 2);
         panStartPanY = state.panY != null ? state.panY : (refH / 2);
         solarCanvas.style.cursor = "grabbing";
+        _attachDocDragListeners();
         return;
       }
       // Handle text dragging (takes priority over crop)
@@ -4766,6 +4767,7 @@
           var _tov = state.textOverlay;
           textDragOffsetX = coords.x - (_tov._pixelX != null ? _tov._pixelX : _tov.x);
           textDragOffsetY = coords.y - (_tov._pixelY != null ? _tov._pixelY : _tov.y);
+          _attachDocDragListeners();
           return;
         }
       }
@@ -4823,13 +4825,33 @@
       }
     }
 
-    // Unified canvas pointer handlers (text drag + crop drag + pan)
+    // Unified canvas pointer handlers (text drag + crop drag + pan).
+    // The pointerdown listeners stay on solarCanvas; the document-level
+    // move/up listeners are attached only when a drag actually starts
+    // and removed on drag end. The previous always-on `touchmove` with
+    // {passive:false} forced the browser to wait on every page scroll
+    // even when no drag was in progress — visible mobile sluggishness.
     solarCanvas.addEventListener("mousedown", onCanvasPointerDown);
     solarCanvas.addEventListener("touchstart", onCanvasPointerDown, { passive: false });
-    document.addEventListener("mousemove", onCanvasPointerMove);
-    document.addEventListener("touchmove", onCanvasPointerMove, { passive: false });
-    document.addEventListener("mouseup", onCanvasPointerUp);
-    document.addEventListener("touchend", onCanvasPointerUp);
+
+    function _attachDocDragListeners() {
+      document.addEventListener("mousemove", onCanvasPointerMove);
+      document.addEventListener("touchmove", onCanvasPointerMove, { passive: false });
+      document.addEventListener("mouseup", _onCanvasDragEnd);
+      document.addEventListener("touchend", _onCanvasDragEnd);
+      document.addEventListener("touchcancel", _onCanvasDragEnd);
+    }
+    function _detachDocDragListeners() {
+      document.removeEventListener("mousemove", onCanvasPointerMove);
+      document.removeEventListener("touchmove", onCanvasPointerMove);
+      document.removeEventListener("mouseup", _onCanvasDragEnd);
+      document.removeEventListener("touchend", _onCanvasDragEnd);
+      document.removeEventListener("touchcancel", _onCanvasDragEnd);
+    }
+    function _onCanvasDragEnd(e) {
+      onCanvasPointerUp(e);
+      _detachDocDragListeners();
+    }
 
     // ── Crop mode ────────────────────────────────────────────────
     var cropDragging = false;
@@ -8791,6 +8813,25 @@
       var thanksMsg = document.getElementById("feedbackThanksMsg");
       var thanksAnother = document.getElementById("feedbackThanksAnother");
 
+      // ── Textarea auto-resize ──────────────────────────────────
+      // CSS sets resize:none + overflow-y:hidden so the user can't
+      // wrestle a tiny drag-handle on touch screens. Instead, the
+      // textarea grows with its content (capped at 60vh so it never
+      // pushes the rest of the form below the visible viewport on
+      // mobile). Resets to the CSS min-height when the modal closes.
+      function _autoResizeTextarea(el) {
+        if (!el) return;
+        el.style.height = "auto";
+        var max = Math.round(window.innerHeight * 0.6);
+        el.style.height = Math.min(el.scrollHeight, max) + "px";
+      }
+      if (commentBody) {
+        commentBody.addEventListener("input", function() { _autoResizeTextarea(commentBody); });
+      }
+      if (productNote) {
+        productNote.addEventListener("input", function() { _autoResizeTextarea(productNote); });
+      }
+
       // Blueprint catalog cache. Loaded lazily on first open of the Request tab.
       var _blueprints = null;
       var _blueprintsLoading = null;
@@ -8923,12 +8964,12 @@
         // Clear the bodies + email fields on close so next open starts
         // clean. Name/email are intentionally NOT wiped — _prefillContactFields
         // restores them from localStorage the next time the modal opens.
-        if (commentBody) commentBody.value = "";
+        if (commentBody) { commentBody.value = ""; commentBody.style.height = ""; }
         if (commentName) commentName.value = "";
         if (commentEmail) commentEmail.value = "";
         if (productSearch) productSearch.value = "";
         if (productResults) productResults.innerHTML = "";
-        if (productNote) productNote.value = "";
+        if (productNote) { productNote.value = ""; productNote.style.height = ""; }
         if (productName) productName.value = "";
         if (productEmail) productEmail.value = "";
         _activeCategory = null;
