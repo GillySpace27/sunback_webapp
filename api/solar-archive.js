@@ -8897,10 +8897,25 @@
         var tab = initialTab === "product" ? "product" : "comment";
         showTab(tab);
         _prefillContactFields();
-        setTimeout(function() {
-          if (tab === "comment" && commentBody) commentBody.focus();
-          else if (tab === "product" && productSearch) productSearch.focus();
-        }, 60);
+        // Tier-1 mobile fix: iOS Safari (and Android Chrome) only pop the
+        // soft keyboard when focus is triggered by a user gesture in the
+        // SAME synchronous call stack. The setTimeout below breaks that
+        // chain, so on mobile the textarea got focus (cursor visible)
+        // but no keyboard — beta tester Sandi reported "squiggly line
+        // appeared but I couldn't type." Worse: with the textarea
+        // already focused, a follow-up tap doesn't re-focus, so the
+        // keyboard never opens. Skip the auto-focus on touch devices;
+        // the user's first tap will focus the field and the keyboard
+        // opens naturally. Desktop keeps the convenience focus because
+        // it has no keyboard-gesture requirement.
+        var isTouch = ('ontouchstart' in window) ||
+                      (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+        if (!isTouch) {
+          setTimeout(function() {
+            if (tab === "comment" && commentBody) commentBody.focus();
+            else if (tab === "product" && productSearch) productSearch.focus();
+          }, 60);
+        }
       }
 
       function closeModal() {

@@ -2750,7 +2750,11 @@ html.dark .image-stage.image-stage--checker {
   border-radius: 8px;
   padding: 10px 12px;
   color: var(--text-primary, #e9eaf5);
-  font-size: 0.9rem;
+  /* iOS Safari auto-zooms when any focused input is < 16px. The page
+     was zooming in every time the feedback modal opened on mobile —
+     visually jarring and made the input field jump out of view.
+     16px is the minimum that keeps Safari at the natural zoom. */
+  font-size: 16px;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s ease, background 0.15s ease;
