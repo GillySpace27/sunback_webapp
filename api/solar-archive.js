@@ -142,7 +142,16 @@
         variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green","Military Green"] } },
       { id: "crewneck_sweatshirt",  name: "Crewneck Sweatshirt", desc: "Unisex heavy blend crewneck",               icon: "fa-vest",         price: "From $34.99", checkoutPrice: 3499, blueprintId: 49,   printProviderId: 29,  variantId: 25377, position: "front", aspectRatio: { w: 1, h: 1 },
         variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green"] } },
-      { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front", aspectRatio: { w: 1, h: 1 },
+      // Crew socks blueprint requires four 1358×3839 leg-panel placeholders
+      // (front_left_leg, front_right_leg, back_left_leg, back_right_leg).
+      // The editor canvas mirrors the panel aspect — the same image is
+      // sent to all four panels, so the design has to look right within
+      // the tall narrow rectangle. initialCropZoom of 136 zooms in to the
+      // largest sock-aspect rectangle that fits inside the solar disk
+      // (formula in selectProductCard): the full disk doesn't fit in a
+      // 1:2.83 panel, but a slice through it does, and looks like an
+      // intentional close-up rather than letterboxed white space.
+      { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front", aspectRatio: { w: 1358, h: 3839 }, initialCropZoom: 136,
         variantFilter: { sizes: ["S","M","L","XS","XL","2XL"] } },
       // ── Tech & Desk ──
       // Blueprint 269 / provider 1 (SPOKE) covers iPhone 11–17 and Samsung Galaxy S21–S25.
@@ -574,11 +583,19 @@
         state.panX = 0;
         state.panY = 0;
       }
-      state.cropZoom = 100;
+      // Default cropZoom = 100 (image cover-fits the canvas). A product
+      // may override with `initialCropZoom` when its print panel is so
+      // extreme that the default leaves big empty bands — e.g. crew
+      // socks (1:2.83) zoom to ~136 so the canvas shows the largest
+      // sock-aspect rectangle inscribed within the solar disk.
+      var initialZoom = (typeof product.initialCropZoom === "number" && product.initialCropZoom > 0)
+        ? product.initialCropZoom
+        : 100;
+      state.cropZoom = initialZoom;
       var cropSlider = $("#cropSlider");
       var cropVal = $("#cropVal");
-      if (cropSlider) { cropSlider.value = 100; }
-      if (cropVal) { cropVal.textContent = "100%"; }
+      if (cropSlider) { cropSlider.value = initialZoom; }
+      if (cropVal) { cropVal.textContent = initialZoom + "%"; }
 
       // Show variant options for this product (no scroll, no edit section reveal)
       if (selectedCard) showVariantPanel(product, selectedCard);
@@ -6931,16 +6948,20 @@
     }
     function updateBuyButtonState() {
       if (!btnBuyInEditor) return;
-      // In beta mode the button is a local PNG download, so it doesn't
-      // need a generated Printify mockup to be ready — pick a product
-      // and you're good. _applyBetaModeUI() handles the label/icon.
+      // Both beta and prod modes now gate on having a real Printify
+      // mockup ready first. Reasons differ:
+      //   - prod: don't let users publish a product they haven't
+      //     previewed (catches bad crops before money changes hands)
+      //   - beta: the local zip bundle only carries the real mockups
+      //     once they exist, and an empty download is worse than a
+      //     disabled button that tells the tester what to do next.
+      var ready = !!state.selectedProduct && _hasRealMockup();
       if (BETA_MODE) {
-        btnBuyInEditor.disabled = !state.selectedProduct;
-        btnBuyInEditor.classList.toggle("buy-locked", !state.selectedProduct);
+        btnBuyInEditor.disabled = !ready;
+        btnBuyInEditor.classList.toggle("buy-locked", !ready);
         if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
         return;
       }
-      var ready = !!state.selectedProduct && _hasRealMockup();
       btnBuyInEditor.disabled = !ready;
       // The visual state is driven by [disabled] in CSS; we also swap the
       // tooltip and label so the user knows what unlocks the action.
@@ -6977,21 +6998,19 @@
       if (!btnBuyInEditor || !BETA_MODE) return;
       var lbl = document.getElementById("btnBuyLabel");
       if (lbl) lbl.textContent = "Download Your Design";
-      // Tooltip flips between "single PNG" and "zip with mockups" so the
-      // user knows whether to expect a one-file or a bundle.
+      // Gate the button on having a real mockup ready, matching prod.
+      // The zip bundle is only useful with mockups inside it — a PNG-
+      // only download leaves the tester wondering whether the mockup
+      // step worked. Disabled state + the "Generate real mockup first"
+      // tooltip steer them to hit that button first.
       var pid = state.selectedProduct;
       var hasMocks = !!(pid && state.mockups && state.mockups[pid]
                         && state.mockups[pid].images && state.mockups[pid].images.length);
       btnBuyInEditor.title = hasMocks
         ? "Beta: save your design + all generated product mockups as a .zip."
-        : "Beta: save your design as a PNG. (Generate a real mockup first to get the full mockup bundle.)";
-      // Beta mode doesn't depend on a real Printify mockup — a tester
-      // who's just exploring the editor should be able to grab a PNG
-      // even before they generate the production mockup. So we relax
-      // the "needs real mockup" gate that the regular Shopify path
-      // enforces.
-      btnBuyInEditor.disabled = false;
-      btnBuyInEditor.classList.remove("buy-locked");
+        : "Generate a real mockup first (use the Generate real mockup button in the preview pane), then download the bundle.";
+      btnBuyInEditor.disabled = !hasMocks;
+      btnBuyInEditor.classList.toggle("buy-locked", !hasMocks);
       // Swap the icon for a download glyph.
       var icon = btnBuyInEditor.querySelector("i");
       if (icon) icon.className = "fas fa-download";
@@ -8222,8 +8241,13 @@
         // print area is covered edge-to-edge — switching variants while
         // letterboxing is in effect leaves dead bars that don't match the
         // print outcome. Fill is the most faithful preview of "your image
-        // covers this surface."
-        state.cropZoom = 100;
+        // covers this surface." Products with an extreme print panel (e.g.
+        // crew socks at 1:2.83) override via `initialCropZoom` so the
+        // editor opens with the disk-inscribed view instead of a thin
+        // vertical band that's mostly outside the disk.
+        state.cropZoom = (typeof product.initialCropZoom === "number" && product.initialCropZoom > 0)
+          ? product.initialCropZoom
+          : 100;
         listEl.querySelectorAll(".confirm-variant-tile").forEach(function(t) {
           var match = parseInt(t.dataset.variantId, 10) === vid;
           t.classList.toggle("active", match);
