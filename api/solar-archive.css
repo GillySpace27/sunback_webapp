@@ -2237,6 +2237,47 @@ html.dark .image-stage {
   border-color: var(--accent-sun);
 }
 
+/* ── In-flight spinner state for "Generate real mockup" ─────────
+   The button shows one of three faces at any time:
+     default → rocket icon + "Generate real mockup"
+     loading → spinner + "Generating mockup…"   (disabled, no hover)
+     done    → rocket icon + "Reset to mock mockup"
+   .btn-preview-mockup-spinner is hidden by default and only shown
+   when the button carries the .is-loading class. The icon is
+   hidden in the same state so the spinner takes its slot.
+   The status-msg spinner ring shares this style — keeping it
+   inline here avoids a forward dependency on .status-msg. */
+.btn-preview-mockup-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-corona);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.selected-product-preview .btn-preview-mockup.is-loading {
+  pointer-events: none;
+  opacity: 0.85;
+  cursor: progress;
+}
+
+.selected-product-preview .btn-preview-mockup.is-loading .btn-preview-mockup-icon {
+  display: none;
+}
+
+.selected-product-preview .btn-preview-mockup.is-loading .btn-preview-mockup-spinner {
+  display: inline-block;
+}
+
+.selected-product-preview .btn-preview-mockup.is-loading:hover {
+  /* don't flash the sun-accent hover while disabled */
+  background: var(--bg-deep);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
 .selected-product-preview .preview-mockup img.preview-real-mockup {
   object-fit: contain;
   width: 100%;
