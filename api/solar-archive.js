@@ -19,6 +19,31 @@
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
 
+    // ── Embedded-context detection ───────────────────────────────
+    // The app is also served as an iframe on the Shopify storefront
+    // (solar-archive.myshopify.com). That iframe is sized to its
+    // content height — meaning it has NO internal scroll, the
+    // outer Shopify page scrolls instead. Anything we built that
+    // depends on internal scroll behaviour stops working there:
+    //   - position: sticky has nothing to anchor against, so the
+    //     sticky editor canvas + preview pane drift off the visible
+    //     viewport as the user scrolls the outer page
+    //   - 100dvh inside the iframe = iframe content height, not the
+    //     visible window, so modals end up much taller than the
+    //     user's actual viewport
+    // The .embedded class on <html> lets CSS opt into a flat, no-
+    // sticky layout (same shape mobile already uses) and clamp modal
+    // heights so they fit the typical visible window.
+    try {
+      if (window.self !== window.top) {
+        document.documentElement.classList.add("embedded");
+      }
+    } catch (_e) {
+      // Cross-origin frame access threw → we ARE in a cross-origin
+      // iframe (the try is the detection). Same treatment.
+      document.documentElement.classList.add("embedded");
+    }
+
     // ── Dark mode detection ──────────────────────────────────────
     if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
       document.documentElement.classList.add("dark");
