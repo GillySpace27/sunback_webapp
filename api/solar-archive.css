@@ -2272,6 +2272,51 @@ html.dark .image-stage.image-stage--checker {
   font-style: italic;
 }
 
+/* Dual-panel layout toggle (throw pillow + hardcover journal).
+   Two radio chips that look like the variant select: small label
+   on top, two side-by-side pill buttons under it. */
+.selected-product-preview .preview-layout-wrap {
+  margin-top: 6px;
+}
+.selected-product-preview .preview-layout-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.selected-product-preview .preview-layout-options {
+  display: flex;
+  gap: 6px;
+}
+.selected-product-preview .preview-layout-opt {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background-color: var(--bg-deep);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.selected-product-preview .preview-layout-opt:hover {
+  background-color: rgba(123, 97, 255, 0.08);
+}
+.selected-product-preview .preview-layout-opt input[type="radio"] {
+  /* Hide the native input; the label itself becomes the chip. */
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.selected-product-preview .preview-layout-opt:has(input:checked) {
+  background-color: rgba(123, 97, 255, 0.18);
+  border-color: var(--accent-corona, #7b61ff);
+}
+
 .selected-product-preview .btn-preview-mockup {
   display: inline-flex;
   align-items: center;

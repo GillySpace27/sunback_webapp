@@ -102,6 +102,14 @@
       pendingVariantByProduct: {},     // productId -> variantId (first click, not yet confirmed)
       variantAspectRatioByProduct: {}, // productId -> { w, h } parsed from selected variant
       aspectFlippedByProduct: {},      // productId -> bool: user manually swapped w↔h
+      // Layout mode for dual-panel products (throw_pillow, journal_hardcover).
+      // "match" → editor canvas = single face, uploaded PNG is two copies
+      //           concatenated horizontally (front = back).
+      // "span"  → editor canvas = full panel aspect (front + back as one
+      //           continuous design; sun-center can land on the seam).
+      // Missing entry defaults to "match" so first-time users get the
+      // safer "same on both sides" behaviour.
+      dualPanelModeByProduct: {},      // productId -> "match" | "span"
       mockupSlideIndex: {},            // productId -> current slide index in mockup slideshow
       showOverlay: true,               // draw orange frame border on canvas
       showGuides: false                // draw centre-line / spine guide lines on canvas
@@ -183,11 +191,20 @@
       { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle" },
       { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front", aspectRatio: { w: 5610, h: 3839 }, forceOrientation: "landscape" },
       // ── Home & Living ──
-      // throw_pillow's print panel is 4650×2325 (2:1), which is a
-      // front+back wraparound for a physically-square pillow. Left
-      // at 1:1 here so the editor canvas matches the visible product;
-      // upload-side wraparound handling lives in the upload code.
-      { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 } },
+      // throw_pillow + journal_hardcover are "dual-panel" products: the
+      // Printify print area is a two-face wraparound (front + back on
+      // the pillow; back-cover + spine + front-cover on the journal),
+      // but the user designs against one face. The editor canvas uses
+      // aspectRatio (the single-face shape). At upload, layoutMode
+      // controls how the canvas maps onto the panel:
+      //   • "match"  → render canvas, duplicate horizontally, upload
+      //                a panelAspectRatio PNG — same design on both
+      //                sides (default; safest for a glance-test)
+      //   • "span"   → editor canvas becomes the full panel aspect so
+      //                the design can intentionally bridge front+back
+      //                (sun-center on the spine, etc.)
+      // dualPanelToggle UI sits in the preview pane.
+      { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 }, dualPanel: true, panelAspectRatio: { w: 4650, h: 2325 } },
       { id: "sherpa_blanket",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front", aspectRatio: { w: 7875, h: 9375 } },
       { id: "shower_curtain",       name: "Shower Curtain",      desc: "Polyester shower curtain, vibrant print",   icon: "fa-shower",       price: "From $34.99", checkoutPrice: 3499, blueprintId: 235,  printProviderId: 10,  variantId: 41653, position: "front", aspectRatio: { w: 7104, h: 7392 } },
       { id: "puzzle_1000",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front", aspectRatio: { w: 4200, h: 3300 } },
@@ -195,14 +212,20 @@
       // ── Accessories & Stationery ──
       { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: { w: 1, h: 1 },
         sizePricing: { 45748: "$2.99", 45750: "$3.99", 45752: "$4.99", 45754: "$7.99" } },
-      // Hardcover journal print panel is 4065×2850 (1.426:1 landscape) per
-      // the variant placeholder, not the 151:100 (1.51:1) the entry used to
-      // advertise. The mismatch was causing Printify to crop our PNG to
-      // fit the panel — the mockup showed the disk cut off on the right.
-      // Use the panel dims directly so the editor canvas and the upload
-      // both match what Printify expects.
-      { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front", aspectRatio: { w: 4065, h: 2850 } },
-      { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
+      // Hardcover journal panel is 4065×2850 — back cover + spine +
+      // front cover laid flat. Editor canvas uses the single front-cover
+      // aspect 2032×2850 (panel halved); dualPanel concatenation paints
+      // the same design on both faces at upload. Spine is treated as
+      // part of one face for simplicity (a slim slice of the design
+      // shows on the spine).
+      { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front", aspectRatio: { w: 2032, h: 2850 }, dualPanel: true, panelAspectRatio: { w: 4065, h: 2850 } },
+      // Backpack disabled — it's an all-over print with seven separate
+      // placeholders (front, back, left/right side, top-to-front, top-to-
+      // back, front pocket, pocket flap). Each panel needs its own design
+      // crop, so one editor canvas can't represent the product faithfully.
+      // Re-enable once we have a panel-picker UI to drive multi-placeholder
+      // products.
+      // { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
     ];
 
     // ── Session catalog (user-requested products) ────────────────
@@ -834,6 +857,8 @@
 
       // Variant selector: load variants and show dropdown so user can override in place
       updatePreviewVariantSelector(product);
+      // Dual-panel layout toggle: only shown for throw_pillow / journal
+      updatePreviewLayoutToggle(product);
       // Draw immediately so the preview isn't blank on first select
       refreshLivePreview();
       updatePreviewPaneMockupState();
@@ -6051,8 +6076,22 @@
      */
     function getEffectiveAspectRatio(product) {
       if (!product) return null;
-      var ar = state.variantAspectRatioByProduct && state.variantAspectRatioByProduct[product.id];
-      if (!ar || !ar.w || !ar.h) ar = product.aspectRatio || null;
+      // Dual-panel products: skip the variant-aspect override (which
+      // would return the full panel aspect since parseVariantAspect-
+      // Ratio reads the placeholder dimensions). In "span" mode use
+      // panelAspectRatio; in "match" use the single-face aspectRatio.
+      var ar;
+      if (product.dualPanel && product.panelAspectRatio && product.aspectRatio) {
+        var mode = (state.dualPanelModeByProduct && state.dualPanelModeByProduct[product.id]) || "match";
+        // Copy so the forceOrientation / flip logic below mutates a
+        // local AR, not the constant on the product entry.
+        ar = (mode === "span")
+          ? { w: product.panelAspectRatio.w, h: product.panelAspectRatio.h }
+          : { w: product.aspectRatio.w,      h: product.aspectRatio.h };
+      } else {
+        ar = state.variantAspectRatioByProduct && state.variantAspectRatioByProduct[product.id];
+        if (!ar || !ar.w || !ar.h) ar = product.aspectRatio || null;
+      }
       if (!ar) return null;
       // Some products (e.g. desk mat) report variant sizes as short-side × long-side in their
       // titles, so parseVariantAspectRatio returns portrait even for a landscape product.
@@ -6546,6 +6585,57 @@
           select.innerHTML = "<option value=''>Could not load variants</option>";
         });
     }
+
+    // ── Dual-panel layout toggle helpers ──────────────────────────
+    // Show the "Same both sides / Spans across" radio for any product
+    // flagged dualPanel: true. The toggle drives state.dualPanelMode-
+    // ByProduct, and changing it re-renders the canvas (so the user
+    // sees the new aspect immediately) and refreshes the preview.
+    function updatePreviewLayoutToggle(product) {
+      var wrap = document.getElementById("previewLayoutWrap");
+      if (!wrap) return;
+      if (!product || !product.dualPanel) {
+        wrap.classList.add("hidden");
+        return;
+      }
+      wrap.classList.remove("hidden");
+      var mode = state.dualPanelModeByProduct[product.id] || "match";
+      var radios = wrap.querySelectorAll('input[name="dualPanelMode"]');
+      for (var i = 0; i < radios.length; i++) {
+        radios[i].checked = (radios[i].value === mode);
+      }
+    }
+
+    (function() {
+      var wrap = document.getElementById("previewLayoutWrap");
+      if (!wrap) return;
+      wrap.addEventListener("change", function(e) {
+        if (!e.target || e.target.name !== "dualPanelMode") return;
+        var pid = state.selectedProduct;
+        if (!pid) return;
+        var newMode = (e.target.value === "span") ? "span" : "match";
+        state.dualPanelModeByProduct[pid] = newMode;
+        // Switching aspect → reset crop to 100% so the design re-fits
+        // the new shape rather than carrying a stale zoom from the
+        // previous mode.
+        state.cropZoom = 100;
+        var cs = $("#cropSlider"), cv = $("#cropVal");
+        if (cs) { cs.value = 100; }
+        if (cv) { cv.textContent = "100%"; }
+        // Clear any cached single-product mockup so the next "Generate
+        // real mockup" reflects the new layout.
+        if (state.mockups && state.mockups[pid]) delete state.mockups[pid];
+        if (state.mockupsRaw && state.mockupsRaw[pid]) delete state.mockupsRaw[pid];
+        if (state.mockupsFiltered && state.mockupsFiltered[pid]) delete state.mockupsFiltered[pid];
+        state.uploadedPrintifyId = null;
+        state.uploadedPrintifyIdRaw = null;
+        state.uploadedPrintifyIdFiltered = null;
+        if (typeof renderCanvas === "function") renderCanvas();
+        if (typeof refreshLivePreview === "function") refreshLivePreview();
+        if (typeof updatePreviewPaneMockupState === "function") updatePreviewPaneMockupState();
+        if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
+      });
+    })();
 
     (function() {
       var previewVariantSelectEl = document.getElementById("previewVariantSelect");
@@ -7591,18 +7681,48 @@
       state._fullResRender = true;
       try { renderCanvas(); } catch (_e) {}
 
+      var product = (typeof PRODUCTS !== "undefined" && state.selectedProduct)
+        ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
+        : null;
+      var isCircularProduct = (state.selectedProduct === "wall_clock") ||
+        (product && product.printShape === "circle");
+      // Dual-panel "match" mode: the editor canvas is the single-face
+      // aspect, but Printify expects a wraparound (front + back). Build
+      // the upload PNG by concatenating two copies of the canvas side-
+      // by-side so the same design lands on both faces. "span" mode
+      // skips this — the canvas is already at panel aspect.
+      var dualPanelMatch = !!(
+        product && product.dualPanel && product.panelAspectRatio
+        && ((state.dualPanelModeByProduct && state.dualPanelModeByProduct[product.id]) || "match") === "match"
+      );
+
       var maxDim = 4096;
       var sw = solarCanvas.width;
       var sh = solarCanvas.height;
-      var scale = Math.min(1, maxDim / Math.max(sw, sh));
+      // When concatenating, the LONG dimension of the export is 2 ×
+      // face width, so the maxDim cap has to clamp the doubled width
+      // (otherwise we'd silently over-shrink and lose fidelity on the
+      // single face). For non-dual exports the formula reduces to the
+      // original sw cap.
+      var longDimAfter = dualPanelMatch ? Math.max(sw * 2, sh) : Math.max(sw, sh);
+      var scale = Math.min(1, maxDim / longDimAfter);
       var ew = Math.round(sw * scale);
       var eh = Math.round(sh * scale);
 
+      var exportW = dualPanelMatch ? ew * 2 : ew;
+      var exportH = eh;
       var exportCanvas = document.createElement("canvas");
-      exportCanvas.width = ew;
-      exportCanvas.height = eh;
+      exportCanvas.width = exportW;
+      exportCanvas.height = exportH;
       var ectx = exportCanvas.getContext("2d");
       ectx.drawImage(solarCanvas, 0, 0, ew, eh);
+      if (dualPanelMatch) {
+        // Paint the same canvas on the right half. Printify's panel
+        // maps left→back, right→front (verified by inspection on the
+        // hardcover-journal mockup) — both halves carry the user's
+        // design so front and back come out identical.
+        ectx.drawImage(solarCanvas, ew, 0, ew, eh);
+      }
 
       // Format choice:
       //   - PNG when the vignette fade is "transparent" OR the product
@@ -7613,11 +7733,6 @@
       //     crewneck — fabric should show through, not black box).
       //   - JPEG at q=0.85 otherwise. Smaller upload, no quality
       //     difference for fully-opaque renders.
-      var product = (typeof PRODUCTS !== "undefined" && state.selectedProduct)
-        ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
-        : null;
-      var isCircularProduct = (state.selectedProduct === "wall_clock") ||
-        (product && product.printShape === "circle");
       var needsAlpha = (state.vignetteFade === "transparent") || isCircularProduct;
       var dataUrl = needsAlpha
         ? exportCanvas.toDataURL("image/png")
