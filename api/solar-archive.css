@@ -2081,6 +2081,17 @@ html.dark .image-stage {
   top: 20px;
 }
 
+/* Once the user has scrolled past the editor row entirely, sticky
+   releases the preview and it scrolls away with the page. We want
+   the preview to keep tracking the viewport — JS adds .preview-
+   pinned and inline left/width/top so the pane stays anchored in
+   its column all the way to the footer. */
+.editor-with-preview .selected-product-preview.preview-pinned {
+  position: fixed;
+  z-index: 10;
+  /* left, top, and width are set inline by the scroll handler */
+}
+
 /* ✕ close / deselect button in the product preview panel */
 .preview-close-btn {
   position: absolute;
