@@ -3215,12 +3215,20 @@ html.dark .image-stage.image-stage--checker {
   position: relative;
   width: 100%;
   max-width: 460px;
-  /* Cap to viewport height so the new variant picker grid (which can be tall
-     for products with 78+ variants) doesn't push the Continue button below
-     the fold. The picker has its own scroll inside. */
+  /* Cap to the VISIBLE viewport so a tall variant list (canvas
+     stretched has 78+ variants) can't push the Continue button
+     off-screen. `100vh` on iOS includes the area behind the URL
+     bar, which sent the bottom of the panel below the fold with
+     no way to scroll there — `100dvh` tracks the visual viewport.
+     Fallback `100vh` keeps the previous behaviour on browsers
+     without dvh (Safari < 15.4). */
   max-height: calc(100vh - 32px);
-  display: flex;
-  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  /* Plain block layout instead of flex — flex containers with
+     overflow-y: auto have iOS-Safari quirks where the scrollHeight
+     gets miscalculated and the scrollbar never appears. Plain
+     block + overflow-y: auto always works. */
+  display: block;
   background: #17192a;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
@@ -3228,6 +3236,9 @@ html.dark .image-stage.image-stage--checker {
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
   color: var(--text-primary, #e9eaf5);
   overflow-y: auto;
+  /* iOS momentum scrolling — without this the user has to drag-
+     scroll without flick inertia, which feels broken on touch. */
+  -webkit-overflow-scrolling: touch;
 }
 .confirm-modal-close {
   position: absolute;
@@ -3450,6 +3461,19 @@ html.dark .image-stage.image-stage--checker {
   padding: 8px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+/* On narrow screens (mobile portrait) the nested scroll inside the
+   modal competes with the modal's own scroll — the variant picker
+   shows ~3 rows in its 240-px window and the user reasonably
+   assumes that's the whole list, never realising the modal itself
+   scrolls past it to the Continue button below. Drop the inner cap
+   so the variant list grows naturally and the WHOLE modal scrolls
+   as one continuous flow. */
+@media (max-width: 600px) {
+  .confirm-variant-picker {
+    max-height: none;
+    overflow-y: visible;
+  }
 }
 .confirm-variant-picker::-webkit-scrollbar { width: 8px; }
 .confirm-variant-picker::-webkit-scrollbar-thumb {
