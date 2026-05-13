@@ -3321,6 +3321,24 @@ html.dark .image-stage.image-stage--checker {
 .confirm-modal-actions {
   display: flex;
   gap: 8px;
+  /* Continue button sticks to the bottom of the scrolling panel so
+     it's always reachable, no matter how tall the variant list is
+     or how short the viewport is. The mid-modal variant picker has
+     its own 240-px scroll on desktop — without this sticky, wheel
+     events over the picker scroll only the picker, and users hit
+     the picker's bottom thinking they've reached the end of the
+     modal. With sticky, Continue is pinned at the panel's bottom
+     edge regardless of scroll position. Mobile gets the same
+     guarantee for the same reason. */
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  /* Solid background + small top fade so content scrolling past
+     doesn't visually bleed through the button row. */
+  background: #17192a;
+  padding-top: 14px;
+  margin-top: 4px;
+  box-shadow: 0 -10px 12px -8px #17192a;
 }
 .confirm-modal-btn {
   flex: 1;
