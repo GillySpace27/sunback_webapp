@@ -2584,6 +2584,39 @@ html.dark .image-stage.image-stage--checker {
   }
 }
 
+/* ── Embedded-iframe overrides ────────────────────────────────
+   When the app loads inside an iframe (Shopify storefront), the
+   iframe is sized to its content height with no internal scroll,
+   so sticky positioning has nothing to anchor against. Reuse the
+   mobile column-stack shape instead — the canvas + preview sit
+   inline with the rest of the editor and the user scrolls the
+   outer page linearly. JS adds .embedded to <html> when it
+   detects window.self !== window.top. */
+html.embedded .editor-with-preview {
+  flex-direction: column;
+}
+html.embedded .editor-with-preview .selected-product-preview {
+  flex: none;
+  width: 100%;
+  position: static;
+  max-width: none;
+}
+html.embedded .editor-with-preview .image-stage {
+  position: static;
+  max-height: none;
+  z-index: auto;
+}
+/* The JS-driven "preview-pinned" fallback (position: fixed when the
+   user has scrolled past the sticky range) also fights the embedded
+   layout. Force the natural-flow rules regardless. */
+html.embedded .editor-with-preview .selected-product-preview.preview-pinned {
+  position: static;
+  top: auto;
+  left: auto;
+  width: 100%;
+  z-index: auto;
+}
+
 /* ── Touchscreen tap-target bumps ──────────────────────────────
    `(pointer: coarse)` matches touch-primary devices (phones,
    tablets, touch laptops) regardless of viewport width. WCAG and
@@ -2695,6 +2728,14 @@ html.dark .image-stage.image-stage--checker {
   height: 100vh;
   height: 100dvh;
 }
+/* Inside an iframe (Shopify storefront), `100dvh` reports the
+   iframe's full content height — typically much bigger than the
+   visible window. Hard-cap so the centered panel can't grow beyond
+   what a normal laptop browser shows. */
+html.embedded .feedback-modal {
+  height: min(100vh, 760px);
+  height: min(100dvh, 760px);
+}
 .feedback-modal.hidden { display: none; }
 .feedback-modal-backdrop {
   position: absolute;
@@ -2718,6 +2759,12 @@ html.dark .image-stage.image-stage--checker {
   padding: 28px 24px 24px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
   color: var(--text-primary, #e9eaf5);
+}
+html.embedded .feedback-modal-panel {
+  /* dvh inside an iframe = iframe content height, which is bigger
+     than the visible window. Cap so the panel fits within a normal
+     laptop browser viewport when our app is embedded. */
+  max-height: min(calc(100dvh - 40px), 720px);
 }
 .feedback-close-btn {
   position: absolute;
@@ -3204,6 +3251,22 @@ html.dark .image-stage.image-stage--checker {
   padding: 20px;
 }
 .confirm-modal.hidden { display: none; }
+/* Embedded-iframe: clamp both the modal's frame and the panel's
+   max-height so they fit within a typical visible window. Without
+   this, `inset: 0` covers the iframe's full content area and the
+   panel happily sizes to it — leaving the bottom of the modal
+   somewhere outside the user's visible scroll position. */
+html.embedded .confirm-modal {
+  height: min(100vh, 760px);
+  height: min(100dvh, 760px);
+  /* `inset: 0` makes top:0 / bottom:0 too. Override bottom so the
+     modal box ends where the height cap says, not at the bottom of
+     the iframe. */
+  bottom: auto;
+}
+html.embedded .confirm-modal-panel {
+  max-height: min(calc(100dvh - 32px), 720px);
+}
 .confirm-modal-backdrop {
   position: absolute;
   inset: 0;
@@ -3221,7 +3284,9 @@ html.dark .image-stage.image-stage--checker {
      bar, which sent the bottom of the panel below the fold with
      no way to scroll there — `100dvh` tracks the visual viewport.
      Fallback `100vh` keeps the previous behaviour on browsers
-     without dvh (Safari < 15.4). */
+     without dvh (Safari < 15.4). Embedded mode (Shopify iframe)
+     caps further so the panel can't size against the iframe's
+     full content height — see the html.embedded rule below. */
   max-height: calc(100vh - 32px);
   max-height: calc(100dvh - 32px);
   /* Plain block layout instead of flex — flex containers with
