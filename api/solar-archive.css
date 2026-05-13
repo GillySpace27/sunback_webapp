@@ -2584,6 +2584,45 @@ html.dark .image-stage.image-stage--checker {
   }
 }
 
+/* ── Touchscreen tap-target bumps ──────────────────────────────
+   `(pointer: coarse)` matches touch-primary devices (phones,
+   tablets, touch laptops) regardless of viewport width. WCAG and
+   Apple HIG both call for ~44×44pt minimum tap targets; the default
+   styling on chips and the modal close button is below that, which
+   is fine for mouse-driven UI but cramped for thumbs. Desktop hover
+   devices are left untouched so the layout doesn't get oversized
+   on the editor's tight slider rows. */
+@media (pointer: coarse) {
+  /* Modal close (✕) goes from 32×32 to 44×44. */
+  .feedback-close-btn,
+  .confirm-modal-close,
+  .preview-close-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 1.15rem;
+  }
+  /* Preset chips (Crop / Vig.Edge / Vig.Radius / Crop Edge / X·Y)
+     get more vertical room. We don't push to a strict 44 because the
+     Geometry tab packs four preset rows in a small space; 36px is
+     the comfort floor that keeps the rows compact and still reaches
+     a thumb. The `!important` overrides the `font-size:0.72rem !important`
+     on the base class. */
+  .preset-btn {
+    padding: 8px 12px !important;
+    min-height: 36px;
+    font-size: 0.8rem !important;
+  }
+  /* FAB pills sit on a corner — taller padding helps thumb-reach. */
+  .feedback-fab {
+    padding: 14px 18px;
+  }
+  /* Feedback layout-toggle pills (Same both sides / Spans across). */
+  .selected-product-preview .preview-layout-opt {
+    padding: 10px 10px;
+    font-size: 0.85rem;
+  }
+}
+
 /* ───────────────────────────────────────────────────────────────
    Feedback widget — floating action button + modal. Sits above all
    other app chrome (z-index above the catalog modal) so users can
@@ -2645,6 +2684,16 @@ html.dark .image-stage.image-stage--checker {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  /* When iOS pushes the keyboard up, the visual viewport shrinks but
+     `vh` keeps the old document height — the modal would stay full-
+     viewport-tall and the panel could end up centered behind the
+     keyboard. `dvh` (dynamic viewport height) tracks the visual
+     viewport, so when the keyboard opens the modal collapses to the
+     visible region and the centered panel reflows above it. Falls
+     back to `vh` on older browsers (Safari < 15.4, Chrome < 108) —
+     they keep the old behaviour, which is the status quo. */
+  height: 100vh;
+  height: 100dvh;
 }
 .feedback-modal.hidden { display: none; }
 .feedback-modal-backdrop {
@@ -2658,7 +2707,10 @@ html.dark .image-stage.image-stage--checker {
   position: relative;
   width: 100%;
   max-width: 520px;
+  /* Same dvh fallback chain so the panel itself never exceeds the
+     visible area when the keyboard is up. */
   max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
   overflow-y: auto;
   background: #17192a;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2759,7 +2811,17 @@ html.dark .image-stage.image-stage--checker {
   outline: none;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
-.feedback-modal textarea { resize: vertical; min-height: 88px; }
+/* No drag-handle resize — JS auto-grows the textarea on input, which
+   works on touch (where the resize grip is too small to grab) and on
+   desktop (no manual sizing needed). overflow-y stays hidden so we
+   don't flash a scrollbar mid-grow; the JS caps height at 60vh so
+   the modal still scrolls past the textarea on overflow. */
+.feedback-modal textarea {
+  resize: none;
+  min-height: 88px;
+  overflow-y: hidden;
+  line-height: 1.4;
+}
 .feedback-modal textarea:focus,
 .feedback-modal input:focus,
 .feedback-modal select:focus {
