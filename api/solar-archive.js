@@ -8780,7 +8780,23 @@
 
       modal.classList.remove("hidden");
       _bootstrap();
-      setTimeout(function() { continueBtn.focus(); }, 40);
+      // Embedded mode (Shopify iframe): the modal renders inline in
+      // document flow rather than overlaying the viewport. Scroll
+      // the user to it so they land on the picker instead of being
+      // left where they were on the outer page.
+      if (document.documentElement.classList.contains("embedded")) {
+        try { modal.scrollIntoView({ behavior: "smooth", block: "start" }); }
+        catch (_e) { modal.scrollIntoView(); }
+      }
+      // Skip programmatic focus on touch devices — same iOS soft-
+      // keyboard reasoning as the feedback modal. Continue is a
+      // button, no keyboard, but the focus ring still grabs the
+      // user's attention away from the modal content on mobile.
+      var _isTouch = ('ontouchstart' in window) ||
+                     (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+      if (!_isTouch) {
+        setTimeout(function() { continueBtn.focus(); }, 40);
+      }
     }
 
     function escapeHtmlSimple(s) {
@@ -8963,6 +8979,13 @@
         var tab = initialTab === "product" ? "product" : "comment";
         showTab(tab);
         _prefillContactFields();
+        // Embedded mode (Shopify iframe): the modal flows inline in
+        // the document rather than overlaying. Scroll to it so the
+        // user finds it instead of staring at their old scroll spot.
+        if (document.documentElement.classList.contains("embedded")) {
+          try { modal.scrollIntoView({ behavior: "smooth", block: "start" }); }
+          catch (_e) { modal.scrollIntoView(); }
+        }
         // Tier-1 mobile fix: iOS Safari (and Android Chrome) only pop the
         // soft keyboard when focus is triggered by a user gesture in the
         // SAME synchronous call stack. The setTimeout below breaks that

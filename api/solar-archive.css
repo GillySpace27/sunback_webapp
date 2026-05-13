@@ -2728,13 +2728,29 @@ html.embedded .editor-with-preview .selected-product-preview.preview-pinned {
   height: 100vh;
   height: 100dvh;
 }
-/* Inside an iframe (Shopify storefront), `100dvh` reports the
-   iframe's full content height — typically much bigger than the
-   visible window. Hard-cap so the centered panel can't grow beyond
-   what a normal laptop browser shows. */
+/* Embedded mode (Shopify iframe): inline the whole modal instead
+   of overlaying. position:fixed inside an iframe with no internal
+   scroll pins to the iframe's coordinate space (which equals the
+   content height), so a "fixed overlay" can end up far above or
+   below the user's actual visible scroll. Letting the modal flow
+   inline means the iframe resizes around it, the outer Shopify
+   page scrolls naturally through it, and there's only ever ONE
+   scroll container competing for the user's wheel/touch.
+
+   Backdrop, max-height, internal overflow — all neutralised. JS
+   adds a scrollIntoView on open so the user actually lands on the
+   modal when it appears. */
 html.embedded .feedback-modal {
-  height: min(100vh, 760px);
-  height: min(100dvh, 760px);
+  position: static;
+  display: block;
+  height: auto;
+  padding: 0;
+  margin: 24px auto;
+  max-width: 580px;
+  z-index: auto;
+}
+html.embedded .feedback-modal-backdrop {
+  display: none;
 }
 .feedback-modal.hidden { display: none; }
 .feedback-modal-backdrop {
@@ -2761,10 +2777,19 @@ html.embedded .feedback-modal {
   color: var(--text-primary, #e9eaf5);
 }
 html.embedded .feedback-modal-panel {
-  /* dvh inside an iframe = iframe content height, which is bigger
-     than the visible window. Cap so the panel fits within a normal
-     laptop browser viewport when our app is embedded. */
-  max-height: min(calc(100dvh - 40px), 720px);
+  /* Inline mode: no scroll cap, panel sizes to its content and the
+     outer Shopify page provides the scroll. */
+  max-height: none;
+  overflow-y: visible;
+}
+html.embedded .feedback-modal textarea {
+  /* JS auto-resizes textareas relative to `window.innerHeight` (60vh
+     cap). In embedded mode `innerHeight` is the iframe's content
+     height, which is bigger than the visible window, so the textarea
+     can grow huge before the JS cap kicks in. A static min-height +
+     auto growth caps the practical size to what the user actually
+     typed. */
+  min-height: 88px;
 }
 .feedback-close-btn {
   position: absolute;
@@ -3251,21 +3276,57 @@ html.embedded .feedback-modal-panel {
   padding: 20px;
 }
 .confirm-modal.hidden { display: none; }
-/* Embedded-iframe: clamp both the modal's frame and the panel's
-   max-height so they fit within a typical visible window. Without
-   this, `inset: 0` covers the iframe's full content area and the
-   panel happily sizes to it — leaving the bottom of the modal
-   somewhere outside the user's visible scroll position. */
+/* Embedded mode (Shopify iframe): inline the variant picker
+   instead of overlaying. Same reasoning as the feedback modal —
+   `position: fixed` inside a scroll-through iframe can pin the
+   modal far above/below the user's visible scroll, and an
+   internally-scrolling panel fights the outer Shopify page for
+   wheel input. Letting the picker flow inline (with the iframe
+   resizing around it) gives ONE scroll container — the outer
+   Shopify page — and the user reaches Continue by scrolling
+   linearly. JS scrolls the modal into view on open. */
 html.embedded .confirm-modal {
-  height: min(100vh, 760px);
-  height: min(100dvh, 760px);
-  /* `inset: 0` makes top:0 / bottom:0 too. Override bottom so the
-     modal box ends where the height cap says, not at the bottom of
-     the iframe. */
-  bottom: auto;
+  position: static;
+  display: block;
+  height: auto;
+  padding: 0;
+  margin: 24px auto;
+  max-width: 520px;
+  z-index: auto;
+}
+html.embedded .confirm-modal-backdrop {
+  display: none;
 }
 html.embedded .confirm-modal-panel {
-  max-height: min(calc(100dvh - 32px), 720px);
+  max-height: none;
+  overflow-y: visible;
+}
+/* The variant grid had its own 240-px internal scroll on desktop;
+   in embedded mode that competes with the outer page scroll. Let
+   it grow to fit all variants. */
+html.embedded .confirm-variant-picker {
+  max-height: none;
+  overflow-y: visible;
+}
+/* Sticky Continue depends on a scrolling ancestor — without one
+   (inline panel, overflow:visible) sticky behaves like static
+   anyway, but make the intent explicit and drop the floating-row
+   shadow so it reads as a normal button row. */
+html.embedded .confirm-modal-actions {
+  position: static;
+  box-shadow: none;
+  background: transparent;
+  padding-top: 0;
+}
+/* Other small scroll regions in the app: inline variant panel
+   (product card expansion) and feedback-modal catalog-search
+   results. Both have their own max-height in standalone mode;
+   embedded mode lets them grow naturally so the outer Shopify
+   page is the only scroll surface. */
+html.embedded .variant-panel,
+html.embedded .feedback-product-results {
+  max-height: none;
+  overflow-y: visible;
 }
 .confirm-modal-backdrop {
   position: absolute;
