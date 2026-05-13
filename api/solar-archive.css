@@ -2068,6 +2068,24 @@ html.dark .image-stage {
   min-width: 0;
 }
 
+/* Sticky editor canvas — the live preview of the user's edits floats
+   alongside the mockup preview pane so both stay visible while the
+   user scrolls through long tab content (especially Geometry, which
+   has the most sliders). The cap on max-height leaves roughly half
+   the viewport free for the sliders to scroll behind the sticky
+   canvas; without a cap a 1:1 product's canvas would gladly occupy
+   70vh and hide everything below it.
+
+   Stacked vertical layout on narrow screens (≤740px) — the media
+   query at the bottom of this file overrides this back to static so
+   the canvas reads normally on phones. */
+.editor-with-preview .image-stage {
+  position: sticky;
+  top: 20px;
+  z-index: 5;             /* above the scrolling toolbar behind it */
+  max-height: 45vh;       /* keep room for sliders below */
+}
+
 .editor-with-preview .selected-product-preview {
   flex: 1 0 260px;
   max-width: 400px;
@@ -2481,6 +2499,13 @@ html.dark .image-stage {
     flex: none;
     width: 100%;
     position: static;
+  }
+  /* On narrow screens the columns stack vertically. Sticky canvas
+     doesn't make sense there — both the canvas and the sliders
+     are reading top-to-bottom in a single column already. */
+  .editor-with-preview .image-stage {
+    position: static;
+    max-height: none;
   }
 }
 
