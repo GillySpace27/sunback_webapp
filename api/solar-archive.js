@@ -153,7 +153,10 @@
       // before enabling.  Pixel 7/8/8a/9/9 Pro confirmed on WOYC catalog.
       // { id: "phone_case_pixel", name: "Phone Case (Pixel)", desc: "Tough snap case — Google Pixel", icon: "fa-mobile-alt", price: "From $19.99", checkoutPrice: 1999, blueprintId: 421, printProviderId: 23, variantId: null, position: "front", aspectRatio: { w: 9, h: 19 } },
       { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
-      { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front", aspectRatio: { w: 1, h: 1 } },
+      // Mouse pad's physical print area is a circle, not a square. Same treatment
+      // as wall_clock — round frame border in the editor, circular clip on the
+      // canvas, and a circular preview in the mockup pane.
+      { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle" },
       { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front", aspectRatio: { w: 2, h: 1 }, forceOrientation: "landscape" },
       // ── Home & Living ──
       { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 } },
@@ -3725,17 +3728,54 @@
       sharp: 0,   // crisp circle
       soft:  22,  // feathered fade
     };
-    // The "disk" preset is intentionally aspect-aware — at this scale
-    // the same numeric slider value gives a different physical radius
-    // on a square canvas vs. a portrait. computeDiskVignette() inverts
-    // the renderer's geometry to land the vignette circle exactly on
-    // one solar radius (R☉, 960" of sky) regardless of product aspect.
+    // The "disk" and "fit" presets are aspect-aware functions —
+    // a constant slider value gives different physical radii on
+    // a square vs. portrait canvas, so the preset has to invert
+    // the renderer's geometry per current product.
+    //   disk → vignette circle = 1 solar radius (R☉, 960" of sky)
+    //   fit  → vignette circle = largest inscribed circle that
+    //          touches the print rectangle's edge midpoints
+    //          (radius = min(W,H)/2)
     var VIGNETTE_RADIUS_MODES = {
       off:  0,    // no vignette
       full: 12,   // gentle fade — vignette only catches the corners
-      fit:  24,   // disk + breathing room (default)
-      disk: computeDiskVignette,  // vignette circle = 1 R☉
+      fit:  computeFitVignette,   // inscribed circle, edge-midpoints
+      disk: computeDiskVignette,  // 1 R☉
     };
+    // Both "fit" and "disk" are aspect- AND shape-aware: the
+    // renderer uses a different maxR for round print areas
+    // (inscribed-circle radius) vs. rectangular ones (half the
+    // diagonal), so the same physical vignette size needs a
+    // different slider value depending on whether the current
+    // product's print boundary is a circle.
+    function _isCircularSelectedProduct() {
+      var p = (typeof PRODUCTS !== "undefined" && state.selectedProduct)
+        ? PRODUCTS.find(function(x) { return x.id === state.selectedProduct; })
+        : null;
+      return (state.selectedProduct === "wall_clock") ||
+             (p && p.printShape === "circle");
+    }
+    // Solve vigR = maxR · (1 − v/100 · 0.9) for the slider value that
+    // gives the largest inscribed circle in the print rectangle:
+    //   vigR  = min(W, H) / 2                  (inscribed circle radius)
+    //   maxR  = ½ · √(W² + H²)                  (renderer's reference)
+    //   v     = (1 − min(W,H) / √(W²+H²)) · 100 / 0.9
+    // On a 1:1 product this is ~33; on a circular product the print
+    // boundary already IS the inscribed circle so the answer is 0.
+    function computeFitVignette() {
+      if (_isCircularSelectedProduct()) return 0;
+      var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+      var ar = (product && typeof getEffectiveAspectRatio === "function")
+        ? getEffectiveAspectRatio(product)
+        : null;
+      var W = ar ? ar.w : 1;
+      var H = ar ? ar.h : 1;
+      var minDim = Math.min(W, H);
+      var diag = Math.sqrt(W * W + H * H);
+      var ratio = minDim / diag;
+      var v = (1 - ratio) * 100 / 0.9;
+      return Math.max(0, Math.min(100, Math.round(v)));
+    }
     // Solve the renderer's vignette geometry for the slider value that
     // produces a vignette radius equal to one solar radius:
     //   - Renderer: vigR = maxR · (1 − v/100 · 0.9)
@@ -3759,11 +3799,16 @@
       var W = ar ? ar.w : 1;
       var H = ar ? ar.h : 1;
       var maxDim = Math.max(W, H);
+      var minDim = Math.min(W, H);
       var diag = Math.sqrt(W * W + H * H);
       // 0.78125 = 2 · 960 / (4096 · 0.6) = 2 · solar-radius-arcsec /
-      // FITS-extent-arcsec. The factor of 2 is because the renderer's
-      // maxR is half the diagonal but disk-radius is from canvas centre.
-      var ratio = 0.78125 * maxDim / diag;
+      // FITS-extent-arcsec. The factor of 2 cancels the renderer's
+      // ½ in maxR. For round products the renderer's maxR is
+      // min/2 (inscribed circle radius) instead of diag/2, so the
+      // ratio divisor changes.
+      var ratio = _isCircularSelectedProduct()
+        ? (0.78125 * maxDim / minDim)
+        : (0.78125 * maxDim / diag);
       var v = (1 - ratio) * 100 / 0.9;
       // Slider snaps to integers; round so the preset value
       // round-trips cleanly through the slider→state→preset path.
@@ -5626,7 +5671,34 @@
         mctx.strokeStyle = frameColor;
         mctx.lineWidth = 1;
         mctx.stroke();
-      } else if (productId === "throw_pillow" || productId === "mouse_pad" || productId === "sherpa_blanket" ||
+      } else if (productId === "mouse_pad" || (function() {
+          var _circProd = PRODUCTS.find(function(p){ return p.id === productId; });
+          return _circProd && _circProd.printShape === "circle" && productId !== "wall_clock";
+        })()) {
+        // Round-print products (mouse pad; user-requested circular-print
+        // items via printShape: "circle"). wall_clock has its own block
+        // above with rim/hand decorations, so it's explicitly excluded
+        // here even though it shares the shape flag.
+        var cR = 65, cCx = 80, cCy = 80;
+        // Soft drop shadow first so the disc sits on the card surface.
+        mctx.fillStyle = "rgba(0,0,0,0.22)";
+        mctx.beginPath();
+        mctx.arc(cCx + 3, cCy + 3, cR, 0, Math.PI * 2);
+        mctx.fill();
+        mctx.save();
+        mctx.beginPath();
+        mctx.arc(cCx, cCy, cR, 0, Math.PI * 2);
+        mctx.clip();
+        drawCropped(cCx - cR, cCy - cR, cR * 2, cR * 2);
+        mctx.restore();
+        // Faint rim so the product silhouette reads as round even
+        // when the artwork itself has an opaque edge.
+        mctx.strokeStyle = "rgba(0,0,0,0.18)";
+        mctx.lineWidth = 1.5;
+        mctx.beginPath();
+        mctx.arc(cCx, cCy, cR, 0, Math.PI * 2);
+        mctx.stroke();
+      } else if (productId === "throw_pillow" || productId === "sherpa_blanket" ||
                  productId === "shower_curtain" || productId === "tapestry" || productId === "crew_socks") {
         // Square-ish products
         var pilL = 18, pilT = 18, pilW = 124, pilH = 124;
@@ -7462,7 +7534,7 @@
 
     // ── Canvas-to-base64 helper for Printify uploads ──────────
     function getCanvasBase64() {
-      // Export the current solar canvas as a JPEG base64 string.
+      // Export the current solar canvas as a base64 string for Printify.
       // Re-render with `_burningCanvas` flag so the on-screen frame border,
       // guide lines, and any live (un-burned) text overlay are excluded from
       // the image sent to Printify. Those are editing aids, not product art.
@@ -7488,7 +7560,24 @@
       var ectx = exportCanvas.getContext("2d");
       ectx.drawImage(solarCanvas, 0, 0, ew, eh);
 
-      var dataUrl = exportCanvas.toDataURL("image/jpeg", 0.85);
+      // Format choice:
+      //   - PNG when the vignette fade is "transparent" OR the product
+      //     has a non-rectangular print area (circular, etc). JPEG
+      //     would flatten the alpha to black and Printify's mockup
+      //     renderer then prints a black rectangle behind the disk on
+      //     fabric products (real beta-tester report on a maroon
+      //     crewneck — fabric should show through, not black box).
+      //   - JPEG at q=0.85 otherwise. Smaller upload, no quality
+      //     difference for fully-opaque renders.
+      var product = (typeof PRODUCTS !== "undefined" && state.selectedProduct)
+        ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
+        : null;
+      var isCircularProduct = (state.selectedProduct === "wall_clock") ||
+        (product && product.printShape === "circle");
+      var needsAlpha = (state.vignetteFade === "transparent") || isCircularProduct;
+      var dataUrl = needsAlpha
+        ? exportCanvas.toDataURL("image/png")
+        : exportCanvas.toDataURL("image/jpeg", 0.85);
 
       // Restore on-screen view (with border/guides/text overlay) for the editor.
       state._burningCanvas = wasBurning || false;
