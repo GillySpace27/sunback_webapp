@@ -636,6 +636,97 @@
     // without any DOM churn.
     var livePreviewCanvas = null;
 
+    // ── Preview pane: extend sticky tracking past the editor row ──
+    // .selected-product-preview uses position: sticky inside the
+    // flex row .editor-with-preview. Once the row has fully scrolled
+    // past its sticky range, the pane releases and scrolls away —
+    // but the user wants to keep seeing it as they continue down
+    // the page (into the product picker, footer, etc.). When the
+    // sticky range is exhausted we add .preview-pinned to switch to
+    // position: fixed, with explicit left/width captured from the
+    // pane's last natural rect so it stays in its column. Going back
+    // up reverses the switch.
+    var _previewPaneNaturalGeom = null;
+    var _previewPaneRaf = 0;
+    function _updatePreviewPanePinning() {
+      var preview = document.getElementById("selectedProductPreview");
+      if (!preview) return;
+      // Hidden / not selected → reset and bail.
+      if (preview.classList.contains("hidden")) {
+        preview.classList.remove("preview-pinned");
+        preview.style.left = "";
+        preview.style.width = "";
+        preview.style.top = "";
+        _previewPaneNaturalGeom = null;
+        return;
+      }
+      // Narrow screens stack vertically (see media query in CSS) — no
+      // pinning needed; let the natural document flow handle it.
+      if (window.innerWidth <= 740) {
+        preview.classList.remove("preview-pinned");
+        preview.style.left = "";
+        preview.style.width = "";
+        preview.style.top = "";
+        return;
+      }
+      var parent = preview.parentElement;  // .editor-with-preview
+      if (!parent) return;
+      var parentRect = parent.getBoundingClientRect();
+      var paneHeight = preview.offsetHeight;
+      var TOP_GAP = 20;  // matches the CSS top: 20px
+
+      // Sticky is still doing its job while the parent's bottom edge
+      // is below where the pane's top would land if pinned.
+      var stickyValid = (parentRect.bottom >= TOP_GAP + paneHeight);
+
+      if (stickyValid) {
+        // Capture the pane's natural geometry every frame so we know
+        // where to anchor when sticky eventually releases.
+        var rect = preview.getBoundingClientRect();
+        // Width / left only meaningful when not in pinned mode.
+        if (!preview.classList.contains("preview-pinned")) {
+          _previewPaneNaturalGeom = { left: rect.left, width: rect.width };
+        }
+        preview.classList.remove("preview-pinned");
+        preview.style.left = "";
+        preview.style.width = "";
+        preview.style.top = "";
+      } else if (_previewPaneNaturalGeom) {
+        // Past the sticky parent — pin to viewport with captured geom.
+        // Clamp the top so the pane doesn't run over the footer; once
+        // we'd overlap, allow it to ride up so its bottom touches the
+        // footer's top (then scrolls off-screen with the page).
+        var top = TOP_GAP;
+        var footer = document.querySelector(".app-footer");
+        if (footer) {
+          var footerRect = footer.getBoundingClientRect();
+          var maxTop = footerRect.top - paneHeight - 10;
+          if (top > maxTop) top = maxTop;
+        }
+        preview.classList.add("preview-pinned");
+        preview.style.top = top + "px";
+        preview.style.left = _previewPaneNaturalGeom.left + "px";
+        preview.style.width = _previewPaneNaturalGeom.width + "px";
+      }
+    }
+    function _schedulePreviewPanePin() {
+      if (_previewPaneRaf) return;
+      _previewPaneRaf = requestAnimationFrame(function() {
+        _previewPaneRaf = 0;
+        _updatePreviewPanePinning();
+      });
+    }
+    window.addEventListener("scroll", _schedulePreviewPanePin, { passive: true });
+    window.addEventListener("resize", _schedulePreviewPanePin);
+    // Layout-changing events that affect the natural slot's geometry:
+    // wait one frame so flex has reflowed, then resync.
+    function _resyncPreviewPaneSoon() {
+      requestAnimationFrame(function() {
+        _previewPaneNaturalGeom = null;
+        _updatePreviewPanePinning();
+      });
+    }
+
     // Called once when the user selects a product: sets labels and creates
     // the persistent canvas inside the preview pane.
     function updateSelectedProductPreview(product) {
@@ -644,9 +735,13 @@
       if (!product) {
         previewPane.classList.add("hidden");
         livePreviewCanvas = null;
+        if (typeof _resyncPreviewPaneSoon === "function") _resyncPreviewPaneSoon();
         return;
       }
       previewPane.classList.remove("hidden");
+      // Pane just became visible — re-measure its natural geometry on
+      // the next frame so pinning has the right left/width to capture.
+      if (typeof _resyncPreviewPaneSoon === "function") _resyncPreviewPaneSoon();
       previewPane.querySelector(".preview-product-name").textContent = product.name;
       var ar = getEffectiveAspectRatio(product);
       var arSimple = ar ? simplifyAspectRatio(ar.w, ar.h) : null;
@@ -3630,12 +3725,50 @@
       sharp: 0,   // crisp circle
       soft:  22,  // feathered fade
     };
+    // The "disk" preset is intentionally aspect-aware — at this scale
+    // the same numeric slider value gives a different physical radius
+    // on a square canvas vs. a portrait. computeDiskVignette() inverts
+    // the renderer's geometry to land the vignette circle exactly on
+    // one solar radius (R☉, 960" of sky) regardless of product aspect.
     var VIGNETTE_RADIUS_MODES = {
       off:  0,    // no vignette
       full: 12,   // gentle fade — vignette only catches the corners
       fit:  24,   // disk + breathing room (default)
-      fill: 48,   // tight — close to the solar disk
+      disk: computeDiskVignette,  // vignette circle = 1 R☉
     };
+    // Solve the renderer's vignette geometry for the slider value that
+    // produces a vignette radius equal to one solar radius:
+    //   - Renderer: vigR = maxR · (1 − v/100 · 0.9)
+    //     where maxR = ½·√(W² + H²) (half the canvas diagonal)
+    //   - Astronomy: 1 R☉ = 960" of sky; FITS sampling is 0.6"/px on a
+    //     4096-px frame, so disk radius in image-px = 1600. The image
+    //     is drawn at scale max(W,H)/4096, so on the canvas the disk
+    //     radius = 0.3906 · max(W, H).
+    //   - The JPG branch in renderCanvas() scales JPG by 3000/(4096·0.6)
+    //     so JPG and FITS land the disk at the same canvas size — the
+    //     formula below covers both.
+    // Setting vigR = disk-radius and solving for v:
+    //   v = (1 − 0.78125 · max(W,H) / √(W² + H²)) · 100 / 0.9
+    function computeDiskVignette() {
+      var product = (typeof PRODUCTS !== "undefined" && state.selectedProduct)
+        ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
+        : null;
+      var ar = (product && typeof getEffectiveAspectRatio === "function")
+        ? getEffectiveAspectRatio(product)
+        : null;
+      var W = ar ? ar.w : 1;
+      var H = ar ? ar.h : 1;
+      var maxDim = Math.max(W, H);
+      var diag = Math.sqrt(W * W + H * H);
+      // 0.78125 = 2 · 960 / (4096 · 0.6) = 2 · solar-radius-arcsec /
+      // FITS-extent-arcsec. The factor of 2 is because the renderer's
+      // maxR is half the diagonal but disk-radius is from canvas centre.
+      var ratio = 0.78125 * maxDim / diag;
+      var v = (1 - ratio) * 100 / 0.9;
+      // Slider snaps to integers; round so the preset value
+      // round-trips cleanly through the slider→state→preset path.
+      return Math.max(0, Math.min(100, Math.round(v)));
+    }
     // Crop-edge presets, per-axis. The crop-edge sliders go 0–100;
     // 38 reads as a clear softness without eating much of the print
     // area. (Started at 75; user feedback was that was too aggressive.)
@@ -3672,8 +3805,12 @@
     }
 
     function applyVignetteRadiusMode(modeName) {
-      var v = VIGNETTE_RADIUS_MODES[modeName];
-      if (v == null) return;
+      var entry = VIGNETTE_RADIUS_MODES[modeName];
+      if (entry == null) return;
+      // disk is a function (depends on the selected product's aspect
+      // ratio); the other modes are plain numbers. Resolve lazily so
+      // switching products picks up the right disk-radius value.
+      var v = (typeof entry === "function") ? entry() : entry;
       state.vignette = v;
       // vignetteSlider stores 100 - intensity (per existing convention at line 2609)
       var vs = $("#vignetteSlider"),  vv  = $("#vignetteVal");
@@ -3730,7 +3867,9 @@
       });
       var vigRadiusMode = null;
       Object.keys(VIGNETTE_RADIUS_MODES).forEach(function(k) {
-        if (state.vignette === VIGNETTE_RADIUS_MODES[k]) vigRadiusMode = k;
+        var entry = VIGNETTE_RADIUS_MODES[k];
+        var target = (typeof entry === "function") ? entry() : entry;
+        if (state.vignette === target) vigRadiusMode = k;
       });
       document.querySelectorAll(".preset-btn[data-vignette-radius]").forEach(function(btn) {
         btn.classList.toggle("active", btn.dataset.vignetteRadius === vigRadiusMode);
