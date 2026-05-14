@@ -137,14 +137,23 @@
       <div class="section-title">View &amp; Edit Your Image</div>
     </div>
 
+    <!-- Editor layout — CSS grid with four regions:
+           canvas (top-left) | preview (top-right, spans rows on desktop)
+           toolbar (middle)  | preview
+           actions  (sticky bottom, full-width)
+         On mobile it collapses to a single column: canvas / preview /
+         toolbar / actions. Canvas + preview are sticky at the top,
+         actions sticky at the bottom — so the scrolling middle is
+         always sandwiched between an always-visible header and an
+         always-visible CTA row. -->
     <div class="editor-with-preview">
-      <div class="editor-main">
-        <div class="image-stage" id="imageStage">
-          <img id="solarImg" alt="Solar image" crossorigin="anonymous">
-          <canvas id="solarCanvas"></canvas>
-          <div class="crop-overlay hidden" id="cropOverlay"></div>
-        </div>
+      <div class="image-stage" id="imageStage">
+        <img id="solarImg" alt="Solar image" crossorigin="anonymous">
+        <canvas id="solarCanvas"></canvas>
+        <div class="crop-overlay hidden" id="cropOverlay"></div>
+      </div>
 
+      <div class="editor-main">
     <!-- Edit Tools -->
     <div class="edit-toolbar">
       <!-- Row 1: Filter toggle + Change Wavelength -->
@@ -565,6 +574,12 @@
             </label>
           </div>
         </div>
+      </div>
+      <!-- Sticky action bar (always at the bottom of the visible
+           editor frame). Hidden until a product is selected — JS
+           toggles the .hidden class in lockstep with the preview
+           pane above. -->
+      <div class="editor-action-bar hidden" id="editorActionBar">
         <button type="button" class="btn-preview-mockup" id="btnPreviewMockup" title="Generate a real Printify mockup for this product, or reset back to the canvas preview.">
           <i class="fas fa-rocket btn-preview-mockup-icon"></i>
           <span class="btn-preview-mockup-spinner" aria-hidden="true"></span>
