@@ -67,6 +67,73 @@
       document.documentElement.classList.add("embedded");
     }
 
+    // ── Embedded-iframe height messaging ─────────────────────────
+    // The remaining scroll-fight a tester reported is at the iframe
+    // level: Shopify pins the iframe to a fixed height, so when our
+    // content extends past it the iframe gets its OWN scrollbar.
+    // We can't kill that scrollbar from inside the iframe alone —
+    // the iframe's height is set by the parent — so we continuously
+    // postMessage our content height. The Shopify theme reads the
+    // message and resizes the iframe to match, making the outer page
+    // the only scroll surface.
+    //
+    // Parent-side snippet to add ONCE to the Shopify theme (e.g. in
+    // theme.liquid or whichever page hosts the iframe):
+    //
+    //   <script>
+    //     window.addEventListener("message", function (e) {
+    //       if (!e.data || e.data.source !== "solar-archive") return;
+    //       if (e.data.type !== "resize") return;
+    //       document.querySelectorAll(
+    //         'iframe[src*="solar-archive.onrender.com"]'
+    //       ).forEach(function (f) {
+    //         f.style.height = e.data.height + "px";
+    //         f.setAttribute("scrolling", "no");
+    //       });
+    //     });
+    //   </script>
+    //
+    // Without the parent-side listener the messages are silently
+    // ignored — same iframe behaviour as today, no regression.
+    function _postIframeHeight() {
+      if (window.parent === window) return;
+      var doc = document.documentElement;
+      var bod = document.body;
+      if (!doc || !bod) return;
+      var h = Math.max(
+        doc.scrollHeight || 0,
+        bod.scrollHeight || 0,
+        doc.offsetHeight || 0,
+        bod.offsetHeight || 0
+      );
+      if (h <= 0) return;
+      try {
+        window.parent.postMessage(
+          { source: "solar-archive", type: "resize", height: h },
+          "*"
+        );
+      } catch (_e) { /* sandboxed iframe, etc. — ignore */ }
+    }
+    if (document.documentElement.classList.contains("embedded")) {
+      // Fire after initial render, after the load event (when images
+      // and fonts settle), on every body resize (ResizeObserver
+      // catches modal opens, tab expansions, etc.), and on a slow
+      // safety-net interval for things observer can miss (animated
+      // transitions, image decode completing after layout).
+      document.addEventListener("DOMContentLoaded", _postIframeHeight);
+      window.addEventListener("load", _postIframeHeight);
+      window.addEventListener("resize", _postIframeHeight);
+      if (typeof ResizeObserver !== "undefined") {
+        try {
+          var _saResizeObs = new ResizeObserver(_postIframeHeight);
+          _saResizeObs.observe(document.body);
+          _saResizeObs.observe(document.documentElement);
+        } catch (_e) { /* old browser; safety-net interval still runs */ }
+      }
+      // 800ms safety net — cheap and catches anything missed above.
+      setInterval(_postIframeHeight, 800);
+    }
+
     // ── Dark mode detection ──────────────────────────────────────
     if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
       document.documentElement.classList.add("dark");
