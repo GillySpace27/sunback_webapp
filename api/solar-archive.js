@@ -914,14 +914,21 @@
     // the persistent canvas inside the preview pane.
     function updateSelectedProductPreview(product) {
       var previewPane = document.getElementById("selectedProductPreview");
+      // Sticky bottom action bar (contains btnPreviewMockup +
+      // btnBuyInEditor). Lives in its own DOM region now, so we
+      // toggle its visibility in lockstep with the preview pane —
+      // the action bar only makes sense once a product is selected.
+      var actionBar = document.getElementById("editorActionBar");
       if (!previewPane) return;
       if (!product) {
         previewPane.classList.add("hidden");
+        if (actionBar) actionBar.classList.add("hidden");
         livePreviewCanvas = null;
         if (typeof _resyncPreviewPaneSoon === "function") _resyncPreviewPaneSoon();
         return;
       }
       previewPane.classList.remove("hidden");
+      if (actionBar) actionBar.classList.remove("hidden");
       // Pane just became visible — re-measure its natural geometry on
       // the next frame so pinning has the right left/width to capture.
       if (typeof _resyncPreviewPaneSoon === "function") _resyncPreviewPaneSoon();
@@ -1126,6 +1133,10 @@
         state.uploadedPrintifyIdFiltered = null;
         var previewPanel = document.getElementById("selectedProductPreview");
         if (previewPanel) previewPanel.classList.add("hidden");
+        // Hide the sticky action bar too — its buttons only apply
+        // when a product is selected.
+        var actionBar = document.getElementById("editorActionBar");
+        if (actionBar) actionBar.classList.add("hidden");
         if (editSection) editSection.classList.add("hidden");
         renderCanvas();
         updateProductSectionHeader();
