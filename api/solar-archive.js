@@ -19,6 +19,29 @@
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
 
+    // ── Back-button: unwind app state instead of leaving the page ──
+    // The app pushes a history state when significant transitions
+    // happen (currently: opening the editor in commitProductSelection).
+    // Pressing the browser back button fires popstate, and we reverse
+    // the transition — close the editor, scroll back to the product
+    // picker. After all in-app states are unwound, the next back
+    // press exits the page (or the Shopify iframe page) normally.
+    // The handler is registered lazily inside DOMContentLoaded so
+    // editSection / productSection lookups succeed.
+    window.addEventListener("popstate", function() {
+      var ed = document.getElementById("editSection");
+      // If the editor is visible, treat back as "close the editor."
+      if (ed && !ed.classList.contains("hidden")) {
+        ed.classList.add("hidden");
+        var ps = document.getElementById("productSection");
+        if (ps) {
+          try { ps.scrollIntoView({ behavior: "smooth", block: "start" }); }
+          catch (_e) { ps.scrollIntoView(); }
+        }
+        return;
+      }
+    });
+
     // ── Embedded-context detection ───────────────────────────────
     // The app is also served as an iframe on the Shopify storefront
     // (solar-archive.myshopify.com). That iframe is sized to its
@@ -1246,6 +1269,16 @@
     function loadHelioviewerPreview(wl, dateVal) {
       setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
       setProgress(10);
+      // Show a visible spinner overlay on the image stage so the
+      // canvas doesn't look frozen between tile click and image
+      // arrival. Cleared in _installPreviewImage and in the error
+      // path below. Tester report: "the wavelength tile had to be
+      // clicked a couple of times before the images populated."
+      var _stage = document.getElementById("imageStage");
+      if (_stage) {
+        _stage.classList.add("loading");
+        _stage.classList.remove("empty");
+      }
 
       // Get raw canvas from thumbCache or fetch fresh
       var cached = thumbCache[String(wl)];
@@ -1300,6 +1333,10 @@
         };
         function showPreviewError(msg) {
           setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' + msg, false);
+          // Drop the canvas spinner so a stale animation doesn't sit
+          // over the error message; image-stage falls back to empty state.
+          var _errStage = document.getElementById("imageStage");
+          if (_errStage) _errStage.classList.remove("loading");
           var retryDiv = document.createElement("div");
           retryDiv.innerHTML = '<button class="retry-btn" style="margin-top:8px;padding:6px 12px;cursor:pointer;">Retry</button>';
           statusMsg.appendChild(retryDiv);
@@ -1354,6 +1391,9 @@
       var altText = "Solar image from " + dateVal + ", " + wl + " Angstrom wavelength";
       if (solarImg) solarImg.alt = altText;
       if (solarCanvas) solarCanvas.setAttribute("aria-label", altText);
+      // Image is in — drop the "loading" spinner overlay.
+      var _stage = document.getElementById("imageStage");
+      if (_stage) _stage.classList.remove("loading");
       state.panX = img.naturalWidth / 2;
       state.panY = img.naturalHeight / 2;
       state.rhefImage = null;
@@ -7050,6 +7090,18 @@
       updateSelectedProductPreview(product);
       editSection.classList.remove("hidden");
       syncCropRatioUI();
+
+      // Push a history entry so the browser back button unwinds to the
+      // product picker instead of leaving the page (tester report:
+      // "Back button takes me out of shopify, not back in the web app").
+      // Skip if we're already on an 'editor' state — re-opens or
+      // variant changes shouldn't multiply history entries.
+      try {
+        if (window.history && window.history.pushState
+            && (!window.history.state || window.history.state._sa !== "editor")) {
+          window.history.pushState({ _sa: "editor", productId: productId }, "");
+        }
+      } catch (_e) { /* iframe sandbox or hostile env — silently skip */ }
 
       // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
       // vignette so the print area is covered completely the moment the

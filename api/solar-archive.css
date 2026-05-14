@@ -48,6 +48,20 @@ body {
   overflow-x: hidden;
 }
 
+/* Embedded mode: drop our deep-navy body fill so whatever the
+   parent Shopify page is using shows through. Same for the
+   ambient gradient overlay below — it reads as decoration in the
+   standalone app but clashes with the storefront chrome inside
+   an iframe. The .section panels keep their own filled
+   backgrounds, so the actual UI surfaces are still legible. */
+html.embedded,
+html.embedded body {
+  background: transparent !important;
+}
+html.embedded body::before {
+  display: none;
+}
+
 /* Animated background */
 body::before {
   content: '';
@@ -823,6 +837,42 @@ html.dark .image-stage.image-stage--checker {
   content: 'Your solar image will appear here';
   color: var(--text-dim);
   font-size: 0.9rem;
+}
+
+/* Loading spinner inside the image stage while a wavelength preview
+   is being fetched. Beta tester reported the canvas looked frozen
+   between tile click and image arrival ("had to be clicked a
+   couple of times"); now a centred spinner makes the load visible
+   so users don't re-click. JS toggles .loading on/off in
+   loadHelioviewerPreview / _installPreviewImage. */
+.image-stage.loading::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border: 4px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--accent-corona, #7b61ff);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  z-index: 5;
+  pointer-events: none;
+}
+.image-stage.loading::after {
+  /* Subtle "Loading…" label below the spinner so the affordance is
+     obvious even on very small canvases. */
+  content: "Loading…";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, calc(-50% + 48px));
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.04em;
+  z-index: 5;
+  pointer-events: none;
 }
 
 #solarCanvas {
@@ -2774,7 +2824,11 @@ html.embedded .feedback-modal-backdrop {
   border-radius: 14px;
   padding: 28px 24px 24px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  color: var(--text-primary, #e9eaf5);
+  /* Hardcode light text — the modal panel has a hardcoded dark
+     background, so it can't follow `--text-primary` (which flips
+     to a dark value in light system mode and produces the
+     "black-on-black, illegible" bug a tester reported). */
+  color: #e9eaf5;
 }
 html.embedded .feedback-modal-panel {
   /* Inline mode: no scroll cap, panel sizes to its content and the
@@ -2873,7 +2927,12 @@ html.embedded .feedback-modal textarea {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   padding: 10px 12px;
-  color: var(--text-primary, #e9eaf5);
+  /* Same "black-on-black if system is in light mode" bug — the
+     input has a hardcoded dark background, so hardcode the typed
+     text colour to a light tone too. `!important` defends against
+     Shopify storefront themes that might cascade `input { color:
+     black }` over our embedded iframe. */
+  color: #e9eaf5 !important;
   /* iOS Safari auto-zooms when any focused input is < 16px. The page
      was zooming in every time the feedback modal opened on mobile —
      visually jarring and made the input field jump out of view.
@@ -2882,6 +2941,10 @@ html.embedded .feedback-modal textarea {
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+.feedback-modal textarea::placeholder,
+.feedback-modal input::placeholder {
+  color: #6f6f8c;
 }
 /* No drag-handle resize — JS auto-grows the textarea on input, which
    works on touch (where the resize grip is too small to grab) and on
@@ -3360,7 +3423,9 @@ html.embedded .feedback-product-results {
   border-radius: 14px;
   padding: 26px 22px 20px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  color: var(--text-primary, #e9eaf5);
+  /* Hardcode light text — see .feedback-modal-panel for the
+     "system in light mode flips --text-primary to dark" rationale. */
+  color: #e9eaf5;
   overflow-y: auto;
   /* iOS momentum scrolling — without this the user has to drag-
      scroll without flick inertia, which feels broken on touch. */
