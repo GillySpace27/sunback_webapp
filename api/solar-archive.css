@@ -189,7 +189,15 @@ body.beta-mode-active .beta-banner {
 }
 .beta-thanks-panel {
   position: relative;
-  background: var(--bg-elevated, #1a1a2e);
+  /* Pinned background instead of var(--bg-elevated) — that variable
+     flips white in light system mode, and the box-shadow + light-on-
+     light text would be illegible. Scope a dark colour and the
+     light text variables so the panel reads correctly regardless of
+     OS theme (same fix as the feedback / confirm modal panels). */
+  background: #1a1a2e;
+  --text-primary:   #e9eaf5;
+  --text-secondary: #a8a8c8;
+  --text-dim:       #8e8eab;
   border: 1px solid rgba(255, 152, 0, 0.35);
   border-radius: 12px;
   padding: 28px 28px 24px;
@@ -2824,11 +2832,16 @@ html.embedded .feedback-modal-backdrop {
   border-radius: 14px;
   padding: 28px 24px 24px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  /* Hardcode light text — the modal panel has a hardcoded dark
-     background, so it can't follow `--text-primary` (which flips
-     to a dark value in light system mode and produces the
-     "black-on-black, illegible" bug a tester reported). */
-  color: #e9eaf5;
+  /* The panel has a hardcoded dark background, so it can't follow
+     the document-level `--text-*` variables — those flip to dark
+     values in light system mode and the panel goes black-on-black.
+     Redefine the variables scoped to the panel so every descendant
+     using `var(--text-primary)` / `--text-secondary` / `--text-dim`
+     resolves to a light value regardless of the user's OS theme. */
+  --text-primary:   #e9eaf5;
+  --text-secondary: #a8a8c8;
+  --text-dim:       #8e8eab;
+  color: var(--text-primary);
 }
 html.embedded .feedback-modal-panel {
   /* Inline mode: no scroll cap, panel sizes to its content and the
@@ -3423,9 +3436,16 @@ html.embedded .feedback-product-results {
   border-radius: 14px;
   padding: 26px 22px 20px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  /* Hardcode light text — see .feedback-modal-panel for the
-     "system in light mode flips --text-primary to dark" rationale. */
-  color: #e9eaf5;
+  /* Re-scope the text colour variables so descendants (variant
+     tiles, summary, sub, note, size chips, swatches) all resolve
+     to light values regardless of the user's OS theme. The panel
+     has a hardcoded dark background; the document-level variables
+     flip to dark in light system mode and renders the variant
+     labels black-on-black — the report behind this fix. */
+  --text-primary:   #e9eaf5;
+  --text-secondary: #a8a8c8;
+  --text-dim:       #8e8eab;
+  color: var(--text-primary);
   overflow-y: auto;
   /* iOS momentum scrolling — without this the user has to drag-
      scroll without flick inertia, which feels broken on touch. */
