@@ -829,10 +829,10 @@
       if (!title || !intro) return;
       var editorOpen = editSection && !editSection.classList.contains("hidden");
       if (editorOpen && state.selectedProduct) {
-        title.textContent = "Product Examples";
+        title.textContent = "Product examples";
         intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and scroll up to check out.";
       } else {
-        title.textContent = "Choose Your Product";
+        title.textContent = "Choose your product";
         intro.innerHTML = "Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.";
       }
     }
@@ -1521,7 +1521,7 @@
         _startPreviewFromCanvas(cached.canvas2048, cached, wl, dateVal);
       } else {
         // Fetch preview for main canvas via backend proxy (512px — fast & reliable from Helioviewer,
-        // image_scale=12 → ~1.5 R_sun FOV). 2048px was unreliable; 512px is sufficient for editing.
+        // image_scale=12 → ~1.5 R☉ FOV). 2048px was unreliable; 512px is sufficient for editing.
         var isoDate = dateVal + "T" + _solarTimeValue() + ":00Z";
         var url = API_BASE + "/api/helioviewer_thumb?date=" +
           encodeURIComponent(isoDate) + "&wavelength=" + wl +
