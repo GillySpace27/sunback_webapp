@@ -19,6 +19,33 @@
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
 
+    // ── Attribution citation strings ─────────────────────────────
+    // Referenced when we wire the per-product attribution work
+    // (Patricia's P1 follow-up). Kept here so the strings live
+    // next to the code that consumes them, not buried in a doc.
+    //
+    //   SDO_ACK   — NASA SDO rules-of-the-road acknowledgement;
+    //               required on any SDO-derived imagery regardless
+    //               of source format.
+    //   AIA_PAPER — Lemen 2012 AIA instrument paper. Cite when
+    //               the product describes the AIA instrument.
+    //   RHEF_PAPER — Gilly et al. 2025, Sol. Phys. 300:174 — the
+    //                radial histogram equalization filter method
+    //                paper. Cite on the RHEF / HQ RHEF tier
+    //                descriptions.
+    //   HELIOVIEWER_ACK — Required only when Helioviewer service
+    //                     was used to produce the rendered image
+    //                     (i.e. JPG tier from takeScreenshot).
+    //                     NOT required on FITS-derived prints
+    //                     (Raw / RHEF / HQ RHEF) since those go
+    //                     through VSO → SunPy bypassing Helioviewer.
+    var CITATIONS = {
+      SDO_ACK: "Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.",
+      AIA_PAPER: "Lemen, J. R., et al. 2012, Sol. Phys., 275, 17.",
+      RHEF_PAPER: "Gilly, C., et al. 2025, Sol. Phys., 300, 174 (https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G).",
+      HELIOVIEWER_ACK: "This work has made use of the Helioviewer Project, an open-source project for visualisation of solar and heliospheric data."
+    };
+
     // ── Back-button: unwind app state instead of leaving the page ──
     // The app pushes a history state when significant transitions
     // happen (currently: opening the editor in commitProductSelection).
@@ -1352,55 +1379,68 @@
           showToast("Reset to mock mockup — preview matches canvas again.");
           _unbusy();
         } else {
-          if (!state.originalImage) {
-            showInfo("No Image", "Select a wavelength tile to load the solar image first.");
-            _unbusy();
-            return;
-          }
-          // Disable the button BEFORE any further work so a second click
-          // can't sneak in between the conditionals above and the
-          // _setMockupBtnLoading(true) call below.
-          btnPreviewMockup.disabled = true;
-          // Determine the correct variant bucket from the active filter.
-          //   "jpg" / "raw" science  →  "raw"   (non-filtered Helioviewer/science slot)
-          //   "rhef"                 →  "filtered" (science-processed slot)
-          var mockupVariant = (state.editorFilter === "rhef") ? "filtered" : "raw";
+          // FITS-quality gate: don't burn a Printify mockup on a JPG-
+          // resolution canvas, and warn the user if HQ is still
+          // rendering. The gate fires the callback synchronously on
+          // hq_ready, asynchronously (via confirm modal) on mq_ready,
+          // and not at all on jpg_only / no_image (which show their
+          // own info modal). The mockup work moves into
+          // _proceedWithMockup() so it can fire from either path.
+          function _proceedWithMockup() {
+            // Disable the button BEFORE any further work so a second click
+            // can't sneak in between the conditionals above and the
+            // _setMockupBtnLoading(true) call below.
+            btnPreviewMockup.disabled = true;
+            // Determine the correct variant bucket from the active filter.
+            //   "jpg" / "raw" science  →  "raw"   (non-filtered Helioviewer/science slot)
+            //   "rhef"                 →  "filtered" (science-processed slot)
+            var mockupVariant = (state.editorFilter === "rhef") ? "filtered" : "raw";
 
-          // ALWAYS clear the cached upload ID for this variant before generating
-          // a single-product mockup.  Without this, if the user resets and regenerates
-          // (or changes the filter between attempts), the old upload ID for a stale
-          // canvas export would be reused instead of uploading the current canvas.
-          var mkUploadKey = (mockupVariant === "filtered") ? "uploadedPrintifyIdFiltered" : "uploadedPrintifyIdRaw";
-          state[mkUploadKey] = null;
-          if (mockupVariant === "raw") state.uploadedPrintifyId = null; // legacy alias
+            // ALWAYS clear the cached upload ID for this variant before generating
+            // a single-product mockup.  Without this, if the user resets and regenerates
+            // (or changes the filter between attempts), the old upload ID for a stale
+            // canvas export would be reused instead of uploading the current canvas.
+            var mkUploadKey = (mockupVariant === "filtered") ? "uploadedPrintifyIdFiltered" : "uploadedPrintifyIdRaw";
+            state[mkUploadKey] = null;
+            if (mockupVariant === "raw") state.uploadedPrintifyId = null; // legacy alias
 
-          if (typeof autoGenerateMockups === "function") {
-            _setMockupBtnLoading(true);
-            var myToken = ++_mockupCallToken;
-            if (_mockupWatchdog) clearTimeout(_mockupWatchdog);
-            _mockupWatchdog = setTimeout(function() {
-              if (myToken === _mockupCallToken) {
+            if (typeof autoGenerateMockups === "function") {
+              _setMockupBtnLoading(true);
+              var myToken = ++_mockupCallToken;
+              if (_mockupWatchdog) clearTimeout(_mockupWatchdog);
+              _mockupWatchdog = setTimeout(function() {
+                if (myToken === _mockupCallToken) {
+                  _setMockupBtnLoading(false);
+                  _unbusy();
+                  if (mockupStatus && !mockupStatus.querySelector(".fa-check-circle")) {
+                    mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockup is taking longer than expected — try again.</span>';
+                  }
+                }
+              }, MOCKUP_BUTTON_WATCHDOG_MS);
+              autoGenerateMockups(mockupVariant, productId, function(err) {
+                // Drop late callbacks from prior clicks.
+                if (myToken !== _mockupCallToken) return;
+                if (_mockupWatchdog) { clearTimeout(_mockupWatchdog); _mockupWatchdog = null; }
                 _setMockupBtnLoading(false);
                 _unbusy();
-                if (mockupStatus && !mockupStatus.querySelector(".fa-check-circle")) {
-                  mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockup is taking longer than expected — try again.</span>';
+                if (err) {
+                  // Surface a short toast in addition to the mockupStatus
+                  // bar so testers don't have to hunt for the error.
+                  showToast("Mockup failed: " + (err.message || "unknown error"));
                 }
-              }
-            }, MOCKUP_BUTTON_WATCHDOG_MS);
-            autoGenerateMockups(mockupVariant, productId, function(err) {
-              // Drop late callbacks from prior clicks.
-              if (myToken !== _mockupCallToken) return;
-              if (_mockupWatchdog) { clearTimeout(_mockupWatchdog); _mockupWatchdog = null; }
-              _setMockupBtnLoading(false);
-              _unbusy();
-              if (err) {
-                // Surface a short toast in addition to the mockupStatus
-                // bar so testers don't have to hunt for the error.
-                showToast("Mockup failed: " + (err.message || "unknown error"));
-              }
-            });
+              });
+            }
+            showToast("Generating real mockup for this product…");
           }
-          showToast("Generating real mockup for this product…");
+
+          if (typeof _gatePrintQuality === "function") {
+            _gatePrintQuality(function(ok) {
+              if (!ok) { _unbusy(); return; }
+              _proceedWithMockup();
+            });
+            return;  // wait for gate callback
+          }
+          _proceedWithMockup();
         }
       });
     }
@@ -7434,6 +7474,110 @@
       var entry = state.mockups[pid];
       return !!(entry && entry.images && entry.images.length > 0);
     }
+
+    // ── FITS-quality gating for prints / mockups ─────────────────
+    // The JPG tier is a Helioviewer "preview" — fast but low-resolution
+    // and routed through Helioviewer's takeScreenshot endpoint, which
+    // carries its own attribution obligations. The Raw/RHEF tiers
+    // come from VSO FITS via SunPy, and HQ RHEF is the same pipeline
+    // at full resolution. We gate physical-product output behind
+    // those FITS tiers so a tester (or worse, a buyer) doesn't end
+    // up with a 384-pixel print on a 2400-pixel canvas blank.
+    //
+    // Tier readiness signals already in state:
+    //   state.rhefImage         — RHEF MQ FITS ready
+    //   state.rawBackendImage   — Raw MQ FITS ready
+    //   state.hqReady           — HQ RHEF render finished
+    //
+    // _printQualityState returns one of: "no_image" | "jpg_only" |
+    // "mq_ready" | "hq_ready". The buy / generate-mockup flows
+    // branch on this.
+    function _printQualityState() {
+      if (!state.originalImage) return "no_image";
+      if (state.hqReady) return "hq_ready";
+      if (state.rhefImage || state.rawBackendImage) return "mq_ready";
+      return "jpg_only";
+    }
+
+    // Promote the editor's active filter to the highest available
+    // tier before a mockup or buy goes through. Without this the
+    // canvas (and the PNG uploaded to Printify) reflects whichever
+    // tier the user happened to be looking at — which could be
+    // JPG even when MQ/HQ FITS is already loaded in memory.
+    // Returns true if the filter changed (caller may want to give
+    // the renderer a tick to repaint before snapshotting).
+    function _promoteFilterToBest() {
+      var target = state.editorFilter;
+      if (state.hqReady && target !== "hq_rhef") {
+        target = "hq_rhef";
+      } else if (state.rhefImage && target !== "rhef" && target !== "hq_rhef") {
+        target = "rhef";
+      } else if (state.rawBackendImage && target === "jpg") {
+        target = "raw";
+      }
+      if (target === state.editorFilter) return false;
+      // applyFilterInstant exists earlier in the file and handles the
+      // canvas re-render + UI sync; fall back to a direct write +
+      // renderCanvas if it's somehow not available.
+      if (typeof applyFilterInstant === "function") {
+        applyFilterInstant(target);
+      } else {
+        state.editorFilter = target;
+        if (typeof renderCanvas === "function") renderCanvas();
+      }
+      return true;
+    }
+
+    // Soft-block helper: returns true if the user is clear to print
+    // and false otherwise (after showing an explanatory modal /
+    // toast). When mq_ready but not hq_ready, prompts the user to
+    // confirm submitting at MQ resolution rather than waiting for
+    // HQ — defaults the affirmative action to "wait" so the safer
+    // choice is a single Enter press.
+    //
+    // confirmFn(true) is called when the user explicitly chooses to
+    // proceed with the current tier. confirmFn(false) means "wait" /
+    // "cancel" — caller does nothing.
+    function _gatePrintQuality(confirmFn) {
+      var quality = _printQualityState();
+      if (quality === "no_image") {
+        showInfo("No Image Yet",
+          "Pick a date and a wavelength first — the editor will load once the preview comes through.");
+        return;
+      }
+      if (quality === "jpg_only") {
+        showInfo("Waiting for Science Image",
+          "The full-resolution FITS image is still downloading from the SDO archive. " +
+          "Prints need at least medium-quality (Raw / RHEF) data so they don't pixel-blow on a 12-inch canvas. " +
+          "Hang tight — this usually finishes in 30–90 seconds, and the Quality timeline above the canvas shows progress.");
+        return;
+      }
+      if (quality === "mq_ready") {
+        showModal(
+          "HQ RHEF is still rendering",
+          "You're about to submit at <strong>medium quality</strong> — the print will look good but " +
+          "the high-resolution RHEF render is still cooking in the background and produces the sharpest large-format prints " +
+          "(1&ndash;3 minutes). " +
+          "Wait for HQ, or proceed with MQ now?",
+          function() {
+            // User explicitly chose to proceed at MQ. Promote the
+            // editor filter to whichever MQ tier is loaded so the
+            // canvas reflects the highest available science data
+            // before the upload snapshot is taken.
+            _promoteFilterToBest();
+            confirmFn(true);
+          },
+          "Submit at MQ anyway",
+          "Submitting…"
+        );
+        // showModal's default close-on-cancel handles the "wait" path
+        // — we just don't fire confirmFn for the cancel button.
+        return;
+      }
+      // hq_ready — promote to HQ if not already there, then pass.
+      _promoteFilterToBest();
+      confirmFn(true);
+    }
     function updateBuyButtonState() {
       if (!btnBuyInEditor) return;
       // Both beta and prod modes now gate on having a real Printify
@@ -7810,17 +7954,27 @@
 
     if (btnBuyInEditor) {
       btnBuyInEditor.addEventListener("click", function() {
-        // Beta path bypasses the disabled / mockup-required gate; users
-        // are saving a PNG, not creating a real product.
-        if (BETA_MODE) {
-          _saveDesignLocally();
-          return;
-        }
         if (btnBuyInEditor.disabled) return;
         if (!state.selectedProduct) return;
+
+        // Beta path: save a local PNG instead of triggering Shopify.
+        // Still apply the FITS-quality gate so testers don't walk
+        // away with a 384-px placeholder thinking it's the real
+        // thing — same blast-radius if/when they hand the PNG to
+        // someone for a one-off print outside this app.
+        if (BETA_MODE) {
+          _gatePrintQuality(function(ok) {
+            if (ok) _saveDesignLocally();
+          });
+          return;
+        }
+
         if (!_hasRealMockup()) return;
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-        if (product) startCheckout(product);
+        if (!product) return;
+        _gatePrintQuality(function(ok) {
+          if (ok) startCheckout(product);
+        });
       });
       updateBuyButtonState();
     }
