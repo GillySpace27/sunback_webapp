@@ -552,10 +552,16 @@
         <div class="preview-product-name"></div>
         <div class="preview-mockup"></div>
         <div class="preview-product-ratio"></div>
-        <div class="preview-variant-wrap hidden" id="previewVariantWrap">
-          <label for="previewVariantSelect">Variant</label>
-          <select id="previewVariantSelect" aria-label="Override variant for this product"></select>
-          <p class="preview-variant-note hidden" id="previewVariantClockNote">Some options differ by hand color (white vs black).</p>
+        <!-- Inline variant dropdown removed — the "Change variant" button
+             in the editor's nav-button row opens the full variant-picker
+             modal which is the canonical way to switch variants. The
+             dropdown duplicated that affordance and cluttered the
+             preview pane. The hidden wrap is kept so JS that still
+             references #previewVariantWrap / #previewVariantSelect
+             degrades gracefully (no-op). -->
+        <div class="preview-variant-wrap hidden" id="previewVariantWrap" hidden>
+          <select id="previewVariantSelect" hidden></select>
+          <p class="preview-variant-note hidden" id="previewVariantClockNote" hidden></p>
         </div>
         <!-- Dual-panel layout toggle. Shown only for products whose
              Printify panel covers both front and back (throw pillow,
