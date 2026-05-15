@@ -14,6 +14,13 @@
      backgrounds (#1a1a2e), which a beta accessibility audit flagged.
      #8e8eab measures ~4.6:1 against #1a1a2e — comfortable AA pass. */
   --text-dim: #8e8eab;
+  /* `--accent-corona-text` is a brightened variant of --accent-corona
+     (#7b61ff, ~3.7:1 on #1a1a2e — sub-AA for normal text) intended
+     ONLY for places the purple is used as text on a dark background.
+     Decorative usages (borders, focus rings, gradients) keep the
+     original --accent-corona. #a48dff measures ~6.0:1 against the
+     same dark panel — comfortable AA pass for body and small text. */
+  --accent-corona-text: #a48dff;
   --border: #2a2a44;
   --border-active: #7b61ff;
   --glow-sun: rgba(247,168,37,0.25);
@@ -33,6 +40,11 @@ html:not(.dark) {
   --bg-surface: #faf9fe;
   --bg-card: #ffffff;
   --bg-elevated: #eeedf5;
+  /* On light backgrounds, the original --accent-corona (#7b61ff)
+     reads fine (~5.5:1 against white). Hold the same value so
+     light-mode borders/focus/text all stay in sync; dark-mode
+     drops to the brightened variant defined in :root above. */
+  --accent-corona-text: #6a4eff;
   --text-primary: #1a1a2e;
   --text-secondary: #5e5e80;
   /* Old value #9898b8 on white = ~3.9:1, fails AA. #6a6a8a measures
@@ -325,6 +337,7 @@ body.beta-mode-active .beta-banner {
   --text-primary:   #e9eaf5;
   --text-secondary: #a8a8c8;
   --text-dim:       #8e8eab;
+  --accent-corona-text: #a48dff;
   border: 1px solid rgba(255, 152, 0, 0.35);
   border-radius: 12px;
   padding: 28px 28px 24px;
@@ -1081,7 +1094,11 @@ html.dark .image-stage.image-stage--checker {
 
 .edit-tab:hover { color: var(--text-primary); border-color: var(--border); }
 .edit-tab.active {
-  color: var(--accent-corona);
+  /* `--accent-corona-text` is the brightened variant of the same
+     purple, tuned for legibility on dark backgrounds (~6:1 against
+     #1a1a2e). The original --accent-corona stays on the border so
+     the visual identity is unchanged. */
+  color: var(--accent-corona-text);
   border-color: var(--accent-corona);
   background: rgba(123,97,255,0.08);
   font-weight: 600;
@@ -3074,6 +3091,7 @@ html.embedded .feedback-modal-backdrop {
   --text-primary:   #e9eaf5;
   --text-secondary: #a8a8c8;
   --text-dim:       #8e8eab;
+  --accent-corona-text: #a48dff;
   color: var(--text-primary);
 }
 html.embedded .feedback-modal-panel {
@@ -3678,6 +3696,7 @@ html.embedded .feedback-product-results {
   --text-primary:   #e9eaf5;
   --text-secondary: #a8a8c8;
   --text-dim:       #8e8eab;
+  --accent-corona-text: #a48dff;
   color: var(--text-primary);
   overflow-y: auto;
   /* iOS momentum scrolling — without this the user has to drag-
@@ -3827,7 +3846,10 @@ html.embedded .feedback-product-results {
 .confirm-variant-summary strong { color: var(--text-primary, #e9eaf5); font-weight: 600; }
 .confirm-variant-summary .confirm-summary-dot { opacity: 0.5; }
 .confirm-variant-summary .confirm-summary-price {
-  color: var(--accent-corona, #7b61ff);
+  /* Brightened purple variant — see `--accent-corona-text` in :root.
+     The original #7b61ff measured ~3.7:1 against #1a1a2e (sub-AA);
+     `--accent-corona-text` lands at ~6:1. */
+  color: var(--accent-corona-text, #a48dff);
   font-weight: 600;
 }
 

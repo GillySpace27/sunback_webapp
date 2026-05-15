@@ -2565,6 +2565,18 @@
       var el = document.getElementById("filterStatusLine");
       if (el) { el.style.display = "none"; el.textContent = ""; el.className = "filter-status-line"; }
       if (type === "error" && msg && typeof showToast === "function") showToast(msg, "error");
+      // Announce filter-progress messages to screen readers via the
+      // polite aria-live region. The visible status indicator is the
+      // Quality timeline above the canvas — sighted users see it
+      // there — but AT users wouldn't hear anything otherwise.
+      // Filtered to non-empty messages and skipping the redundant
+      // "error" path (showToast above already announces those).
+      if (msg && type !== "error") {
+        var statusRegion = document.getElementById("statusRegion");
+        if (statusRegion && statusRegion.textContent !== msg) {
+          statusRegion.textContent = msg;
+        }
+      }
     }
     // Legacy impl preserved so re-enabling the inline bar later is a one-line swap.
     function _legacyUpdateFilterStatusLine(msg, type) {
@@ -8403,6 +8415,30 @@
     }
 
     // ── Auto-generate Printify mockups after preview ───────────
+
+    // Mirror mockup-status text into the polite aria-live region so
+    // screen-reader users hear "Generating mockup…" / "Mockup ready"
+    // / "Mockups unavailable: …" / etc. alongside sighted users.
+    // The visible element uses `innerHTML` with icons + colored spans;
+    // we strip to plain text for the live region so AT reads just
+    // the message. One observer covers every update site without
+    // having to touch each call.
+    (function() {
+      if (typeof MutationObserver === "undefined") return;
+      var statusRegion = document.getElementById("statusRegion");
+      var mockupStatusEl = document.getElementById("mockupStatus");
+      if (!statusRegion || !mockupStatusEl) return;
+      var lastAnnounced = "";
+      var obs = new MutationObserver(function() {
+        var txt = (mockupStatusEl.textContent || "").replace(/\s+/g, " ").trim();
+        if (txt && txt !== lastAnnounced) {
+          lastAnnounced = txt;
+          statusRegion.textContent = txt;
+        }
+      });
+      obs.observe(mockupStatusEl, { childList: true, characterData: true, subtree: true });
+    })();
+
     var mockupStatus = $("#mockupStatus");
 
     /**
