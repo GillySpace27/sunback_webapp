@@ -23,7 +23,22 @@ from starlette.concurrency import run_in_threadpool
 import sys
 import logging
 
+from api.security import (
+    enforce_origin,
+    enforce_rate_limit,
+    enforce_beta_mode_block,
+)
+
 router = APIRouter(prefix="/printify", tags=["Printify"])
+
+# Per-IP rate-limits for the mutating Printify endpoints. These all
+# fan out to api.printify.com under the operator's API key, so abuse =
+# real wholesale + shipping cost. Limits are deliberately tight; a
+# legitimate session triggers maybe 1-2 uploads, 1 checkout, 1 publish.
+_PRINTIFY_WRITE_LIMIT = 8         # max calls
+_PRINTIFY_WRITE_WINDOW = 60.0     # ...per 60s per IP
+_PRINTIFY_CHECKOUT_LIMIT = 3      # checkout is the only one that
+_PRINTIFY_CHECKOUT_WINDOW = 300.0 # actually publishes — even tighter
 
 PRINTIFY_API_KEY = os.getenv("PRINTIFY_API_KEY", "")
 PRINTIFY_SHOP_ID = os.getenv("PRINTIFY_SHOP_ID", "")
@@ -148,6 +163,9 @@ async def upload_image(request: Request):
       { "file_name": "...", "url": "https://..." }                   (fallback, Printify fetches URL)
     Returns the Printify image object including its 'id'.
     """
+    enforce_origin(request)
+    enforce_rate_limit(request, "printify_upload", _PRINTIFY_WRITE_LIMIT, _PRINTIFY_WRITE_WINDOW)
+    enforce_beta_mode_block("Image uploads are paused while BETA_MODE is on.")
     try:
         body = await request.json()
         url = body.get("url")
@@ -337,6 +355,9 @@ def _create_product_sync(body: dict) -> dict:
 @router.post("/product")
 async def create_product(request: Request):
     """Creates a product in the merchant's Printify shop."""
+    enforce_origin(request)
+    enforce_rate_limit(request, "printify_product", _PRINTIFY_WRITE_LIMIT, _PRINTIFY_WRITE_WINDOW)
+    enforce_beta_mode_block("Product creation is paused while BETA_MODE is on.")
     try:
         body = await request.json()
         result = await run_in_threadpool(_create_product_sync, body)
@@ -581,8 +602,13 @@ def _publish_product_sync(product_id: str) -> None:
 
 
 @router.post("/product/{product_id}/publish")
-async def publish_product(product_id: str):
+async def publish_product(product_id: str, request: Request):
     """Publishes a product to the connected sales channel (e.g. Shopify)."""
+    enforce_origin(request)
+    enforce_rate_limit(request, "printify_publish", _PRINTIFY_WRITE_LIMIT, _PRINTIFY_WRITE_WINDOW)
+    enforce_beta_mode_block("Product publish is paused while BETA_MODE is on.")
+    if not _PRINTIFY_ID_RE.match(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product_id format")
     try:
         await run_in_threadpool(_publish_product_sync, product_id)
         return JSONResponse(content={"success": True})
@@ -757,6 +783,16 @@ async def checkout(request: Request):
     All-in-one checkout: uploads image, creates product, publishes to Shopify.
     Blocking Printify API calls are offloaded to a thread pool.
     """
+    enforce_origin(request)
+    enforce_rate_limit(
+        request,
+        "printify_checkout",
+        _PRINTIFY_CHECKOUT_LIMIT,
+        _PRINTIFY_CHECKOUT_WINDOW,
+    )
+    enforce_beta_mode_block(
+        "Checkout is paused while BETA_MODE is on. Use the local download instead."
+    )
     try:
         body = await request.json()
 

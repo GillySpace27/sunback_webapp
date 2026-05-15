@@ -28,13 +28,32 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import re
+
 import requests
 from fastapi import APIRouter, HTTPException, Header, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from api.security import enforce_origin, enforce_rate_limit
+
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
+
+# Rate-limit on /feedback POST. The spec values come from the round-2
+# audit (Mira Sokolov): even the "free Resend tier blowout" attack
+# only needs ~3000 hits/day, so per-IP throttle keeps a single
+# attacker from filling the operator's inbox + the disk.
+_FEEDBACK_LIMIT = 5
+_FEEDBACK_WINDOW = 60.0
+
+# Strict-validate the base64 payload of a `data:image/png;base64,...`
+# URI before we splat it into the operator email's <img src="...">.
+# Without this check, an attacker can break out of the src attribute
+# with a stray quote and inject arbitrary HTML into the operator's
+# inbox (XSS in their mail client). We match base64-only chars after
+# the prefix.
+_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 
 # feedback.jsonl sits next to the webapp root (one level above api/).
 FEEDBACK_FILE = Path(__file__).resolve().parent.parent / "feedback.jsonl"
@@ -127,10 +146,20 @@ def _sanitize(entry: FeedbackSubmission) -> dict:
     # prefix so only PNG data sneaks through.
     canvas_image = entry.canvas_image
     if isinstance(canvas_image, str):
-        if not canvas_image.startswith("data:image/png;base64,"):
+        prefix = "data:image/png;base64,"
+        if not canvas_image.startswith(prefix):
             canvas_image = None
         elif len(canvas_image) > 2_500_000:  # ~1.8 MB raw PNG
             canvas_image = None
+        else:
+            # Strict-validate the base64 payload after the prefix.
+            # Without this, an attacker can sneak `">` through and
+            # break out of the operator email's <img src="..."> ->
+            # XSS in the operator's inbox. Audit finding (round 2,
+            # Mira Sokolov, P0 HIGH).
+            payload = canvas_image[len(prefix):]
+            if not _BASE64_RE.match(payload):
+                canvas_image = None
     else:
         canvas_image = None
     return {
@@ -421,6 +450,8 @@ def _count_lines(path: Path) -> int:
 @router.post("")
 async def submit_feedback(entry: FeedbackSubmission, request: Request):
     """Save a feedback submission and fire the optional webhook."""
+    enforce_origin(request)
+    enforce_rate_limit(request, "feedback_submit", _FEEDBACK_LIMIT, _FEEDBACK_WINDOW)
     record = _sanitize(entry)
     record["ts"] = int(time.time())
     # Best-effort client IP for rate-limit debugging later. Not displayed to admin.
