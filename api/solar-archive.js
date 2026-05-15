@@ -1968,13 +1968,24 @@
             return new Promise(function(resolve, reject) {
               var attempts = 0;
               var maxAttempts = 60; // 2 min at 1.5s intervals
+              var POLL_PER_REQUEST_TIMEOUT_MS = 15000;
               function poll() {
                 if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Generating RHE from science data…");
+                // Each poll attempt gets its own AbortController so a
+                // slow-network hang (3G, hotel wifi) can't pause the
+                // polling loop forever — a QA tester flagged that
+                // refresh-mid-RHEF + slow link left the user staring
+                // at "Generating preview…" indefinitely with no retry.
+                // If a single attempt times out, we count it as an
+                // attempt and schedule the next one.
+                var abortCtrl = new AbortController();
+                var perReqTimer = setTimeout(function() { abortCtrl.abort(); }, POLL_PER_REQUEST_TIMEOUT_MS);
                 fetch(API_BASE + "/api/generate_preview", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" })
-                }).then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
+                  body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" }),
+                  signal: abortCtrl.signal
+                }).then(function(r) { clearTimeout(perReqTimer); return r.json().then(function(d) { return { status: r.status, data: d }; }); })
                   .then(function(pollResult) {
                     var d = pollResult.data;
                     _recordQueueDepth(d);
@@ -2000,7 +2011,27 @@
                     if (attempts >= maxAttempts) reject(new Error("RHE preview timed out after 2 minutes"));
                     else setTimeout(poll, 1500);
                   })
-                  .catch(reject);
+                  .catch(function(err) {
+                    clearTimeout(perReqTimer);
+                    // AbortError → this single poll attempt timed out
+                    // on the wire. Don't fail the whole flow; surface
+                    // a slow-network hint via onProgress, count the
+                    // attempt, and try again.
+                    if (err && err.name === "AbortError") {
+                      attempts++;
+                      if (attempts >= maxAttempts) {
+                        reject(new Error("Connection too slow — RHE preview attempts timed out repeatedly. Retry on a stronger network."));
+                        return;
+                      }
+                      if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Slow connection — retrying…");
+                      setTimeout(poll, 1500);
+                      return;
+                    }
+                    // Any other error → bubble up to the .catch on the
+                    // outer .then chain so the user sees the real
+                    // failure mode.
+                    reject(err);
+                  });
               }
               // Give the background task a head-start before first poll (JPG often ready in ~3s)
               setTimeout(poll, 2500);
@@ -7462,6 +7493,104 @@
       editSection.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
+    // ── Reusable modal focus trap ────────────────────────────────
+    // Keyboard-only users need Tab to cycle *within* the open modal
+    // and Escape to dismiss it; their focus state should be restored
+    // when the modal closes. A QA beta tester flagged that the
+    // variant-picker and feedback modals both lacked this — Tab
+    // walked through the underlying page chrome behind the modal.
+    //
+    // Usage:
+    //   var release = installModalFocusTrap(modalEl, { onEscape: closeFn });
+    //   // ...when closing:
+    //   release();
+    //
+    // The trap:
+    //  - finds focusable elements inside `modalEl` (form fields,
+    //    buttons, anchors, [tabindex>=0]),
+    //  - focuses the first one on the next frame,
+    //  - cycles Tab / Shift+Tab,
+    //  - calls onEscape on Escape,
+    //  - on release() it removes its keydown handler and restores
+    //    focus to whatever element was active when the trap installed.
+    function _focusableInsideModal(root) {
+      if (!root) return [];
+      var sel = [
+        "a[href]",
+        "button:not([disabled])",
+        "input:not([disabled]):not([type=hidden])",
+        "select:not([disabled])",
+        "textarea:not([disabled])",
+        "[tabindex]:not([tabindex='-1']):not([disabled])"
+      ].join(", ");
+      return Array.prototype.filter.call(
+        root.querySelectorAll(sel),
+        function(el) {
+          // Skip elements that are visually hidden — getClientRects()
+          // returns an empty list for display:none / visibility:hidden.
+          return el.offsetParent !== null || el === document.activeElement;
+        }
+      );
+    }
+    function installModalFocusTrap(modalEl, opts) {
+      opts = opts || {};
+      var previouslyFocused = document.activeElement;
+      function onKey(e) {
+        if (e.key === "Escape" && typeof opts.onEscape === "function") {
+          e.preventDefault();
+          opts.onEscape();
+          return;
+        }
+        if (e.key !== "Tab") return;
+        var focusables = _focusableInsideModal(modalEl);
+        if (!focusables.length) return;
+        var first = focusables[0];
+        var last = focusables[focusables.length - 1];
+        // The standard tab-cycle trick: if focus is on the last
+        // element and the user Tabs forward, jump to first; on
+        // first + Shift+Tab, jump to last. If focus is outside the
+        // modal entirely (e.g. clicked off via mouse, then hit Tab),
+        // pull it back to first.
+        var active = document.activeElement;
+        if (!modalEl.contains(active)) {
+          e.preventDefault();
+          first.focus();
+          return;
+        }
+        if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+      document.addEventListener("keydown", onKey);
+      // Focus the first focusable on the next frame so any layout
+      // settling (e.g. animations, async content) doesn't steal it.
+      requestAnimationFrame(function() {
+        var fs = _focusableInsideModal(modalEl);
+        // Skip programmatic focus on touch devices — iOS Safari pops
+        // the soft keyboard when an input gets focus, and a tester
+        // reported this as disorienting on the feedback modal.
+        var isTouch = ('ontouchstart' in window) ||
+                      (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+        if (fs.length && !isTouch) fs[0].focus();
+      });
+      return function release() {
+        document.removeEventListener("keydown", onKey);
+        // Restore focus to the previously-focused element so the
+        // page reads naturally to a screen reader after dismissal.
+        // Use a try/catch because the original element may have
+        // been removed from the DOM in the meantime.
+        try {
+          if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+            previouslyFocused.focus();
+          }
+        } catch (_e) { /* element gone, skip */ }
+      };
+    }
+
     // Buy button in editor: start checkout for the selected product. Gated
     // on having a real Printify mockup generated — the canvas mockup is only
     // an approximation, and beta testers reported being surprised when their
@@ -8413,6 +8542,22 @@
         var pickedVariantId = (state.selectedVariantByProduct[product.id] != null)
           ? state.selectedVariantByProduct[product.id]
           : product.variantId;
+        // Defensive guard for products whose `variantId` was left null
+        // (e.g. the commented-out `phone_case_pixel` entry — QA flagged
+        // that buildCatalogEntryFromRequest could theoretically reach
+        // this path with no resolved variant). A null variantId would
+        // bubble straight to Printify as a 400 with no useful UI
+        // signal — surface a polite mockupStatus error and skip the
+        // attempt instead.
+        if (pickedVariantId == null) {
+          if (mockupStatus) {
+            mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> ' + (product.name || "this product") + " doesn't have a default variant yet — pick one via the variant picker first.</span>";
+          }
+          // Treat this product as failed but continue the queue so
+          // multi-product batches don't stall on one bad entry.
+          createNext();
+          return;
+        }
         var payload = {
           title: "[MOCKUP] Solar Preview — " + product.name,
           description: "Auto-generated mockup preview",
@@ -9201,6 +9346,11 @@
         });
       }
 
+      // Focus trap — installed at modal open below, released here.
+      // The released() function restores focus to whatever was
+      // focused before the modal opened so the page reads naturally
+      // to keyboard / screen-reader users.
+      var _releaseFocusTrap = null;
       function _close(restoreState) {
         modal.classList.add("hidden");
         if (restoreState) {
@@ -9217,6 +9367,7 @@
         closeBtn.removeEventListener("click", onCancel);
         backdrop.removeEventListener("click", onCancel);
         document.removeEventListener("keydown", onKey);
+        if (_releaseFocusTrap) { _releaseFocusTrap(); _releaseFocusTrap = null; }
       }
       function onCancel() { _close(true); }
       function onContinueClick() {
@@ -9260,6 +9411,12 @@
 
       modal.classList.remove("hidden");
       _bootstrap();
+      // Focus trap: Tab cycles within the modal, Escape dismisses,
+      // and the previously-focused element is restored on close.
+      // installModalFocusTrap already handles touch-device skip and
+      // first-element focus, so we don't need the separate
+      // continueBtn.focus() timeout below for the keyboard path.
+      _releaseFocusTrap = installModalFocusTrap(modal, { onEscape: onCancel });
       // Embedded mode (Shopify iframe): the modal renders inline in
       // document flow rather than overlaying the viewport. Scroll
       // the user to it so they land on the picker instead of being
@@ -9268,10 +9425,10 @@
         try { modal.scrollIntoView({ behavior: "smooth", block: "start" }); }
         catch (_e) { modal.scrollIntoView(); }
       }
-      // Skip programmatic focus on touch devices — same iOS soft-
-      // keyboard reasoning as the feedback modal. Continue is a
-      // button, no keyboard, but the focus ring still grabs the
-      // user's attention away from the modal content on mobile.
+      // Continue button focus on desktop is the convenience landing
+      // — the focus trap already focuses the first focusable
+      // (typically the close-X), but for desktop UX we'd prefer the
+      // user's Enter to commit the picker. Override.
       var _isTouch = ('ontouchstart' in window) ||
                      (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
       if (!_isTouch) {
@@ -9452,6 +9609,9 @@
         if (productEmail && !productEmail.value) productEmail.value = saved.email || "";
       }
 
+      // Focus trap state — installed in openModal, released in closeModal.
+      var _feedbackReleaseFocusTrap = null;
+
       function openModal(initialTab) {
         modal.classList.remove("hidden");
         // Default to comment if no tab specified — preserves prior behavior
@@ -9466,6 +9626,15 @@
           try { modal.scrollIntoView({ behavior: "smooth", block: "start" }); }
           catch (_e) { modal.scrollIntoView(); }
         }
+        // Install the focus trap: keyboard users can Tab within the
+        // modal, Escape dismisses, and focus is restored on close.
+        // The trap also handles the touch-device "don't programmatically
+        // focus an input" rule — so this replaces the special-case
+        // setTimeout below for the keyboard path, but we keep the
+        // textarea-focus convenience on desktop because the user
+        // landed here to type, not to tab.
+        if (_feedbackReleaseFocusTrap) _feedbackReleaseFocusTrap();
+        _feedbackReleaseFocusTrap = installModalFocusTrap(modal, { onEscape: closeModal });
         // Tier-1 mobile fix: iOS Safari (and Android Chrome) only pop the
         // soft keyboard when focus is triggered by a user gesture in the
         // SAME synchronous call stack. The setTimeout below breaks that
@@ -9489,6 +9658,10 @@
 
       function closeModal() {
         modal.classList.add("hidden");
+        if (_feedbackReleaseFocusTrap) {
+          _feedbackReleaseFocusTrap();
+          _feedbackReleaseFocusTrap = null;
+        }
         // Clear the bodies + email fields on close so next open starts
         // clean. Name/email are intentionally NOT wiped — _prefillContactFields
         // restores them from localStorage the next time the modal opens.
