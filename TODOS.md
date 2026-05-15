@@ -128,14 +128,18 @@ wavelength-tile usage).
 - [x] **P1** "fine-tune crop, color, or add a caption" → "adjust the
       crop, tweak the color, or add a caption" (parallel structure)
       — `bc4ec06`
-- [ ] **P1** Tooltip terminal-punctuation pass — full-sentence
-      tooltips should end in periods; fragment tooltips
-      (Pan, Rotate 90°) should stay bare. Currently mixed.
-- [ ] **P2** Section-title capitalisation policy
-      ("Choose Your Date & Wavelength" Title Case vs button sentence
-      case) — pick one across the app
-- [ ] **P2** "1 R☉" vs "1 R_sun" appearance in copy — settle on one
-      rendering
+- [x] **P1** Tooltip terminal-punctuation pass — multi-clause
+      tooltips with em-dash explanations now end with periods to
+      match the multi-sentence Quality tier tooltips; single-clause
+      action labels (Pan, Rotate 90°, Reset all edits) stay bare.
+      Two specific tooltips updated, plus the broader policy is
+      noted below in Conventions.
+- [x] **P2** Section-title capitalisation policy — sentence case
+      everywhere (was Title Case on the three `.section-title`
+      headings, sentence case in modal `.confirm-modal-title` etc.).
+      Settled on **sentence case** as the modern web convention.
+- [x] **P2** "1 R☉" / "1 R_sun" — settled on `R☉` everywhere;
+      the one `R_sun` comment in `solar-archive.js` normalised.
 
 ## Sam Rosenberg — accessibility consultant
 
@@ -198,3 +202,19 @@ When ticking items off, please leave the commit short-hash that
 shipped the fix in line with the bullet (see the `bc4ec06` markers
 above). When a P-rating changes after fresh feedback, edit it in
 place — keeps the file honest.
+
+### Copy-style policy (per Brenda's pass)
+
+- **Sentence case** for everything except brand/proper names.
+  That includes section titles, modal titles, button labels, tab
+  labels. Modal/dialog titles already followed this; section
+  titles caught up in the same commit.
+- **Tooltips:** complete sentences (or sentences-separated-by-em-
+  dash with explanatory tails) end with periods. Single noun-phrase
+  or single-verb action labels (Pan, Rotate 90°, Reset all edits,
+  Invert colors, Add a text overlay, etc.) stay bare.
+- **Spelling:** US English. `color`, `center`, `flavor`. The only
+  exception is when a value is taken from an external source
+  (e.g. a Printify variant label may carry its own spelling — pass
+  through verbatim).
+- **Solar radius:** `R☉` (U+2609 SUN). Not `R_sun`, not `R⊙`.
