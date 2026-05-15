@@ -164,13 +164,24 @@ wavelength-tile usage).
       icons get `aria-hidden="true"` — `bc4ec06`
 - [x] **P0** `--text-dim` contrast bumped to AA across both modes
       — `bc4ec06`
-- [ ] **P1** Extend the existing polite `aria-live` region pattern
-      to download / mockup-generation status announcements (currently
-      only firing on the wavelength-load status)
-- [ ] **P1** Focus trap inside both modals (variant picker + feedback)
-      for keyboard-only users
-- [ ] **P2** Audit remaining contrast ratios on accent-colored small
-      text and disabled-button states
+- [x] **P1** Extended the polite `aria-live` region to mockup-
+      generation status (MutationObserver mirrors `#mockupStatus`
+      text into `#statusRegion`) and to filter-progress messages
+      (`updateFilterStatusLine` writes the message to the live
+      region when type is anything but "error" — error path already
+      announces via `showToast`).
+- [x] **P1** Focus traps in both modals — see Tom's QA section
+      (`installModalFocusTrap()` covers both).
+- [x] **P2** Accent-color contrast audit — `--accent-corona-text`
+      (#a48dff in dark, #6a4eff in light) added as a brightened
+      variant of `--accent-corona` for places the purple is used as
+      TEXT on a dark background. Original `--accent-corona` keeps
+      its decorative roles (borders, focus rings, gradients).
+      `.edit-tab.active` text and `.confirm-summary-price` switched.
+      Other accent-colour-as-text sites (filter-step loading state,
+      etc.) are large/secondary text where 3:1 suffices.
+      Disabled-button state on `.btn-buy-in-editor` measures
+      ~4.8:1 — already passing AA.
 
 ## Jordan Watanabe — startup founder
 
