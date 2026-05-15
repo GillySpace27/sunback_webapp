@@ -501,19 +501,26 @@ def _fetch_helioviewer_screenshot(url: str, timeout: int = 60):
 SDO_LAUNCH_DATE = "2010-05-15"  # First-light AIA imagery available from this date.
 
 
-def _validate_solar_date(date_str: str) -> None:
-    """Reject dates before SDO's first-light date and dates in the future.
+def _validate_solar_date(date_str: str, time_str: str | None = None) -> None:
+    """Reject dates/times before SDO's first-light or in the future.
 
     The HTML5 date input enforces min/max client-side, but a beta-tester
     QA pass surfaced that copy/paste or direct API calls bypass that
     completely — a typed 1972-01-01 returns a 500 from upstream
     Helioviewer rather than a polite 400 from us. Clamp server-side.
+
+    The same QA tester also flagged the dateline edge case: a Tokyo
+    user picking today at 00:30 local maps to a noon-UTC request that
+    hasn't happened yet ("Same for today before 12:00 UTC"). If a
+    time_str is provided, we combine it with the date and reject any
+    timestamp that's strictly in the future relative to UTC now.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     if not date_str:
         raise HTTPException(status_code=400, detail="Missing date")
     # Accept either an ISO date (2026-02-10) or a full ISO timestamp
-    # (2026-02-10T12:00:00Z); we only validate the date portion.
+    # (2026-02-10T12:00:00Z); split off the date portion for the
+    # launch-date check.
     head = date_str.strip().split("T")[0]
     try:
         d = datetime.strptime(head, "%Y-%m-%d").date()
@@ -531,6 +538,27 @@ def _validate_solar_date(date_str: str) -> None:
             status_code=400,
             detail=f"Cannot fetch data from the future (requested {head}, today is {today_utc.isoformat()} UTC).",
         )
+    # Datetime-level future check: only if the combined date+time is
+    # AHEAD of UTC now. We give a 60-second grace window so clock skew
+    # between the user's device and the server doesn't reject
+    # legitimate "right now" requests.
+    if time_str:
+        try:
+            hh, mm = time_str.strip().split(":")[:2]
+            req_dt = datetime(d.year, d.month, d.day, int(hh), int(mm), 0, tzinfo=timezone.utc)
+        except (ValueError, IndexError):
+            return  # bad time, skip the future-time check; date-level guards still apply
+        now_utc = datetime.now(timezone.utc)
+        if req_dt > now_utc + timedelta(seconds=60):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"That observation hasn't happened yet — requested "
+                    f"{req_dt.strftime('%Y-%m-%d %H:%M UTC')}, the latest available "
+                    f"is roughly {now_utc.strftime('%Y-%m-%d %H:%M UTC')}. "
+                    "Try a slightly earlier time of day, or pick yesterday."
+                ),
+            )
 
 
 @app.get("/api/helioviewer_thumb")
@@ -541,7 +569,18 @@ async def helioviewer_thumb(
     size: int = Query(256, description="Width and height in pixels"),
 ):
     """Proxy Helioviewer screenshot API so the frontend can load tiles/canvas without CORS."""
-    _validate_solar_date(date)
+    # `date` here is an ISO timestamp like 2026-02-10T12:00:00Z; pluck
+    # the time portion if present so the future-time check covers
+    # users in time zones ahead of UTC requesting a frame that hasn't
+    # been observed yet.
+    _time_part = None
+    if "T" in (date or ""):
+        try:
+            _hhmm = date.split("T", 1)[1][:5]  # "12:00" out of "12:00:00Z"
+            _time_part = _hhmm if len(_hhmm) == 5 and _hhmm[2] == ":" else None
+        except (IndexError, AttributeError):
+            _time_part = None
+    _validate_solar_date(date, _time_part)
     # When frontend sends 12, frame out to 1.5 solar radii (~3000 arcsec) so off-limb corona is visible.
     if image_scale == 12:
         scale = 3000.0 / max(size, 64)  # arcsec/pixel so FOV = size * scale ≈ 3000 (1.5 R_sun)
@@ -938,8 +977,11 @@ async def generate_preview(req: PreviewRequest = Body(...)):
     # Server-side date validation — same rules as /api/helioviewer_thumb.
     # The form's HTML5 min/max attributes don't cover direct API hits, and
     # the heavy FITS pipeline is way too expensive to kick off only to
-    # discover the date is invalid an hour later.
-    _validate_solar_date(req.date or "")
+    # discover the date is invalid an hour later. Pass time too so the
+    # future-time check rejects requests for observations that haven't
+    # happened yet (e.g. a Tokyo user picking today at 00:30 local maps
+    # to a noon-UTC request which is still in the future).
+    _validate_solar_date(req.date or "", (req.time or "").strip() or None)
     try:
         # Combine the user's date with their picked time of day so the
         # JPG (Helioviewer) and the RAW/RHEF (VSO/SunPy) fetches both

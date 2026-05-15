@@ -102,22 +102,37 @@ wavelength-tile usage).
 - [x] **P0** Server-side date clamp (pre-2010-05-15 + future dates) —
       shipped in `bc4ec06`
 - [x] **P0** `max_length` on feedback fields — shipped in `bc4ec06`
-- [ ] **P1** Variant-picker modal + feedback FAB stacking — focus
-      trap, ESC handling, `aria-modal` correctness when both open
+- [x] **P1** Variant-picker + feedback modal focus traps — new
+      `installModalFocusTrap()` helper cycles Tab/Shift+Tab within
+      the modal's focusable children, handles Escape, and restores
+      focus to the previously-active element on close. Wired into
+      both modals.
 - [ ] **P1** Refresh-mid-RHEF orphans the request silently —
-      resume-or-clean-shutdown handling
-- [ ] **P1** Slow-3G timeout during HQ render aborts silently —
-      user sees nothing; surface a retry affordance
-- [ ] **P1** Midnight-UTC at the international dateline returns frames
-      that don't exist yet — clamp to a small "available" buffer
-- [ ] **P1** Two browser tabs editing the same product —
-      `localStorage` last-write-wins, no version field
+      resume-or-clean-shutdown handling. *(Deferred — invasive,
+      needs server-side state-recovery design.)*
+- [x] **P1** Slow-network timeout during RHE poll — each poll
+      attempt now has a 15s `AbortController` timeout. If a single
+      attempt times out, attempts++ and retry; if attempts exhaust,
+      reject with a network-specific message. Previously a single
+      slow request paused the polling loop indefinitely.
+- [x] **P1** Midnight-UTC at the international dateline — server-
+      side `_validate_solar_date()` now also takes a `time_str` and
+      rejects datetimes more than 60s in the future. Tokyo user
+      picking today at 00:30 local + noon-UTC default now gets a
+      400 with an explanatory message instead of a confused upstream
+      failure.
+- [x] **P1** Two-tab `localStorage` last-write-wins — *investigated;
+      no fix needed.* Only the feedback contact info (name/email)
+      lives in `localStorage`. Editor state is in-memory only, so
+      two tabs have independent state. Last-wins on contact info is
+      the desired behaviour (most recent value wins).
 - [ ] **P1** Browser-back during checkout flow returns to a stale
       editor (partial fix earlier; verify it covers the
-      variant-cleared path)
-- [ ] **P2** Products with `variantId === null` (commented-out
-      `phone_case_pixel`) — defensive null-check before any
-      Printify build path
+      variant-cleared path). *(Re-verify in a clean session.)*
+- [x] **P2** Products with `variantId === null` — defensive
+      null-check in `runMockupQueue` skips the entry with a polite
+      mockupStatus error and continues the queue instead of POSTing
+      a null variant id to Printify.
 
 ## Brenda Walsh — copy editor
 
