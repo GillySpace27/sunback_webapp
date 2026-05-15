@@ -13,23 +13,41 @@ carried over from the original triage; round-2 P-bumps noted inline.
 ## 🚨 Security alert — round 2 (2026-05-15)
 
 A round-2 security audit (Mira Sokolov, see the new persona section
-below) surfaced a **P0 CRITICAL** finding that needs to land before
-public Shopify launch / before BETA_MODE flips off:
+below) surfaced four **P0** findings.
 
-> **`/api/printify/{upload, product, checkout, product/{id}/publish}`
-> are unauthenticated, CORS-`*`, no CSRF, no rate-limit.** Any
-> internet caller can POST `/api/printify/checkout` with a valid
-> blueprint + provider + variant_ids and a base64 PNG, and a real
-> product is **created and published** against the operator's
-> Printify account, racking up real wholesale + shipping cost per
-> hit. `BETA_MODE` only flips the client button — **the server
-> endpoint is wide open right now.**
+**Shipped in this round (commit pending below):**
+- ✅ **P0 CRITICAL — Unauth Printify billing-abuse vector closed.**
+  New `api/security.py` module enforces three gates on
+  `/api/printify/{upload, product, checkout, publish}`:
+  (1) Origin allowlist check (rejects browsers framing from
+  non-Solar-Archive origins); (2) per-IP sliding-window rate-limit
+  (8/min for upload+product+publish, 3 per 5 min for checkout —
+  the only one that actually publishes); (3) **server-side
+  BETA_MODE refusal** (the client button swap is no longer the
+  only thing standing between an attacker and the operator's
+  wholesale+ship bill — the endpoint itself returns 403 while
+  beta is on). CORS in `main.py` tightened from `allow_origins=["*"]`
+  to the same allowlist, configurable in production via the
+  `ALLOWED_ORIGINS` env var.
+- ✅ **P0 HIGH — `canvas_image` XSS in operator email closed.**
+  `feedback_routes._sanitize` now strict-validates the base64 payload
+  after the `data:image/png;base64,` prefix against a whitelist regex
+  (`[A-Za-z0-9+/]+={0,2}`), so a `">` / `<script>` payload sneaking
+  through breaks the regex and the canvas_image is dropped before it
+  reaches the email `<img src>`.
+- ✅ **/api/feedback rate-limit added** (5 per 60s per IP) — closes the
+  Resend-quota-blowout + jsonl-disk-fill subpath of Mira's P0 HIGH.
 
-Plus three **P0 HIGH** items: DOM XSS in `showInfo()` and
-`mockupStatus.innerHTML`; `postMessage` listener trusting any
-origin; `/api/feedback` `canvas_image` data-URI emitted into the
-operator email `<img src>` with no escape (XSS in the operator's
-inbox). Full writeup in **Mira Sokolov** below.
+**Still open (separate chunks, not in this commit):**
+- ⏳ **P0 HIGH — DOM XSS via `showInfo()` and
+  `mockupStatus.innerHTML`** (frontend refactor — needs to swap
+  `innerHTML` for `createElement`+`textContent` across ~6 sinks).
+- ⏳ **P0 HIGH — `postMessage` listener trusts any origin** (frontend,
+  `solar-archive.js` L201 — add `e.origin` allowlist).
+- ⏳ **P1 HIGH — Admin-key non-constant-time compare + URL transport**
+  (Slack-link refactor; one-shot signed tokens).
+- ⏳ **P1 MEDIUM — Email `reply_to` spoofing + Slack mrkdwn injection**
+  (validate with `EmailStr`; escape Slack values).
 
 ---
 
@@ -406,7 +424,7 @@ Round-2 security audit, seven findings + one info note. **#1 must
 ship before BETA_MODE flips off.** Pulled to the top of this file
 as a security alert.
 
-- [ ] **P0 CRITICAL** **Unauth Printify proxies = billing abuse.**
+- [x] **P0 CRITICAL** **Unauth Printify proxies = billing abuse.**
       `/api/printify/{upload, product, checkout, product/{id}/publish}`
       forward to `api.printify.com` with the operator's
       `PRINTIFY_API_KEY`. No auth, no CSRF, no rate-limit, CORS
@@ -417,6 +435,10 @@ as a security alert.
       button; the server endpoint is wide open. Mitigate:
       per-session signed token, same-origin + CSRF, server-side
       `BETA_MODE` refusal on `/checkout`, per-IP throttle.
+      **Shipped 2026-05-15:** new `api/security.py` enforces Origin
+      allowlist + per-IP rate-limit + server-side BETA_MODE refusal
+      on all four mutating endpoints. CORS tightened from `*`.
+      `ALLOWED_ORIGINS` env var allows production override.
 - [ ] **P0 HIGH** **DOM XSS via `showInfo()` and
       `mockupStatus.innerHTML`** (`solar-archive.js` L2515-25,
       L1416, L2552, L2658). `title` + `message` interpolated raw
@@ -433,7 +455,7 @@ as a security alert.
       type:'viewport', visibleBottomInIframe:9999}, '*')` mutates
       the FAB DOM. Impact: UI today, primes XSS the moment a
       handler hits `innerHTML`. Mitigate: hard-allowlist `e.origin`.
-- [ ] **P0 HIGH** **`/api/feedback` abuse surface.** No CSRF, no
+- [x] **P0 HIGH** **`/api/feedback` abuse surface.** No CSRF, no
       Origin/Referer check, no rate-limit, CORS `*`.
       (a) Blast Resend free tier into quota lockout;
       (b) fill `feedback.jsonl` 8KB/row;
@@ -442,6 +464,11 @@ as a security alert.
           (`feedback_routes.py` L289). Body IS escaped; canvas_image
           is not. Mitigate: `_esc(canvas_image)` and
           strict-validate base64 chars after the prefix.
+      **Shipped 2026-05-15:** Origin allowlist + 5/60s per-IP rate-
+      limit on the POST. canvas_image base64 strict-validated
+      against `[A-Za-z0-9+/]+={0,2}` after the prefix; payloads with
+      `">` / `<script>` etc. fail the regex and get dropped to
+      `None` before they ever reach the email body.
 - [ ] **P1 HIGH** **Admin key non-constant-time compare;
       query-string transport; logged.** `_check_admin_key` (L464)
       does `provided != expected` — timing-observable. Slack

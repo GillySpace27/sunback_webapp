@@ -358,20 +358,29 @@ async def serve_index_direct():
 # ---------------------------------------------------------
 # CORS CONFIGURATION — fixes Shopify ↔ Render cross-origin
 # ---------------------------------------------------------
+# Round-2 security audit (Mira Sokolov): the previous policy was
+# `allow_origins=["*"]`, which combined with unauthenticated POST
+# endpoints meant any internet caller could fire /api/printify/checkout
+# and bill the operator. Origin allowlist is now hard-coded to the
+# Shopify storefront + Render service + localhost dev origins. Override
+# in production by setting ALLOWED_ORIGINS=comma,separated,list. The
+# api.security module reads the same env var for server-side Origin
+# checks on POSTs, so CORS and the per-route check stay in sync.
 from fastapi.middleware.cors import CORSMiddleware
 
-# Define allowed origins explicitly
-# allowed_origins = [
-#     "https://solar-archive.myshopify.com",
-#     "https://solar-archive.onrender.com",
-#     "https://poe.com",
-#     "https://app.poe.com",
-#     "https://preview.poe.com",
-#     "https://pfst.cf2.poecdn.net",
-#     "https://qph.cf2.poecdn.net",
-#     "http://127.0.0.1:8000",
-#     "http://localhost:8000",
-# ]
+_DEFAULT_ALLOWED = [
+    "https://solar-archive.myshopify.com",
+    "https://solar-archive.onrender.com",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+_env_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if _env_origins:
+    allowed_origins = [o.strip().rstrip("/") for o in _env_origins.split(",") if o.strip()]
+else:
+    allowed_origins = _DEFAULT_ALLOWED
 
 # Remove any old middleware before re-adding
 # (avoids duplicate middleware layers if app reloads)
@@ -380,12 +389,11 @@ for i, middleware in enumerate(app.user_middleware):
         app.user_middleware.pop(i)
         break
 
-# Add updated CORS policy
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # Allow any origin (Poe, Shopify, etc.)
-    allow_credentials=False,       # Must be False when using wildcard
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
