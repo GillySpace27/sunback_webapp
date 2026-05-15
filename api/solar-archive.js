@@ -134,6 +134,64 @@
       setInterval(_postIframeHeight, 800);
     }
 
+    // ── Embedded-iframe FAB anchoring ────────────────────────────
+    // The feedback FAB is `position: fixed; bottom: 18px; right: 18px`
+    // in standalone — but inside a content-sized iframe `fixed` pins
+    // to the iframe's coordinate space (which is the whole content
+    // area, not the visible window), so the FAB ends up at the
+    // bottom of the iframe's content rather than the bottom of the
+    // user's screen. To anchor it to the actual visible viewport we
+    // listen for messages from the parent telling us where the
+    // visible region falls inside the iframe, then position the FAB
+    // absolutely at that coordinate.
+    //
+    // Parent-side snippet (paste alongside the resize listener you
+    // already installed in the Shopify theme):
+    //
+    //   <script>
+    //     function _saSendViewport() {
+    //       document.querySelectorAll(
+    //         'iframe[src*="solar-archive.onrender.com"]'
+    //       ).forEach(function (f) {
+    //         var rect = f.getBoundingClientRect();
+    //         var visibleBottom = Math.min(window.innerHeight, rect.bottom);
+    //         var visibleBottomInIframe = visibleBottom - rect.top;
+    //         f.contentWindow.postMessage({
+    //           source: "solar-archive-parent",
+    //           type: "viewport",
+    //           visibleBottomInIframe: visibleBottomInIframe
+    //         }, "*");
+    //       });
+    //     }
+    //     window.addEventListener("scroll", _saSendViewport, { passive: true });
+    //     window.addEventListener("resize", _saSendViewport);
+    //     document.addEventListener("DOMContentLoaded", _saSendViewport);
+    //   </script>
+    //
+    // Without the parent listener the FAB falls back to whatever its
+    // CSS rule provides — same iframe behaviour as today.
+    if (document.documentElement.classList.contains("embedded")) {
+      window.addEventListener("message", function(e) {
+        if (!e.data || e.data.source !== "solar-archive-parent") return;
+        if (e.data.type !== "viewport") return;
+        var fab = document.getElementById("feedbackFabGroup");
+        if (!fab) return;
+        var vis = e.data.visibleBottomInIframe;
+        if (typeof vis !== "number" || !isFinite(vis)) return;
+        var fabH = fab.offsetHeight || 60;
+        // Pin FAB so its BOTTOM aligns with the visible viewport's
+        // bottom (with the same 18px margin standalone uses). Clamp
+        // to 0 so the FAB never sneaks above the iframe's top.
+        var topPx = Math.max(0, vis - fabH - 18);
+        fab.style.position = "absolute";
+        fab.style.top = topPx + "px";
+        fab.style.right = "18px";
+        fab.style.bottom = "auto";
+        fab.style.left = "auto";
+        fab.style.zIndex = "9990";
+      });
+    }
+
     // ── Dark mode detection ──────────────────────────────────────
     if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
       document.documentElement.classList.add("dark");
@@ -2284,6 +2342,11 @@
           "</div>" +
         "</div>";
       document.body.appendChild(overlay);
+      // Embedded mode: overlay flows inline, so scroll to it.
+      if (document.documentElement.classList.contains("embedded")) {
+        try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        catch (_e) { overlay.scrollIntoView(); }
+      }
       var btnCancel = overlay.querySelector(".btn-cancel");
       var btnConfirm = overlay.querySelector(".btn-confirm");
       btnCancel.addEventListener("click", function() {
@@ -2334,6 +2397,14 @@
       overlay.querySelector(".btn-confirm").addEventListener("click", function() {
         overlay.remove();
       });
+      // Embedded mode: overlay is styled as an inline block (see CSS),
+      // not a viewport-fixed overlay. Scroll the user to it so it
+      // doesn't end up at the top of the iframe coordinate space far
+      // above their current outer-page scroll position.
+      if (document.documentElement.classList.contains("embedded")) {
+        try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        catch (_e) { overlay.scrollIntoView(); }
+      }
     }
 
     // ── Progress helpers ─────────────────────────────────────────
@@ -6699,6 +6770,20 @@
     }
 
     function updatePreviewVariantSelector(product) {
+      // The inline variant dropdown was removed from the preview pane
+      // (duplicated the "Change variant" nav button which opens the
+      // full modal). The wrap element is kept hidden in the HTML and
+      // we early-return here so nothing un-hides it. Preserved as a
+      // function so legacy callers (selectProductCard etc.) still
+      // resolve the symbol — just a no-op now.
+      var wrap = document.getElementById("previewVariantWrap");
+      if (wrap && !wrap.classList.contains("hidden")) wrap.classList.add("hidden");
+      return;
+      // (Old dropdown population path retained below as dead code
+      //  for reference but unreachable. Safe to delete later.)
+    }
+    // eslint-disable-next-line no-unused-vars
+    function _legacy_updatePreviewVariantSelector(product) {
       var wrap = document.getElementById("previewVariantWrap");
       var select = document.getElementById("previewVariantSelect");
       var note = document.getElementById("previewVariantClockNote");

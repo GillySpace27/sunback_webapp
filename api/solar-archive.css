@@ -1443,6 +1443,29 @@ html.dark .image-stage.image-stage--checker {
   padding: 20px;
   animation: fadeIn 0.2s ease;
 }
+/* Embedded mode (Shopify iframe): generic info / confirm modals
+   (showInfo, showModal — e.g. the "HQ RHEF" explainer) were being
+   rendered far up the iframe coordinate space, way above the user's
+   current outer-page scroll. Same fix as the feedback / variant
+   modals: drop the overlay, inline the box, scroll into view. JS
+   does the scrollIntoView when it appends the overlay. */
+html.embedded .modal-overlay {
+  position: static;
+  display: block;
+  inset: auto;
+  height: auto;
+  padding: 0;
+  margin: 24px auto;
+  max-width: 520px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+html.embedded .modal-box {
+  margin: 0 auto;
+  animation: none;
+}
 
 @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
 
