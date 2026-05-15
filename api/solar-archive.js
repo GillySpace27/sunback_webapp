@@ -2804,6 +2804,35 @@
         .catch(function() {});
     }
 
+    // ── Data credits modal (footer link) ─────────────────────────
+    // Surfaces the full attribution stack — NASA SDO rules-of-the-
+    // road acknowledgement, AIA instrument paper (Lemen 2012), the
+    // RHEF method paper (Gilly 2025), and the Helioviewer Project
+    // credit (only used by the JPG-tier preview path). The footer
+    // already carries the short SDO-team acknowledgement; this
+    // expanded list is for users who want to cite the imagery
+    // properly or verify the data provenance.
+    (function() {
+      var link = document.getElementById("dataCreditsLink");
+      if (!link) return;
+      link.addEventListener("click", function(e) {
+        e.preventDefault();
+        var html =
+          '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
+            '<p style="margin-bottom:10px;"><strong>Imagery</strong></p>' +
+            '<p style="margin-bottom:10px;">' + CITATIONS.SDO_ACK + '</p>' +
+            '<p style="margin-bottom:14px;color:var(--text-secondary);">Raw, RHEF, and HQ&nbsp;RHEF tiers use AIA FITS frames distributed through the Joint Science Operations Center (JSOC) at Stanford, accessed via the Virtual Solar Observatory (VSO). JPG previews are rendered by the Helioviewer Project.</p>' +
+            '<p style="margin-bottom:6px;"><strong>Instrument</strong></p>' +
+            '<p style="margin-bottom:14px;">' + CITATIONS.AIA_PAPER + '</p>' +
+            '<p style="margin-bottom:6px;"><strong>RHEF method</strong></p>' +
+            '<p style="margin-bottom:14px;">' + CITATIONS.RHEF_PAPER + '</p>' +
+            '<p style="margin-bottom:6px;"><strong>JPG previews</strong></p>' +
+            '<p style="margin-bottom:0;">' + CITATIONS.HELIOVIEWER_ACK + '</p>' +
+          '</div>';
+        showInfo("Data credits", html);
+      });
+    })();
+
     function onBackendOnline() {
       state.backendOnline = true;
       setBannerState("online", "Backend online", "Connected to " + API_BASE, false);

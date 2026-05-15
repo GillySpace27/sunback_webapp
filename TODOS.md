@@ -84,17 +84,24 @@ wavelength-tile usage).
 
 ## Dr. Patricia Vasquez — solar physicist
 
-- [ ] **P1** Proper attribution string on every printed product
-      (FITS-derived → SDO rules-of-the-road only; JPG-derived would
-      need Helioviewer credit but JPG-tier prints are now gated)
-- [ ] **P1** AIA Lemen 2012 instrument-paper citation surfaced in the
-      Raw / JPG tier descriptions
-- [ ] **P1** RHEF method-paper citation
-      (`Gilly et al. 2025, Sol. Phys. 300, 174`) surfaced in the
-      RHEF / HQ RHEF tier descriptions
-- [ ] **P1** Fix the "wavelength" vs "filter/bandpass" copy
-      conflation — AIA 171 is a ~3 Å EUV bandpass dominated by
-      Fe IX, not a monochromatic line. Update tooltips/labels.
+- [x] **P1** Proper attribution string surfaced. Footer credit
+      updated to the SDO rules-of-the-road line ("Courtesy of
+      NASA/SDO and the AIA, EVE, and HMI science teams."). New
+      "Data credits" footer link opens a modal with the full
+      attribution stack — SDO ack, AIA instrument paper (Lemen
+      2012), RHEF method paper (Gilly 2025), and Helioviewer
+      Project credit scoped to JPG-tier previews.
+- [x] **P1** AIA Lemen 2012 surfaced in the Raw tier tooltip
+      and in the Data credits modal.
+- [x] **P1** RHEF method paper (Gilly et al. 2025, Sol. Phys.
+      300, 174) surfaced in the RHEF / HQ RHEF tier tooltips
+      and the Data credits modal.
+- [x] **P1** Wavelength vs filter/bandpass — the user-facing
+      "wavelength" label stays for common-parlance accessibility,
+      but the section title now has a clarifying tooltip
+      explaining the bandpass relationship (e.g. AIA 171 is a
+      ~3 Å EUV passband dominated by Fe IX). The Raw tier
+      tooltip also calls it the AIA filter explicitly.
 
 ## Tom Hartwell — QA engineer
 

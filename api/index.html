@@ -71,7 +71,7 @@
   <div class="section">
     <div class="section-header">
       <div class="step-badge">1</div>
-      <div class="section-title">Choose your date &amp; wavelength</div>
+      <div class="section-title" title="“Wavelength” here is the AIA filter bandpass — e.g. 171 Å is a ~3 Å-wide EUV passband dominated by Fe IX emission, not a single monochromatic line. Common parlance keeps it as wavelength.">Choose your date &amp; wavelength</div>
     </div>
 
     <div class="controls-grid">
@@ -190,7 +190,7 @@
              Underlying radio inputs are kept for accessibility/keyboard nav. -->
         <div class="filter-timeline editor-filter" id="editorFilterToggle" role="radiogroup" aria-label="Image quality">
           <span class="filter-timeline-label">Quality</span>
-          <div class="filter-step" data-filter="jpg" title="Colorized JPG — loads instantly. Great for screens and quick previews.">
+          <div class="filter-step" data-filter="jpg" title="Colorized JPG from the Helioviewer takeScreenshot service. Loads instantly. Great for screens and quick previews; print fidelity is limited compared with the FITS-derived tiers below.">
             <span class="filter-step-num"><i class="fas fa-bolt" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">JPG</span>
@@ -199,7 +199,7 @@
             <input type="radio" name="editorFilter" value="jpg" checked aria-label="JPG quality" tabindex="-1">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="raw" title="Raw telescope data, grayscale. Scientific view with no color mapping.">
+          <div class="filter-step" data-filter="raw" title="Raw AIA FITS data via VSO/JSOC, grayscale. Scientific view with no color mapping. Instrument: Lemen et al. 2012 (Sol. Phys. 275, 17).">
             <span class="filter-step-num"><i class="fas fa-satellite" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Raw</span>
@@ -208,7 +208,7 @@
             <input type="radio" name="editorFilter" value="raw" aria-label="Raw quality" tabindex="-1">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalizing Filter — boosts faint features across the Sun's surface and corona.">
+          <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalization Filter — boosts faint features across the Sun's surface and corona. Method: Gilly et al. 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">RHEF</span>
@@ -217,7 +217,7 @@
             <input type="radio" name="editorFilter" value="rhef" aria-label="RHEF quality" tabindex="-1">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes.">
+          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes. Method: Gilly et al. 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-star" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">HQ RHEF</span>
@@ -668,8 +668,17 @@
   </div>
 
   <div class="app-footer">
-    Images courtesy of NASA/SDO. Not affiliated; no endorsement implied.<br>
+    <!-- NASA SDO rules-of-the-road acknowledgement. Required on any
+         SDO-derived imagery; the longer form covers EVE + HMI in
+         case future versions surface those channels. Helioviewer
+         credit applies only to JPG-tier previews (which use their
+         takeScreenshot endpoint); the full instrument + method
+         citations live behind the "Data credits" link. -->
+    Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.
+    Not affiliated; no endorsement implied.<br>
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
+    &nbsp;·&nbsp;
+    <a href="#" id="dataCreditsLink" role="button">Data credits</a>
     &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">—</span>
     &nbsp;·&nbsp; <span id="buildTime" style="font-family:monospace;opacity:0.5;font-size:0.7rem;" title="When index.html, solar-archive.js, solar-archive.css were last saved">—</span>
   </div>
