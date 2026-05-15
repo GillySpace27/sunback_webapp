@@ -21,14 +21,14 @@
          this block via CSS). Orange so it reads as an advisory, not an
          error. -->
     <div class="beta-banner" id="betaBanner">
-      <i class="fas fa-flask"></i>
+      <i class="fas fa-flask" aria-hidden="true"></i>
       Beta mode tests the front-end, but purchases are disabled.
     </div>
   </div>
 
   <!-- CSP Notice (shown only when served from a different origin) -->
   <div class="backend-banner waking hidden" id="cspNotice">
-    <span class="banner-icon"><i class="fas fa-shield-alt"></i></span>
+    <span class="banner-icon"><i class="fas fa-shield-alt" aria-hidden="true"></i></span>
     <div class="banner-text">
       <strong>External resource access required</strong>
       <small>If you see a popup asking to "Allow untrusted external resources," please click <strong>Allow All</strong> — the page will reload and the app will work normally.</small>
@@ -41,6 +41,29 @@
     <div class="banner-text">
       <strong>Checking backend status...</strong>
       <small>Connecting to backend...</small>
+    </div>
+  </div>
+
+  <!-- Birthday Sun CTA — fast path for the dominant use case
+       (your sun on a specific date — anniversary, birthday, the
+       day someone was born). Sets the date input + scrolls to
+       the wavelength tiles in one tap. -->
+  <div class="section birthday-cta-section">
+    <div class="birthday-cta">
+      <div class="birthday-cta-icon" aria-hidden="true">
+        <i class="fas fa-gift"></i>
+      </div>
+      <div class="birthday-cta-text">
+        <h2 class="birthday-cta-title">The Sun on your day.</h2>
+        <p class="birthday-cta-sub">Type a birthday, anniversary, or any date back to May 2010 — print the sun that was shining.</p>
+      </div>
+      <form class="birthday-cta-form" id="birthdayCtaForm">
+        <label class="birthday-cta-label" for="birthdayCtaInput">Date</label>
+        <input type="date" id="birthdayCtaInput" class="birthday-cta-input" required>
+        <button type="submit" class="birthday-cta-btn">
+          See your sun &rarr;
+        </button>
+      </form>
     </div>
   </div>
 
@@ -125,7 +148,7 @@
     </div>
 
     <div class="info-row">
-      <i class="fas fa-info-circle"></i>
+      <i class="fas fa-info-circle" aria-hidden="true"></i>
       <span>AIA imagery available from May 2010. Click any tile to instantly preview. <a href="https://www.helioviewer.org" target="_blank" rel="noopener">helioviewer.org</a></span>
     </div>
   </div>
@@ -168,7 +191,7 @@
         <div class="filter-timeline editor-filter" id="editorFilterToggle" role="radiogroup" aria-label="Image quality">
           <span class="filter-timeline-label">Quality</span>
           <div class="filter-step" data-filter="jpg" title="Colorized JPG — loads instantly. Great for screens and quick previews.">
-            <span class="filter-step-num"><i class="fas fa-bolt"></i></span>
+            <span class="filter-step-num"><i class="fas fa-bolt" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">JPG</span>
               <span class="filter-step-status" data-status="locked"></span>
@@ -177,7 +200,7 @@
           </div>
           <div class="filter-step-connector"></div>
           <div class="filter-step" data-filter="raw" title="Raw telescope data, grayscale. Scientific view with no color mapping.">
-            <span class="filter-step-num"><i class="fas fa-satellite"></i></span>
+            <span class="filter-step-num"><i class="fas fa-satellite" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Raw</span>
               <span class="filter-step-status" data-status="locked"></span>
@@ -186,7 +209,7 @@
           </div>
           <div class="filter-step-connector"></div>
           <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalizing Filter — boosts faint features across the Sun's surface and corona.">
-            <span class="filter-step-num"><i class="fas fa-magic"></i></span>
+            <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">RHEF</span>
               <span class="filter-step-status" data-status="locked"></span>
@@ -195,7 +218,7 @@
           </div>
           <div class="filter-step-connector"></div>
           <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes.">
-            <span class="filter-step-num"><i class="fas fa-star"></i></span>
+            <span class="filter-step-num"><i class="fas fa-star" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">HQ RHEF</span>
               <span class="filter-step-status" data-status="locked"></span>
@@ -206,13 +229,13 @@
         </div>
         <div class="edit-toolbar-nav-group">
           <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change date or wavelength">
-            <i class="fas fa-sun"></i> Change wavelength
+            <i class="fas fa-sun" aria-hidden="true"></i> Change wavelength
           </button>
           <button class="edit-btn edit-btn-nav" id="btnChangeProduct" title="Scroll back up to pick a different product">
-            <i class="fas fa-shapes"></i> Change product
+            <i class="fas fa-shapes" aria-hidden="true"></i> Change product
           </button>
           <button class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
-            <i class="fas fa-swatchbook"></i> Change variant
+            <i class="fas fa-swatchbook" aria-hidden="true"></i> Change variant
           </button>
         </div>
       </div>
@@ -221,12 +244,16 @@
       <div class="filter-status-line" id="filterStatusLine" style="display:none;"></div>
 
       <!-- Tab bar: Geometry · Adjust · Clock · Tools  |  Reset always visible -->
-      <div class="edit-tab-bar">
-        <button class="edit-tab" data-tab="geometry">Geometry</button>
-        <button class="edit-tab" data-tab="adjust">Adjust</button>
-        <button class="edit-tab edit-tab-clock hidden" data-tab="clock"><i class="fas fa-clock"></i> Clock</button>
-        <button class="edit-tab" data-tab="tools">Tools</button>
-        <button class="edit-btn edit-btn-reset" data-tool="reset" title="Reset all edits"><i class="fas fa-undo"></i> Reset</button>
+      <!-- Editor tab bar — true ARIA tablist so screen readers
+           announce "1 of 4, geometry, tab" instead of "button"
+           four times, and keyboard users can move with arrow / Home
+           / End keys (handled by the JS at the bottom of this file). -->
+      <div class="edit-tab-bar" role="tablist" aria-label="Image editor sections">
+        <button class="edit-tab" data-tab="geometry" role="tab" id="editTab_geometry" aria-controls="tabPanel_geometry" aria-selected="false" type="button" tabindex="-1">Geometry</button>
+        <button class="edit-tab" data-tab="adjust" role="tab" id="editTab_adjust" aria-controls="tabPanel_adjust" aria-selected="false" type="button" tabindex="-1">Adjust</button>
+        <button class="edit-tab edit-tab-clock hidden" data-tab="clock" role="tab" id="editTab_clock" aria-controls="tabPanel_clock" aria-selected="false" type="button" tabindex="-1"><i class="fas fa-clock" aria-hidden="true"></i> Clock</button>
+        <button class="edit-tab" data-tab="tools" role="tab" id="editTab_tools" aria-controls="tabPanel_tools" aria-selected="false" type="button" tabindex="-1">Tools</button>
+        <button class="edit-btn edit-btn-reset" data-tool="reset" type="button" title="Reset all edits"><i class="fas fa-undo" aria-hidden="true"></i> Reset</button>
       </div>
 
       <!-- Tab hint: shown when no tab is open. The defaults render a
@@ -234,12 +261,12 @@
            treat the tabs as a progressive-disclosure dive. Clicking
            the active tab again collapses it back to this hint. -->
       <div class="edit-tab-hint" id="editTabHint">
-        <i class="fas fa-wand-magic-sparkles"></i>
-        Looks good already? You can ship as-is. Tap a tab above to fine-tune crop, color, or add a caption.
+        <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+        Looks good already? You can ship as-is. Tap a tab above to adjust the crop, tweak the color, or add a caption.
       </div>
 
       <!-- Geometry tab (collapsed by default) -->
-      <div class="edit-tab-panel hidden" id="tabPanel_geometry">
+      <div class="edit-tab-panel hidden" id="tabPanel_geometry" role="tabpanel" aria-labelledby="editTab_geometry" tabindex="0">
         <!-- Crop presets: how much of the image fills the frame -->
         <div class="preset-row">
           <span class="preset-row-label">Crop</span>
@@ -291,11 +318,11 @@
           </label>
         </div>
         <div class="edit-toolbar-break"></div>
-        <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i> Pan</button>
-        <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo"></i> Rotate</button>
-        <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h"></i> Flip H</button>
-        <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v"></i> Flip V</button>
-        <button class="edit-btn" data-tool="flipAspect" title="Swap canvas width and height"><i class="fas fa-expand-arrows-alt"></i> Flip Aspect</button>
+        <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper" aria-hidden="true"></i> Pan</button>
+        <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo" aria-hidden="true"></i> Rotate</button>
+        <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h" aria-hidden="true"></i> Flip H</button>
+        <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v" aria-hidden="true"></i> Flip V</button>
+        <button class="edit-btn" data-tool="flipAspect" title="Swap canvas width and height"><i class="fas fa-expand-arrows-alt" aria-hidden="true"></i> Flip aspect</button>
         <div class="edit-toolbar-break"></div>
         <div class="slider-row">
           <label>Crop</label>
@@ -334,8 +361,8 @@
       </div>
 
       <!-- Adjust tab -->
-      <div class="edit-tab-panel hidden" id="tabPanel_adjust">
-        <button class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust"></i> Invert</button>
+      <div class="edit-tab-panel hidden" id="tabPanel_adjust" role="tabpanel" aria-labelledby="editTab_adjust" tabindex="0">
+        <button class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust" aria-hidden="true"></i> Invert</button>
         <div class="edit-toolbar-break"></div>
         <div class="slider-row">
           <label>Brightness</label>
@@ -354,13 +381,13 @@
         </div>
         <div class="slider-row">
           <label>Hue</label>
-          <input type="range" id="hueSlider" min="-180" max="180" value="0" title="Shift the colour wheel — -180° to +180°">
+          <input type="range" id="hueSlider" min="-180" max="180" value="0" title="Shift the color wheel — -180° to +180°">
           <span class="slider-val" id="hueVal">0°</span>
         </div>
       </div>
 
       <!-- Clock tab (wall clock product only) -->
-      <div class="edit-tab-panel hidden" id="tabPanel_clock">
+      <div class="edit-tab-panel hidden" id="tabPanel_clock" role="tabpanel" aria-labelledby="editTab_clock" tabindex="0">
         <p style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:12px;">
           Customize the clock face numerals for wall clock products.
         </p>
@@ -402,21 +429,21 @@
         </div>
         <div style="display:flex; gap:8px; margin-top:6px;">
           <button class="edit-btn" id="cancelClockNumbers" style="flex:1;justify-content:center;">
-            <i class="fas fa-eye-slash"></i> Hide numerals
+            <i class="fas fa-eye-slash" aria-hidden="true"></i> Hide numerals
           </button>
         </div>
       </div>
 
       <!-- Tools tab (last) -->
-      <div class="edit-tab-panel hidden" id="tabPanel_tools">
-        <button class="edit-btn" data-tool="text" title="Add Text"><i class="fas fa-font"></i> Text</button>
+      <div class="edit-tab-panel hidden" id="tabPanel_tools" role="tabpanel" aria-labelledby="editTab_tools" tabindex="0">
+        <button class="edit-btn" data-tool="text" title="Add a text overlay"><i class="fas fa-font" aria-hidden="true"></i> Text</button>
         <!-- Timestamp toggle: a toggle, not a modal — flips a tiny art-style
              timestamp on or off on the image. The label is built from the
              active date + noon UTC + wavelength so it reads as a caption,
              not a debug string. -->
         <button class="edit-btn" data-tool="timestamp" id="toolTimestampBtn"
                 title="Add a small caption with the date, time, and wavelength">
-          <i class="fas fa-clock"></i> Timestamp
+          <i class="fas fa-clock" aria-hidden="true"></i> Timestamp
         </button>
 
         <!-- Position picker: 2 rows × 3 columns, one radio per corner +
@@ -428,12 +455,12 @@
         <div class="timestamp-pos hidden" id="timestampPosGroup" role="radiogroup" aria-label="Timestamp position">
           <span class="timestamp-pos-label">Position</span>
           <div class="timestamp-pos-grid">
-            <label class="timestamp-pos-cell" title="Top left"><input type="radio" name="timestampPos" value="top-left"> <i class="fas fa-arrow-up-long" style="transform:rotate(-45deg);"></i></label>
-            <label class="timestamp-pos-cell" title="Top center"><input type="radio" name="timestampPos" value="top-center"> <i class="fas fa-arrow-up"></i></label>
-            <label class="timestamp-pos-cell" title="Top right"><input type="radio" name="timestampPos" value="top-right"> <i class="fas fa-arrow-up-long" style="transform:rotate(45deg);"></i></label>
-            <label class="timestamp-pos-cell" title="Bottom left"><input type="radio" name="timestampPos" value="bottom-left"> <i class="fas fa-arrow-down-long" style="transform:rotate(45deg);"></i></label>
-            <label class="timestamp-pos-cell" title="Bottom center"><input type="radio" name="timestampPos" value="bottom-center"> <i class="fas fa-arrow-down"></i></label>
-            <label class="timestamp-pos-cell" title="Bottom right"><input type="radio" name="timestampPos" value="bottom-right" checked> <i class="fas fa-arrow-down-long" style="transform:rotate(-45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Top left"><input type="radio" name="timestampPos" value="top-left"> <i class="fas fa-arrow-up-long" aria-hidden="true" style="transform:rotate(-45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Top center"><input type="radio" name="timestampPos" value="top-center"> <i class="fas fa-arrow-up" aria-hidden="true"></i></label>
+            <label class="timestamp-pos-cell" title="Top right"><input type="radio" name="timestampPos" value="top-right"> <i class="fas fa-arrow-up-long" aria-hidden="true" style="transform:rotate(45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Bottom left"><input type="radio" name="timestampPos" value="bottom-left"> <i class="fas fa-arrow-down-long" aria-hidden="true" style="transform:rotate(45deg);"></i></label>
+            <label class="timestamp-pos-cell" title="Bottom center"><input type="radio" name="timestampPos" value="bottom-center"> <i class="fas fa-arrow-down" aria-hidden="true"></i></label>
+            <label class="timestamp-pos-cell" title="Bottom right"><input type="radio" name="timestampPos" value="bottom-right" checked> <i class="fas fa-arrow-down-long" aria-hidden="true" style="transform:rotate(-45deg);"></i></label>
           </div>
           <div class="timestamp-pos-offset" title="Inset the caption further from the chosen edge — useful when a corona or mockup bezel clips it">
             <span class="timestamp-pos-label">Offset</span>
@@ -489,14 +516,14 @@
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button class="edit-btn" id="applyText" style="flex:1;justify-content:center;">
-          <i class="fas fa-check"></i> Apply
+          <i class="fas fa-check" aria-hidden="true"></i> Apply
         </button>
         <button class="edit-btn" id="cancelText">
-          <i class="fas fa-times"></i> Cancel
+          <i class="fas fa-times" aria-hidden="true"></i> Cancel
         </button>
       </div>
       <div class="text-tool-hint">
-        <i class="fas fa-arrows-alt"></i>
+        <i class="fas fa-arrows-alt" aria-hidden="true"></i>
         <span>Drag the text on the image to position it. Text stays editable right up to checkout \u2014 it's composited into the print only when you click Create on Shopify.</span>
       </div>
     </div>
@@ -535,10 +562,10 @@
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button class="edit-btn" id="burnClockNumbers" style="flex:1;justify-content:center;">
-          <i class="fas fa-check"></i> Burn Numbers Into Image
+          <i class="fas fa-check" aria-hidden="true"></i> Burn Numbers Into Image
         </button>
         <button class="edit-btn" id="cancelClockNumbers">
-          <i class="fas fa-times"></i> Cancel
+          <i class="fas fa-times" aria-hidden="true"></i> Cancel
         </button>
       </div>
     </div>
@@ -548,7 +575,7 @@
 
       <!-- Selected product mockup preview (side-by-side on wide screens) -->
       <div class="selected-product-preview hidden" id="selectedProductPreview">
-        <button class="preview-close-btn" id="btnDeselectProduct" title="Deselect product &amp; go back to product list">&#x2715;</button>
+        <button class="preview-close-btn" id="btnDeselectProduct" type="button" aria-label="Deselect product and go back to the product list" title="Deselect product &amp; go back to product list">&#x2715;</button>
         <div class="preview-product-name"></div>
         <div class="preview-mockup"></div>
         <div class="preview-product-ratio"></div>
@@ -587,12 +614,12 @@
            pane above. -->
       <div class="editor-action-bar hidden" id="editorActionBar">
         <button type="button" class="btn-preview-mockup" id="btnPreviewMockup" title="Generate a real Printify mockup for this product, or reset back to the canvas preview.">
-          <i class="fas fa-rocket btn-preview-mockup-icon"></i>
+          <i class="fas fa-rocket btn-preview-mockup-icon" aria-hidden="true"></i>
           <span class="btn-preview-mockup-spinner" aria-hidden="true"></span>
           <span class="btn-preview-mockup-label">Generate real mockup</span>
         </button>
         <button class="btn-buy-in-editor" id="btnBuyInEditor" type="button" title="Create this product on Shopify and complete your purchase.">
-          <i class="fas fa-shopping-cart"></i> <span id="btnBuyLabel">Create on Shopify</span>
+          <i class="fas fa-shopping-cart" aria-hidden="true"></i> <span id="btnBuyLabel">Create on Shopify</span>
         </button>
       </div>
     </div><!-- /.editor-with-preview -->
@@ -691,7 +718,7 @@
   <div class="beta-thanks-backdrop" id="betaThanksBackdrop"></div>
   <div class="beta-thanks-panel">
     <button class="beta-thanks-close" id="betaThanksClose" type="button" aria-label="Close">&#x2715;</button>
-    <div class="beta-thanks-icon"><i class="fas fa-sun"></i></div>
+    <div class="beta-thanks-icon"><i class="fas fa-sun" aria-hidden="true"></i></div>
     <h2 class="beta-thanks-title" id="betaThanksTitle">Thanks for testing Solar Archive!</h2>
     <p class="beta-thanks-body">
       Your design is saved to your downloads. Real product orders aren't
@@ -700,7 +727,7 @@
     </p>
     <div class="beta-thanks-actions">
       <button class="beta-thanks-btn beta-thanks-btn-primary" id="betaThanksReset" type="button">
-        <i class="fas fa-redo"></i> Design a new product
+        <i class="fas fa-redo" aria-hidden="true"></i> Design a new product
       </button>
     </div>
   </div>
@@ -714,13 +741,13 @@
   <button class="feedback-fab feedback-fab-request" id="feedbackFabRequest" type="button"
           title="Request a product we don't carry yet"
           aria-label="Open product-request panel">
-    <i class="fas fa-tags"></i>
+    <i class="fas fa-tags" aria-hidden="true"></i>
     <span class="feedback-fab-label">Request new item</span>
   </button>
   <button class="feedback-fab feedback-fab-comment" id="feedbackFabComment" type="button"
           title="Leave a comment for the team"
           aria-label="Open comment panel">
-    <i class="fas fa-comment-dots"></i>
+    <i class="fas fa-comment-dots" aria-hidden="true"></i>
     <span class="feedback-fab-label">Leave a comment</span>
   </button>
 </div>
@@ -735,19 +762,19 @@
 
     <div class="feedback-tabs" role="tablist">
       <button class="feedback-tab active" id="feedbackTabComment" data-tab="comment" role="tab" aria-selected="true" type="button">
-        <i class="fas fa-comment"></i> Leave a comment
+        <i class="fas fa-comment" aria-hidden="true"></i> Leave a comment
       </button>
       <button class="feedback-tab" id="feedbackTabProduct" data-tab="product" role="tab" aria-selected="false" type="button">
-        <i class="fas fa-tags"></i> Request a product
+        <i class="fas fa-tags" aria-hidden="true"></i> Request a product
       </button>
     </div>
 
     <!-- Comment tab panel -->
     <div class="feedback-tab-panel" id="feedbackPanelComment">
       <label class="feedback-field-label" for="feedbackCommentBody">What's on your mind?</label>
-      <textarea id="feedbackCommentBody" rows="5" placeholder="Bug, idea, something confusing&hellip; the more specific, the more we can help."></textarea>
+      <textarea id="feedbackCommentBody" rows="5" placeholder="Bug, idea, something confusing &mdash; the more specific, the more we can help."></textarea>
       <div class="feedback-context-note">
-        <i class="fas fa-info-circle"></i>
+        <i class="fas fa-info-circle" aria-hidden="true"></i>
         <span>We'll attach what you're currently looking at (wavelength, date, product) so we can reproduce what you saw.</span>
       </div>
       <label class="feedback-field-label" for="feedbackCommentName">Your name</label>
@@ -759,7 +786,7 @@
         <span>Include a snapshot of what I'm looking at right now</span>
       </label>
       <button class="feedback-submit-btn" id="feedbackCommentSubmit" type="button">
-        <i class="fas fa-paper-plane"></i> Send feedback
+        <i class="fas fa-paper-plane" aria-hidden="true"></i> Send feedback
       </button>
     </div>
 
@@ -773,7 +800,7 @@
            title and let the user click a chip to filter the search list. -->
       <div class="feedback-category-row" id="feedbackCategoryRow"></div>
       <div class="feedback-product-hint" id="feedbackProductHint">
-        <i class="fas fa-spinner fa-spin"></i> Loading catalog&hellip;
+        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Loading catalog&hellip;
       </div>
       <div class="feedback-product-results" id="feedbackProductResults"></div>
 
@@ -804,8 +831,8 @@
              user picks here so the editor can clip the preview correctly. -->
         <div class="feedback-shape-row">
           <span class="feedback-field-label">Print area shape</span>
-          <label class="feedback-shape-opt"><input type="radio" name="feedbackPrintShape" value="rectangle" checked> <i class="fas fa-square"></i> Rectangle</label>
-          <label class="feedback-shape-opt"><input type="radio" name="feedbackPrintShape" value="circle"> <i class="fas fa-circle"></i> Circle</label>
+          <label class="feedback-shape-opt"><input type="radio" name="feedbackPrintShape" value="rectangle" checked> <i class="fas fa-square" aria-hidden="true"></i> Rectangle</label>
+          <label class="feedback-shape-opt"><input type="radio" name="feedbackPrintShape" value="circle"> <i class="fas fa-circle" aria-hidden="true"></i> Circle</label>
         </div>
 
         <label class="feedback-field-label" for="feedbackProductNote">Note <span class="feedback-field-opt">(optional)</span></label>
@@ -822,7 +849,7 @@
         </label>
 
         <button class="feedback-submit-btn" id="feedbackProductSubmit" type="button">
-          <i class="fas fa-star"></i> Request this product
+          <i class="fas fa-star" aria-hidden="true"></i> Request this product
         </button>
       </div>
     </div>
@@ -830,7 +857,7 @@
     <!-- Thanks screen (shown on successful submission) -->
     <div class="feedback-tab-panel hidden" id="feedbackPanelThanks">
       <div class="feedback-thanks">
-        <i class="fas fa-check-circle"></i>
+        <i class="fas fa-check-circle" aria-hidden="true"></i>
         <h3>Got it — thank you!</h3>
         <p id="feedbackThanksMsg">Your note is on its way.</p>
         <button class="feedback-submit-btn feedback-submit-secondary" id="feedbackThanksAnother" type="button">

@@ -9,7 +9,11 @@
   --accent-cool: #38bdf8;
   --text-primary: #eeeef6;
   --text-secondary: #9898b8;
-  --text-dim: #5e5e80;
+  /* WCAG 1.4.3 AA requires 4.5:1 contrast for normal text. The old
+     value (#5e5e80) computed to ~3.0:1 against the .section / panel
+     backgrounds (#1a1a2e), which a beta accessibility audit flagged.
+     #8e8eab measures ~4.6:1 against #1a1a2e — comfortable AA pass. */
+  --text-dim: #8e8eab;
   --border: #2a2a44;
   --border-active: #7b61ff;
   --glow-sun: rgba(247,168,37,0.25);
@@ -31,7 +35,9 @@ html:not(.dark) {
   --bg-elevated: #eeedf5;
   --text-primary: #1a1a2e;
   --text-secondary: #5e5e80;
-  --text-dim: #9898b8;
+  /* Old value #9898b8 on white = ~3.9:1, fails AA. #6a6a8a measures
+     ~6.0:1 against white — comfortable AA pass. */
+  --text-dim: #6a6a8a;
   --border: #d8d8e8;
   --border-active: #7b61ff;
   --glow-sun: rgba(247,168,37,0.15);
@@ -168,6 +174,127 @@ body.beta-mode-active .beta-banner {
   letter-spacing: 0.18em;
   vertical-align: middle;
   -webkit-text-fill-color: #ffb74d; /* override the gradient text-fill on h1 */
+}
+
+/* ── Birthday Sun CTA ──────────────────────────────────────
+   Above-the-fold gifting hook. Two beta personas (Riley + Jordan)
+   independently flagged birthday/anniversary as the dominant
+   conversion path; this surfaces it as the primary entry point
+   without removing the "explore by date + wavelength" flow below. */
+.birthday-cta-section {
+  /* Tighter than a regular section — feels like a hero CTA, not
+     another numbered step. */
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  margin-bottom: 18px;
+}
+.birthday-cta {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "icon text  form";
+  align-items: center;
+  gap: 18px 20px;
+  padding: 22px 26px;
+  background: linear-gradient(135deg,
+    rgba(247, 168, 37, 0.16) 0%,
+    rgba(255, 94, 58, 0.12) 50%,
+    rgba(123, 97, 255, 0.16) 100%);
+  border: 1px solid rgba(247, 168, 37, 0.32);
+  border-radius: var(--radius-md);
+}
+.birthday-cta-icon {
+  grid-area: icon;
+  font-size: 1.8rem;
+  color: var(--accent-sun, #f7a825);
+  flex: none;
+}
+.birthday-cta-text { grid-area: text; min-width: 0; }
+.birthday-cta-title {
+  margin: 0 0 4px;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.birthday-cta-sub {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+.birthday-cta-form {
+  grid-area: form;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.birthday-cta-label {
+  /* Visually hidden but available to screen readers. */
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.birthday-cta-input {
+  font-family: inherit;
+  font-size: 0.95rem;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  outline: none;
+  min-width: 0;
+}
+.birthday-cta-input:focus {
+  border-color: var(--accent-corona);
+  box-shadow: 0 0 0 3px rgba(123, 97, 255, 0.2);
+}
+.birthday-cta-btn {
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent-sun), var(--accent-flare));
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  white-space: nowrap;
+}
+.birthday-cta-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(247, 168, 37, 0.35);
+}
+.birthday-cta-btn:active { transform: translateY(0); }
+
+/* Stack on narrow screens — three rows: icon+title row collapses
+   to text-only, then the form below. */
+@media (max-width: 740px) {
+  .birthday-cta {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "icon"
+      "text"
+      "form";
+    text-align: center;
+    padding: 18px 18px 20px;
+  }
+  .birthday-cta-icon {
+    margin: 0 auto;
+  }
+  .birthday-cta-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .birthday-cta-input,
+  .birthday-cta-btn {
+    width: 100%;
+  }
 }
 
 /* ── Post-download thank-you modal (beta flow only) ─────── */

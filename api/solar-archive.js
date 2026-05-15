@@ -736,6 +736,47 @@
       updateWavelengthSectionDateState();
     })();
 
+    // ── Birthday Sun CTA wiring ──────────────────────────────────
+    // Above-the-fold gifting shortcut: type a date → it populates
+    // the canonical date input below, reveals the wavelength grid,
+    // and scrolls the user down to it. Beta personas Riley (Gen Z
+    // social) and Jordan (founder) both flagged birthday/anniversary
+    // as the dominant conversion path; this surfaces it as the
+    // primary entry without removing the standard date+wavelength
+    // flow underneath.
+    (function initBirthdayCta() {
+      var form = document.getElementById("birthdayCtaForm");
+      var input = document.getElementById("birthdayCtaInput");
+      if (!form || !input || !dateInput) return;
+      // Mirror the same min/max constraints as the main date input —
+      // AIA first light to one week ago.
+      input.min = dateInput.min;
+      input.max = dateInput.max;
+      form.addEventListener("submit", function(e) {
+        e.preventDefault();
+        var v = (input.value || "").trim();
+        if (!v) {
+          input.focus();
+          return;
+        }
+        // Push the value into the canonical date input and dispatch
+        // a 'change' event so any listeners (wavelength tile reveal,
+        // thumb cache warmups, etc.) see it.
+        dateInput.value = v;
+        dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+        // Reveal the wavelength grid + scroll to it so the user
+        // sees the next step. wlGrid has the .hidden class until
+        // a date is picked; clearing it on change isn't this CTA's
+        // job — updateWavelengthSectionDateState() handles it —
+        // but we still need to scroll into view.
+        var wlGrid = document.getElementById("wlGrid");
+        if (wlGrid) {
+          try { wlGrid.scrollIntoView({ behavior: "smooth", block: "start" }); }
+          catch (_e) { wlGrid.scrollIntoView(); }
+        }
+      });
+    })();
+
     // ── Reorder workflow: product-first, then edit ────────────────
     // Moves the product section before the edit section in the DOM,
     // updates step badge numbers, and sets up the product-first flow.
@@ -1286,8 +1327,18 @@
         }
       }
       btnPreviewMockup.addEventListener("click", function() {
-        if (btnPreviewMockup.disabled) return; // ignore clicks while in flight
-        if (!state.selectedProduct) return;
+        // Belt-and-suspenders double-click guard. A QA tester flagged
+        // "Disable+spinner on mousedown, not after fetch resolves"
+        // because a rapid double-tap on the live storefront would
+        // fire two Printify product-create jobs — that's REAL MONEY
+        // per click. We disable as the literal first action of the
+        // handler so even synchronous slow-paths (DOM lookups,
+        // conditional branches below) can't open a window for a
+        // second click to slip in before _setMockupBtnLoading(true).
+        if (btnPreviewMockup.disabled || btnPreviewMockup.dataset.busy === "1") return;
+        btnPreviewMockup.dataset.busy = "1";
+        function _unbusy() { btnPreviewMockup.dataset.busy = ""; }
+        if (!state.selectedProduct) { _unbusy(); return; }
         var productId = state.selectedProduct;
         var hasRealMockup = state.mockups[productId] && state.mockups[productId].images && state.mockups[productId].images.length > 0;
         if (hasRealMockup) {
@@ -1299,11 +1350,17 @@
           refreshLivePreview();
           if (typeof updateBuyButtonState === "function") updateBuyButtonState();
           showToast("Reset to mock mockup — preview matches canvas again.");
+          _unbusy();
         } else {
           if (!state.originalImage) {
             showInfo("No Image", "Select a wavelength tile to load the solar image first.");
+            _unbusy();
             return;
           }
+          // Disable the button BEFORE any further work so a second click
+          // can't sneak in between the conditionals above and the
+          // _setMockupBtnLoading(true) call below.
+          btnPreviewMockup.disabled = true;
           // Determine the correct variant bucket from the active filter.
           //   "jpg" / "raw" science  →  "raw"   (non-filtered Helioviewer/science slot)
           //   "rhef"                 →  "filtered" (science-processed slot)
@@ -1324,6 +1381,7 @@
             _mockupWatchdog = setTimeout(function() {
               if (myToken === _mockupCallToken) {
                 _setMockupBtnLoading(false);
+                _unbusy();
                 if (mockupStatus && !mockupStatus.querySelector(".fa-check-circle")) {
                   mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockup is taking longer than expected — try again.</span>';
                 }
@@ -1334,6 +1392,7 @@
               if (myToken !== _mockupCallToken) return;
               if (_mockupWatchdog) { clearTimeout(_mockupWatchdog); _mockupWatchdog = null; }
               _setMockupBtnLoading(false);
+              _unbusy();
               if (err) {
                 // Surface a short toast in addition to the mockupStatus
                 // bar so testers don't have to hunt for the error.
@@ -3741,10 +3800,49 @@
       var tabs = document.querySelectorAll(".edit-tab");
       var hint = document.getElementById("editTabHint");
       function _collapseAll() {
-        tabs.forEach(function(t) { t.classList.remove("active"); });
+        tabs.forEach(function(t) {
+          t.classList.remove("active");
+          t.setAttribute("aria-selected", "false");
+          t.setAttribute("tabindex", "-1");
+        });
         document.querySelectorAll(".edit-tab-panel").forEach(function(p) { p.classList.add("hidden"); });
         if (hint) hint.classList.remove("hidden");
+        // After collapse, the FIRST visible tab is the roving-tabindex
+        // anchor so keyboard users can re-enter the tablist with Tab.
+        var firstVisible = Array.prototype.find.call(tabs, function(t) { return !t.classList.contains("hidden"); });
+        if (firstVisible) firstVisible.setAttribute("tabindex", "0");
       }
+      function _activate(tab) {
+        tabs.forEach(function(t) {
+          t.classList.remove("active");
+          t.setAttribute("aria-selected", "false");
+          t.setAttribute("tabindex", "-1");
+        });
+        document.querySelectorAll(".edit-tab-panel").forEach(function(p) { p.classList.add("hidden"); });
+        tab.classList.add("active");
+        tab.setAttribute("aria-selected", "true");
+        tab.setAttribute("tabindex", "0");
+        if (hint) hint.classList.add("hidden");
+        var panel = document.getElementById("tabPanel_" + tab.dataset.tab);
+        if (panel) panel.classList.remove("hidden");
+        // Activating the Clock tab on a wall_clock product seeds
+        // state.clockNumbers from the panel's defaults so the 12 numerals
+        // appear in both the editor canvas AND the mock mockups
+        // immediately — without this the user had to wiggle a slider
+        // before any numerals showed up at all.
+        if (tab.dataset.tab === "clock"
+            && state.selectedProduct === "wall_clock"
+            && !state.clockNumbers
+            && typeof applyClockNumbersFromPanel === "function") {
+          applyClockNumbersFromPanel();
+          if (typeof refreshLivePreview === "function") refreshLivePreview();
+          if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
+        }
+      }
+      // Initial roving tabindex: first visible tab is the entry point.
+      var firstVisible = Array.prototype.find.call(tabs, function(t) { return !t.classList.contains("hidden"); });
+      if (firstVisible) firstVisible.setAttribute("tabindex", "0");
+
       tabs.forEach(function(tab) {
         tab.addEventListener("click", function() {
           var alreadyActive = tab.classList.contains("active");
@@ -3753,25 +3851,34 @@
             _collapseAll();
             return;
           }
-          tabs.forEach(function(t) { t.classList.remove("active"); });
-          document.querySelectorAll(".edit-tab-panel").forEach(function(p) { p.classList.add("hidden"); });
-          tab.classList.add("active");
-          if (hint) hint.classList.add("hidden");
-          var panel = document.getElementById("tabPanel_" + tab.dataset.tab);
-          if (panel) panel.classList.remove("hidden");
-          // Activating the Clock tab on a wall_clock product seeds
-          // state.clockNumbers from the panel's defaults so the 12 numerals
-          // appear in both the editor canvas AND the mock mockups
-          // immediately — without this the user had to wiggle a slider
-          // before any numerals showed up at all.
-          if (tab.dataset.tab === "clock"
-              && state.selectedProduct === "wall_clock"
-              && !state.clockNumbers
-              && typeof applyClockNumbersFromPanel === "function") {
-            applyClockNumbersFromPanel();
-            if (typeof refreshLivePreview === "function") refreshLivePreview();
-            if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
-          }
+          _activate(tab);
+        });
+        // Keyboard navigation per ARIA Authoring Practices for tabs:
+        //   ← / ↑ : previous visible tab (wraps)
+        //   → / ↓ : next visible tab (wraps)
+        //   Home  : first visible
+        //   End   : last visible
+        //   Space / Enter : activate (default browser behaviour on a
+        //                   <button>, no extra handling needed)
+        tab.addEventListener("keydown", function(e) {
+          var key = e.key;
+          if (key !== "ArrowLeft" && key !== "ArrowRight"
+              && key !== "ArrowUp" && key !== "ArrowDown"
+              && key !== "Home" && key !== "End") return;
+          e.preventDefault();
+          var visible = Array.prototype.filter.call(tabs, function(t) { return !t.classList.contains("hidden"); });
+          if (!visible.length) return;
+          var idx = visible.indexOf(tab);
+          if (idx < 0) idx = 0;
+          var nextIdx = idx;
+          if (key === "ArrowLeft" || key === "ArrowUp") nextIdx = (idx - 1 + visible.length) % visible.length;
+          else if (key === "ArrowRight" || key === "ArrowDown") nextIdx = (idx + 1) % visible.length;
+          else if (key === "Home") nextIdx = 0;
+          else if (key === "End") nextIdx = visible.length - 1;
+          var next = visible[nextIdx];
+          if (!next) return;
+          _activate(next);
+          next.focus();
         });
       });
     }());
@@ -7123,11 +7230,15 @@
               var prevBtn = document.createElement("button");
               prevBtn.className = "card-slide-nav card-slide-prev";
               prevBtn.innerHTML = "&#8249;";
+              prevBtn.setAttribute("aria-label", "Previous mockup");
+              prevBtn.setAttribute("type", "button");
               prevBtn.addEventListener("click", function(e) { e.stopPropagation(); go(-1); });
 
               var nextBtn = document.createElement("button");
               nextBtn.className = "card-slide-nav card-slide-next";
               nextBtn.innerHTML = "&#8250;";
+              nextBtn.setAttribute("aria-label", "Next mockup");
+              nextBtn.setAttribute("type", "button");
               nextBtn.addEventListener("click", function(e) { e.stopPropagation(); go(+1); });
 
               previewEl.appendChild(prevBtn);
@@ -7374,7 +7485,7 @@
       }
       if (!btnBuyInEditor || !BETA_MODE) return;
       var lbl = document.getElementById("btnBuyLabel");
-      if (lbl) lbl.textContent = "Download Your Design";
+      if (lbl) lbl.textContent = "Download your design";
       // Gate the button on having a real mockup ready, matching prod.
       // The zip bundle is only useful with mockups inside it — a PNG-
       // only download leaves the tester wondering whether the mockup

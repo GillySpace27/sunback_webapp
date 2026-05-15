@@ -66,16 +66,23 @@ def _log(msg: str) -> None:
 
 class FeedbackSubmission(BaseModel):
     # "comment" = free-text feedback; "product_request" = a specific Printify BP/variant ask.
-    kind: str = Field(default="comment")
-    body: str = Field(default="", description="The user's message or request note.")
+    # `max_length` on every field rejects huge pastes at the Pydantic
+    # parse step (returns 422 to the client) instead of letting them
+    # propagate to the email backend or the feedback.jsonl file. The
+    # _clamp() pass below is belt-and-suspenders for the legacy clients
+    # but new submissions never reach it because Pydantic refuses
+    # over-length values up front. A QA beta tester flagged this
+    # specifically — "Emoji + 50k-char paste into name/comment".
+    kind: str = Field(default="comment", max_length=32)
+    body: str = Field(default="", description="The user's message or request note.", max_length=_MAX_BODY_CHARS)
     # Submitter contact info — collected by both feedback tabs so the
     # operator can reply. Optional at the wire level because the
     # background "[Beta design save]" auto-fire from _saveDesignLocally
     # has no human typing into a form; the modal UI requires both.
-    name: Optional[str] = Field(default=None, description="Submitter's display name.")
-    email: Optional[str] = Field(default=None, description="Reply-to email.")
-    url: Optional[str] = Field(default=None, description="Page URL at time of submission.")
-    user_agent: Optional[str] = Field(default=None)
+    name: Optional[str] = Field(default=None, description="Submitter's display name.", max_length=_MAX_NAME_CHARS)
+    email: Optional[str] = Field(default=None, description="Reply-to email.", max_length=_MAX_EMAIL_CHARS)
+    url: Optional[str] = Field(default=None, description="Page URL at time of submission.", max_length=_MAX_URL_CHARS)
+    user_agent: Optional[str] = Field(default=None, max_length=_MAX_URL_CHARS)
     # Page context at submission time (current wavelength / date / product / filter / etc).
     context: Optional[dict] = Field(default=None)
     # Populated only for kind="product_request"

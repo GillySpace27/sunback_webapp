@@ -498,6 +498,41 @@ def _fetch_helioviewer_screenshot(url: str, timeout: int = 60):
         raise requests.RequestException(f"Helioviewer returned tiny body ({len(r.content)} bytes)")
     return r.content, r.headers.get("Content-Type", "image/png")
 
+SDO_LAUNCH_DATE = "2010-05-15"  # First-light AIA imagery available from this date.
+
+
+def _validate_solar_date(date_str: str) -> None:
+    """Reject dates before SDO's first-light date and dates in the future.
+
+    The HTML5 date input enforces min/max client-side, but a beta-tester
+    QA pass surfaced that copy/paste or direct API calls bypass that
+    completely — a typed 1972-01-01 returns a 500 from upstream
+    Helioviewer rather than a polite 400 from us. Clamp server-side.
+    """
+    from datetime import datetime, timezone
+    if not date_str:
+        raise HTTPException(status_code=400, detail="Missing date")
+    # Accept either an ISO date (2026-02-10) or a full ISO timestamp
+    # (2026-02-10T12:00:00Z); we only validate the date portion.
+    head = date_str.strip().split("T")[0]
+    try:
+        d = datetime.strptime(head, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {date_str!r}")
+    today_utc = datetime.now(timezone.utc).date()
+    launch = datetime.strptime(SDO_LAUNCH_DATE, "%Y-%m-%d").date()
+    if d < launch:
+        raise HTTPException(
+            status_code=400,
+            detail=f"AIA first-light is {SDO_LAUNCH_DATE}; no data before that date.",
+        )
+    if d > today_utc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot fetch data from the future (requested {head}, today is {today_utc.isoformat()} UTC).",
+        )
+
+
 @app.get("/api/helioviewer_thumb")
 async def helioviewer_thumb(
     date: str = Query(..., description="ISO date-time e.g. 2026-02-10T12:00:00Z"),
@@ -506,6 +541,7 @@ async def helioviewer_thumb(
     size: int = Query(256, description="Width and height in pixels"),
 ):
     """Proxy Helioviewer screenshot API so the frontend can load tiles/canvas without CORS."""
+    _validate_solar_date(date)
     # When frontend sends 12, frame out to 1.5 solar radii (~3000 arcsec) so off-limb corona is visible.
     if image_scale == 12:
         scale = 3000.0 / max(size, 64)  # arcsec/pixel so FOV = size * scale ≈ 3000 (1.5 R_sun)
@@ -899,6 +935,11 @@ async def generate_preview(req: PreviewRequest = Body(...)):
     this date/wl has no data, return preview_url=null; otherwise run FITS+RHEF in background.
     Only one background task per (date+time, wavelength) is allowed at a time.
     """
+    # Server-side date validation — same rules as /api/helioviewer_thumb.
+    # The form's HTML5 min/max attributes don't cover direct API hits, and
+    # the heavy FITS pipeline is way too expensive to kick off only to
+    # discover the date is invalid an hour later.
+    _validate_solar_date(req.date or "")
     try:
         # Combine the user's date with their picked time of day so the
         # JPG (Helioviewer) and the RAW/RHEF (VSO/SunPy) fetches both
