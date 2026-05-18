@@ -38,16 +38,42 @@ below) surfaced four **P0** findings.
 - ✅ **/api/feedback rate-limit added** (5 per 60s per IP) — closes the
   Resend-quota-blowout + jsonl-disk-fill subpath of Mira's P0 HIGH.
 
-**Still open (separate chunks, not in this commit):**
-- ⏳ **P0 HIGH — DOM XSS via `showInfo()` and
-  `mockupStatus.innerHTML`** (frontend refactor — needs to swap
-  `innerHTML` for `createElement`+`textContent` across ~6 sinks).
-- ⏳ **P0 HIGH — `postMessage` listener trusts any origin** (frontend,
-  `solar-archive.js` L201 — add `e.origin` allowlist).
-- ⏳ **P1 HIGH — Admin-key non-constant-time compare + URL transport**
-  (Slack-link refactor; one-shot signed tokens).
-- ⏳ **P1 MEDIUM — Email `reply_to` spoofing + Slack mrkdwn injection**
-  (validate with `EmailStr`; escape Slack values).
+**Also shipped 2026-05-17 (this commit):**
+- ✅ **P0 HIGH — DOM XSS via `showInfo()` and `mockupStatus.innerHTML`**
+  closed. New `escapeHtml()` helper in `solar-archive.js`; `showInfo()`
+  refactored to **text-by-default** (`textContent`) with explicit
+  `{html: true}` opt-in — only the two developer-authored modals
+  (Data credits, Run-a-local-server) pass the opt-in. Every
+  `mockupStatus.innerHTML` callsite that interpolates dynamic data
+  (`err.message`, `product.name`, `variant`) now wraps the value in
+  `escapeHtml()`. Browser-verified: Data credits still renders the
+  citation HTML correctly; XSS payloads injected into a text-mode
+  `<p>` produce the inert escaped string `&lt;script&gt;…`.
+- ✅ **P0 HIGH — `postMessage` listener trusts any origin** closed.
+  Added `PARENT_ORIGIN_ALLOWLIST` and an `e.origin` check at the
+  top of the embedded-viewport listener; messages from any other
+  origin are dropped before they can touch the FAB DOM.
+- ✅ **P1 HIGH — Admin-key timing-observable compare** closed.
+  `_check_admin_key` now uses `hmac.compare_digest`. (URL-transport
+  of the admin key remains — see "Still open" below.)
+- ✅ **P1 MEDIUM — Email `reply_to` spoofing** closed.
+  `_valid_email()` validates against `pydantic.EmailStr`; invalid
+  addresses are dropped (Resend then omits `Reply-To`). Added
+  `pydantic[email]` to requirements.
+- ✅ **P1 MEDIUM — Slack mrkdwn injection** closed.
+  New `_slack_safe()` strips `<>|&*_`` from all user-controlled
+  fields (body, title, name, email, context keys + values) before
+  they reach the Slack mrkdwn payload — `<!channel>` pings,
+  `[evil](http://phish)` links, and bold/italic abuse all neutralised.
+
+**Still open (separate chunks):**
+- ⏳ **P1 — Admin-key one-shot signed tokens.** `hmac.compare_digest`
+  closes the timing oracle, but the admin key still travels in the
+  Slack approve/reject URL query string → access logs, browser
+  history, Referer leakage. Replace with one-shot HMAC-signed tokens
+  per Slack notification.
+- ⏳ **P3 INFO — `PRINTIFY_SSL_VERIFY` off by default outside Render.**
+  Documented in `printify_routes.py`; doc-only follow-up.
 
 ---
 
@@ -439,7 +465,7 @@ as a security alert.
       allowlist + per-IP rate-limit + server-side BETA_MODE refusal
       on all four mutating endpoints. CORS tightened from `*`.
       `ALLOWED_ORIGINS` env var allows production override.
-- [ ] **P0 HIGH** **DOM XSS via `showInfo()` and
+- [x] **P0 HIGH** **DOM XSS via `showInfo()` and
       `mockupStatus.innerHTML`** (`solar-archive.js` L2515-25,
       L1416, L2552, L2658). `title` + `message` interpolated raw
       into `innerHTML`; any path landing server- or
@@ -447,7 +473,11 @@ as a security alert.
       msg L2360). Repro: route `<img src=x onerror=...>` into
       `showInfo`. Mitigate: `createElement` + `textContent`, or
       strict CSP.
-- [ ] **P0 HIGH** **`postMessage` listener trusts any origin**
+      **Shipped 2026-05-17:** new `escapeHtml()`; `showInfo()`
+      refactored to text-by-default with `{html: true}` opt-in;
+      every dynamic `mockupStatus.innerHTML` interpolation wrapped
+      in `escapeHtml()`. Browser-verified.
+- [x] **P0 HIGH** **`postMessage` listener trusts any origin**
       (`solar-archive.js` L201). Checks
       `e.data.source === 'solar-archive-parent'` but never
       `e.origin`. Repro: from any framing page,
@@ -455,6 +485,9 @@ as a security alert.
       type:'viewport', visibleBottomInIframe:9999}, '*')` mutates
       the FAB DOM. Impact: UI today, primes XSS the moment a
       handler hits `innerHTML`. Mitigate: hard-allowlist `e.origin`.
+      **Shipped 2026-05-17:** `PARENT_ORIGIN_ALLOWLIST` constant +
+      `e.origin` check at top of listener. Messages from any other
+      origin dropped before touching the FAB.
 - [x] **P0 HIGH** **`/api/feedback` abuse surface.** No CSRF, no
       Origin/Referer check, no rate-limit, CORS `*`.
       (a) Blast Resend free tier into quota lockout;
@@ -469,14 +502,17 @@ as a security alert.
       against `[A-Za-z0-9+/]+={0,2}` after the prefix; payloads with
       `">` / `<script>` etc. fail the regex and get dropped to
       `None` before they ever reach the email body.
-- [ ] **P1 HIGH** **Admin key non-constant-time compare;
+- [~] **P1 HIGH** **Admin key non-constant-time compare;
       query-string transport; logged.** `_check_admin_key` (L464)
       does `provided != expected` — timing-observable. Slack
       approve/reject links embed key in URL (L188-189) → access
       logs, browser history, Referer on any outbound click.
       Mitigate: `hmac.compare_digest`; header-only; rotate;
       one-shot signed tokens per Slack notification.
-- [ ] **P1 MEDIUM** **Email spoofing via `reply_to`.** Set straight
+      **Partially shipped 2026-05-17:** `hmac.compare_digest` now
+      used. URL-transport / one-shot-signed-token refactor still
+      open (listed in cross-cutting work).
+- [x] **P1 MEDIUM** **Email spoofing via `reply_to`.** Set straight
       from user email, no validation (L401).
       `email='victim@target.com'` + operator hits Reply =
       phishing primitive **from a verified Resend sender**.
@@ -484,12 +520,20 @@ as a security alert.
       controlled. Body in `pre-wrap` also obeys LLM-triage prompt
       injection. Mitigate: `EmailStr`, drop `reply_to`, or tag
       subject `[UNVERIFIED SUBMITTER]`.
-- [ ] **P1 MEDIUM** **`context` dict → Slack mrkdwn injection.**
+      **Shipped 2026-05-17:** `_valid_email()` validates against
+      `pydantic.EmailStr`; non-parseable addresses get nulled out
+      so Resend omits `Reply-To` entirely. Added `pydantic[email]`
+      to requirements. Subject-snippet tagging deferred (low-impact
+      polish).
+- [x] **P1 MEDIUM** **`context` dict → Slack mrkdwn injection.**
       `_format_slack_blocks` (L201) str-concats context values
       with no escape. `context = {'<!channel>': 'go'}` pings
       `@channel`; link syntax injects phishing links. (Email path
       escapes properly; Slack doesn't.) Mitigate: strip
       `<,>,|,&` or use Block Kit `plain_text`.
+      **Shipped 2026-05-17:** `_slack_safe()` strips `<>|&*_``
+      from body, title, name, email, and context keys+values
+      before they reach the mrkdwn payload.
 - [ ] **P3 INFO** `PRINTIFY_SSL_VERIFY` off by default outside
       Render → dev MITM risk. Document.
 

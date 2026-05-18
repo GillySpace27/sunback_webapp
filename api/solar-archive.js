@@ -197,8 +197,21 @@
     //
     // Without the parent listener the FAB falls back to whatever its
     // CSS rule provides — same iframe behaviour as today.
+    // Origins allowed to postMessage into this iframe. The parent
+    // Shopify storefront iframe-host is the only legitimate sender;
+    // localhost is here for dev. Round-2 audit (Mira Sokolov, P0 HIGH):
+    // the previous listener only checked e.data.source, never e.origin,
+    // so any framing page could mutate the FAB DOM and would prime an
+    // XSS the moment a handler started writing to innerHTML.
+    var PARENT_ORIGIN_ALLOWLIST = [
+      "https://solar-archive.myshopify.com",
+      "https://solar-archive.onrender.com",
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+    ];
     if (document.documentElement.classList.contains("embedded")) {
       window.addEventListener("message", function(e) {
+        if (PARENT_ORIGIN_ALLOWLIST.indexOf(e.origin) === -1) return;
         if (!e.data || e.data.source !== "solar-archive-parent") return;
         if (e.data.type !== "viewport") return;
         var fab = document.getElementById("feedbackFabGroup");
@@ -1413,6 +1426,7 @@
                   _setMockupBtnLoading(false);
                   _unbusy();
                   if (mockupStatus && !mockupStatus.querySelector(".fa-check-circle")) {
+                    // Static string — no interpolation, no escape needed.
                     mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockup is taking longer than expected — try again.</span>';
                   }
                 }
@@ -2512,19 +2526,59 @@
       });
     }
 
-    function showInfo(title, message) {
+    // Small HTML-escape helper. Used wherever we still need to
+    // interpolate user/server-derived strings into an innerHTML
+    // template (mockup status line, etc). Round-2 security audit
+    // (Mira Sokolov, P0 HIGH) flagged unescaped interpolation as a
+    // DOM XSS sink — keep this function in the same closure scope as
+    // showInfo so refactor callers find it next to the other UI
+    // helpers.
+    function escapeHtml(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+        return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c];
+      });
+    }
+
+    // showInfo(title, message, opts)
+    //   - title is always treated as text (safe-by-default).
+    //   - message defaults to text. Pass opts={html:true} to opt in
+    //     to HTML rendering — only safe for developer-authored strings
+    //     (e.g. the Data credits modal). Any caller passing
+    //     server/network-derived content MUST leave opts unset.
+    // Round-2 security audit (Mira Sokolov, P0 HIGH): previously this
+    // function string-concatenated title+message into innerHTML, so
+    // any server-derived message (e.g. an HQ RHEF error from the
+    // backend, a network error message) was an XSS sink. Inverting
+    // the default to text-with-opt-in-HTML kills that class of bug.
+    function showInfo(title, message, opts) {
+      opts = opts || {};
       var overlay = document.createElement("div");
       overlay.className = "modal-overlay";
-      overlay.innerHTML =
-        '<div class="modal-box">' +
-          "<h3>" + title + "</h3>" +
-          "<p>" + message + "</p>" +
-          '<div class="modal-actions">' +
-            '<button class="btn-confirm">OK</button>' +
-          "</div>" +
-        "</div>";
+      var box = document.createElement("div");
+      box.className = "modal-box";
+      var h3 = document.createElement("h3");
+      h3.textContent = String(title == null ? "" : title);
+      var p = document.createElement("p");
+      if (opts.html === true) {
+        p.innerHTML = String(message == null ? "" : message);
+      } else {
+        p.textContent = String(message == null ? "" : message);
+        // Honour \n separators in plain-text messages (the HQ RHEF
+        // dialog uses them to break paragraphs).
+        p.style.whiteSpace = "pre-line";
+      }
+      var actions = document.createElement("div");
+      actions.className = "modal-actions";
+      var btn = document.createElement("button");
+      btn.className = "btn-confirm";
+      btn.textContent = "OK";
+      actions.appendChild(btn);
+      box.appendChild(h3);
+      box.appendChild(p);
+      box.appendChild(actions);
+      overlay.appendChild(box);
       document.body.appendChild(overlay);
-      overlay.querySelector(".btn-confirm").addEventListener("click", function() {
+      btn.addEventListener("click", function() {
         overlay.remove();
       });
       // Embedded mode: overlay is styled as an inline block (see CSS),
@@ -2829,7 +2883,9 @@
             '<p style="margin-bottom:6px;"><strong>JPG previews</strong></p>' +
             '<p style="margin-bottom:0;">' + CITATIONS.HELIOVIEWER_ACK + '</p>' +
           '</div>';
-        showInfo("Data credits", html);
+        // {html:true}: this modal body is fully developer-authored
+        // and contains markup (paragraphs, strong, citation strings).
+        showInfo("Data credits", html, { html: true });
       });
     })();
 
@@ -2887,10 +2943,12 @@
         retryBtn.textContent = "";
         retryBtn.innerHTML = '<i class="fas fa-info-circle"></i> How to run locally';
         retryBtn.onclick = function() {
+          // {html:true}: dev-authored markup (br, code, anchor).
           showInfo("Run a local server",
             "In a terminal, go to the folder containing index.html (the api folder) and run:<br><br>" +
             "<code>python -m http.server 8000</code><br><br>" +
-            "Then open <a href=\"http://localhost:8000\" target=\"_blank\" rel=\"noopener\">http://localhost:8000</a> in your browser."
+            "Then open <a href=\"http://localhost:8000\" target=\"_blank\" rel=\"noopener\">http://localhost:8000</a> in your browser.",
+            { html: true }
           );
         };
       }
@@ -8506,7 +8564,11 @@
         var statusMsg = productId
           ? 'Generating mockup for ' + (needsMockup[0] ? needsMockup[0].name : productId) + '\u2026'
           : 'Generating ' + needsMockup.length + ' ' + variant + ' mockup(s)\u2026';
-        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> ' + statusMsg;
+        // statusMsg embeds product.name + productId which come from
+        // the operator's Printify catalog but could in theory contain
+        // HTML if the operator edits a title in Printify with raw
+        // tags. Escape defensively.
+        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> ' + escapeHtml(statusMsg);
         runMockupQueue(needsMockup, targetCache, state[uploadIdKey], variant, productId, _settle);
         return;
       }
@@ -8535,7 +8597,7 @@
         renderCanvas();
       }
 
-      mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Uploading ' + variant + (productId ? ' for this product' : ' for mockups') + ' (' + Math.round(base64Data.length / 1024) + ' KB)\u2026';
+      mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Uploading ' + escapeHtml(variant) + (productId ? ' for this product' : ' for mockups') + ' (' + Math.round(base64Data.length / 1024) + ' KB)\u2026';
 
       fetchWithTimeout(API_BASE + "/api/printify/upload", {
         method: "POST",
@@ -8558,7 +8620,9 @@
         runMockupQueue(unmocked, targetCache, data.id, variant, productId, _settle);
       })
       .catch(function(err) {
-        mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockups unavailable: ' + err.message + '</span>';
+        // err.message can include server-derived strings (Printify
+        // error bodies, fetch failures). Escape before innerHTML.
+        mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockups unavailable: ' + escapeHtml(err.message) + '</span>';
         _settle(err);
       });
     }
@@ -8597,7 +8661,7 @@
         }
         var product = queue.shift();
         done++;
-        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Mockup ' + done + '/' + total + ': ' + product.name + '\u2026';
+        mockupStatus.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px;border-width:2px;"></div> Mockup ' + done + '/' + total + ': ' + escapeHtml(product.name) + '\u2026';
 
         // Use the user's currently-selected variant if they've picked one —
         // beta testers picked "Wooden Base / White hands" on the clock and
@@ -8616,7 +8680,7 @@
         // attempt instead.
         if (pickedVariantId == null) {
           if (mockupStatus) {
-            mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> ' + (product.name || "this product") + " doesn't have a default variant yet — pick one via the variant picker first.</span>";
+            mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> ' + escapeHtml(product.name || "this product") + " doesn't have a default variant yet — pick one via the variant picker first.</span>";
           }
           // Treat this product as failed but continue the queue so
           // multi-product batches don't stall on one bad entry.
@@ -8666,7 +8730,7 @@
         })
         .catch(function(err) {
           lastError = err;
-          mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> ' + product.name + ': ' + err.message + '</span>';
+          mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> ' + escapeHtml(product.name) + ': ' + escapeHtml(err.message) + '</span>';
           setTimeout(createNext, 500);
         });
       }
