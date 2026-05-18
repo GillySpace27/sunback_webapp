@@ -101,52 +101,58 @@
       </div>
     </div>
 
-    <div class="wavelength-grid hidden" id="wlGrid">
-      <div class="wl-card" data-wl="94">
-        <div class="wl-thumb" data-wl="94"></div>
-        <div class="wl-value">94 Å</div>
-        <div class="wl-label">Green · 6.3MK<br>Hot flaring plasma</div>
-      </div>
-      <div class="wl-card" data-wl="131">
-        <div class="wl-thumb" data-wl="131"></div>
-        <div class="wl-value">131 Å</div>
-        <div class="wl-label">Teal · 10MK<br>Flares / transition</div>
-      </div>
-      <div class="wl-card selected" data-wl="171">
-        <div class="wl-thumb" data-wl="171"></div>
-        <div class="wl-value">171 Å</div>
-        <div class="wl-label">Golden · 0.8MK<br>Quiet corona, loops</div>
-      </div>
-      <div class="wl-card" data-wl="193">
-        <div class="wl-thumb" data-wl="193"></div>
-        <div class="wl-value">193 Å</div>
-        <div class="wl-label">Amber · 1.5MK<br>Corona / flares</div>
-      </div>
-      <div class="wl-card" data-wl="211">
-        <div class="wl-thumb" data-wl="211"></div>
-        <div class="wl-value">211 Å</div>
-        <div class="wl-label">Purple · 2.0MK<br>Active regions</div>
-      </div>
-      <div class="wl-card" data-wl="304">
-        <div class="wl-thumb" data-wl="304"></div>
-        <div class="wl-value">304 Å</div>
-        <div class="wl-label">Red · 0.05MK<br>Chromosphere</div>
-      </div>
-      <div class="wl-card" data-wl="335">
-        <div class="wl-thumb" data-wl="335"></div>
-        <div class="wl-value">335 Å</div>
-        <div class="wl-label">Blue · 2.5MK<br>Active regions</div>
-      </div>
-      <div class="wl-card" data-wl="1600">
-        <div class="wl-thumb" data-wl="1600"></div>
-        <div class="wl-value">1600 Å</div>
-        <div class="wl-label">UV · 0.1MK<br>Transition region</div>
-      </div>
-      <div class="wl-card" data-wl="1700">
-        <div class="wl-thumb" data-wl="1700"></div>
-        <div class="wl-value">1700 Å</div>
-        <div class="wl-label">UV · 5000K<br>Photosphere</div>
-      </div>
+    <!-- Wavelength tiles are real <button> elements (round-2 a11y,
+         Cole Ramirez P0): Voice Control users now address each tile
+         by its aria-label ("Click 171 angstrom") instead of having
+         to ask for numeric overlays. The inner thumb / value / label
+         children are decorative duplicates of the aria-label and
+         carry aria-hidden so screen readers don't read them twice. -->
+    <div class="wavelength-grid hidden" id="wlGrid" role="group" aria-label="Wavelength selector">
+      <button type="button" class="wl-card" data-wl="94" aria-label="94 angstrom, green, hot flaring plasma">
+        <div class="wl-thumb" data-wl="94" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">94 Å</div>
+        <div class="wl-label" aria-hidden="true">Green · 6.3MK<br>Hot flaring plasma</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="131" aria-label="131 angstrom, teal, flares and transition region">
+        <div class="wl-thumb" data-wl="131" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">131 Å</div>
+        <div class="wl-label" aria-hidden="true">Teal · 10MK<br>Flares / transition</div>
+      </button>
+      <button type="button" class="wl-card selected" data-wl="171" aria-label="171 angstrom, golden, quiet corona with loops">
+        <div class="wl-thumb" data-wl="171" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">171 Å</div>
+        <div class="wl-label" aria-hidden="true">Golden · 0.8MK<br>Quiet corona, loops</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="193" aria-label="193 angstrom, amber, corona and flares">
+        <div class="wl-thumb" data-wl="193" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">193 Å</div>
+        <div class="wl-label" aria-hidden="true">Amber · 1.5MK<br>Corona / flares</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="211" aria-label="211 angstrom, purple, active regions">
+        <div class="wl-thumb" data-wl="211" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">211 Å</div>
+        <div class="wl-label" aria-hidden="true">Purple · 2.0MK<br>Active regions</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="304" aria-label="304 angstrom, red, chromosphere">
+        <div class="wl-thumb" data-wl="304" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">304 Å</div>
+        <div class="wl-label" aria-hidden="true">Red · 0.05MK<br>Chromosphere</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="335" aria-label="335 angstrom, blue, active regions">
+        <div class="wl-thumb" data-wl="335" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">335 Å</div>
+        <div class="wl-label" aria-hidden="true">Blue · 2.5MK<br>Active regions</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="1600" aria-label="1600 angstrom, ultraviolet, transition region">
+        <div class="wl-thumb" data-wl="1600" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">1600 Å</div>
+        <div class="wl-label" aria-hidden="true">UV · 0.1MK<br>Transition region</div>
+      </button>
+      <button type="button" class="wl-card" data-wl="1700" aria-label="1700 angstrom, ultraviolet, photosphere">
+        <div class="wl-thumb" data-wl="1700" aria-hidden="true"></div>
+        <div class="wl-value" aria-hidden="true">1700 Å</div>
+        <div class="wl-label" aria-hidden="true">UV · 5000K<br>Photosphere</div>
+      </button>
     </div>
 
     <div class="status-msg" id="statusMsg">
