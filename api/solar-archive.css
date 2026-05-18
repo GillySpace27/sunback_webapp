@@ -783,6 +783,17 @@ select:focus {
   transition: all var(--transition);
   position: relative;
   overflow: hidden;
+  /* Button-tag reset (round-2 a11y, Cole Ramirez P0): tiles are
+     now real <button> elements so Voice Control + screen readers
+     can name them. The defaults wreck the look, so we re-baseline
+     here. The shared styling above still applies regardless of
+     tag. */
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .wl-card::before {

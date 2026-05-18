@@ -692,7 +692,7 @@ deeper "what actually breaks when you USE the AT" layer.
 - Comment textarea: focus sticks, dictation is clean.
 - "Press Escape" closes the variant picker (confirmed).
 
-- [ ] **P0** **Wavelength tile grid is plain `.wl-card` divs** —
+- [x] **P0** **Wavelength tile grid is plain `.wl-card` divs** —
       no `role="button"`, no `aria-label`. Voice Control can't
       address them by name; users must "Show numbers" + scan ~12
       overlays + click the index. **One change, biggest single AT
@@ -700,6 +700,14 @@ deeper "what actually breaks when you USE the AT" layer.
       with an `aria-label` like
       `"171 Angstrom, golden, quiet corona"`. Same for `.wl-thumb`
       children.
+      **Shipped 2026-05-17:** all nine `.wl-card` divs converted to
+      `<button>` with `aria-label` per descriptor. Inner thumb /
+      value / label children carry `aria-hidden="true"` so AT users
+      hear the label once. `.wl-card` CSS gained a button-tag reset
+      (`appearance:none; font:inherit; color:inherit; display:block;
+      width:100%`) so the visual styling is unchanged. The wrapper
+      `#wlGrid` got `role="group" aria-label="Wavelength selector"`
+      so AT users hear the section name on entry.
 - [ ] **P0** **Visible `+` / `−` step buttons next to every
       continuous-range slider** (Crop, Vignette, Brightness,
       Contrast, Hue, Size, Stroke, Text Offset). Voice users
