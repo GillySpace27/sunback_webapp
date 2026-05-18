@@ -1394,7 +1394,50 @@ html.dark .image-stage.image-stage--checker {
 .slider-row input[type="range"] {
   flex: 1;
   accent-color: var(--accent-corona);
-  height: 6px;
+  height: 10px;
+}
+
+/* Hank P1 (round-2 ergonomics): bump slider hit-area above Fitts' Law
+   threshold. Native ~14px thumbs on 6px tracks were below the ~9.6mm
+   trackpad acquisition sweet spot, and with 6-9 sliders stacked per
+   tab a 30-min session was a first-dorsal-interosseous fatigue / RSI
+   risk. Track 6→10px, thumb ~14→22px (26px on coarse pointers). The
+   thumb's negative margin-top keeps it centered: -(22-10)/2 = -6px.
+   Applies to every range input in the editor (slider-row, text-tool,
+   clock numbers, vignette, etc.); the compact .timestamp-pos-offset
+   inline offset keeps its own smaller height. */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 5px;
+}
+input[type="range"]::-moz-range-track {
+  height: 10px;
+  border-radius: 5px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  margin-top: -6px;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+}
+@media (pointer: coarse) {
+  input[type="range"]::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+    margin-top: -8px;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+  }
 }
 
 .slider-row .slider-val {
