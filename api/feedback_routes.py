@@ -21,6 +21,7 @@ Mount in main.py:
     app.include_router(feedback_routes.router, prefix="/api")
 """
 
+import hmac
 import json
 import os
 import sys
@@ -33,10 +34,34 @@ import re
 import requests
 from fastapi import APIRouter, HTTPException, Header, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from api.security import enforce_origin, enforce_rate_limit
+
+# Lightweight EmailStr validator wrapper. Pydantic ships EmailStr but
+# applying it directly to FeedbackSubmission.email would reject all
+# legacy clients posting blank strings. We use this only at the
+# reply_to and Slack-context paths to drop spoofy/invalid addresses
+# before they reach an outbound email header.
+class _EmailValidator(BaseModel):
+    e: EmailStr
+
+
+def _valid_email(value: Optional[str]) -> Optional[str]:
+    """Return the address if it parses as a valid email, else None.
+    Used to filter `reply_to` so an attacker can't set the From-Reply
+    target to `victim@target.com` from a Resend-verified sender."""
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        _EmailValidator(e=s)
+        return s
+    except ValidationError:
+        return None
 
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
 
@@ -192,13 +217,38 @@ def _public_base_url() -> str:
     return os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/") or "http://localhost:8000"
 
 
+def _slack_safe(s) -> str:
+    """Neutralise the Slack mrkdwn characters that let an attacker
+    inject @channel pings, link syntax, or break formatting from
+    user-controlled fields. We strip rather than escape because Slack
+    has no canonical mrkdwn escape — backslash isn't honoured.
+
+    Round-2 audit (Mira Sokolov, P1 MEDIUM): the context dict was
+    str-concatenated into mrkdwn text with no escape, so
+    `context={'<!channel>': 'go'}` pinged the whole channel and link
+    syntax `[evil](https://phish)` produced live phishing links.
+    """
+    if s is None:
+        return ""
+    return (
+        str(s)
+        .replace("<", "")
+        .replace(">", "")
+        .replace("|", "")
+        .replace("&", "")
+        .replace("*", "")
+        .replace("_", "")
+        .replace("`", "")
+    )
+
+
 def _format_slack_blocks(record: dict, idx: int) -> dict:
     kind = record.get("kind", "comment")
     header = "New feedback" if kind == "comment" else "New product request"
     parts = [f"*{header}*"]
     body = record.get("body") or ""
     if body:
-        parts.append(body)
+        parts.append(_slack_safe(body))
     if kind == "product_request":
         pr = record.get("product_request") or {}
         if pr:
@@ -208,7 +258,7 @@ def _format_slack_blocks(record: dict, idx: int) -> dict:
                 )
             )
             if pr.get("title"):
-                parts.append("Title: " + str(pr["title"]))
+                parts.append("Title: " + _slack_safe(pr["title"]))
             # One-click approve / reject links. Admin key is in the query string —
             # PUBLIC_BASE_URL should be an https endpoint in production.
             admin_key = os.getenv(ADMIN_KEY_ENV, "").strip()
@@ -220,14 +270,20 @@ def _format_slack_blocks(record: dict, idx: int) -> dict:
     name = record.get("name")
     email = record.get("email")
     if name and email:
-        parts.append("From: " + name + " <" + email + ">")
+        parts.append("From: " + _slack_safe(name) + " <" + _slack_safe(email) + ">")
     elif email:
-        parts.append("From: " + email)
+        parts.append("From: " + _slack_safe(email))
     elif name:
-        parts.append("From: " + name)
+        parts.append("From: " + _slack_safe(name))
     ctx = record.get("context") or {}
     if ctx:
-        ctx_flat = ", ".join(f"{k}={v}" for k, v in ctx.items() if v not in (None, ""))
+        # Escape both keys AND values — an attacker could set context
+        # keys as well, and `<!channel>` works as a key just fine.
+        ctx_flat = ", ".join(
+            f"{_slack_safe(k)}={_slack_safe(v)}"
+            for k, v in ctx.items()
+            if v not in (None, "")
+        )
         if ctx_flat:
             parts.append("Context: " + ctx_flat)
     return {"text": "\n".join(parts)}
@@ -427,7 +483,13 @@ def _fire_email_notification(record: dict, idx: int) -> None:
                 # If the user filled in their email, set Reply-To so the
                 # operator can hit Reply in their mail client and respond
                 # directly. Resend also supports an array here.
-                "reply_to": record.get("email") or None,
+                # Round-2 audit (Mira Sokolov, P1 MEDIUM): the address
+                # was previously passed through unchecked, letting an
+                # attacker set reply_to=victim@target.com and turn the
+                # operator's Reply into phishing-from-a-verified-sender.
+                # `_valid_email` returns None for anything that doesn't
+                # parse as a real email; Resend then omits Reply-To.
+                "reply_to": _valid_email(record.get("email")),
             },
             timeout=8,
         )
@@ -497,7 +559,11 @@ def _check_admin_key(header_key: Optional[str], query_key: Optional[str]) -> Non
     if not expected:
         raise HTTPException(status_code=503, detail=f"Admin access disabled — set {ADMIN_KEY_ENV} to enable.")
     provided = (header_key or "").strip() or (query_key or "").strip()
-    if not provided or provided != expected:
+    # Constant-time compare. Round-2 audit (Mira Sokolov, P1 HIGH):
+    # the previous `provided != expected` is timing-observable; a
+    # determined attacker can recover the key byte-by-byte off the
+    # response latency. compare_digest reads both operands fully.
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid admin key")
 
 

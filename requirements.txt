@@ -5,7 +5,7 @@ matplotlib
 astropy
 parfive
 requests
-pydantic
+pydantic[email]
 sse_starlette
 sunkit-image
 aiapy
