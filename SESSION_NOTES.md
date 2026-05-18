@@ -39,6 +39,96 @@ wavelength tile click (so editor warms while FITS fetch runs).
 See the lazy-load plan section in the conversation transcript at
 this session's start for the full plan.
 
+## Major UX refactor — planned, approved, not started
+
+**Goal**: in the Shopify-iframe embed, keep the editor canvas
+visible at the top of the user's viewport while they manipulate
+sliders below. Today the canvas scrolls off-screen as soon as the
+user reaches the toolbar, because every `position: sticky` rule is
+intentionally killed in embedded mode (sticky anchors to the
+iframe's content height, not the parent's visible viewport — so it
+never engages). Desktop standalone and mobile standalone already
+work via sticky; only the embed is broken.
+
+**Approach Gilly approved (2026-05-18)**: extend the existing
+postMessage viewport protocol to carry `visibleTopInIframe` (today
+only `visibleBottomInIframe` is sent, used by the feedback FAB).
+Use it to set `.image-stage` to `position: absolute; top: <Y>`
+inside the iframe so it floats with the parent's visible region.
+A placeholder div in the document flow holds the spot so the
+toolbar/sliders don't jump up.
+
+**Code change inventory**:
+
+1. **Frontend** (`api/solar-archive.js`):
+   - Extend the `window.addEventListener("message", ...)` block at
+     `~L213` (the one that handles `viewport` type for the FAB) to
+     also read `e.data.visibleTopInIframe` when present.
+   - On each viewport message in embedded mode, position
+     `.image-stage` absolutely at the new top. Update a sibling
+     `.image-stage-placeholder` div's height to match the canvas
+     height so the layout doesn't reflow.
+   - Throttle to rAF so dragging the parent scrollbar doesn't fire
+     hundreds of style mutations per second.
+
+2. **Frontend** (`api/index.html`):
+   - Add `<div class="image-stage-placeholder" aria-hidden="true">`
+     immediately before or after `<div class="image-stage">` to
+     hold the layout space when the stage goes absolute.
+
+3. **Frontend** (`api/solar-archive.css`):
+   - Drop the `html.embedded .editor-with-preview .image-stage
+     { position: static; ... }` override (lines ~3032-3037 in
+     `solar-archive.css`).
+   - Add `html.embedded .image-stage.floating { position:
+     absolute; left: 0; right: 0; max-height: 40vh; }` plus
+     placeholder sizing.
+
+4. **Parent Shopify theme** (the listener lives in the user's
+   Shopify theme; documented in earlier session notes as already
+   installed for the FAB):
+   - The current listener sends:
+     ```js
+     iframe.contentWindow.postMessage({
+       source: "solar-archive-parent",
+       type: "viewport",
+       visibleBottomInIframe: <px>
+     }, iframeOrigin);
+     ```
+   - Add a `visibleTopInIframe: <px>` field next to it. Calculation
+     is `Math.max(0, -iframe.getBoundingClientRect().top)`.
+
+**Risks to be ready for**:
+- Two postMessage payloads in flight (FAB + canvas) — make sure
+  rAF throttling keeps both responsive. The origin allowlist
+  (`PARENT_ORIGIN_ALLOWLIST` shipped in `fddcafd`) already gates
+  who can send these.
+- Canvas size on tiny phones: 40vh might be too much. May need a
+  `--canvas-floating-max-h` CSS var that scales down on narrow.
+- `prefers-reduced-motion`: the floating position update is a
+  layout shift; under reduced-motion, snap rather than animate
+  (which we don't animate anyway, but document the intent).
+- The standalone-mobile sticky path (lines ~2987-3001) should be
+  unaffected — only `html.embedded` rules change.
+
+**Smoke-test checklist after the change**:
+1. Standalone desktop: canvas + product preview pin at top while
+   sliders scroll. (No regression — already worked.)
+2. Standalone mobile (<740px): canvas pins at top:0, preview at
+   top:30vh, sliders scroll. (No regression — already worked.)
+3. Embedded iframe in Shopify: scroll the parent page — canvas
+   stays glued to the top of the visible region of the iframe;
+   sliders below scroll normally; canvas updates in real-time as
+   the user scrubs a slider. (THIS is the new behaviour.)
+4. Feedback FAB: still anchors to the visible bottom of the iframe.
+   (No regression — the FAB also rides the same listener.)
+5. Slider INP under drag: still under 200ms; `scheduleCanvasRender`
+   already coalesces.
+
+**Estimated effort**: ~3 hours frontend + ~15 min Shopify theme
+edit + ~30 min smoke testing in the embed. Reversible (single
+commit, can `git revert`).
+
 ## What just happened (right before this note)
 
 Round 1 alpha-tester sweep ran 8 persona agents against the live
