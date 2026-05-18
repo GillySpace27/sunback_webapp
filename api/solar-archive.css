@@ -144,6 +144,31 @@ body::before {
   padding: 20px 16px 80px;
 }
 
+/* Skip-to-content link — Sam Rosenberg + Cole Ramirez round-2 a11y
+   (WCAG 2.4.1 Bypass Blocks). Off-screen until focused, then snaps
+   into the top-left corner so a keyboard user can jump past the hero
+   and banners straight into <main>. Corona-orange so it stays visible
+   over both the dark page background and the corona-glow body::before
+   layer; sun-yellow outline on focus mirrors the rest of the focus
+   styles in this stylesheet. */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 8px;
+  background: var(--accent-corona);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  z-index: 10000;
+  text-decoration: none;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 8px;
+  outline: 3px solid var(--accent-sun);
+  outline-offset: 2px;
+}
+
 /* Header */
 .hero {
   text-align: center;

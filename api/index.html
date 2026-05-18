@@ -15,10 +15,14 @@
   <link href="solar-archive.css" rel="stylesheet">
 </head>
 <body>
+<!-- Skip-to-content link: visually hidden until focused, lets keyboard
+     and screen-reader users bypass the hero/banners and jump straight
+     to the editor. Sam Rosenberg round-2 WCAG 2.4.1 finding. -->
+<a href="#mainContent" class="skip-link">Skip to main content</a>
 <div class="app-container">
 
   <!-- Hero -->
-  <div class="hero">
+  <header class="hero" role="banner">
     <div class="hero-icon"></div>
     <h1 id="appTitle">Solar Archive</h1>
     <p>See the Sun on any date. Print it on anything.</p>
@@ -30,7 +34,13 @@
       <i class="fas fa-flask" aria-hidden="true"></i>
       Beta mode tests the front-end, but purchases are disabled.
     </div>
-  </div>
+  </header>
+
+  <!-- Main landmark wraps the interactive editor flow (banners, date/
+       wavelength picker, editor, products). Sam Rosenberg + Cole Ramirez
+       round-2 WCAG 1.3.1 / 2.4.1: AT users can now jump directly here
+       via the skip-link, and screen-readers expose region navigation. -->
+  <main id="mainContent">
 
   <!-- CSP Notice (shown only when served from a different origin) -->
   <div class="backend-banner waking hidden" id="cspNotice">
@@ -679,7 +689,9 @@
     <div class="status-msg" id="orderStatus"></div>
   </div>
 
-  <div class="app-footer">
+  </main>
+
+  <footer class="app-footer" role="contentinfo">
     <!-- NASA SDO rules-of-the-road acknowledgement. Required on any
          SDO-derived imagery. We currently only surface AIA imagery,
          so EVE + HMI dropped from the credit line per Patricia's
@@ -698,7 +710,7 @@
     <a href="#" id="dataCreditsLink" role="button">Data credits</a>
     &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">—</span>
     &nbsp;·&nbsp; <span id="buildTime" style="font-family:monospace;opacity:0.5;font-size:0.7rem;" title="When index.html, solar-archive.js, solar-archive.css were last saved">—</span>
-  </div>
+  </footer>
 </div>
 
 <!-- Catalog modal (rendered by JS) -->
