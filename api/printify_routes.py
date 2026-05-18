@@ -75,6 +75,15 @@ def _printify_request(method: str, url: str, **kwargs):
     Locally, skip SSL verify by default to avoid 'unable to get local issuer
     certificate'. Set PRINTIFY_SSL_VERIFY=1 to force verification when local.
 
+    SECURITY NOTE (Mira Sokolov round-2 audit, P3 INFO): defaulting
+    SSL verify off when not on Render means a dev on an untrusted
+    network could be MITMed on outbound api.printify.com calls. The
+    operator key would leak. Mitigation in practice: only the
+    operator runs this locally, on their own laptop; production
+    (Render) DOES verify against certifi. If you ever run this
+    server publicly outside Render, set `PRINTIFY_SSL_VERIFY=1` to
+    force verification.
+
     Works across three network shapes without configuration:
       1. External / home wifi: no proxy in use, direct connection succeeds.
       2. Corporate network (dev): outbound direct is blocked, HTTPS_PROXY env

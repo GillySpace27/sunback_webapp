@@ -534,8 +534,12 @@ as a security alert.
       **Shipped 2026-05-17:** `_slack_safe()` strips `<>|&*_``
       from body, title, name, email, and context keys+values
       before they reach the mrkdwn payload.
-- [ ] **P3 INFO** `PRINTIFY_SSL_VERIFY` off by default outside
+- [x] **P3 INFO** `PRINTIFY_SSL_VERIFY` off by default outside
       Render → dev MITM risk. Document.
+      **Shipped 2026-05-17:** SECURITY NOTE added in
+      `_printify_request` docstring explaining the dev-laptop
+      assumption and pointing at `PRINTIFY_SSL_VERIFY=1` for any
+      non-Render public deploy.
 
 ## Lex Marchetti — brand designer *(round 2, NEW)*
 
@@ -678,10 +682,15 @@ deeper "what actually breaks when you USE the AT" layer.
       currently say "Press right arrow" 40 times to set a
       vignette — adding step buttons + an arrow-key shortcut is
       table-stakes for voice + switch control.
-- [ ] **P1** **Close-X (`×`) buttons read as "Click 2715"** (the
+- [x] **P1** **Close-X (`×`) buttons read as "Click 2715"** (the
       codepoint) or blank when Voice Control can't find a label.
       Set explicit `aria-label="Close"` everywhere a `×` glyph is
       the only content.
+      **Audit + fix 2026-05-17:** all `&#x2715;` close glyphs in
+      `index.html` already had `aria-label`; the only unlabelled
+      icon-only close was the dynamically-injected catalog close in
+      `solar-archive.js` L8226 — added `aria-label="Close catalog"`
+      and `aria-hidden="true"` on the inner icon.
 - [ ] **P1** **Variant-picker listbox** inside `confirmSelectModal`
       has no roving tabindex — every variant is a sibling, so
       Switch Control item-scans the whole list. Add a real listbox
@@ -702,14 +711,23 @@ Findings ordered by predicted Core Web Vitals impact.
       cdnjs** (~75KB gzipped CSS) blocks first paint for ~6 icons.
       Self-host a subset or swap to inline SVG. **Predicted LCP
       win on 4G mobile: 350-600ms.**
-- [ ] **P1** **No `preconnect` to `fonts.gstatic.com`** for Outfit;
+- [~] **P1** **No `preconnect` to `fonts.gstatic.com`** for Outfit;
       no `font-display: swap`. FOIT/swap stretches LCP text by
       ~400ms. Self-host one woff2 weight (~18KB) to drop the
       round-trip.
-- [ ] **P1** **No `preconnect` to the Render API origin.** First
+      **Note 2026-05-17:** investigated — `Outfit` is declared in
+      `solar-archive.css` but never actually loaded from Google
+      Fonts (silent fallback to the system sans-serif). No
+      preconnect needed because no Google Fonts request fires. If
+      we later opt to actually load Outfit, add the preconnect at
+      the same time.
+- [x] **P1** **No `preconnect` to the Render API origin.** First
       `/store-config` call eats a fresh DNS+TLS handshake (~250ms
       RTT). Add a `<link rel="preconnect">` to
       `solar-archive.onrender.com`.
+      **Shipped 2026-05-17:** preconnect added in `index.html`
+      `<head>` for `cdnjs.cloudflare.com` (Font Awesome) and
+      `solar-archive.onrender.com` (API).
 - [ ] **P1** **INP catastrophe on sliders.** Every
       `slider.addEventListener('input', renderCanvas)` is
       synchronous 80-200ms work vs the 16ms frame budget — INP
@@ -736,9 +754,15 @@ Findings ordered by predicted Core Web Vitals impact.
       images = 200-400MB after 10 min. Mobile Safari kills tabs
       at 384MB. Add an LRU cap + drop the largest entry on
       memory pressure.
-- [ ] **P3** **`console.log` on every tile render** (line ~1802).
+- [x] **P3** **`console.log` on every tile render** (line ~1802).
       Gate behind a `__DEBUG` flag so it doesn't ship to
       production.
+      **Note 2026-05-17:** investigated — already gated. The
+      `tileLog()` helper at L1814 short-circuits unless
+      `?debug=tiles` / `?debug=1` is in the URL. The remaining 12
+      `console.warn`/`console.error` sites are legitimate
+      production diagnostics (catalog fetch failed, save-design
+      mockup failed, etc.) and should stay.
 
 ---
 
