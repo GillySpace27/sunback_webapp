@@ -8714,7 +8714,16 @@
         var txt = (mockupStatusEl.textContent || "").replace(/\s+/g, " ").trim();
         if (txt && txt !== lastAnnounced) {
           lastAnnounced = txt;
-          statusRegion.textContent = txt;
+          // Sam P1 round-2 (WCAG 4.1.3): route mockup errors (marked
+          // by the exclamation-triangle icon in the rendered HTML) to
+          // the assertive #alertRegion so AT users are interrupted;
+          // routine progress stays polite via #statusRegion.
+          var isError = !!mockupStatusEl.querySelector(".fa-exclamation-triangle");
+          if (isError && typeof announceAlert === "function") {
+            announceAlert(txt);
+          } else {
+            statusRegion.textContent = txt;
+          }
         }
       });
       obs.observe(mockupStatusEl, { childList: true, characterData: true, subtree: true });
