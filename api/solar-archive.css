@@ -58,6 +58,44 @@ html:not(.dark) {
 
 * { margin:0; padding:0; box-sizing:border-box; }
 
+/* Global focus-visible ring. WCAG 2.4.7 (Sam Rosenberg round-2 a11y
+   audit, P1) requires a visible focus indicator on every interactive
+   element. Many of our buttons and tabs currently rely on a default
+   browser outline that's been stripped by `outline:none` on a few
+   nearby rules, breaking keyboard navigation. `:focus-visible` only
+   fires for keyboard / programmatic focus (NOT mouse clicks), so the
+   ring doesn't show up for sighted-mouse users — best of both worlds.
+   Two-token outline so the ring is visible against both the deep
+   purple panels and the orange CTAs. */
+:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Some compound widgets manage their own focus styling already
+   (date input, modal close X). Re-applying the global ring on top
+   doubles the indicator. Opt out by adding `data-no-focus-ring` to
+   the element. */
+[data-no-focus-ring]:focus-visible {
+  outline: none;
+}
+
+/* Honor prefers-reduced-motion (Sam P1, Asha P1 overlap). Wipe
+   transitions, animations, and smooth scroll behaviour for users
+   who've asked the OS for less motion. The `* {...}` rule is
+   intentionally heavy-handed — anything we want to keep animated
+   for that audience should opt in with `data-animate-always`. */
+@media (prefers-reduced-motion: reduce) {
+  *:not([data-animate-always]),
+  *::before:not([data-animate-always]),
+  *::after:not([data-animate-always]) {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 body {
   font-family: 'Outfit', sans-serif;
   background: var(--bg-deep);

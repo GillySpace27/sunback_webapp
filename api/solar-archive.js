@@ -40,7 +40,12 @@
     //                     (Raw / RHEF / HQ RHEF) since those go
     //                     through VSO → SunPy bypassing Helioviewer.
     var CITATIONS = {
-      SDO_ACK: "Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.",
+      // Trimmed from "AIA, EVE, and HMI science teams" to "AIA"
+      // only per Patricia's round-2 note: we don't currently surface
+      // EVE or HMI imagery, so naming them in the credit reads as
+      // cargo-cult to a domain reviewer. Restore the longer form
+      // here AND in index.html footer if we add EVE/HMI channels.
+      SDO_ACK: "Courtesy of NASA/SDO and the AIA science team.",
       AIA_PAPER: "Lemen, J. R., et al. 2012, Sol. Phys., 275, 17.",
       RHEF_PAPER: "Gilly, C., et al. 2025, Sol. Phys., 300, 174 (https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G).",
       HELIOVIEWER_ACK: "This work has made use of the Helioviewer Project, an open-source project for visualisation of solar and heliospheric data."
@@ -143,10 +148,12 @@
     }
     if (document.documentElement.classList.contains("embedded")) {
       // Fire after initial render, after the load event (when images
-      // and fonts settle), on every body resize (ResizeObserver
-      // catches modal opens, tab expansions, etc.), and on a slow
-      // safety-net interval for things observer can miss (animated
-      // transitions, image decode completing after layout).
+      // and fonts settle), and on every body resize. The
+      // ResizeObserver catches modal opens, tab expansions, image-
+      // decode-after-layout, animated transitions, etc. — Priya
+      // (round-2 perf) flagged that the prior `setInterval(_, 800)`
+      // safety net was redundant with the observer for every realistic
+      // case and just kept the event loop awake for nothing. Dropped.
       document.addEventListener("DOMContentLoaded", _postIframeHeight);
       window.addEventListener("load", _postIframeHeight);
       window.addEventListener("resize", _postIframeHeight);
@@ -155,10 +162,13 @@
           var _saResizeObs = new ResizeObserver(_postIframeHeight);
           _saResizeObs.observe(document.body);
           _saResizeObs.observe(document.documentElement);
-        } catch (_e) { /* old browser; safety-net interval still runs */ }
+        } catch (_e) {
+          // Old browser with no ResizeObserver — the 800ms safety net
+          // used to back this up. We trade off some rare animated-
+          // transition re-fires here; load + resize + DOMContentLoaded
+          // still fire, which is good enough for legacy.
+        }
       }
-      // 800ms safety net — cheap and catches anything missed above.
-      setInterval(_postIframeHeight, 800);
     }
 
     // ── Embedded-iframe FAB anchoring ────────────────────────────
@@ -2405,10 +2415,20 @@
       _syncFilterToggleUI(state.editorFilter);
     }
 
-    // Load thumbnails on date change and on initial page load
+    // Load thumbnails on date change and on initial page load.
+    // Round-2 perf audit (Priya Iyer, P2): `input` fires on every
+    // keystroke as the user types a date — N wavelength fetches per
+    // character. 250ms trailing-edge debounce holds the request until
+    // the typing pauses, so a single date entry costs one network burst
+    // instead of 8. The "change" event stays unbuffered because it
+    // fires once on commit (picker selection, blur, Enter).
     if (dateInput) {
       dateInput.addEventListener("change", loadWavelengthThumbnails);
-      dateInput.addEventListener("input", loadWavelengthThumbnails);
+      var _dateInputTimer = null;
+      dateInput.addEventListener("input", function() {
+        clearTimeout(_dateInputTimer);
+        _dateInputTimer = setTimeout(loadWavelengthThumbnails, 250);
+      });
     }
     // Time changes: same flow as date, since JPG previews and FITS queries
     // are now anchored to the user-picked time of day. We re-load the

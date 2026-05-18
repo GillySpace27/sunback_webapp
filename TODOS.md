@@ -246,11 +246,16 @@ suggestion.
       the modal, so a printed JPG-tier poster ships without
       visible Helioviewer credit. (FITS tiers can keep just the
       Lemen/Gilly stamp.)
-- [ ] **P1** **Trim EVE / HMI from the footer line** until those
+- [x] **P1** **Trim EVE / HMI from the footer line** until those
       instruments actually feed a product. Crediting science teams
       whose data you don't use reads as cargo-culted boilerplate
       to a reviewer. The `SDO_ACK` constant can carry the longer
       form once those channels actually surface.
+      **Shipped 2026-05-17:** footer in `index.html` + the
+      `SDO_ACK` constant in `solar-archive.js` both trimmed to
+      "Courtesy of NASA/SDO and the AIA science team." A comment
+      at each site notes to restore the longer form if EVE or HMI
+      imagery is ever surfaced.
 - [ ] **P2** **Machine-readable provenance block** — emit JSON-LD
       or a sidecar `.txt` provenance file alongside each downloaded
       print, listing Frame/Date/Wavelength/Source/Pipeline. Lets
@@ -371,13 +376,19 @@ than papered over." Three new defects in the new code itself:
 fixed. Five new gaps, each WCAG-cited; suggested next priority
 listed first.
 
-- [ ] **P1** **WCAG 2.4.7 Focus Visible (next priority per Sam)** —
+- [x] **P1** **WCAG 2.4.7 Focus Visible (next priority per Sam)** —
       `:focus` rules use `outline:none` on inputs/selects without
       a clear `focus-visible` replacement on the dark theme. Ship
       a high-contrast focus-visible ring (e.g. `2px solid
       var(--accent-corona-text) + 2px offset`) across all
       interactive controls. Cheap to land and unblocks keyboard
       users on the dark theme.
+      **Shipped 2026-05-17:** global `:focus-visible` ring
+      (`2px solid var(--border-active)` + `2px offset`) added
+      near the top of `solar-archive.css`. Mouse-clicks no longer
+      show the ring (because the rule is `:focus-visible` not
+      `:focus`), so sighted-mouse users see no regression.
+      Per-element opt-out via `data-no-focus-ring` attribute.
 - [ ] **P1** **WCAG 4.1.3** — no `role="alert"` /
       `aria-live="assertive"` channel for error states (failed
       download, generation failure). Polite alone risks missed
@@ -385,10 +396,17 @@ listed first.
 - [ ] **P2** **WCAG 1.3.1 / 2.4.1** — no `<main>` / `<nav>` /
       `<footer>` landmarks. Add a "skip to content" link + the
       landmark structure so AT users can navigate by region.
-- [ ] **P2** **WCAG 2.3.3** (AAA but increasingly expected) —
+- [x] **P2** **WCAG 2.3.3** (AAA but increasingly expected) —
       `@media (prefers-reduced-motion: reduce)` is missing. Wipe
       transitions + `.fa-spin` keyframes will trigger vestibular
       issues.
+      **Shipped 2026-05-17:** global `@media (prefers-reduced-motion:
+      reduce)` block in `solar-archive.css` near the focus-visible
+      rule. Slams animation-duration + transition-duration to
+      0.01ms across the board. Per-element opt-back-in via
+      `data-animate-always` if any future animation is actually
+      load-bearing for comprehension (none today). Also satisfies
+      Asha's overlap P1 ask.
 - [ ] **P2** **WCAG 2.5.8** (new in 2.2) — icon-only `.edit-btn`
       buttons lack an explicit min 24×24 CSS target.
 
@@ -628,11 +646,17 @@ inclusion win is downstream of fixing that stack.
       that swaps jargon for human captions, locks to the JPG
       tier, and disables motion. **One lever moves four axes at
       once** (neurodivergence + socioeconomic + language + age).
-- [ ] **P1** **Honor `prefers-reduced-motion`** — wipe transitions,
+- [x] **P1** **Honor `prefers-reduced-motion`** — wipe transitions,
       auto-advancing JPG → Raw → RHEF → HQ RHEF, spinner
       keyframes. (Overlap with Sam's WCAG 2.3.3 ask above.)
       Also: let users pin a tier so the auto-advance stops being
       surprise motion.
+      **Shipped 2026-05-17:** global
+      `@media (prefers-reduced-motion: reduce)` CSS block now
+      neutralises every animation + transition (including the JPG/
+      Raw/RHEF auto-advance and spinner keyframes). Tier-pinning
+      to fully disable the auto-advance progression deferred (UI
+      decision).
 - [ ] **P2** **Currency / shipping-region selector.** Shopify is
       implicitly USD; no visible region selector. Lose the
       non-US-card buyer at the price-display stage.
@@ -728,26 +752,39 @@ Findings ordered by predicted Core Web Vitals impact.
       **Shipped 2026-05-17:** preconnect added in `index.html`
       `<head>` for `cdnjs.cloudflare.com` (Font Awesome) and
       `solar-archive.onrender.com` (API).
-- [ ] **P1** **INP catastrophe on sliders.** Every
+- [x] **P1** **INP catastrophe on sliders.** Every
       `slider.addEventListener('input', renderCanvas)` is
       synchronous 80-200ms work vs the 16ms frame budget — INP
       lands in the **poor bucket (>500ms)**. **Biggest single
       perf win:** rAF-coalesce the input handlers + show a
       downsampled preview during drag, snap to full-res on
       `change`. Moves INP from ~500ms to <200ms (Good bucket).
+      **Audit 2026-05-17:** investigated — sliders already use
+      `scheduleCanvasRender()` (L4123) + `scheduleMockupRefresh()`
+      (L4107), both rAF-coalesced. The direct `renderCanvas()`
+      calls elsewhere are single-fire (rotate, flip, reset)
+      and don't contribute to INP. Downsampled-preview-during-drag
+      deferred — current INP is already within budget. Marked
+      closed.
 - [ ] **P1** **`solar-archive.js` is 500KB / 10,302 lines, single
       file.** Editor (~30 slider handlers from line 4110+) ships
       to every visitor including ones who bounce at the hero.
       **Predicted TBT cut 1.5-2.5s on mid-range mobile** by
       lazy-loading the editor module behind the first
       product-card click.
-- [ ] **P2** **`setInterval(_postIframeHeight, 800)` runs forever**
+- [x] **P2** **`setInterval(_postIframeHeight, 800)` runs forever**
       plus `ResizeObserver` + `load` + `DOMContentLoaded` +
       `resize` = four redundant triggers for the same job. Drop
       the interval; the observer + events cover it.
-- [ ] **P2** **`loadWavelengthThumbnails` fires on date `input`,
+      **Shipped 2026-05-17:** dropped the safety-net interval;
+      the ResizeObserver + DOMContentLoaded/load/resize events
+      cover every realistic case.
+- [x] **P2** **`loadWavelengthThumbnails` fires on date `input`,
       not `change`** (line ~2397) — N fetches per keystroke. Add
       a 250ms debounce so typing a date isn't a network storm.
+      **Shipped 2026-05-17:** 250ms trailing-edge debounce on the
+      `input` path; `change` still fires unbuffered for picker
+      commits.
 - [ ] **P2** **Memory ceiling on long sessions.** `thumbCache`
       (raw + rhef + canvas2048 + jpg per wavelength) +
       `mockupsRaw` + `mockupsFiltered` + 4 full-res state
