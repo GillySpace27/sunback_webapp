@@ -2478,9 +2478,27 @@
       clearTimeout(toastTimer);
       toastTimer = setTimeout(function() { toastEl.classList.remove("show"); }, 4000);
 
-      // Update ARIA live region for screen readers
-      var statusRegion = document.getElementById("statusRegion");
-      if (statusRegion) statusRegion.textContent = msg;
+      // Update ARIA live region for screen readers. Errors go to the
+      // assertive companion (#alertRegion) so they interrupt AT;
+      // everything else stays polite via #statusRegion. Sam P1 round-2
+      // (WCAG 4.1.3) — polite alone risks missed messages on critical
+      // failures (failed download, generation failure).
+      if (type === "error") {
+        announceAlert(msg);
+      } else {
+        var statusRegion = document.getElementById("statusRegion");
+        if (statusRegion) statusRegion.textContent = msg;
+      }
+    }
+
+    // Assertive a11y announcer (Sam P1 round-2, WCAG 4.1.3). Writes to
+    // #alertRegion which is role="alert" + aria-live="assertive".
+    // Clear-then-set so consecutive identical messages re-announce.
+    function announceAlert(msg) {
+      var el = document.getElementById("alertRegion");
+      if (!el) return;
+      el.textContent = "";
+      setTimeout(function() { el.textContent = String(msg || ""); }, 50);
     }
 
     // ── Custom modals (no alert/confirm/prompt) ──────────────────
@@ -7971,6 +7989,107 @@
       }, 200);
     }
 
+    // ── Patricia P2 (round-2): machine-readable provenance sidecar ──
+    // Build a schema.org JSON-LD provenance object that ships alongside
+    // each downloaded print. Educators / museums / NASA-EPO reviewers
+    // can verify lineage (Frame / Date / Wavelength / Source / Pipeline)
+    // without having to hunt through the live site. Source-of-truth
+    // strings come from the CITATIONS block above so wording stays in
+    // lockstep with the on-screen credits.
+    function _buildProvenanceJsonLd(opts) {
+      opts = opts || {};
+      var wl = opts.wavelength || "";
+      var dateStr = opts.dateStr || "";          // "YYYY-MM-DD"
+      var timeStr = opts.timeStr || "";          // "HH:MM" UTC
+      var filter = opts.editorFilter || "jpg";   // jpg | raw | rhef | hq_rhef
+      var productId = opts.productId || "design";
+      var productName = opts.productName || "";
+
+      // Compose ISO 8601 UTC timestamp. Date-only input still produces
+      // a valid instant ("…T00:00:00Z") so downstream parsers don't choke.
+      var isoDate;
+      if (dateStr) {
+        var t = timeStr || "00:00";
+        isoDate = dateStr + "T" + t + ":00Z";
+      } else {
+        isoDate = new Date().toISOString();
+      }
+
+      // The "qualityTier" is the editor filter the user shipped with —
+      // matters because RHEF / HQ-RHEF prints go through SunPy + sunkit-
+      // image, while JPG previews come straight from Helioviewer.
+      var pipeline;
+      if (filter === "rhef" || filter === "hq_rhef") {
+        pipeline = "SunPy + sunkit-image (RHEF); per " + CITATIONS.RHEF_PAPER;
+      } else if (filter === "raw") {
+        pipeline = "Level-1 AIA FITS via VSO + SunPy normalisation";
+      } else {
+        pipeline = "Helioviewer JPEG2000 tile composite";
+      }
+
+      var nameBits = ["Solar Archive"];
+      if (wl) nameBits.push(wl + " Å");
+      if (dateStr) nameBits.push(dateStr);
+      var displayName = nameBits.join(" — ");
+
+      var distributor = (filter === "raw" || filter === "rhef" || filter === "hq_rhef")
+        ? "Joint Science Operations Center (JSOC), Stanford"
+        : "Helioviewer Project";
+      var via = (filter === "raw" || filter === "rhef" || filter === "hq_rhef")
+        ? "Virtual Solar Observatory (VSO)"
+        : "Helioviewer JPIP";
+
+      var jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "ImageObject",
+        "name": displayName,
+        "dateCreated": isoDate,
+        "creator": { "@type": "Organization", "name": "Solar Archive" },
+        "contentLocation": "NASA/SDO/AIA",
+        "encodingFormat": "image/png",
+        "license": "https://sdo.gsfc.nasa.gov/data/rules.php",
+        "creditText": CITATIONS.SDO_ACK,
+        "citation": [
+          CITATIONS.SDO_ACK,
+          CITATIONS.AIA_PAPER,
+          CITATIONS.RHEF_PAPER,
+          CITATIONS.HELIOVIEWER_ACK
+        ],
+        "isBasedOn": [
+          {
+            "@type": "Dataset",
+            "name": "AIA " + (wl || "") + " Å",
+            "datePublished": isoDate,
+            "distributor": distributor,
+            "via": via
+          }
+        ],
+        "potentialAction": {
+          "@type": "ViewAction",
+          "description": "RHEF (Radial Histogram Equalization Filter); " + CITATIONS.RHEF_PAPER
+        },
+        "additionalProperty": [
+          { "@type": "PropertyValue", "name": "wavelength", "value": String(wl || ""), "unitText": "Å" },
+          { "@type": "PropertyValue", "name": "instrument", "value": "AIA" },
+          { "@type": "PropertyValue", "name": "spacecraft", "value": "SDO" },
+          { "@type": "PropertyValue", "name": "observationDateUTC", "value": isoDate },
+          { "@type": "PropertyValue", "name": "qualityTier", "value": filter },
+          { "@type": "PropertyValue", "name": "pipeline", "value": pipeline },
+          { "@type": "PropertyValue", "name": "productId", "value": productId },
+          { "@type": "PropertyValue", "name": "productName", "value": productName }
+        ]
+      };
+      return jsonLd;
+    }
+
+    // Serialise + sanity-parse (catches accidental non-JSON values like
+    // undefined slipping in). Returns the canonical string or throws.
+    function _serializeProvenance(jsonLd) {
+      var str = JSON.stringify(jsonLd, null, 2);
+      JSON.parse(str); // assert round-trip; will throw if malformed
+      return str;
+    }
+
     function _saveDesignLocally() {
       // Render the canvas with edits baked in (no orange frame border)
       // — same trick the clock/text "burn" path uses.
@@ -7991,6 +8110,27 @@
                      + (wl ? "_" + wl + "A" : "")
                      + "_" + _slugForFilename(pid);
       var canvasFileName = baseName + ".png";
+      var provenanceFileName = baseName + ".provenance.json";
+
+      // Patricia P2 (round-2): build the JSON-LD provenance sidecar
+      // once up front; reused for both the single-PNG download path
+      // (fired as a second <a download> click) and the zip path
+      // (added as a file entry in the archive). Failures here are
+      // non-fatal — the PNG/zip download must still succeed.
+      var provenanceJsonStr = null;
+      try {
+        var provenanceObj = _buildProvenanceJsonLd({
+          wavelength: state.wavelength,
+          dateStr: dateStr,
+          timeStr: timeStr,
+          editorFilter: state.editorFilter,
+          productId: pid,
+          productName: product ? product.name : ""
+        });
+        provenanceJsonStr = _serializeProvenance(provenanceObj);
+      } catch (e) {
+        console.warn("[saveDesign] provenance build failed; skipping sidecar", e);
+      }
 
       // Find any generated Printify mockups for the selected product.
       // If there are any, we'll bundle them with the canvas PNG into a
@@ -8009,12 +8149,33 @@
         if (!mockupImages.length) {
           // No mockups → fall back to the simple single-PNG download.
           _downloadBlob(canvasBlob, canvasFileName);
+          // Patricia P2: fire the JSON-LD provenance sidecar as a second
+          // <a download> click. Modern browsers (Chrome, Safari 16+,
+          // Firefox) allow two back-to-back programmatic downloads from
+          // the same user-gesture chain; the setTimeout gives the first
+          // save dialog room to register before the second goes out.
+          if (provenanceJsonStr) {
+            setTimeout(function() {
+              try {
+                var jsonBlob = new Blob([provenanceJsonStr], { type: "application/ld+json" });
+                _downloadBlob(jsonBlob, provenanceFileName);
+              } catch (e) {
+                console.warn("[saveDesign] provenance download failed", e);
+              }
+            }, 150);
+          }
           return null;
         }
         // Otherwise bundle canvas + mockups into a zip.
         return _loadJSZip().then(function(JSZip) {
           var zip = new JSZip();
           zip.file(canvasFileName, canvasBlob);
+          // Patricia P2: drop the JSON-LD provenance into the same zip
+          // so the museum / educator unpacks one bundle and gets full
+          // lineage. No second-download dance needed in this path.
+          if (provenanceJsonStr) {
+            zip.file(provenanceFileName, provenanceJsonStr);
+          }
           // Fetch each mockup in parallel; tolerate per-mockup failures
           // by zipping only the ones that came back successfully.
           var fetches = mockupImages.map(function(img, i) {
@@ -8040,7 +8201,20 @@
         // Best-effort fallback: just push the canvas PNG so the user
         // still walks away with something.
         _canvasToBlob(solarCanvas, "image/png")
-          .then(function(b) { _downloadBlob(b, canvasFileName); })
+          .then(function(b) {
+            _downloadBlob(b, canvasFileName);
+            // Patricia P2: still ship the sidecar on the fallback path.
+            if (provenanceJsonStr) {
+              setTimeout(function() {
+                try {
+                  var jsonBlob = new Blob([provenanceJsonStr], { type: "application/ld+json" });
+                  _downloadBlob(jsonBlob, provenanceFileName);
+                } catch (e) {
+                  console.warn("[saveDesign] provenance download failed", e);
+                }
+              }, 150);
+            }
+          })
           .catch(function() {
             showToast("Couldn't save the design — try again or screenshot the canvas.", "error");
           });
