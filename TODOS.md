@@ -1,6 +1,11 @@
 # Solar Archive — Open TODOs
 
-Last refreshed: **2026-05-15** (post round-2 alpha-tester sweep).
+Last refreshed: **2026-05-18** (post round-2 alpha-tester sweep,
+Mira P0+P1 security closure, four-agent parallel batch — Sam aria-live,
+Sam+Cole landmarks, Hank slider, Patricia JSON-LD — and Lex brand
+tokenization end-of-day pass). Hygiene-swept 2026-05-18: every
+"Shipped" annotation matches its [x] checkbox; 75 open items remain,
+none with false-pending markers.
 
 Persistence file for the alpha-tester feedback rounds. Items are
 grouped by persona; check completed items off, drop new items at
@@ -606,15 +611,27 @@ as a security alert.
       zero tracking. Add `+0.04em` letter-spacing AND switch to
       the JetBrains Mono that's already loaded (or self-host one
       face if it isn't).
-- [ ] **P2** **Step-badge gradient `corona → accent-cool teal` is
+- [x] **P2** **Step-badge gradient `corona → accent-cool teal` is
       the one place the palette breaks** — the cool teal has no
       parent in the sun/flare/corona triad and reads like leftover
       Tailwind sky-400. Re-spec to `corona → flare` so badges
       belong to the family.
-- [ ] **P2** **BETA badge orange is not tokenised** — three
+      **Shipped 2026-05-18:** `.step-badge` gradient changed from
+      `linear-gradient(135deg, var(--accent-corona), var(--accent-cool))`
+      to `linear-gradient(135deg, var(--accent-corona), var(--accent-flare))`.
+      Closes Lex's "strongest opinion" too — `--accent-cool` is now
+      no longer wired into any brand-primary surface (it lingers on
+      a few decorative footer accents which are out of brand scope).
+- [x] **P2** **BETA badge orange is not tokenised** — three
       near-duplicate orange surfaces (BETA badge, beta-banner,
       Birthday CTA border) drift independently. Lock one
       warm-orange token across all three.
+      **Shipped 2026-05-18:** new `--beta-orange` / `--beta-orange-bg`
+      / `--beta-orange-border` tokens in `:root`. `.beta-banner` +
+      `.app-title-beta-badge` both consume them; the two surfaces
+      can no longer drift. (Birthday CTA already used `--accent-sun`
+      via rgba derivations — a deeper rgba-tokenization sweep can
+      happen alongside Lex's P3 tone-scale roll-out.)
 - [ ] **P3** **Spinner at 1s linear feels generic** vs the rest of
       the motion choreography. 0.9s + the same easing as state
       changes (`cubic-bezier(.4,0,.2,1)`) + tint trailing arc
