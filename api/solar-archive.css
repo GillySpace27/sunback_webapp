@@ -7,6 +7,14 @@
   --accent-flare: #ff5e3a;
   --accent-corona: #7b61ff;
   --accent-cool: #38bdf8;
+  /* BETA-mode advisory orange (Lex P2 round-2: BETA badge + beta-
+     banner were three near-duplicate orange literals drifting
+     independently; locked behind one token). Softer + lighter than
+     --accent-sun on purpose — BETA reads as a friendly advisory,
+     not a CTA. */
+  --beta-orange: #ffb74d;
+  --beta-orange-bg: rgba(255, 152, 0, 0.14);
+  --beta-orange-border: rgba(255, 152, 0, 0.48);
   --text-primary: #eeeef6;
   --text-secondary: #9898b8;
   /* WCAG 1.4.3 AA requires 4.5:1 contrast for normal text. The old
@@ -216,9 +224,9 @@ body::before {
   margin: 12px auto 0;
   padding: 8px 14px;
   border-radius: 999px;
-  background: rgba(255, 152, 0, 0.12);
-  border: 1px solid rgba(255, 152, 0, 0.45);
-  color: #ffb74d;
+  background: var(--beta-orange-bg);
+  border: 1px solid var(--beta-orange-border);
+  color: var(--beta-orange);
   font-size: 0.85rem;
   font-weight: 500;
   letter-spacing: 0.01em;
@@ -227,7 +235,7 @@ body::before {
   gap: 8px;
 }
 .beta-banner i {
-  color: #ffb74d;
+  color: var(--beta-orange);
   font-size: 0.95rem;
 }
 body.beta-mode-active .beta-banner {
@@ -241,14 +249,14 @@ body.beta-mode-active .beta-banner {
   margin-left: 10px;
   padding: 2px 10px;
   border-radius: 999px;
-  background: rgba(255, 152, 0, 0.16);
-  border: 1px solid rgba(255, 152, 0, 0.5);
-  color: #ffb74d;
+  background: var(--beta-orange-bg);
+  border: 1px solid var(--beta-orange-border);
+  color: var(--beta-orange);
   font-size: 0.42em;
   font-weight: 700;
   letter-spacing: 0.18em;
   vertical-align: middle;
-  -webkit-text-fill-color: #ffb74d; /* override the gradient text-fill on h1 */
+  -webkit-text-fill-color: var(--beta-orange); /* override the gradient text-fill on h1 */
 }
 
 /* ── Birthday Sun CTA ──────────────────────────────────────
@@ -493,7 +501,11 @@ body.beta-mode-active .beta-banner {
 .step-badge {
   width: 32px; height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-corona), var(--accent-cool));
+  /* corona → flare per Lex round-2 ("strongest opinion"): the prior
+     corona→cool teal had no parent in the sun/flare/corona triad and
+     "read like leftover Tailwind sky-400." Corona→flare keeps the
+     badges inside the brand palette. */
+  background: linear-gradient(135deg, var(--accent-corona), var(--accent-flare));
   display: flex;
   align-items: center;
   justify-content: center;
