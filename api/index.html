@@ -5,6 +5,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Solar Archive — Your Sun, Your Day</title>
+  <!-- Preconnect to the Font Awesome CDN + the Solar Archive API
+       origin so the TCP+TLS handshake overlaps with HTML parsing
+       (saves ~250ms on the first /store-config + /api/health round
+       trips on 4G mobile). Priya Iyer (round-2 perf audit). -->
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://solar-archive.onrender.com" crossorigin>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
 </head>

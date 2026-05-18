@@ -8223,7 +8223,7 @@
         '<div class="catalog-header">' +
           '<h2><i class="fas fa-th-large"></i> Printify Catalog</h2>' +
           '<input class="catalog-search" id="catSearch" type="text" placeholder="Search products…">' +
-          '<button class="catalog-close" id="catClose"><i class="fas fa-times"></i></button>' +
+          '<button class="catalog-close" id="catClose" type="button" aria-label="Close catalog"><i class="fas fa-times" aria-hidden="true"></i></button>' +
         '</div>' +
         '<div class="catalog-body" id="catBody">' +
           '<div class="catalog-loading"><div class="spinner"></div>Loading catalog…</div>' +
