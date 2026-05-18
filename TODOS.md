@@ -256,11 +256,25 @@ suggestion.
       "Courtesy of NASA/SDO and the AIA science team." A comment
       at each site notes to restore the longer form if EVE or HMI
       imagery is ever surfaced.
-- [ ] **P2** **Machine-readable provenance block** — emit JSON-LD
+- [x] **P2** **Machine-readable provenance block** — emit JSON-LD
       or a sidecar `.txt` provenance file alongside each downloaded
       print, listing Frame/Date/Wavelength/Source/Pipeline. Lets
       educators and museums verify lineage without hunting through
       the site; "the sort of thing NASA EPO reviewers reward."
+      **Shipped 2026-05-17:** new `_buildProvenanceJsonLd()` +
+      `_serializeProvenance()` helpers in `solar-archive.js`.
+      Schema.org `ImageObject` payload with isBasedOn
+      (AIA dataset stub + JSOC/VSO distribution), creator,
+      contentLocation, license (SDO rules-of-the-road URL),
+      potentialAction (RHEF method + Gilly 2025 citation), and
+      `additionalProperty` array (wavelength, instrument,
+      spacecraft, qualityTier, pipeline, productId).
+      Wired into all three exit paths of `_saveDesignLocally`:
+      single-PNG download fires a second `<a download>` for
+      `*.provenance.json` after a 150ms gap, zip path embeds the
+      JSON as a file entry, canvas-only fallback also ships it.
+      Reuses `CITATIONS` constants so credit wording stays in
+      lockstep with the on-screen footer.
 
 ## Tom Hartwell — QA engineer
 
@@ -389,13 +403,30 @@ listed first.
       show the ring (because the rule is `:focus-visible` not
       `:focus`), so sighted-mouse users see no regression.
       Per-element opt-out via `data-no-focus-ring` attribute.
-- [ ] **P1** **WCAG 4.1.3** — no `role="alert"` /
+- [x] **P1** **WCAG 4.1.3** — no `role="alert"` /
       `aria-live="assertive"` channel for error states (failed
       download, generation failure). Polite alone risks missed
       messages. Add an assertive companion for errors.
-- [ ] **P2** **WCAG 1.3.1 / 2.4.1** — no `<main>` / `<nav>` /
+      **Shipped 2026-05-17:** new `#alertRegion`
+      (`role="alert" aria-live="assertive"`) + `announceAlert()`
+      helper. `showToast(msg, "error")` and
+      `updateFilterStatusLine(msg, "error")` now route through it;
+      the mockup-status observer detects the
+      `fa-exclamation-triangle` icon and announces those errors
+      assertively too. Non-error toasts/statuses stay polite via
+      `#statusRegion`. `.sr-only` class added to CSS.
+- [x] **P2** **WCAG 1.3.1 / 2.4.1** — no `<main>` / `<nav>` /
       `<footer>` landmarks. Add a "skip to content" link + the
       landmark structure so AT users can navigate by region.
+      **Shipped 2026-05-17:** `<a class="skip-link"
+      href="#mainContent">Skip to main content</a>` as first child
+      of `<body>` (visually hidden, jumps into view on focus);
+      `<header class="hero" role="banner">` wraps the hero;
+      `<main id="mainContent">` wraps the interactive content;
+      `<footer class="app-footer" role="contentinfo">` wraps the
+      credits. No CSS selectors renamed, so existing styling
+      unaffected. Skip-link visual styling in
+      `solar-archive.css`.
 - [x] **P2** **WCAG 2.3.3** (AAA but increasingly expected) —
       `@media (prefers-reduced-motion: reduce)` is missing. Wipe
       transitions + `.fa-spin` keyframes will trigger vestibular
@@ -604,13 +635,20 @@ the palette.
 Tested under a 30-minute simulated session — 3-5 prints, slider
 tuning per print, frequent tab switches.
 
-- [ ] **P1** **Slider hit-area is below Fitts' Law.** 6px tracks +
+- [x] **P1** **Slider hit-area is below Fitts' Law.** 6px tracks +
       ~14px native thumbs vs the ~9.6mm acquisition sweet spot
       for trackpad users. **Plus** 6-9 sliders stacked vertically
       per tab → first-dorsal-interosseous fatigue + trackpad-thumb
       RSI on a 30-minute session. Increase track height to ~10px
       and thumb to ~22-24px on `(pointer: coarse)` and on the
       desktop sliders both.
+      **Shipped 2026-05-17:** `.slider-row` track 6px→10px;
+      explicit thumb sizing pseudo-elements added (22px desktop,
+      26px on `(pointer:coarse)`); thumb `border-radius:50%`,
+      track `border-radius:5px` pill, thumb `margin-top:-6px`
+      desktop / `-8px` coarse to keep centered on track.
+      Compact `.timestamp-pos-offset` slider intentionally kept
+      at 4px (tight non-fatigue surface).
 - [ ] **P1** **Number-key shortcuts.** Bind `1` / `2` / `3` (/`4`)
       to tab-switch + `R` to reset the active slider. Cuts ~70%
       of fine-pointing events for power users.
