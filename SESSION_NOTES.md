@@ -1,10 +1,43 @@
 # Session continuity notes (post-compression breadcrumb)
 
-**Date snapshot:** 2026-05-15. Latest commit `a4e0cd6` ships Patricia's
-attribution UI as the last of four chunks closing out the round-1
-alpha-tester P0+P1 sweep. `TODOS.md` is the durable source of truth
-for what's done and what remains, grouped by persona and per-item
-commit hash.
+**Date snapshot:** 2026-05-17. Latest commit `0a1daf4` ships the
+wavelength-tile divs→buttons conversion (Cole P0 motor-AT). Round 2
+security + safe batch + wavelength tiles all live on Render.
+`TODOS.md` is the durable source of truth for what's done and what
+remains, grouped by persona and per-item commit hash.
+
+## Round 2 sweep — fully shipped as of 2026-05-17
+
+- `3cb8304` — Security P0 CRITICAL (Printify billing abuse) + canvas_image XSS
+- `fddcafd` — Security P0 HIGH + P1 (DOM XSS, postMessage origin, admin-key timing, reply_to, Slack mrkdwn)
+- `6a163af` — Quick wins (preconnect, catalog aria, SSL_VERIFY doc)
+- `669d8eb` — Safe batch (date debounce, iframe-height dedup, focus-visible, reduced-motion, footer trim)
+- `0a1daf4` — Wavelength tiles divs→buttons + aria-labels
+
+In-flight as of this note: 4 background-agent worktrees doing Sam
+aria-live, landmarks+skip-link, Hank slider hit-area, Patricia JSON-LD
+provenance. To be merged into main as they finish.
+
+## Editor lazy-load — planned, not started
+
+Priya's P1 perf win. User approved the plan and wants me to start in
+this session. Inventory + split:
+
+- KEEP in `solar-archive.js` (~100KB): hero, wavelength tiles,
+  feedback FAB, backend banner, birthday CTA, postMessage,
+  showInfo, escapeHtml, CITATIONS.
+- MOVE to `solar-archive-editor.js` (~400KB): all sliders, renderCanvas,
+  crop/pan/zoom/text/clock-numbers tools, RHEF/HQ filter pipeline,
+  Printify product cards + checkout, mockup queue.
+
+Shared state via `window.SolarArchive = {state, API_BASE, $, showInfo,
+escapeHtml, ...}`. Editor exposes itself as `window.SolarArchive.editor.*`.
+
+Load trigger: first product-card click. Prefetch trigger: first
+wavelength tile click (so editor warms while FITS fetch runs).
+
+See the lazy-load plan section in the conversation transcript at
+this session's start for the full plan.
 
 ## What just happened (right before this note)
 
