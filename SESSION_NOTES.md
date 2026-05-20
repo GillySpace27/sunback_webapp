@@ -129,6 +129,53 @@ toolbar/sliders don't jump up.
 edit + ~30 min smoke testing in the embed. Reversible (single
 commit, can `git revert`).
 
+### STATUS 2026-05-18: frontend shipped, BLOCKED on Shopify theme
+
+The frontend half is **done and on main** (commit after f72615c).
+It is **dormant and safe** — it only activates once the parent
+sends `visibleTopInIframe`, so standalone + current embed behave
+exactly as before (verified: IIFE runs, no console errors, float
+path never registers outside embedded mode).
+
+What shipped:
+- `solar-archive.js`: extended the embedded `message` listener to
+  read `visibleTopInIframe`; new `_updateFloatingCanvas()` (rAF-
+  coalesced) absolutely-positions `#imageStage` along the visible
+  region, clamped to the editor bounds; lazy `image-stage-placeholder`
+  holds the canvas grid slot; `is-floating` class hook. Updated the
+  documented parent snippet to include `visibleTopInIframe`.
+- `solar-archive.css`: `html.embedded .editor-with-preview` is now
+  `position: relative` (positioning context); placeholder gets
+  `grid-area: canvas`; `.image-stage.is-floating` caps at 42vh with
+  a lift shadow.
+
+**ACTION REQUIRED FROM GILLY (the blocker):** add one line to the
+viewport postMessage in the Shopify theme — the same `<script>` that
+already sends `visibleBottomInIframe` for the FAB. Add:
+
+```js
+var visibleTopInIframe = Math.max(0, -rect.top);
+```
+
+and include `visibleTopInIframe: visibleTopInIframe` in the
+`postMessage({...})` payload. Full updated snippet is in the comment
+block at the top of solar-archive.js (search "visibleTopInIframe").
+
+**Then test in the real Shopify embed** (cannot be tested locally —
+the float path only registers in an iframe with the parent listener):
+1. Open a product editor in the embedded storefront.
+2. Scroll the parent page down through the sliders → the canvas
+   should ride the top of the visible region, sliders scroll under it.
+3. Scrub a slider → canvas updates live while staying in view.
+4. Scroll back up → canvas returns to natural position (unfloats).
+5. Confirm the FAB still anchors to the visible bottom (no regression).
+6. Confirm the canvas never floats above the editor top or overlaps
+   the action bar at the bottom.
+
+If the clamp math needs tuning (e.g. the 8px margin or 42vh cap),
+those are the two knobs in `_updateFloatingCanvas` / the
+`.is-floating` CSS rule.
+
 ## What just happened (right before this note)
 
 Round 1 alpha-tester sweep ran 8 persona agents against the live
