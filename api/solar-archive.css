@@ -1420,7 +1420,55 @@ html.dark .image-stage.image-stage--checker {
   align-items: center;
   gap: 12px;
   margin-top: 10px;
+  /* Let the −/＋ step buttons (Cole P0) wrap to a second line on
+     narrow viewports instead of squeezing the track to nothing. */
+  flex-wrap: wrap;
 }
+
+/* ── Slider step buttons (Cole Ramirez round-2 motor/AT, P0) ──────
+   Visible −/＋ controls flanking every range input so Voice Control
+   can address them by name and Switch Control can scan them. 32px
+   (38px on coarse pointers) clears WCAG 2.5.8 target size. The
+   global :focus-visible ring from the a11y pass applies as-is. */
+.slider-step-btn {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation; /* no 300ms tap delay / double-tap zoom */
+  transition: background var(--transition), border-color var(--transition);
+}
+.slider-step-btn:hover {
+  border-color: var(--border-active);
+  background: var(--bg-card);
+}
+.slider-step-btn:active {
+  transform: translateY(1px);
+}
+@media (pointer: coarse) {
+  .slider-step-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+  }
+}
+/* Dense text-effect rows pack a range input next to color pickers and
+   toggles; allow them to wrap so the added step buttons never force
+   horizontal overflow on mobile. */
+.field-row { flex-wrap: wrap; }
 
 .slider-row label {
   font-size: 0.82rem;
