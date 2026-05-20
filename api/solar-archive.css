@@ -3068,6 +3068,27 @@ html.embedded .editor-with-preview {
     "preview"
     "toolbar"
     "actions";
+  /* Positioning context for the JS-driven floating canvas — the
+     stage goes position:absolute relative to THIS box, and the JS
+     computes its `top` in this coordinate space. (Gilly-approved
+     embed refactor; only engages when the parent sends
+     visibleTopInIframe — see solar-archive.js.) */
+  position: relative;
+}
+/* Placeholder that holds the canvas grid slot while the stage floats,
+   so the toolbar/sliders below don't jump up. Lives in the canvas
+   grid cell; the JS sets its height to the stage height and toggles
+   display. */
+html.embedded .editor-with-preview .image-stage-placeholder {
+  grid-area: canvas;
+}
+/* When floating, cap the canvas height so it never dominates a short
+   embedded viewport, and lift it with a soft shadow so the sliders
+   scrolling underneath read as "behind" it. */
+html.embedded .editor-with-preview .image-stage.is-floating {
+  max-height: 42vh;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-md);
 }
 html.embedded .editor-with-preview .selected-product-preview {
   width: 100%;

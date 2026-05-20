@@ -211,10 +211,14 @@
     //         var rect = f.getBoundingClientRect();
     //         var visibleBottom = Math.min(window.innerHeight, rect.bottom);
     //         var visibleBottomInIframe = visibleBottom - rect.top;
+    //         // visibleTopInIframe = how far the parent has scrolled
+    //         // past the iframe's top. Drives the floating editor canvas.
+    //         var visibleTopInIframe = Math.max(0, -rect.top);
     //         f.contentWindow.postMessage({
     //           source: "solar-archive-parent",
     //           type: "viewport",
-    //           visibleBottomInIframe: visibleBottomInIframe
+    //           visibleBottomInIframe: visibleBottomInIframe,
+    //           visibleTopInIframe: visibleTopInIframe
     //         }, "*");
     //       });
     //     }
@@ -224,7 +228,9 @@
     //   </script>
     //
     // Without the parent listener the FAB falls back to whatever its
-    // CSS rule provides — same iframe behaviour as today.
+    // CSS rule provides, and the editor canvas stays static — same
+    // iframe behaviour as today. The floating canvas turns on only
+    // once the parent adds `visibleTopInIframe` to the payload above.
     // Origins allowed to postMessage into this iframe. The parent
     // Shopify storefront iframe-host is the only legitimate sender;
     // localhost is here for dev. Round-2 audit (Mira Sokolov, P0 HIGH):
@@ -237,26 +243,122 @@
       "http://localhost:8000",
       "http://127.0.0.1:8000",
     ];
+    // ── Embedded floating canvas (Gilly-approved refactor) ──────────
+    // Inside the content-sized Shopify iframe, position:sticky never
+    // engages — it anchors to the iframe's content box, which IS the
+    // scroll surface, so the editor canvas scrolls off-screen the
+    // moment the user reaches the sliders. We re-implement sticky
+    // manually: the parent reports where the visible region falls
+    // inside the iframe (visibleTopInIframe), and we ride #imageStage
+    // along the top of that region — clamped to the editor's vertical
+    // bounds — with a placeholder holding the canvas's grid slot so
+    // the toolbar below doesn't jump up.
+    //
+    // GRACEFUL DEGRADATION: this only activates when the parent sends
+    // `visibleTopInIframe`. Until the Shopify theme snippet is updated
+    // (see the parent snippet documented above — add visibleTopInIframe
+    // alongside visibleBottomInIframe), the canvas keeps its current
+    // embedded static layout. No regression while the theme catches up.
+    var _canvasPlaceholder = null;
+    function _ensureCanvasPlaceholder(stage) {
+      if (_canvasPlaceholder && _canvasPlaceholder.isConnected) return _canvasPlaceholder;
+      var ph = document.createElement("div");
+      ph.className = "image-stage-placeholder";
+      ph.setAttribute("aria-hidden", "true");
+      ph.style.display = "none";
+      // Insert right after the stage so it occupies the same grid slot
+      // ordering; CSS assigns it grid-area: canvas in embedded mode.
+      stage.parentNode.insertBefore(ph, stage.nextSibling);
+      _canvasPlaceholder = ph;
+      return ph;
+    }
+    function _unfloatCanvas(stage) {
+      if (!stage) stage = document.getElementById("imageStage");
+      if (stage) {
+        stage.classList.remove("is-floating");
+        stage.style.position = "";
+        stage.style.top = "";
+        stage.style.left = "";
+        stage.style.right = "";
+        stage.style.width = "";
+        stage.style.zIndex = "";
+      }
+      if (_canvasPlaceholder) {
+        _canvasPlaceholder.style.display = "none";
+        _canvasPlaceholder.style.height = "";
+      }
+    }
+    var _floatRafPending = false;
+    function _updateFloatingCanvas(visibleTopInIframe) {
+      // rAF-coalesce: the parent fires this on every scroll tick.
+      if (_floatRafPending) return;
+      _floatRafPending = true;
+      (window.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); })(function() {
+        _floatRafPending = false;
+        var stage = document.getElementById("imageStage");
+        var editor = document.querySelector(".editor-with-preview");
+        var editSection = document.getElementById("editSection");
+        if (!stage || !editor || !editSection) return;
+        // Don't float when the editor isn't on screen.
+        if (editSection.classList.contains("hidden")) { _unfloatCanvas(stage); return; }
+        var ph = _ensureCanvasPlaceholder(stage);
+        // Natural top of the editor region in iframe-document coords.
+        // Measure against the placeholder when floating (stable), else
+        // the stage itself.
+        var floating = stage.style.position === "absolute";
+        var editorRect = editor.getBoundingClientRect();
+        var editorDocTop = editorRect.top + window.pageYOffset;
+        var stageH = (floating && _canvasPlaceholder ? _canvasPlaceholder.offsetHeight : stage.offsetHeight) || 0;
+        var margin = 8;
+        // Desired top, relative to the editor (its CSS makes it the
+        // positioned ancestor in embedded mode).
+        var relDesired = (visibleTopInIframe + margin) - editorDocTop;
+        var maxRel = editor.offsetHeight - stageH - margin;
+        if (relDesired <= 0 || maxRel <= 0 || stageH <= 0) {
+          _unfloatCanvas(stage);
+          return;
+        }
+        var relTop = Math.min(relDesired, maxRel);
+        ph.style.height = stageH + "px";
+        ph.style.display = "block";
+        stage.classList.add("is-floating");
+        stage.style.position = "absolute";
+        stage.style.top = relTop + "px";
+        stage.style.left = "0";
+        stage.style.right = "0";
+        stage.style.zIndex = "6";
+      });
+    }
+
     if (document.documentElement.classList.contains("embedded")) {
       window.addEventListener("message", function(e) {
         if (PARENT_ORIGIN_ALLOWLIST.indexOf(e.origin) === -1) return;
         if (!e.data || e.data.source !== "solar-archive-parent") return;
         if (e.data.type !== "viewport") return;
+
+        // FAB anchoring (existing behaviour).
         var fab = document.getElementById("feedbackFabGroup");
-        if (!fab) return;
         var vis = e.data.visibleBottomInIframe;
-        if (typeof vis !== "number" || !isFinite(vis)) return;
-        var fabH = fab.offsetHeight || 60;
-        // Pin FAB so its BOTTOM aligns with the visible viewport's
-        // bottom (with the same 18px margin standalone uses). Clamp
-        // to 0 so the FAB never sneaks above the iframe's top.
-        var topPx = Math.max(0, vis - fabH - 18);
-        fab.style.position = "absolute";
-        fab.style.top = topPx + "px";
-        fab.style.right = "18px";
-        fab.style.bottom = "auto";
-        fab.style.left = "auto";
-        fab.style.zIndex = "9990";
+        if (fab && typeof vis === "number" && isFinite(vis)) {
+          var fabH = fab.offsetHeight || 60;
+          // Pin FAB so its BOTTOM aligns with the visible viewport's
+          // bottom (with the same 18px margin standalone uses). Clamp
+          // to 0 so the FAB never sneaks above the iframe's top.
+          var topPx = Math.max(0, vis - fabH - 18);
+          fab.style.position = "absolute";
+          fab.style.top = topPx + "px";
+          fab.style.right = "18px";
+          fab.style.bottom = "auto";
+          fab.style.left = "auto";
+          fab.style.zIndex = "9990";
+        }
+
+        // Floating editor canvas (new — only when the parent reports
+        // visibleTopInIframe; otherwise the canvas stays static).
+        var top = e.data.visibleTopInIframe;
+        if (typeof top === "number" && isFinite(top)) {
+          _updateFloatingCanvas(top);
+        }
       });
     }
 
