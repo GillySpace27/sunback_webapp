@@ -60,6 +60,24 @@
     // press exits the page (or the Shopify iframe page) normally.
     // The handler is registered lazily inside DOMContentLoaded so
     // editSection / productSection lookups succeed.
+    // KNOWN-LIMITATION / REPRO (Tom QA round-2, deferred state-machine
+    // item — documented here so it's reproducible end-to-end):
+    //   1. Pick product A → open editor → in the variant picker choose
+    //      a NON-default variant (e.g. the large size), generate a real
+    //      mockup so state.uploadedPrintifyId* + state.mockups[A] fill.
+    //   2. Press the browser Back button. This handler hides the editor
+    //      and scrolls to the product picker, but intentionally does NOT
+    //      clear state.selectedVariantByProduct[A] or the cached mockup/
+    //      upload ids — so the picked variant survives (desired) BUT the
+    //      mockup cached against it is now detached from the closed
+    //      editor session.
+    //   3. Re-open product A's editor. It shows the prior variant +
+    //      stale mockup without re-verifying that the variant/upload
+    //      still match the current edit state.
+    // The correct fix is a proper editor-session state machine (reset
+    // or re-verify uploadedPrintifyId*/mockups on re-entry), tracked as
+    // a deferred item in TODOS.md. This comment exists so the repro
+    // isn't lost; the handler below only owns the navigation unwind.
     window.addEventListener("popstate", function() {
       var ed = document.getElementById("editSection");
       // If the editor is visible, treat back as "close the editor."
@@ -1432,9 +1450,18 @@
               var myToken = ++_mockupCallToken;
               if (_mockupWatchdog) clearTimeout(_mockupWatchdog);
               _mockupWatchdog = setTimeout(function() {
+                // Clear the busy/loading state UNCONDITIONALLY. Tom QA
+                // round-2: if a stale token's clearTimeout lost the race
+                // (timer already queued before the next click cleared it),
+                // the old token-gated branch skipped _unbusy() and the
+                // button stayed dataset.busy="1" forever — user had to
+                // reload. Un-busying when already clear is harmless.
+                _setMockupBtnLoading(false);
+                _unbusy();
+                // Only the CURRENT call should paint the "taking longer"
+                // status — a superseded call's watchdog must not stomp on
+                // fresh state.
                 if (myToken === _mockupCallToken) {
-                  _setMockupBtnLoading(false);
-                  _unbusy();
                   if (mockupStatus && !mockupStatus.querySelector(".fa-check-circle")) {
                     // Static string — no interpolation, no escape needed.
                     mockupStatus.innerHTML = '<span style="color:var(--accent-sun);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Mockup is taking longer than expected — try again.</span>';
@@ -1991,8 +2018,29 @@
             }
             return new Promise(function(resolve, reject) {
               var attempts = 0;
-              var maxAttempts = 60; // 2 min at 1.5s intervals
+              // `maxAttempts` now only scales the progress bar (the
+              // 20→70% band). Termination is wall-clock based — see
+              // POLL_DEADLINE_MS below. (Tom QA round-2: the old
+              // attempt-count cap claimed "2 minutes" but on a slow
+              // link, where each attempt could burn the full 15s
+              // per-request timeout + 1.5s gap, 60 attempts was up to
+              // ~16 min of real time. The reject text lied. We now cap
+              // by elapsed wall-clock and report the true elapsed.)
+              var maxAttempts = 60;
               var POLL_PER_REQUEST_TIMEOUT_MS = 15000;
+              var POLL_DEADLINE_MS = 4 * 60 * 1000; // honest hard cap
+              var pollStart = Date.now();
+              function _pollElapsedMs() { return Date.now() - pollStart; }
+              function _pollTimedOut() { return _pollElapsedMs() >= POLL_DEADLINE_MS; }
+              function _pollTimeoutError() {
+                var mins = Math.max(1, Math.round(_pollElapsedMs() / 60000));
+                return new Error(
+                  "RHE preview timed out after about " + mins + " minute" +
+                  (mins === 1 ? "" : "s") +
+                  ". The science data is slow to retrieve right now — try again, " +
+                  "or pick a nearby date or time."
+                );
+              }
               function poll() {
                 if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Generating RHE from science data…");
                 // Each poll attempt gets its own AbortController so a
@@ -2024,7 +2072,7 @@
                       if (d.status === "rhef_generating" && d.preview_jpg_url) {
                         if (onProgress) onProgress(40, "JPG ready; generating RHE…", { preview_jpg_url: d.preview_jpg_url });
                         attempts++;
-                        if (attempts >= maxAttempts) reject(new Error("RHE preview timed out after 2 minutes"));
+                        if (_pollTimedOut()) reject(_pollTimeoutError());
                         else setTimeout(poll, 1500);
                         return;
                       }
@@ -2032,7 +2080,7 @@
                       return;
                     }
                     attempts++;
-                    if (attempts >= maxAttempts) reject(new Error("RHE preview timed out after 2 minutes"));
+                    if (_pollTimedOut()) reject(_pollTimeoutError());
                     else setTimeout(poll, 1500);
                   })
                   .catch(function(err) {
@@ -2043,7 +2091,7 @@
                     // attempt, and try again.
                     if (err && err.name === "AbortError") {
                       attempts++;
-                      if (attempts >= maxAttempts) {
+                      if (_pollTimedOut()) {
                         reject(new Error("Connection too slow — RHE preview attempts timed out repeatedly. Retry on a stronger network."));
                         return;
                       }
@@ -7758,6 +7806,18 @@
     function installModalFocusTrap(modalEl, opts) {
       opts = opts || {};
       var previouslyFocused = document.activeElement;
+      // Fallback focus host: a modal can open in a transient "loading…"
+      // state with zero focusable children (no buttons rendered yet).
+      // Without a focusable container, Tab would fall through to the
+      // page behind the modal — focus escapes (Tom QA round-2). Give
+      // the modal itself tabindex="-1" so it can hold focus and the Tab
+      // handler always has somewhere to pin. Remember whether we added
+      // the attribute so release() can leave the DOM as it found it.
+      var _addedTabindex = false;
+      if (!modalEl.hasAttribute("tabindex")) {
+        modalEl.setAttribute("tabindex", "-1");
+        _addedTabindex = true;
+      }
       function onKey(e) {
         if (e.key === "Escape" && typeof opts.onEscape === "function") {
           e.preventDefault();
@@ -7766,7 +7826,13 @@
         }
         if (e.key !== "Tab") return;
         var focusables = _focusableInsideModal(modalEl);
-        if (!focusables.length) return;
+        if (!focusables.length) {
+          // No focusable children yet — keep focus on the modal
+          // container instead of letting Tab escape to the page.
+          e.preventDefault();
+          if (document.activeElement !== modalEl) modalEl.focus();
+          return;
+        }
         var first = focusables[0];
         var last = focusables[focusables.length - 1];
         // The standard tab-cycle trick: if focus is on the last
@@ -7798,10 +7864,17 @@
         // reported this as disorienting on the feedback modal.
         var isTouch = ('ontouchstart' in window) ||
                       (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
-        if (fs.length && !isTouch) fs[0].focus();
+        if (isTouch) return;
+        if (fs.length) fs[0].focus();
+        // No focusable children yet (transient loading state) — park
+        // focus on the modal container so the trap has an anchor and
+        // a screen reader announces the dialog rather than the page
+        // behind it.
+        else modalEl.focus();
       });
       return function release() {
         document.removeEventListener("keydown", onKey);
+        if (_addedTabindex) modalEl.removeAttribute("tabindex");
         // Restore focus to the previously-focused element so the
         // page reads naturally to a screen reader after dismissal.
         // Use a try/catch because the original element may have
