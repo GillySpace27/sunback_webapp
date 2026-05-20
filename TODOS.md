@@ -763,12 +763,31 @@ deeper "what actually breaks when you USE the AT" layer.
       width:100%`) so the visual styling is unchanged. The wrapper
       `#wlGrid` got `role="group" aria-label="Wavelength selector"`
       so AT users hear the section name on entry.
-- [ ] **P0** **Visible `+` / `−` step buttons next to every
+- [x] **P0** **Visible `+` / `−` step buttons next to every
       continuous-range slider** (Crop, Vignette, Brightness,
       Contrast, Hue, Size, Stroke, Text Offset). Voice users
       currently say "Press right arrow" 40 times to set a
       vignette — adding step buttons + an arrow-key shortcut is
       table-stakes for voice + switch control.
+      **Shipped 2026-05-18:** universal decorator in
+      `solar-archive.js` (`decorateSlidersWithStepButtons`) wraps
+      ALL 20 range inputs — not just the 8 named — with
+      `−`/`+` buttons carrying `aria-label="Decrease/Increase
+      <row label>"`. Buttons dispatch the same synthetic
+      `input`+`change` events the dblclick-reset handler uses, so
+      every existing handler (incl. the inverted vignette mapping
+      and hue-degree readout) runs unchanged. Discrete tap / Enter /
+      Voice-Control activation = one native `step`; press-and-hold
+      auto-repeats (350ms delay, 60ms interval) for pointer/switch.
+      Buttons stay in tab order so Switch Control scans them; arrow
+      keys still work natively for keyboard users. CSS: 32px (38px
+      coarse-pointer) clears WCAG 2.5.8; `.slider-row`/`.field-row`
+      gained `flex-wrap` so dense text-effect rows don't overflow.
+      Verified in-browser: 40 buttons, correct row order
+      (label│−│range│+│value), inverted-vignette click 76→77 →
+      readout 24→23, no console errors. **Closes the last open P0.**
+      Arrow-key fine control was already native; the buttons add the
+      nameable/scannable affordance Voice + Switch Control needed.
 - [x] **P1** **Close-X (`×`) buttons read as "Click 2715"** (the
       codepoint) or blank when Voice Control can't find a label.
       Set explicit `aria-label="Close"` everywhere a `×` glyph is

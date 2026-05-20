@@ -4269,6 +4269,92 @@
       el.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
+    // ── Slider step buttons (Cole Ramirez round-2 motor/AT, P0) ──────
+    // Every continuous range input gets a visible −/+ button pair. The
+    // win: macOS/iOS Voice Control users can say "Click decrease
+    // vignette" instead of "Press left arrow" 40×, and Switch Control
+    // users get a discrete, scannable target per direction. The buttons
+    // dispatch the SAME synthetic input+change events the dblclick-reset
+    // handler above uses, so every existing slider handler — including
+    // the inverted vignette mapping and the hue-degree readout — runs
+    // unchanged, with no per-slider wiring. A discrete tap/click/Enter/
+    // voice-activation moves one native `step`; press-and-hold
+    // auto-repeats for pointer + switch users. Buttons stay in the tab
+    // order so Switch Control scans them; keyboard users who prefer the
+    // arrow keys can still ignore them (the slider thumb is the next
+    // stop). Opt out per-input with data-no-step-buttons.
+    function _sliderLabelText(slider) {
+      var row = slider.closest(".slider-row, .field-row, .timestamp-pos-offset");
+      if (row) {
+        var lbl = row.querySelector("label, .field-label-sm");
+        if (lbl && lbl.textContent.trim()) return lbl.textContent.trim().replace(/:$/, "");
+      }
+      return slider.getAttribute("aria-label") || slider.getAttribute("title") || "value";
+    }
+    function _stepSlider(slider, dir) {
+      var step = parseFloat(slider.step) || 1;
+      var min = slider.min !== "" ? parseFloat(slider.min) : -Infinity;
+      var max = slider.max !== "" ? parseFloat(slider.max) : Infinity;
+      var cur = parseFloat(slider.value);
+      if (isNaN(cur)) cur = 0;
+      var next = Math.min(max, Math.max(min, cur + dir * step));
+      // Guard against float drift accumulating off-grid values.
+      next = Math.round(next * 1e6) / 1e6;
+      if (next === cur) return;
+      slider.value = next;
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      slider.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    function _makeStepBtn(slider, dir, labelText) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "slider-step-btn";
+      btn.setAttribute("aria-label", (dir < 0 ? "Decrease " : "Increase ") + labelText);
+      // aria-hidden glyph: the accessible name comes from aria-label, so
+      // AT doesn't read "minus" / "plus" on top of "Decrease vignette".
+      btn.innerHTML = '<span aria-hidden="true">' + (dir < 0 ? "−" : "+") + "</span>";
+      var holdTimer = null, repeatTimer = null, didRepeat = false;
+      function endHold() {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+      }
+      btn.addEventListener("pointerdown", function (e) {
+        if (e.button != null && e.button !== 0) return; // primary / touch only
+        didRepeat = false;
+        holdTimer = setTimeout(function () {
+          didRepeat = true;
+          repeatTimer = setInterval(function () { _stepSlider(slider, dir); }, 60);
+        }, 350);
+      });
+      btn.addEventListener("pointerup", endHold);
+      btn.addEventListener("pointerleave", endHold);
+      btn.addEventListener("pointercancel", endHold);
+      btn.addEventListener("click", function () {
+        // A press-and-hold that already auto-repeated fires a trailing
+        // click; suppress it so the count isn't off by one. A plain
+        // tap / keyboard Enter / Voice Control activation lands here
+        // with didRepeat=false and does exactly one step.
+        if (didRepeat) { didRepeat = false; return; }
+        _stepSlider(slider, dir);
+      });
+      return btn;
+    }
+    function decorateSlidersWithStepButtons(root) {
+      var sliders = (root || document).querySelectorAll('input[type="range"]');
+      Array.prototype.forEach.call(sliders, function (slider) {
+        if (slider.dataset.stepDecorated) return;
+        if (slider.dataset.noStepButtons != null) return;
+        slider.dataset.stepDecorated = "1";
+        var labelText = _sliderLabelText(slider);
+        var minus = _makeStepBtn(slider, -1, labelText);
+        var plus = _makeStepBtn(slider, +1, labelText);
+        slider.parentNode.insertBefore(minus, slider);
+        if (slider.nextSibling) slider.parentNode.insertBefore(plus, slider.nextSibling);
+        else slider.parentNode.appendChild(plus);
+      });
+    }
+    decorateSlidersWithStepButtons(document);
+
     // ── Crop & Vignette presets ───────────────────────────────────
     // Split into two independent axes so users can mix crop tightness with
     // vignette treatment freely, rather than picking from five combined
