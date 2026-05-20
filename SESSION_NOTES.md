@@ -176,6 +176,29 @@ If the clamp math needs tuning (e.g. the 8px margin or 42vh cap),
 those are the two knobs in `_updateFloatingCanvas` / the
 `.is-floating` CSS rule.
 
+### GOTCHA (2026-05-20): the parent theme has TWO message handlers
+
+The Shopify theme's Solar-Archive integration needs BOTH, and they are
+easy to conflate:
+1. **Resize RECEIVER** — `addEventListener("message")` reading
+   `{source:"solar-archive", type:"resize", height}` FROM the iframe
+   and setting `iframe.style.height`. Without it the iframe is frozen
+   at its CSS `min-height` (900px) with `scrolling="no"` → content
+   clips, no scroll.
+2. **Viewport SENDER** — `_saSendViewport()` posting
+   `{source:"solar-archive-parent", type:"viewport", ...}` TO the
+   iframe for the FAB + floating canvas.
+
+When handing Gilly the floating-canvas snippet I said "replaces the
+existing script," and his block did DOUBLE DUTY — so the receiver got
+dropped and the embed truncated. Fix: a single combined block with
+BOTH handlers (resize receiver + viewport sender), posted to the real
+origin not `"*"`. The corrected block is in the chat transcript for
+this session; if re-deriving, the iframe→parent resize message shape
+is `{source:"solar-archive", type:"resize", height:<px>}` (sent by
+`_postIframeHeight` in solar-archive.js). Always give the COMBINED
+block, never sender-only.
+
 ## What just happened (right before this note)
 
 Round 1 alpha-tester sweep ran 8 persona agents against the live
