@@ -316,28 +316,55 @@ cleanly; the two new defects are real but small, and the deferred
 resume work is correctly scoped as a server-design item rather
 than papered over." Three new defects in the new code itself:
 
-- [ ] **P1** **Focus-trap escape on zero-focusables modal.**
+- [x] **P1** **Focus-trap escape on zero-focusables modal.**
       `_focusableInsideModal` early-returns when `length===0` — a
       modal opened in a transient "loading…" state with no buttons
       yet leaves Tab unhandled, focus escapes back to the page
       behind. Fix: trap the modal container itself with
       `tabindex="-1"` as a fallback so Tab still cycles.
-- [ ] **P1** **Double-click guard watchdog race.** `_unbusy()` is
+      **Shipped 2026-05-18:** `installModalFocusTrap` now adds
+      `tabindex="-1"` to the modal container (only if absent; removed
+      again on `release()`). The Tab handler's zero-focusables branch
+      `preventDefault()`s and pins focus to the container instead of
+      returning; the rAF initial-focus falls back to the container
+      when there are no focusable children. Verified the common path
+      (feedback modal): Tab stayed inside ×5, Escape closed.
+- [x] **P1** **Double-click guard watchdog race.** `_unbusy()` is
       wired on every visible error path, but the `_mockupWatchdog`
       (150s) only un-busies if `myToken === _mockupCallToken`. If
       a stale token wins the race the button stays
       `dataset.busy="1"` forever — user has to reload. Fix: clear
       busy unconditionally in the watchdog, then check token for
       the toast.
-- [ ] **P1** **RHE poll timeout copy/math mismatch.** 60 attempts ×
+      **Shipped 2026-05-18:** the watchdog now calls
+      `_setMockupBtnLoading(false)` + `_unbusy()` unconditionally
+      (harmless when already clear); only the "taking longer" status
+      paint is gated on `myToken === _mockupCallToken` so a
+      superseded call can't stomp fresh state.
+- [x] **P1** **RHE poll timeout copy/math mismatch.** 60 attempts ×
       (up to 15s wire + 1.5s gap) = up to ~16 min wall-clock on a
       degraded link, but the reject still claims `"timed out after
       2 minutes"`. Either cap by elapsed wall-clock (`Date.now()`
       delta) or fix the copy — testers on Slow 3G will file this
       as a hang.
-- [ ] **P1** Browser-back-during-checkout: Tom hasn't seen a
+      **Shipped 2026-05-18:** termination is now wall-clock based —
+      `POLL_DEADLINE_MS = 4min`, `pollStart = Date.now()`, helper
+      `_pollTimedOut()`. `maxAttempts` (60) now only scales the
+      progress bar. The reject message reports the TRUE elapsed
+      minutes (`_pollTimeoutError()`), so it never lies regardless
+      of link speed.
+- [x] **P1** Browser-back-during-checkout: Tom hasn't seen a
       re-verification result. Document the repro used to clear
       `selectedVariantByProduct` so it's reproducible end-to-end.
+      **Documented 2026-05-18:** added a KNOWN-LIMITATION / REPRO
+      comment block above the `popstate` handler in
+      `solar-archive.js` (~L54) with the exact 3-step repro: pick a
+      non-default variant → generate mockup → browser-back closes the
+      editor but does NOT clear `selectedVariantByProduct` or the
+      cached mockup/upload ids → re-entry shows stale mockup without
+      re-verification. The real fix (editor-session state machine to
+      reset/re-verify `uploadedPrintifyId*`/`mockups` on re-entry)
+      stays a deferred design item — see below.
 
 ## Brenda Walsh — copy editor
 
