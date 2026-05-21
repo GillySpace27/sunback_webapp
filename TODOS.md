@@ -912,6 +912,59 @@ Findings ordered by predicted Core Web Vitals impact.
 
 ---
 
+## Real early-user feedback (recovered from email, 2026-05-21)
+
+Distinct from the synthetic alpha personas above — these are **real
+people** who used the live storefront during the ephemeral-disk window,
+so their submissions never made it into `feedback.jsonl`. Recovered from
+the operator's Outlook export and triaged here. (Contact details
+deliberately kept OUT of this public repo — full name + email live in
+the local `.eml` archive / admin-gated server log only. Attribution is
+first-name-only.)
+
+- [ ] **P1** **Changing the wavelength de-syncs the products** in the
+      product picker and the editor. Reported independently by two
+      users (incl. an internal test). Likely the selected-variant /
+      mockup state isn't re-keyed when the wavelength changes.
+- [ ] **P1** **Selecting a product doesn't update the aspect ratio** —
+      "clicked the backpack and the aspect ratio didn't update
+      correctly." The crop frame keeps the previous product's ratio.
+- [ ] **P1** **Leave-a-comment box has black-on-black text** (Alison) —
+      the feedback textarea is unreadable; a contrast bug that
+      ironically suppresses the feedback channel itself. Also: "pictures
+      didn't populate immediately" on first load.
+- [ ] **P1** **Embedded back-button exits Shopify entirely** (Trevor) —
+      in the iframe, the first Back press leaves the storefront page
+      instead of unwinding the in-app editor state. Related to the
+      deferred popstate state-machine item under Tom Hartwell, but this
+      is the *embedded-specific* symptom from a real user — the history
+      entry the app pushes isn't catching the first back in the iframe.
+- [ ] **P1** **Safari: real mockup / RHE generation fails** (Jonathan) —
+      "Safari didn't work at all, the mockup didn't generate… RHE failed
+      at 2 minutes." The 2-min RHE timeout *copy* was fixed 2026-05-18
+      (now wall-clock + honest), but a Safari-specific generation
+      failure may remain — needs a real Safari pass. Plus the UX gap he
+      named: "no real indication why I would bother to adjust the
+      settings in geometry" — the editor doesn't motivate its own tools.
+- [ ] **P2** **Transparent canvas background to match the Shopify
+      frame** (Trevor) — let the exported/preview background go
+      transparent so the product always sits cleanly on whatever the
+      storefront theme is using, rather than a baked black fill.
+- [ ] **P2** **Allow pre-2010 birthdates** (Jonathan, "for those of us
+      in our 30s ;)") — the date floor is SDO launch (2010-05-15), so
+      anyone born earlier can't get their actual birth-sun. Real gifting
+      conversion blocker. Options: fall back to SOHO/EIT (1996+) for
+      pre-2010 dates, or surface a graceful "closest available sun"
+      message instead of a hard floor. Worth weighing against the
+      gifting wedge (lots of 30+ buyers).
+- [ ] **P3** **Product requests to evaluate for the catalog:**
+      - **Pet Tag** (Jonathan) — Printify blueprint 566 / provider 70 /
+        circle shape.
+      - **Spiral Notebook – Ruled Line** (anon) — blueprint 74 /
+        provider 1 / variant 34240.
+      Run these through the existing approved-catalog flow if they fit
+      the lineup.
+
 ## Cross-cutting work (not from a single persona)
 
 - [x] FITS-quality gate on buy / generate-real-mockup — block on
