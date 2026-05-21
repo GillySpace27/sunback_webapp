@@ -313,7 +313,13 @@
         // Desired top, relative to the editor (its CSS makes it the
         // positioned ancestor in embedded mode).
         var relDesired = (visibleTopInIframe + margin) - editorDocTop;
-        var maxRel = editor.offsetHeight - stageH - margin;
+        // Stop floating before the canvas would overlap the action bar
+        // (Generate / Download) that sits at the bottom of the editor —
+        // otherwise the floating canvas covers the CTA at the end of the
+        // scroll. Reserve its height in the max travel.
+        var actionBar = editor.querySelector(".editor-action-bar");
+        var actionH = (actionBar && actionBar.offsetParent !== null) ? actionBar.offsetHeight : 0;
+        var maxRel = editor.offsetHeight - stageH - actionH - margin * 2;
         if (relDesired <= 0 || maxRel <= 0 || stageH <= 0) {
           _unfloatCanvas(stage);
           return;
@@ -326,7 +332,9 @@
         stage.style.top = relTop + "px";
         stage.style.left = "0";
         stage.style.right = "0";
-        stage.style.zIndex = "6";
+        // Above the scrolling editor content (toolbar, sliders, product
+        // preview, action bar) but below the feedback FAB (9990).
+        stage.style.zIndex = "900";
       });
     }
 
@@ -3294,6 +3302,15 @@
             state.hqFilterImage = img;
             state.hqFormat = format;
             state.hqFetching = false;
+            // Mark HQ as ready for the print-quality gate + checkout
+            // image path. Previously only the checkout poll set these,
+            // so a user who let HQ finish in the background and then hit
+            // "Generate real mockup" got a false "HQ still rendering"
+            // warning (state.hqReady was stale-false even though the
+            // finished image was sitting in hqCache). These reset to
+            // false on date/wavelength change (see the preview reload).
+            state.hqReady = true;
+            state.hqImageUrl = hqUrl;
             if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
             hqCache[cacheKey] = { url: hqUrl, imageObj: img };
             setProgress(100);
