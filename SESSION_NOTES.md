@@ -199,6 +199,35 @@ is `{source:"solar-archive", type:"resize", height:<px>}` (sent by
 `_postIframeHeight` in solar-archive.js). Always give the COMBINED
 block, never sender-only.
 
+## Feedback persistence (DONE 2026-05-21)
+
+Render's filesystem is ephemeral → `feedback.jsonl` + `approved_catalog.json`
+were wiped on every deploy (count had dropped to 1; all earlier
+alpha-tester feedback survived only in Gilly's Outlook inbox).
+
+Fix shipped + live:
+- Code (`dc5590c`): both files resolve under `FEEDBACK_DATA_DIR` via a
+  `_data_dir()` helper (mkdir -p + fallback to webapp root if unwritable).
+- Infra: Gilly attached a **1 GB Render disk at `/var/data`** (~$0.25/mo,
+  on top of the $44 instance). Then `FEEDBACK_DATA_DIR=/var/data` env var
+  set via the Render MCP → redeploy.
+- Verified: after deploy, `/api/feedback/count` read **0** (fresh disk,
+  confirming the path switched), a tagged test POST wrote `idx:0` → count
+  **1**. Cross-deploy survival is structurally guaranteed by Render disk
+  semantics (not yet demonstrated with a second redeploy — offered).
+- NOTE: one tagged test row ("[TEST — persistence check by Claude]") is
+  in the live feedback now; harmless, Gilly can disregard.
+- Caveat: disk-attached services lose zero-downtime deploys → ~30-60s of
+  502 on each deploy now (acceptable for beta).
+- Admin read endpoint (`GET /api/feedback`) is still disabled — no
+  `FEEDBACK_ADMIN_KEY` set on Render. Set it if you want to query
+  feedback via the API instead of email.
+
+Old feedback emails: Gilly uses **Outlook** (not Apple Mail). Computer-use
+access requests for Mail/Chrome/Gmail were denied/timed out; Outlook
+request timed out twice (access flow seemed stuck). Recovering old emails
+is parked — paste-on-demand or skip.
+
 ## What just happened (right before this note)
 
 Round 1 alpha-tester sweep ran 8 persona agents against the live
