@@ -80,8 +80,26 @@ _FEEDBACK_WINDOW = 60.0
 # the prefix.
 _BASE64_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 
-# feedback.jsonl sits next to the webapp root (one level above api/).
-FEEDBACK_FILE = Path(__file__).resolve().parent.parent / "feedback.jsonl"
+# Where durable data files live. On Render the default filesystem is
+# EPHEMERAL — wiped on every deploy — so feedback.jsonl + the admin-
+# approved catalog were silently lost on each redeploy (confirmed:
+# /api/feedback/count dropped to 1 after a deploy storm). Point
+# FEEDBACK_DATA_DIR at a mounted persistent disk (e.g. /var/data) so
+# both files survive deploys. Defaults to the webapp root (one level
+# above api/) for local dev, preserving the previous behaviour.
+_DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent
+def _data_dir() -> Path:
+    raw = os.getenv("FEEDBACK_DATA_DIR", "").strip()
+    d = Path(raw) if raw else _DEFAULT_DATA_DIR
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Mount not ready / not writable — fall back to the default so
+        # a misconfigured env var never 500s the feedback endpoint.
+        d = _DEFAULT_DATA_DIR
+    return d
+
+FEEDBACK_FILE = _data_dir() / "feedback.jsonl"
 ADMIN_KEY_ENV = "FEEDBACK_ADMIN_KEY"
 WEBHOOK_ENV = "FEEDBACK_WEBHOOK_URL"
 # Resend (https://resend.com) email notification — solo operators need
@@ -600,7 +618,9 @@ async def list_feedback(
 # ───────────────────────────────────────────────────────────────
 # Approved catalog (admin-approved user-requested products)
 # ───────────────────────────────────────────────────────────────
-APPROVED_CATALOG_FILE = Path(__file__).resolve().parent.parent / "approved_catalog.json"
+# Same persistent-disk treatment as FEEDBACK_FILE — admin-approved
+# catalog entries were also ephemeral and lost on every deploy.
+APPROVED_CATALOG_FILE = _data_dir() / "approved_catalog.json"
 
 
 def _read_approved_catalog() -> list:
