@@ -7698,6 +7698,69 @@
       }
     }
 
+    // ── Product popularity stats (durable, server-side) ─────────────
+    // Two counters per product from /api/stats: buys (finalized via
+    // checkout / download) and clicks (committed into the editor). The
+    // grid sorts by buys, then by non-converting clicks; each card shows
+    // a faint "buys | (clicks − buys)" badge so the second number reads
+    // as "engaged but didn't buy". Stored on the persistent disk so it
+    // survives deploys.
+    // NOTE: renderProducts() is invoked early (during init, before this
+    // assignment line runs), so every reader below must tolerate
+    // productStats being undefined — otherwise the first render throws a
+    // TypeError and aborts the whole script.
+    var productStats = {};
+    function _statShown(pid) {
+      var s = (productStats && productStats[pid]) || {};
+      var buys = s.buys || 0, clicks = s.clicks || 0;
+      return { buys: buys, other: Math.max(0, clicks - buys) };
+    }
+    function _productsByPopularity() {
+      return PRODUCTS.slice().sort(function(a, b) {
+        var sa = _statShown(a.id), sb = _statShown(b.id);
+        if (sb.buys !== sa.buys) return sb.buys - sa.buys;     // buys desc
+        if (sb.other !== sa.other) return sb.other - sa.other; // then clicks desc
+        return PRODUCTS.indexOf(a) - PRODUCTS.indexOf(b);      // stable original order
+      });
+    }
+    function _addStatsBadge(parentEl, prod) {
+      if (!parentEl || parentEl.querySelector(".product-stats-badge")) return;
+      var s = _statShown(prod.id);
+      var badge = document.createElement("span");
+      badge.className = "product-stats-badge";
+      badge.textContent = s.buys + " | " + s.other;
+      badge.title = "buys | clicks";
+      parentEl.appendChild(badge);
+    }
+    function recordStatEvent(productId, kind) {
+      if (!productId) return;
+      if (!productStats) productStats = {};
+      // Optimistic local bump so the next grid render reflects it even
+      // before the server round-trips.
+      var s = productStats[productId] || { buys: 0, clicks: 0 };
+      if (kind === "buy") s.buys = (s.buys || 0) + 1;
+      else s.clicks = (s.clicks || 0) + 1;
+      productStats[productId] = s;
+      try {
+        fetch(API_BASE + "/api/stats/event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ product_id: productId, kind: kind }),
+          keepalive: true  // a "buy" fires right before navigation — keepalive still sends it
+        }).catch(function() {});
+      } catch (_e) {}
+    }
+    function loadProductStats() {
+      fetch(API_BASE + "/api/stats")
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d && d.stats) productStats = d.stats;
+          if (typeof renderProducts === "function") renderProducts();
+        })
+        .catch(function() {});
+    }
+    loadProductStats();
+
     function renderProducts() {
       productGrid.innerHTML = "";
       // The user-requested grid lives below the main grid, hidden unless the
@@ -7708,7 +7771,10 @@
       var userRequestsSection = document.getElementById("userRequestsSection");
       if (userRequestsGrid) userRequestsGrid.innerHTML = "";
       var hasUserRequested = false;
-      PRODUCTS.forEach(function(p) {
+      // Iterate in popularity order (buys, then non-converting clicks) so
+      // the grid surfaces the most-wanted products first. Per-product
+      // routing to the user-requested grid below is unchanged.
+      _productsByPopularity().forEach(function(p) {
         var card = document.createElement("div");
         var hasMockup = state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0;
         var statusDot = hasMockup
@@ -7846,6 +7912,11 @@
           _addIconBadge(canvasPreviewEl, p.icon);
         }
 
+        // Faint popularity badge, bottom-right of the preview (caddy-
+        // corner from the type icon). Appended last so it survives the
+        // innerHTML rebuilds the mockup/canvas paths do above.
+        _addStatsBadge(card.querySelector(".product-preview"), p);
+
         // Highlight selected product
         if (state.selectedProduct === p.id) card.classList.add("selected");
 
@@ -7925,6 +7996,9 @@
     // the editor. Also kept general enough for legacy callers.
     function commitProductSelection(product) {
       var productId = product.id;
+      // Interest signal: the user committed this product into the editor
+      // ("Continue to editor"). Counts toward the "clicks" column.
+      recordStatEvent(productId, "click");
       // Selecting a different product means the canvas will render at a new
       // aspect ratio; any previously uploaded Printify image is now stale.
       if (state.selectedProduct !== productId) {
@@ -8501,6 +8575,8 @@
       var product = state.selectedProduct
         ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
         : null;
+      // Conversion signal: a finalized "Download your design" (beta).
+      if (product) recordStatEvent(product.id, "buy");
       var prevBurning = state._burningCanvas;
       state._burningCanvas = true;
       try { renderCanvas(); } catch (_e) {}
@@ -9397,6 +9473,8 @@
         showInfo("Product Not Ready", "This product's print details are still being resolved. Please wait a moment and try again.");
         return;
       }
+      // Conversion signal: a finalized "Create on Shopify" checkout.
+      recordStatEvent(product.id, "buy");
 
       var hqNote = state.hqReady
         ? "The full NASA/SDO HQ image is ready and will be used for printing."

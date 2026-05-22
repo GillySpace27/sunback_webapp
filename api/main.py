@@ -1093,6 +1093,9 @@ from api import feedback_routes
 app.include_router(feedback_routes.router, prefix="/api")
 app.include_router(feedback_routes.catalog_router, prefix="/api")
 
+from api import stats_routes
+app.include_router(stats_routes.router, prefix="/api")
+
 # --- Asynchronous HQ generation endpoints ---
 from fastapi import BackgroundTasks, HTTPException, APIRouter
 import uuid, asyncio

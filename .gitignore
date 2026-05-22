@@ -7,3 +7,9 @@ dep/*
 *.pyc
 api/__pycache__/main.cpython-312.pyc
 .sunpy/
+# Durable data files — live on the Render persistent disk in prod,
+# created locally in dev. Never commit (feedback may contain PII).
+feedback.jsonl
+approved_catalog.json
+product_stats.json
+product_stats.json.tmp
