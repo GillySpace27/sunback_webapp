@@ -732,7 +732,10 @@
          carry a `color` option we can resolve to a hex. Clicking a
          swatch jumps the picker to a variant matching that colour,
          preserving size when possible so users can browse by colour
-         without losing their place. -->
+         without losing their place. The label above names WHAT the
+         colour affects (frame / garment / …) + the current pick, so
+         the swatches aren't unlabelled squares. -->
+    <div class="confirm-axis-label hidden" id="confirmSelectColorLabel"></div>
     <div class="confirm-color-swatches hidden" id="confirmSelectColorSwatches" role="listbox" aria-label="Color"></div>
     <!-- Size chips: rendered when the product's variants carry a
          `size` option with more than one distinct value. Click +
