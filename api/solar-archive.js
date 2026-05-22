@@ -2785,14 +2785,26 @@
       // produces a good preview but can strand checkout waiting for HQ to
       // exist. A 7-day lag sidesteps that without confusing anyone.
       if (!dateInput.value) {
-        var def = new Date();
-        def.setDate(def.getDate() - 7);
-        var yyyy = def.getFullYear();
-        var mm = String(def.getMonth() + 1).padStart(2, "0");
-        var dd = String(def.getDate()).padStart(2, "0");
-        dateInput.value = yyyy + "-" + mm + "-" + dd;
-        // Fire change so the tile-loading pipeline runs immediately.
+        // Default to a famously photogenic day — AR 2192, the largest
+        // sunspot group in 24 years (2014-10-24) — so the landing page
+        // and product mockups show a stunning sun out of the gate
+        // instead of a quiet 1-week-ago disk. A FIXED date means every
+        // visitor shares the same server-side HQ cache, so it's cheap
+        // after the first render. Users change it to their own moment.
+        dateInput.value = "2014-10-24";
+        // Fire change so the tile-thumbnail pipeline runs immediately.
         dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+        // Preload the default wavelength (193) so the product tiles
+        // render real mockups of the default sun on landing — no tile
+        // click required. Mark the 193 tile selected to match. We do
+        // NOT set scrollToProductsOnLoad, so the page doesn't yank the
+        // user down; the mockups just populate in place below.
+        state.wavelength = 193;
+        var _defTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="193"]');
+        if (_defTile) _defTile.classList.add("selected");
+        if (typeof loadHelioviewerPreview === "function") {
+          loadHelioviewerPreview(193, dateInput.value);
+        }
       }
     }
 
