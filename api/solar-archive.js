@@ -214,11 +214,14 @@
     //         // visibleTopInIframe = how far the parent has scrolled
     //         // past the iframe's top. Drives the floating editor canvas.
     //         var visibleTopInIframe = Math.max(0, -rect.top);
+    //         // topCoverPx = sticky-nav height (_saTopCover()); drives the
+    //         // scroll-margin-top so auto-scroll lands below the nav.
     //         f.contentWindow.postMessage({
     //           source: "solar-archive-parent",
     //           type: "viewport",
     //           visibleBottomInIframe: visibleBottomInIframe,
-    //           visibleTopInIframe: visibleTopInIframe
+    //           visibleTopInIframe: visibleTopInIframe,
+    //           topCoverPx: _saTopCover()
     //         }, "*");
     //       });
     //     }
@@ -368,6 +371,16 @@
         var top = e.data.visibleTopInIframe;
         if (typeof top === "number" && isFinite(top)) {
           _updateFloatingCanvas(top);
+        }
+
+        // Sticky-nav scroll offset: how much fixed chrome covers the top
+        // of the parent viewport. Drives --sa-scroll-offset so the app's
+        // scrollIntoView targets (sections, wavelength grid, editor) land
+        // BELOW the storefront's nav instead of tucked under it. +12px
+        // breathing room. Falls back to the CSS default until reported.
+        var cover = e.data.topCoverPx;
+        if (typeof cover === "number" && isFinite(cover)) {
+          document.documentElement.style.setProperty("--sa-scroll-offset", (Math.max(0, cover) + 12) + "px");
         }
       });
     }
