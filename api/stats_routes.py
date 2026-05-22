@@ -28,14 +28,24 @@ import os
 import re
 import threading
 import time
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
-from api.security import enforce_origin, enforce_rate_limit
-from api.feedback_routes import _data_dir  # shared persistent-disk resolver
+from api.security import enforce_origin, enforce_rate_limit, _client_ip
+from api.feedback_routes import _data_dir, _check_admin_key  # shared disk + admin gate
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
+
+
+def _excluded_ips() -> set:
+    """IPs whose events are accepted (200) but NOT counted — the operator's
+    own networks + automated testing. Comma-separated env var."""
+    raw = os.getenv("STATS_EXCLUDE_IPS", "").strip()
+    if not raw:
+        return set()
+    return {ip.strip() for ip in raw.split(",") if ip.strip()}
 
 STATS_FILE = _data_dir() / "product_stats.json"
 
@@ -116,5 +126,48 @@ async def record_event(entry: dict, request: Request):
     if kind not in _VALID_KINDS:
         raise HTTPException(status_code=400, detail="Invalid kind (click|buy)")
 
+    # Operator / automated-testing IP exclusion: accept the request so the
+    # client sees success, but don't move the counters.
+    if _client_ip(request) in _excluded_ips():
+        return {"ok": True, "excluded": True}
+
     result = await run_in_threadpool(_increment, product_id, kind)
     return {"ok": True, "product_id": product_id, "buys": result.get("buys", 0), "clicks": result.get("clicks", 0)}
+
+
+@router.get("/whoami")
+async def whoami(request: Request):
+    """Return the IP the server sees for this caller + whether it's already
+    excluded. Lets the operator find the value to put in STATS_EXCLUDE_IPS."""
+    ip = _client_ip(request)
+    return {"ip": ip, "excluded": ip in _excluded_ips()}
+
+
+@router.post("/reset")
+async def reset_stats(
+    request: Request,
+    product_id: Optional[str] = Query(default=None),
+    x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
+    key: Optional[str] = Query(default=None),
+):
+    """Reset counters. Admin-key gated (same key as feedback admin).
+    Pass ?product_id=<id> to zero a single product; omit to reset all."""
+    _check_admin_key(x_admin_key, key)
+
+    def _do_reset():
+        with _lock:
+            if product_id:
+                data = _read_stats()
+                existed = product_id in data
+                if existed:
+                    del data[product_id]
+                    _write_stats(data)
+                return {"reset": "product", "product_id": product_id, "existed": existed}
+            # Reset everything.
+            _write_stats({})
+            return {"reset": "all"}
+
+    if product_id and not _PRODUCT_ID_RE.match(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product_id")
+    result = await run_in_threadpool(_do_reset)
+    return {"ok": True, **result}
