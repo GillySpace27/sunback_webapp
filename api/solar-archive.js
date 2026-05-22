@@ -289,7 +289,9 @@
       }
     }
     var _floatRafPending = false;
+    var _lastVisibleTop = null;   // last reported viewport offset (for re-sync on resize)
     function _updateFloatingCanvas(visibleTopInIframe) {
+      _lastVisibleTop = visibleTopInIframe;
       // rAF-coalesce: the parent fires this on every scroll tick.
       if (_floatRafPending) return;
       _floatRafPending = true;
@@ -369,6 +371,108 @@
         }
       });
     }
+
+    // ── User-resizable editor canvas (proportional + centered) ──────
+    // A corner grip lets the user scale the editor canvas to fit their
+    // device — the floating embed canvas can otherwise dominate a short
+    // viewport. Drives --editor-scale on .image-stage (CSS scales width
+    // + height caps; margin:auto keeps it centered). Persisted per
+    // device in localStorage; double-click resets. Pointer events cover
+    // mouse + touch; the handle stops propagation so it never starts a
+    // canvas pan/crop.
+    var _EDITOR_SCALE_KEY = "sa_editor_scale";
+    var _EDITOR_SCALE_MIN = 0.4;
+    function _curEditorScale(stage) {
+      var s = parseFloat(getComputedStyle(stage).getPropertyValue("--editor-scale"));
+      return (s > 0 && s <= 1) ? s : 1;
+    }
+    function _resyncFloatAfterResize() {
+      if (typeof _lastVisibleTop === "number" && isFinite(_lastVisibleTop)) {
+        _updateFloatingCanvas(_lastVisibleTop);
+      }
+    }
+    function setupEditorResize() {
+      var stage = document.getElementById("imageStage");
+      if (!stage || stage.querySelector(".editor-resize-handle")) return;
+      // Restore saved scale.
+      try {
+        var saved = parseFloat(localStorage.getItem(_EDITOR_SCALE_KEY));
+        if (saved >= _EDITOR_SCALE_MIN && saved <= 1) {
+          stage.style.setProperty("--editor-scale", saved.toFixed(3));
+        }
+      } catch (_e) { /* localStorage blocked — fine, defaults to 1 */ }
+
+      var handle = document.createElement("div");
+      handle.className = "editor-resize-handle";
+      handle.setAttribute("role", "slider");
+      handle.setAttribute("tabindex", "0");
+      handle.setAttribute("aria-label",
+        "Resize editor. Drag to scale; arrow keys adjust; double-click to reset.");
+      handle.setAttribute("aria-valuemin", "40");
+      handle.setAttribute("aria-valuemax", "100");
+      handle.setAttribute("aria-valuenow", String(Math.round(_curEditorScale(stage) * 100)));
+      stage.appendChild(handle);
+
+      var dragging = false, startX = 0, startY = 0, startW = 0, fullW = 0;
+      function applyScale(scale) {
+        scale = Math.max(_EDITOR_SCALE_MIN, Math.min(1, scale));
+        stage.style.setProperty("--editor-scale", scale.toFixed(3));
+        handle.setAttribute("aria-valuenow", String(Math.round(scale * 100)));
+        _resyncFloatAfterResize();
+        return scale;
+      }
+      function persist(scale) {
+        try {
+          if (scale >= 0.995) localStorage.removeItem(_EDITOR_SCALE_KEY);
+          else localStorage.setItem(_EDITOR_SCALE_KEY, scale.toFixed(3));
+        } catch (_e) { /* ignore */ }
+      }
+      handle.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragging = true;
+        try { handle.setPointerCapture(e.pointerId); } catch (_e) {}
+        startX = e.clientX; startY = e.clientY;
+        // 100% reference = the stage's containing block (the grid cell /
+        // positioned editor), measured from the parent's width.
+        var parent = stage.parentElement;
+        fullW = (parent ? parent.getBoundingClientRect().width : stage.getBoundingClientRect().width) || 1;
+        startW = stage.getBoundingClientRect().width;
+      });
+      handle.addEventListener("pointermove", function (e) {
+        if (!dragging) return;
+        // Diagonal drag: average the two axes so the corner feels
+        // natural (out = bigger, in = smaller).
+        var delta = ((e.clientX - startX) + (e.clientY - startY)) / 2;
+        applyScale((startW + delta) / fullW);
+      });
+      function endDrag(e) {
+        if (!dragging) return;
+        dragging = false;
+        try { handle.releasePointerCapture(e.pointerId); } catch (_e) {}
+        persist(_curEditorScale(stage));
+      }
+      handle.addEventListener("pointerup", endDrag);
+      handle.addEventListener("pointercancel", endDrag);
+      handle.addEventListener("dblclick", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        applyScale(1);
+        persist(1);
+      });
+      // Keyboard: arrows nudge ±5%, Home/End jump to min/full.
+      handle.addEventListener("keydown", function (e) {
+        var cur = _curEditorScale(stage), next = cur;
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") next = cur - 0.05;
+        else if (e.key === "ArrowRight" || e.key === "ArrowUp") next = cur + 0.05;
+        else if (e.key === "Home") next = _EDITOR_SCALE_MIN;
+        else if (e.key === "End") next = 1;
+        else return;
+        e.preventDefault();
+        persist(applyScale(next));
+      });
+    }
+    setupEditorResize();
 
     // ── Dark mode detection ──────────────────────────────────────
     if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
