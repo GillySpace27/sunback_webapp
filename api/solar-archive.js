@@ -381,7 +381,11 @@
     // mouse + touch; the handle stops propagation so it never starts a
     // canvas pan/crop.
     var _EDITOR_SCALE_KEY = "sa_editor_scale";
-    var _EDITOR_SCALE_MIN = 0.4;
+    // Min editor scale: how small the canvas can shrink. Lowered from
+    // 0.4 → 0.2 so users can collapse the canvas to a thumbnail and free
+    // screen real estate for the sliders/controls (esp. in the embed
+    // where the canvas floats over a short viewport).
+    var _EDITOR_SCALE_MIN = 0.2;
     function _curEditorScale(stage) {
       var s = parseFloat(getComputedStyle(stage).getPropertyValue("--editor-scale"));
       return (s > 0 && s <= 1) ? s : 1;
@@ -408,7 +412,7 @@
       handle.setAttribute("tabindex", "0");
       handle.setAttribute("aria-label",
         "Resize editor. Drag to scale; arrow keys adjust; double-click to reset.");
-      handle.setAttribute("aria-valuemin", "40");
+      handle.setAttribute("aria-valuemin", String(Math.round(_EDITOR_SCALE_MIN * 100)));
       handle.setAttribute("aria-valuemax", "100");
       handle.setAttribute("aria-valuenow", String(Math.round(_curEditorScale(stage) * 100)));
       stage.appendChild(handle);
