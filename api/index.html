@@ -26,6 +26,12 @@
     <div class="hero-icon"></div>
     <h1 id="appTitle">Solar Archive</h1>
     <p>See the Sun on any date. Print it on anything.</p>
+    <!-- NASA SDO rules-of-the-road acknowledgement, surfaced prominently
+         at the top (moved up from the footer). Required on any SDO-
+         derived imagery. Restore the longer "AIA, EVE, and HMI science
+         teams" form here AND in solar-archive.js CITATIONS.SDO_ACK if we
+         ever surface EVE/HMI channels. -->
+    <p class="hero-credit">Courtesy of NASA/SDO and the AIA science team. Not affiliated; no endorsement implied.</p>
     <!-- Beta banner — shown only when BETA_MODE is on (the /store-config
          fetch sets the .beta-mode-active class on <body>, which un-hides
          this block via CSS). Orange so it reads as an advisory, not an
@@ -111,6 +117,18 @@
       </div>
     </div>
 
+    <!-- Date guidance + coverage note live next to the date picker (the
+         decision point), not buried under the wavelength tiles. "May
+         2010" links to the SDO spacecraft (the imagery source); the
+         future-spacecraft line sets expectations for pre-2010 dates. -->
+    <div class="status-msg" id="statusMsg">
+      Select a date, then click a wavelength tile to load your solar image.
+    </div>
+    <div class="info-row">
+      <i class="fas fa-info-circle" aria-hidden="true"></i>
+      <span>AIA imagery available from <a href="https://en.wikipedia.org/wiki/Solar_Dynamics_Observatory" target="_blank" rel="noopener" title="The launch of the SDO spacecraft, which is the source of these images. Click to learn more.">May 2010</a> onward. Earlier dates may be added from other spacecraft in the future.</span>
+    </div>
+
     <!-- Wavelength tiles are real <button> elements (round-2 a11y,
          Cole Ramirez P0): Voice Control users now address each tile
          by its aria-label ("Click 171 angstrom") instead of having
@@ -165,14 +183,6 @@
       </button>
     </div>
 
-    <div class="status-msg" id="statusMsg">
-      Select a date, then click a wavelength tile to load your solar image.
-    </div>
-
-    <div class="info-row">
-      <i class="fas fa-info-circle" aria-hidden="true"></i>
-      <span>AIA imagery available from May 2010. Click any tile to instantly preview. <a href="https://www.helioviewer.org" target="_blank" rel="noopener">helioviewer.org</a></span>
-    </div>
   </div>
 
   <!-- Step 3: View & Edit Image (reordered by JS — appears after product selection) -->
@@ -683,7 +693,7 @@
     <div class="mockup-status" id="mockupStatus"></div>
 
     <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
-      Select a date and wavelength to see products. Click a product to choose a variant, then Select this product to edit; buy from the editor.
+      Select a date and wavelength to see products.
     </div>
 
     <div class="status-msg" id="orderStatus"></div>
@@ -692,19 +702,11 @@
   </main>
 
   <footer class="app-footer" role="contentinfo">
-    <!-- NASA SDO rules-of-the-road acknowledgement. Required on any
-         SDO-derived imagery. We currently only surface AIA imagery,
-         so EVE + HMI dropped from the credit line per Patricia's
-         round-2 note ("reads as cargo-cult to a reviewer when we
-         don't actually use those instruments"). Restore the longer
-         "AIA, EVE, and HMI science teams" form here AND in
-         solar-archive.js `CITATIONS.SDO_ACK` if we later add EVE
-         or HMI channels. Helioviewer credit applies only to JPG-
-         tier previews (their takeScreenshot endpoint); the full
-         instrument + method citations live behind the "Data
-         credits" link. -->
-    Courtesy of NASA/SDO and the AIA science team.
-    Not affiliated; no endorsement implied.<br>
+    <!-- The NASA/SDO rules-of-the-road acknowledgement now lives at the
+         top under the hero subtitle (.hero-credit); the full citation
+         stack (instrument paper, RHEF method, Helioviewer) is in the
+         "Data credits" dialog, which also auto-surfaces while the HQ
+         render runs. -->
     Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
     &nbsp;·&nbsp;
     <a href="#" id="dataCreditsLink" role="button">Data credits</a>

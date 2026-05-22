@@ -214,6 +214,16 @@ body::before {
   margin-top: 6px;
   font-weight: 300;
 }
+/* NASA/SDO acknowledgement under the hero subtitle — present but quiet,
+   so it's prominent (top of page, seen first) without competing with
+   the tagline. */
+.hero .hero-credit {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 8px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
 
 /* Beta-mode banner under the hero. Hidden by default; the
    .beta-mode-active class on <body> (set by JS once /store-config
