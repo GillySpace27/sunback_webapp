@@ -9703,6 +9703,10 @@
       var originalCropZoom = state.cropZoom;
 
       var pendingVariantId = (originalVariantId != null) ? originalVariantId : product.variantId;
+      // Layout mode (set by _renderSelectors): true when the product has
+      // BOTH a colour axis and a size axis (clothing-style). Drives which
+      // selectors render so we never show two controls for the same choice.
+      var _twoAxis = false;
 
       if (titleEl) titleEl.textContent = product.name;
       if (subEl) {
@@ -9791,8 +9795,10 @@
         }
         // Re-render the size chips so the active size + unavailable
         // shading update when colour changes (a size dimmed under
-        // "Red" may light up again under "Black", etc.).
-        if (typeof _renderSizeChips === "function") _renderSizeChips();
+        // "Red" may light up again under "Black", etc.). Only in
+        // 2-axis mode — single-axis layouts hide the chips entirely,
+        // and re-rendering would re-show the redundant row.
+        if (_twoAxis && typeof _renderSizeChips === "function") _renderSizeChips();
         _renderSummary(v);
         _renderMockup(v);
       }
@@ -10013,13 +10019,46 @@
         var active = listEl.querySelector(".confirm-variant-tile.active");
         if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
       }
+      // Decide how many real variant axes this product has, then render
+      // ONLY the selector(s) that fit — never two controls for the same
+      // choice (the redundancy beta testers hit on single-axis products
+      // like photo tiles, where size-chips duplicated the variant grid).
+      //   • 2 axes (colour × size, e.g. shirts): compose via swatches +
+      //     size-chips; hide the full variant grid (it'd be a big
+      //     colour×size wall that the two selectors already cover).
+      //   • ≤1 axis (size-only tiles/prints, colour-only, single variant):
+      //     the rich variant tiles ARE the selector; hide chips + swatches.
+      function _axisInfo() {
+        var variants = _variantsList();
+        var colors = {}, sizes = {};
+        variants.forEach(function(v) {
+          var c = _variantColorOption(v);
+          if (c && c.hex) colors[c.hex] = 1;
+          var s = _variantSize(v);
+          if (s) sizes[s] = 1;
+        });
+        var nColors = Object.keys(colors).length;
+        var nSizes = Object.keys(sizes).length;
+        return { twoAxis: (nColors > 1 && nSizes > 1) };
+      }
+      function _renderSelectors() {
+        _twoAxis = _axisInfo().twoAxis;
+        if (_twoAxis) {
+          _renderColorSwatches();
+          _renderSizeChips();
+          // Hide the redundant full variant grid.
+          if (listEl) { listEl.innerHTML = ""; listEl.classList.add("hidden"); }
+        } else {
+          if (listEl) listEl.classList.remove("hidden");
+          _renderTiles();
+          if (swatchesEl) { swatchesEl.innerHTML = ""; swatchesEl.classList.add("hidden"); }
+          if (sizeChipsEl) { sizeChipsEl.innerHTML = ""; sizeChipsEl.classList.add("hidden"); }
+        }
+      }
       function _refreshAfterPricing() {
-        // Re-render tiles + summary so the real Printify cost replaces the
-        // placeholder "From $X.XX" label. Active variant + scroll position
-        // preserved by _renderTiles' active-class lookup.
-        _renderTiles();
-        _renderColorSwatches();
-        _renderSizeChips();
+        // Re-render the active selector(s) + summary so the real Printify
+        // cost replaces the placeholder "From $X.XX" label.
+        _renderSelectors();
         var variants = _variantsList();
         var v = variants.find(function(x) { return x.id === pendingVariantId; });
         _renderSummary(v || null);
@@ -10031,9 +10070,7 @@
         // the user can interact, then re-render the price labels in place
         // when pricing lands.
         if (variantCache[cacheKey]) {
-          _renderTiles();
-          _renderColorSwatches();
-          _renderSizeChips();
+          _renderSelectors();
           _selectInModal(pendingVariantId);
         } else {
           listEl.innerHTML = '<div class="confirm-variant-loading"><div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:-3px;margin-right:6px;"></div> Loading sizes &amp; colors…</div>';
@@ -10042,9 +10079,7 @@
           _renderSummary(null);
           _renderMockup(null);
           loadVariants(product).then(function() {
-            _renderTiles();
-            _renderColorSwatches();
-            _renderSizeChips();
+            _renderSelectors();
             var variants = _variantsList();
             var first = variants.find(function(v) { return v.id === pendingVariantId; }) || variants[0];
             if (first) _selectInModal(first.id);
