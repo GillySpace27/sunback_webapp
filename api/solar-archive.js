@@ -85,7 +85,7 @@
         ed.classList.add("hidden");
         var ps = document.getElementById("productSection");
         if (ps) {
-          try { ps.scrollIntoView({ behavior: "smooth", block: "start" }); }
+          try { _scrollToEl(ps, "start"); }
           catch (_e) { ps.scrollIntoView(); }
         }
         return;
@@ -228,6 +228,20 @@
     //     window.addEventListener("scroll", _saSendViewport, { passive: true });
     //     window.addEventListener("resize", _saSendViewport);
     //     document.addEventListener("DOMContentLoaded", _saSendViewport);
+    //
+    //     // SCROLL HANDLER — the cross-origin iframe can't scroll the
+    //     // parent itself, so it asks; we scroll, offset below the nav.
+    //     window.addEventListener("message", function (e) {
+    //       if (e.origin !== SA_ORIGIN) return;
+    //       var d = e.data;
+    //       if (!d || d.source !== "solar-archive" || d.type !== "scrollTo") return;
+    //       var f = document.querySelector('iframe[src*="solar-archive.onrender.com"]');
+    //       if (!f || typeof d.topInIframe !== "number") return;
+    //       var iframeTopAbs = f.getBoundingClientRect().top + window.scrollY;
+    //       var y = iframeTopAbs + d.topInIframe - _saTopCover() - 12;
+    //       if (d.block === "center") y = iframeTopAbs + d.topInIframe - (window.innerHeight - (d.height||0))/2;
+    //       window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    //     });
     //   </script>
     //
     // Without the parent listener the FAB falls back to whatever its
@@ -383,6 +397,36 @@
           document.documentElement.style.setProperty("--sa-scroll-offset", (Math.max(0, cover) + 12) + "px");
         }
       });
+    }
+
+    // ── Auto-scroll that respects the parent's sticky nav ───────────
+    // In standalone, native scrollIntoView is fine. In the embed the
+    // iframe is content-sized and cross-origin, so it can neither scroll
+    // itself nor (directly) the parent, and scroll-margin-top isn't
+    // honored by the parent's reveal-scroll. So we hand the parent the
+    // target's position within the iframe and let IT scroll, offset by
+    // the sticky-nav height. Requires the parent's `scrollTo` handler
+    // (see the documented snippet); falls back to scrollIntoView if the
+    // parent doesn't act.
+    function _scrollToEl(el, block) {
+      if (!el) return;
+      block = block || "start";
+      if (document.documentElement.classList.contains("embedded")) {
+        try {
+          var rect = el.getBoundingClientRect();
+          var sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+          window.parent.postMessage({
+            source: "solar-archive",
+            type: "scrollTo",
+            topInIframe: rect.top + sy,   // element's offset within the iframe document
+            height: rect.height,
+            block: block
+          }, "*");
+          return;
+        } catch (_e) { /* fall through to native */ }
+      }
+      try { el.scrollIntoView({ behavior: "smooth", block: block }); }
+      catch (_e2) { try { el.scrollIntoView(); } catch (_e3) {} }
     }
 
     // ── User-resizable editor canvas (proportional + centered) ──────
@@ -1079,7 +1123,7 @@
         // but we still need to scroll into view.
         var wlGrid = document.getElementById("wlGrid");
         if (wlGrid) {
-          try { wlGrid.scrollIntoView({ behavior: "smooth", block: "start" }); }
+          try { _scrollToEl(wlGrid, "start"); }
           catch (_e) { wlGrid.scrollIntoView(); }
         }
       });
@@ -1555,7 +1599,7 @@
         renderCanvas();
         updateProductSectionHeader();
         var productSection = document.getElementById("productSection");
-        if (productSection) productSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (productSection) _scrollToEl(productSection, "start");
       });
     }
 
@@ -1607,7 +1651,7 @@
         // re-ordered to appear below the editor, so we need to target its
         // header explicitly rather than relying on document order.
         var productSec = document.getElementById("productSection");
-        if (productSec) productSec.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (productSec) _scrollToEl(productSec, "start");
       });
     }
 
@@ -1761,7 +1805,7 @@
       // If it's still hidden (first load), set a flag so _installPreviewImage scrolls after revealing it.
       var productSectionEl = document.getElementById("productSection");
       if (productSectionEl && !productSectionEl.classList.contains("hidden")) {
-        productSectionEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        _scrollToEl(productSectionEl, "start");
       } else {
         state.scrollToProductsOnLoad = true;
       }
@@ -2066,7 +2110,7 @@
       productSection.classList.remove("hidden");
       if (state.scrollToProductsOnLoad) {
         state.scrollToProductsOnLoad = false;
-        productSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        _scrollToEl(productSection, "start");
       }
       renderProducts();
       if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
@@ -2079,7 +2123,7 @@
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
         if (product) updateSelectedProductPreview(product);
         setTimeout(function() {
-          editSection.scrollIntoView({ behavior: "smooth", block: "start" });
+          _scrollToEl(editSection, "start");
         }, 120);
       }
       updateProductSectionHeader();
@@ -8210,7 +8254,7 @@
         var clockTabBtn = document.querySelector('.edit-tab[data-tab="clock"]');
         if (clockTabBtn && !clockTabBtn.classList.contains("active")) clockTabBtn.click();
       }
-      editSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      _scrollToEl(editSection, "start");
     }
 
     // ── Reusable modal focus trap ────────────────────────────────
@@ -8968,7 +9012,7 @@
       // Scroll back to the date / wavelength picker so the workflow
       // visibly starts over.
       var top = document.querySelector(".section") || document.body;
-      top.scrollIntoView({ behavior: "smooth", block: "start" });
+      _scrollToEl(top, "start");
     }
     (function _wireBetaThanksPopup() {
       var primary = document.getElementById("betaThanksReset");
