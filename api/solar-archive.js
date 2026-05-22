@@ -3170,26 +3170,47 @@
     // already carries the short SDO-team acknowledgement; this
     // expanded list is for users who want to cite the imagery
     // properly or verify the data provenance.
+    // Build the data-credits body. `lead` prepends a contextual line
+    // (used by the auto-popup to explain the wait); omit it for the
+    // plain footer-link view.
+    function _dataCreditsHtml(lead) {
+      return '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
+          (lead ? '<p style="margin-bottom:14px;color:var(--text-secondary);">' + lead + '</p>' : '') +
+          '<p style="margin-bottom:10px;"><strong>Imagery</strong></p>' +
+          '<p style="margin-bottom:10px;">' + CITATIONS.SDO_ACK + '</p>' +
+          '<p style="margin-bottom:14px;color:var(--text-secondary);">Raw, RHEF, and HQ&nbsp;RHEF tiers use AIA FITS frames distributed through the Joint Science Operations Center (JSOC) at Stanford, accessed via the Virtual Solar Observatory (VSO). JPG previews are rendered by the Helioviewer Project.</p>' +
+          '<p style="margin-bottom:6px;"><strong>Instrument</strong></p>' +
+          '<p style="margin-bottom:14px;">' + CITATIONS.AIA_PAPER + '</p>' +
+          '<p style="margin-bottom:6px;"><strong>RHEF method</strong></p>' +
+          '<p style="margin-bottom:14px;">' + CITATIONS.RHEF_PAPER + '</p>' +
+          '<p style="margin-bottom:6px;"><strong>JPG previews</strong></p>' +
+          '<p style="margin-bottom:0;">' + CITATIONS.HELIOVIEWER_ACK + '</p>' +
+        '</div>';
+    }
+    // {html:true}: body is fully developer-authored markup.
+    function showDataCredits(title, lead) {
+      showInfo(title || "Data credits", _dataCreditsHtml(lead), { html: true });
+    }
+    // Auto-surface the credits the FIRST time HQ generation kicks off in
+    // a session — it doubles as a "click to acknowledge" interstitial
+    // that buys time while the full-res render runs (1–3 min), and puts
+    // the attribution in front of users who'd never open the footer
+    // link. Once-per-session so it doesn't nag on every re-render.
+    var _dataCreditsShownThisSession = false;
+    function maybeShowDataCreditsOnHQ() {
+      if (_dataCreditsShownThisSession) return;
+      _dataCreditsShownThisSession = true;
+      showDataCredits(
+        "Rendering your high-resolution image…",
+        "Your full-resolution solar print is generating now — this usually takes 1–3 minutes. While it renders, here's how to credit the imagery:"
+      );
+    }
     (function() {
       var link = document.getElementById("dataCreditsLink");
       if (!link) return;
       link.addEventListener("click", function(e) {
         e.preventDefault();
-        var html =
-          '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
-            '<p style="margin-bottom:10px;"><strong>Imagery</strong></p>' +
-            '<p style="margin-bottom:10px;">' + CITATIONS.SDO_ACK + '</p>' +
-            '<p style="margin-bottom:14px;color:var(--text-secondary);">Raw, RHEF, and HQ&nbsp;RHEF tiers use AIA FITS frames distributed through the Joint Science Operations Center (JSOC) at Stanford, accessed via the Virtual Solar Observatory (VSO). JPG previews are rendered by the Helioviewer Project.</p>' +
-            '<p style="margin-bottom:6px;"><strong>Instrument</strong></p>' +
-            '<p style="margin-bottom:14px;">' + CITATIONS.AIA_PAPER + '</p>' +
-            '<p style="margin-bottom:6px;"><strong>RHEF method</strong></p>' +
-            '<p style="margin-bottom:14px;">' + CITATIONS.RHEF_PAPER + '</p>' +
-            '<p style="margin-bottom:6px;"><strong>JPG previews</strong></p>' +
-            '<p style="margin-bottom:0;">' + CITATIONS.HELIOVIEWER_ACK + '</p>' +
-          '</div>';
-        // {html:true}: this modal body is fully developer-authored
-        // and contains markup (paragraphs, strong, citation strings).
-        showInfo("Data credits", html, { html: true });
+        showDataCredits();
       });
     })();
 
@@ -3370,6 +3391,11 @@
       }
 
       state.hqFetching = true;
+      // First real HQ render of the session → surface the data-credits
+      // acknowledge dialog (buys time during the 1–3 min render). Only
+      // on the initial attempt + a genuine render (cache hits returned
+      // above), and once per session via the flag inside.
+      if (_attempt === 1 && typeof maybeShowDataCreditsOnHQ === "function") maybeShowDataCreditsOnHQ();
       if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
       if (_attempt === 1) setProgress(10);
       updateFilterStatusLine(
@@ -9456,8 +9482,9 @@
         sendHint.textContent = "HQ image is rendering in the background — you can select a product and buy from the editor when ready.";
         sendHint.style.color = "var(--accent-sun)";
       } else if (state.originalImage) {
-        sendHint.textContent = "Click a product to choose a variant, then Select this product to edit; buy from the editor.";
-        sendHint.style.color = "var(--text-dim)";
+        // Image loaded, no HQ yet: the product cards + their "Pick a
+        // variant" buttons are self-explanatory, so no redundant hint.
+        sendHint.textContent = "";
       } else {
         sendHint.textContent = "Select a date and click a wavelength to see product previews.";
         sendHint.style.color = "var(--text-dim)";
