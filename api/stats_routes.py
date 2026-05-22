@@ -101,8 +101,10 @@ def _increment(product_id: str, kind: str) -> dict:
 
 
 @router.get("")
-async def get_stats():
-    """Public read of all product counters (for badges + sort)."""
+async def get_stats(request: Request):
+    """Public read of all product counters (for badges + sort).
+    Also reports whether THIS caller's IP is excluded, so the frontend
+    can decide to show the (operator-only) popularity badge."""
     data = await run_in_threadpool(_read_stats)
     # Strip the internal ts field from the public payload.
     clean = {
@@ -110,7 +112,7 @@ async def get_stats():
         for pid, v in data.items()
         if isinstance(v, dict)
     }
-    return {"stats": clean}
+    return {"stats": clean, "viewer_excluded": _client_ip(request) in _excluded_ips()}
 
 
 @router.post("/event")
