@@ -48,6 +48,51 @@ def _excluded_ips() -> set:
     return {ip.strip() for ip in raw.split(",") if ip.strip()}
 
 STATS_FILE = _data_dir() / "product_stats.json"
+SEED_FILE = _data_dir() / "stats_seed.json"
+
+# Default CLICK seeds applied on reset, so a fresh start sorts the
+# operator's suspected-popular items to the top instead of a flat zero
+# grid. Buys are NEVER seeded — faking sales would be dishonest. The
+# operator can override these by editing stats_seed.json on the disk
+# (written automatically the first time seeds are read).
+_DEFAULT_SEED = {
+    "wall_clock": 5,
+    "mug_15oz": 3,
+    "mug_15oz_black": 3,
+    "phone_case": 1,
+    "throw_pillow": 1,
+    "sherpa_blanket": 1,
+    "puzzle_1000": 1,
+    "sticker_kiss": 1,
+    "journal_hardcover": 1,
+}
+
+
+def _seed_values() -> dict:
+    """Click seeds: the disk override (stats_seed.json) if present + valid,
+    else the code default — which is then written to disk so the operator
+    can edit it. Returns {product_id: click_seed}."""
+    if SEED_FILE.exists():
+        try:
+            with SEED_FILE.open("r", encoding="utf-8") as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                return {k: int(v) for k, v in d.items()
+                        if isinstance(v, (int, float)) and int(v) > 0}
+        except (OSError, ValueError):
+            pass
+    try:
+        SEED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with SEED_FILE.open("w", encoding="utf-8") as f:
+            json.dump(_DEFAULT_SEED, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+    return dict(_DEFAULT_SEED)
+
+
+def _seeded_stats() -> dict:
+    """A fresh stats dict with seeded clicks (buys 0) per the seed file."""
+    return {pid: {"buys": 0, "clicks": int(c)} for pid, c in _seed_values().items() if int(c) > 0}
 
 # product_id shape: our own ids (snake_case) + user-requested ids.
 _PRODUCT_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -160,14 +205,17 @@ async def reset_stats(
         with _lock:
             if product_id:
                 data = _read_stats()
-                existed = product_id in data
-                if existed:
+                seed = _seed_values().get(product_id, 0)
+                if seed > 0:
+                    data[product_id] = {"buys": 0, "clicks": int(seed)}
+                elif product_id in data:
                     del data[product_id]
-                    _write_stats(data)
-                return {"reset": "product", "product_id": product_id, "existed": existed}
-            # Reset everything.
-            _write_stats({})
-            return {"reset": "all"}
+                _write_stats(data)
+                return {"reset": "product", "product_id": product_id, "seeded_clicks": int(seed)}
+            # Reset everything → seeded baseline (clicks only; buys zeroed).
+            seeded = _seeded_stats()
+            _write_stats(seeded)
+            return {"reset": "all", "seeded": seeded}
 
     if product_id and not _PRODUCT_ID_RE.match(product_id):
         raise HTTPException(status_code=400, detail="Invalid product_id")
