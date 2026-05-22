@@ -6494,13 +6494,31 @@
         var pT = Math.round((H - pH) / 2 - 5);
         mctx.fillStyle = "rgba(0,0,0,0.4)";
         mctx.fillRect(pL + 4, pT + 4, pW, pH);
-        mctx.fillStyle = "#fff";
-        mctx.fillRect(pL, pT, pW, pH);
-        drawCropped(pL + 5, pT + 5, pW - 10, pH - 10);
         if (productId === "framed_poster") {
-          mctx.strokeStyle = "#333";
-          mctx.lineWidth = 4;
-          mctx.strokeRect(pL, pT, pW, pH);
+          // Frame reflects the selected frame-colour variant (black /
+          // white / wood …) so the swatch choice is visible in the
+          // preview instead of inert. Layout: coloured frame → white
+          // mat → image. Falls back to a neutral dark frame when we
+          // can't resolve a colour.
+          var _fcol = _variantColorOption(variant);
+          var _frameHex = _fcol ? _fcol.hex : "#2a2a2a";
+          var _mat = 7;
+          mctx.fillStyle = _frameHex;
+          mctx.fillRect(pL, pT, pW, pH);
+          // White mat inside the frame.
+          mctx.fillStyle = "#fff";
+          mctx.fillRect(pL + _mat, pT + _mat, pW - 2 * _mat, pH - 2 * _mat);
+          // Image inside the mat.
+          drawCropped(pL + _mat + 4, pT + _mat + 4, pW - 2 * _mat - 8, pH - 2 * _mat - 8);
+          // Hairline so a white/pale frame stays visible on the dark bg.
+          mctx.strokeStyle = "rgba(0,0,0,0.3)";
+          mctx.lineWidth = 1;
+          mctx.strokeRect(pL + 0.5, pT + 0.5, pW - 1, pH - 1);
+        } else {
+          // Matte poster — bare white paper, no frame.
+          mctx.fillStyle = "#fff";
+          mctx.fillRect(pL, pT, pW, pH);
+          drawCropped(pL + 5, pT + 5, pW - 10, pH - 10);
         }
       } else if (productId === "canvas_stretched" || productId === "metal_sign" || productId === "acrylic_print") {
         // Wall art — print rect matches the editor's effective AR (variant
@@ -9681,6 +9699,7 @@
       var listEl = document.getElementById("confirmSelectVariantList");
       var summaryEl = document.getElementById("confirmSelectSummary");
       var swatchesEl = document.getElementById("confirmSelectColorSwatches");
+      var colorLabelEl = document.getElementById("confirmSelectColorLabel");
       var sizeChipsEl = document.getElementById("confirmSelectSizeChips");
       var mockupEl = document.getElementById("confirmSelectMockup");
       var titleEl = document.getElementById("confirmSelectTitle");
@@ -9799,8 +9818,37 @@
         // 2-axis mode — single-axis layouts hide the chips entirely,
         // and re-rendering would re-show the redundant row.
         if (_twoAxis && typeof _renderSizeChips === "function") _renderSizeChips();
+        if (typeof _setColorLabel === "function") _setColorLabel();
         _renderSummary(v);
         _renderMockup(v);
+      }
+      // Human term for what the colour axis actually changes on THIS
+      // product, so the swatches aren't unlabelled squares. Frames /
+      // garments are the common cases; default to a plain "Color".
+      function _colorAxisTerm() {
+        var n = ((product && product.name) || "").toLowerCase();
+        if (/frame/.test(n)) return "Frame color";
+        if (/shirt|tee|hoodie|sweat|tank|crew|garment|apparel/.test(n)) return "Garment color";
+        return "Color";
+      }
+      // Update the swatch-row label to "<term>: <selected colour>" with
+      // a help tooltip clarifying it's the physical product, not the
+      // solar image. Hidden whenever the swatch row is hidden.
+      function _setColorLabel() {
+        if (!colorLabelEl) return;
+        if (!swatchesEl || swatchesEl.classList.contains("hidden")) {
+          colorLabelEl.classList.add("hidden");
+          colorLabelEl.textContent = "";
+          return;
+        }
+        var term = _colorAxisTerm();
+        var v = _variantsList().find(function(x) { return x.id === pendingVariantId; });
+        var c = v && _variantColorOption(v);
+        colorLabelEl.textContent = term + (c && c.name ? ": " + c.name : "");
+        colorLabelEl.title = "Sets the " + term.toLowerCase() +
+          " of the printed product — your solar image stays the same.";
+        if (swatchesEl) swatchesEl.setAttribute("aria-label", term);
+        colorLabelEl.classList.remove("hidden");
       }
       // Build the colour-swatch row: one square per distinct colour
       // across the product's variants. Clicking a swatch jumps to a
@@ -9828,6 +9876,7 @@
           // 1 colour → swatch row is redundant; the variant list is the picker.
           swatchesEl.classList.add("hidden");
           swatchesEl.innerHTML = "";
+          if (typeof _setColorLabel === "function") _setColorLabel();
           return;
         }
         // Resolve the active variant's colour so we can mark a swatch
@@ -9857,6 +9906,7 @@
         });
         swatchesEl.innerHTML = html;
         swatchesEl.classList.remove("hidden");
+        _setColorLabel();
       }
 
       function _onSwatchClick(hex) {
@@ -10053,6 +10103,7 @@
           _renderTiles();
           if (swatchesEl) { swatchesEl.innerHTML = ""; swatchesEl.classList.add("hidden"); }
           if (sizeChipsEl) { sizeChipsEl.innerHTML = ""; sizeChipsEl.classList.add("hidden"); }
+          if (colorLabelEl) { colorLabelEl.classList.add("hidden"); colorLabelEl.textContent = ""; }
         }
       }
       function _refreshAfterPricing() {

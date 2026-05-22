@@ -4109,11 +4109,22 @@ html.embedded .feedback-product-results {
    coloured square with a hover state and a thicker outline when the
    currently-active variant matches that colour. Hidden via .hidden
    when the product's variants don't carry resolvable colours. */
+/* Label naming what the swatch row affects (e.g. "Frame color: White").
+   `cursor:help` + the JS-set title surface the "physical product, not
+   the image" clarification on hover. */
+.confirm-axis-label {
+  margin: 6px 2px 2px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #a8a8c8);
+  cursor: help;
+}
+.confirm-axis-label.hidden { display: none; }
 .confirm-color-swatches {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 8px 0 12px;
+  margin: 4px 0 12px;
   padding: 0 2px;
 }
 .confirm-color-swatches.hidden { display: none; }
