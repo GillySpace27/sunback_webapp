@@ -1030,17 +1030,29 @@ select:focus {
   background-color: #000;
   border-radius: 0;
   overflow: hidden;
-  min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
   /* User-resizable editor (proportional + centered). The corner handle
-     sets --editor-scale (0.4–1, persisted per device); width scales and
-     margin-inline:auto keeps it centered in BOTH the static grid cell
-     and the floating (absolute, left:0/right:0) embed state. At scale=1
-     this is a no-op. */
-  width: calc(100% * var(--editor-scale, 1));
+     sets --editor-scale (0.4–1, persisted per device).
+     `width: fit-content` makes the stage HUG the canvas — no side
+     letterbox — so the handle scales the image directly across its
+     full range instead of first collapsing empty black bars. The
+     scale is applied as a max-width cap (× available width) plus the
+     canvas height cap below; both shrink together so the image scales
+     linearly regardless of which axis is binding. margin-inline:auto
+     centers it in BOTH the static grid cell and the floating
+     (absolute, left:0/right:0) embed state. */
+  width: fit-content;
+  max-width: calc(100% * var(--editor-scale, 1));
   margin-inline: auto;
+}
+/* Empty / loading states have no canvas to hug, so give them a
+   definite box (and the dashed placeholder room). */
+.image-stage.empty,
+.image-stage.loading {
+  width: 100%;
+  min-height: 200px;
 }
 
 /* Resize handle — bottom-right corner grip. Pointer + touch (one
