@@ -2885,13 +2885,26 @@
       btn.addEventListener("click", function() {
         overlay.remove();
       });
-      // Embedded mode: overlay is styled as an inline block (see CSS),
-      // not a viewport-fixed overlay. Scroll the user to it so it
-      // doesn't end up at the top of the iframe coordinate space far
-      // above their current outer-page scroll position.
+      // Embedded mode: a content-sized iframe can't use a fixed overlay
+      // (it wouldn't track the parent's scroll), and scrollIntoView
+      // can't move the parent's scroll either. If the parent has told us
+      // where the visible region falls (_lastVisibleTop, from the same
+      // postMessage protocol the floating canvas + FAB use), pin the box
+      // there so it lands in the user's CURRENT view instead of at the
+      // bottom of the iframe — no scrolling to find it. Falls back to
+      // scrollIntoView when no viewport offset is known yet.
       if (document.documentElement.classList.contains("embedded")) {
-        try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
-        catch (_e) { overlay.scrollIntoView(); }
+        if (typeof _lastVisibleTop === "number" && isFinite(_lastVisibleTop)) {
+          overlay.style.position = "absolute";
+          overlay.style.left = "0";
+          overlay.style.right = "0";
+          overlay.style.top = (_lastVisibleTop + 24) + "px";
+          overlay.style.margin = "0 auto";
+          overlay.style.zIndex = "9995";
+        } else {
+          try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
+          catch (_e) { overlay.scrollIntoView(); }
+        }
       }
     }
 
@@ -3162,47 +3175,54 @@
         .catch(function() {});
     }
 
-    // ── Data credits modal (footer link) ─────────────────────────
-    // Surfaces the full attribution stack — NASA SDO rules-of-the-
-    // road acknowledgement, AIA instrument paper (Lemen 2012), the
-    // RHEF method paper (Gilly 2025), and the Helioviewer Project
-    // credit (only used by the JPG-tier preview path). The footer
-    // already carries the short SDO-team acknowledgement; this
-    // expanded list is for users who want to cite the imagery
-    // properly or verify the data provenance.
-    // Build the data-credits body. `lead` prepends a contextual line
-    // (used by the auto-popup to explain the wait); omit it for the
-    // plain footer-link view.
+    // ── "Behind the image" credits modal ─────────────────────────
+    // Reframed from a dry citation list to a "meet the institutes &
+    // infrastructure working behind the scenes" tour, with every named
+    // body linked to its canonical site (new tab). Surfaced two ways:
+    // the footer "Data credits" link, and an auto-popup the first time
+    // a user enters the editor after selecting a variant (buys time
+    // while the HQ render finishes). `lead` prepends the wait-context
+    // line for the popup; the footer view omits it.
     function _dataCreditsHtml(lead) {
+      function L(url, text) {
+        return '<a href="' + url + '" target="_blank" rel="noopener">' + text + '</a>';
+      }
+      var NASA  = L("https://www.nasa.gov/", "NASA");
+      var SDO   = L("https://sdo.gsfc.nasa.gov/", "Solar Dynamics Observatory (SDO)");
+      var AIA   = L("https://aia.lmsal.com/", "Atmospheric Imaging Assembly (AIA)");
+      var JSOC  = L("http://jsoc.stanford.edu/", "Joint Science Operations Center");
+      var VSO   = L("https://virtualsolar.org/", "Virtual Solar Observatory");
+      var HV    = L("https://www.helioviewer.org/", "Helioviewer Project");
+      var LEMEN = L("https://ui.adsabs.harvard.edu/abs/2012SoPh..275...17L/abstract", "Lemen et al. 2012");
+      var GILLY = L("https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G/abstract", "Gilly et al. 2025");
       return '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
-          (lead ? '<p style="margin-bottom:14px;color:var(--text-secondary);">' + lead + '</p>' : '') +
-          '<p style="margin-bottom:10px;"><strong>Imagery</strong></p>' +
-          '<p style="margin-bottom:10px;">' + CITATIONS.SDO_ACK + '</p>' +
-          '<p style="margin-bottom:14px;color:var(--text-secondary);">Raw, RHEF, and HQ&nbsp;RHEF tiers use AIA FITS frames distributed through the Joint Science Operations Center (JSOC) at Stanford, accessed via the Virtual Solar Observatory (VSO). JPG previews are rendered by the Helioviewer Project.</p>' +
-          '<p style="margin-bottom:6px;"><strong>Instrument</strong></p>' +
-          '<p style="margin-bottom:14px;">' + CITATIONS.AIA_PAPER + '</p>' +
-          '<p style="margin-bottom:6px;"><strong>RHEF method</strong></p>' +
-          '<p style="margin-bottom:14px;">' + CITATIONS.RHEF_PAPER + '</p>' +
-          '<p style="margin-bottom:6px;"><strong>JPG previews</strong></p>' +
-          '<p style="margin-bottom:0;">' + CITATIONS.HELIOVIEWER_ACK + '</p>' +
+          (lead ? '<p style="margin-bottom:14px;">' + lead + '</p>' : '') +
+          '<p style="margin-bottom:6px;"><strong>The Sun, observed</strong></p>' +
+          '<p style="margin-bottom:14px;color:var(--text-secondary);">Your image comes from ' + NASA + "'s " + SDO + ', which carries the ' + AIA + ' — the instrument photographing the Sun around the clock.</p>' +
+          '<p style="margin-bottom:6px;"><strong>From space to your screen</strong></p>' +
+          '<p style="margin-bottom:14px;color:var(--text-secondary);">Full-resolution frames (Raw / RHEF / HQ&nbsp;RHEF) are archived at the ' + JSOC + ' at Stanford and delivered through the ' + VSO + '. Instant previews are rendered by the ' + HV + '.</p>' +
+          '<p style="margin-bottom:6px;"><strong>The science</strong></p>' +
+          '<p style="margin-bottom:14px;color:var(--text-secondary);">Instrument: ' + LEMEN + ' (Sol. Phys. 275, 17). RHEF processing: ' + GILLY + ' (Sol. Phys. 300, 174).</p>' +
+          '<p style="margin-bottom:0;font-size:0.8rem;color:var(--text-dim);">' + CITATIONS.SDO_ACK + ' Not affiliated; no endorsement implied.</p>' +
         '</div>';
     }
     // {html:true}: body is fully developer-authored markup.
     function showDataCredits(title, lead) {
-      showInfo(title || "Data credits", _dataCreditsHtml(lead), { html: true });
+      showInfo(title || "Behind the image", _dataCreditsHtml(lead), { html: true });
     }
-    // Auto-surface the credits the FIRST time HQ generation kicks off in
-    // a session — it doubles as a "click to acknowledge" interstitial
-    // that buys time while the full-res render runs (1–3 min), and puts
-    // the attribution in front of users who'd never open the footer
-    // link. Once-per-session so it doesn't nag on every re-render.
+    // Auto-surface ONCE PER SESSION the first time the user enters the
+    // editor after picking a variant (see the confirm-modal Continue
+    // handler) — by then they've chosen their product, and the HQ
+    // render is finishing in the background, so it reads as "here's
+    // what's working while your image gets ready" rather than an
+    // interruption.
     var _dataCreditsShownThisSession = false;
-    function maybeShowDataCreditsOnHQ() {
+    function maybeShowDataCredits() {
       if (_dataCreditsShownThisSession) return;
       _dataCreditsShownThisSession = true;
       showDataCredits(
-        "Rendering your high-resolution image…",
-        "Your full-resolution solar print is generating now — this usually takes 1–3 minutes. While it renders, here's how to credit the imagery:"
+        "Behind the scenes, while your image renders",
+        "Your high-resolution solar image is being prepared. While you wait, meet the institutes and infrastructure making it possible:"
       );
     }
     (function() {
@@ -3391,11 +3411,6 @@
       }
 
       state.hqFetching = true;
-      // First real HQ render of the session → surface the data-credits
-      // acknowledge dialog (buys time during the 1–3 min render). Only
-      // on the initial attempt + a genuine render (cache hits returned
-      // above), and once per session via the flag inside.
-      if (_attempt === 1 && typeof maybeShowDataCreditsOnHQ === "function") maybeShowDataCreditsOnHQ();
       if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
       if (_attempt === 1) setProgress(10);
       updateFilterStatusLine(
@@ -10327,6 +10342,14 @@
         state.pendingVariantByProduct[product.id] = undefined;
         _close(false);
         if (onContinue) onContinue();
+        // Now that they've picked their product + variant and the editor
+        // is opening (with the HQ render finishing in the background),
+        // surface the "behind the image" credits once per session. Short
+        // delay so the editor lays out + the viewport offset settles
+        // before the popup positions itself in view.
+        if (typeof maybeShowDataCredits === "function") {
+          setTimeout(maybeShowDataCredits, 400);
+        }
       }
       function onListClick(e) {
         var tile = e.target.closest(".confirm-variant-tile");
