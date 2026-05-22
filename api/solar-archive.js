@@ -237,6 +237,7 @@
     //       if (!d || d.source !== "solar-archive" || d.type !== "scrollTo") return;
     //       var f = document.querySelector('iframe[src*="solar-archive.onrender.com"]');
     //       if (!f || typeof d.topInIframe !== "number") return;
+    //       if (typeof d.docHeight === "number" && d.docHeight > 0) f.style.height = d.docHeight + "px";
     //       var iframeTopAbs = f.getBoundingClientRect().top + window.scrollY;
     //       var y = iframeTopAbs + d.topInIframe - _saTopCover() - 12;
     //       if (d.block === "center") y = iframeTopAbs + d.topInIframe - (window.innerHeight - (d.height||0))/2;
@@ -413,6 +414,12 @@
       block = block || "start";
       if (document.documentElement.classList.contains("embedded")) {
         try {
+          // getBoundingClientRect + scrollHeight force a synchronous
+          // reflow, so a just-un-hidden section (e.g. the editor on
+          // "Continue") is already laid out here. We send docHeight with
+          // the request so the parent sets the iframe height BEFORE
+          // scrolling — otherwise it scrolls against a stale (shorter)
+          // iframe box and lands on the wrong section.
           var rect = el.getBoundingClientRect();
           var sy = window.pageYOffset || document.documentElement.scrollTop || 0;
           window.parent.postMessage({
@@ -420,6 +427,7 @@
             type: "scrollTo",
             topInIframe: rect.top + sy,   // element's offset within the iframe document
             height: rect.height,
+            docHeight: document.documentElement.scrollHeight,
             block: block
           }, "*");
           return;
@@ -1629,6 +1637,16 @@
         var product = (typeof PRODUCTS !== "undefined")
           ? PRODUCTS.find(function(p) { return p.id === state.selectedProduct; })
           : null;
+        // For a merged product (mug), "Change variant" should re-open the
+        // colour chooser so the user can switch White↔Black, not the
+        // single-variant modal of whichever colour is active.
+        var _mergedParent = (typeof PRODUCTS !== "undefined") ? PRODUCTS.find(function(pp) {
+          return pp.colorOptions && pp.colorOptions.some(function(c) { return c.productId === state.selectedProduct; });
+        }) : null;
+        if (_mergedParent && typeof showColorChooser === "function") {
+          showColorChooser(_mergedParent);
+          return;
+        }
         if (product && typeof showConfirmSelectModal === "function") {
           // Direct modal entry. onContinue is a no-op — the modal's
           // own logic re-selects the variant and updates the editor.
@@ -8139,6 +8157,15 @@
           var product = PRODUCTS.find(function(p) { return p.id === productId; });
           if (!product) return;
           if (!state.originalImage || !product.blueprintId || !product.printProviderId) return;
+          // Merged product (e.g. mug): the Pick-a-variant button must run
+          // the colour chooser too, not just the card-body click — else
+          // clicking the button skips straight to the single-variant
+          // modal and the White/Black choice never appears.
+          if (product.colorOptions && product.colorOptions.length > 1 &&
+              typeof showColorChooser === "function") {
+            showColorChooser(product);
+            return;
+          }
           // Primary flow: open the variant picker + confirm modal in one step.
           // The inline collapsible pane (toggleVariantPane / renderVariantPanel)
           // is no longer the entry point for selection — it's still rendered
