@@ -3886,6 +3886,84 @@ html.embedded .feedback-modal textarea {
   padding: 20px;
 }
 .confirm-modal.hidden { display: none; }
+
+/* Colour chooser (merged-product, e.g. mug White/Black) ─────────── */
+.color-chooser-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9995;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.color-chooser-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 7, 14, 0.66);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.color-chooser-panel {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  background: #17192a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 24px 22px 22px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  color: #e9eaf5;
+}
+.color-chooser-close {
+  position: absolute;
+  top: 10px; right: 12px;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: transparent;
+  color: #a8a8c8;
+  border: 0; cursor: pointer;
+}
+.color-chooser-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.color-chooser-title { margin: 0 0 4px; font-size: 1.1rem; font-weight: 700; }
+.color-chooser-sub { margin: 0 0 16px; font-size: 0.85rem; color: #a8a8c8; }
+.color-chooser-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.color-chooser-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-deep, #0a0a12);
+  border: 2px solid var(--border, #2a2a44);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.color-chooser-tile:hover,
+.color-chooser-tile:focus-visible { border-color: var(--border-active, #7b61ff); }
+.color-chooser-tile:active { transform: translateY(1px); }
+.color-chooser-preview {
+  width: 120px; height: 120px;
+  display: flex; align-items: center; justify-content: center;
+}
+.color-chooser-preview canvas { max-width: 100%; max-height: 100%; }
+.color-chooser-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.95rem; font-weight: 600; color: #e9eaf5;
+}
+.color-chooser-swatch {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.25);
+  display: inline-block;
+}
 /* Embedded mode (Shopify iframe): inline the variant picker
    instead of overlaying. Same reasoning as the feedback modal —
    `position: fixed` inside a scroll-through iframe can pin the

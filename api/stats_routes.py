@@ -57,8 +57,9 @@ SEED_FILE = _data_dir() / "stats_seed.json"
 # (written automatically the first time seeds are read).
 _DEFAULT_SEED = {
     "wall_clock": 5,
+    # Merged mug: stats canonicalize onto mug_15oz (the visible card), so
+    # only seed that id — the black mug is a hidden colour sibling.
     "mug_15oz": 3,
-    "mug_15oz_black": 3,
     "phone_case": 1,
     "throw_pillow": 1,
     "sherpa_blanket": 1,
@@ -194,15 +195,25 @@ async def whoami(request: Request):
 async def reset_stats(
     request: Request,
     product_id: Optional[str] = Query(default=None),
+    reseed: bool = Query(default=False),
     x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
     key: Optional[str] = Query(default=None),
 ):
     """Reset counters. Admin-key gated (same key as feedback admin).
-    Pass ?product_id=<id> to zero a single product; omit to reset all."""
+    Pass ?product_id=<id> to zero a single product; omit to reset all.
+    Pass ?reseed=true to first rewrite stats_seed.json from the code
+    defaults (e.g. after the seed list changes in a deploy)."""
     _check_admin_key(x_admin_key, key)
 
     def _do_reset():
         with _lock:
+            if reseed:
+                try:
+                    SEED_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with SEED_FILE.open("w", encoding="utf-8") as f:
+                        json.dump(_DEFAULT_SEED, f, ensure_ascii=False, indent=2)
+                except OSError:
+                    pass
             if product_id:
                 data = _read_stats()
                 seed = _seed_values().get(product_id, 0)

@@ -606,8 +606,17 @@
       // NOTE: Printify splits mug color across separate blueprints rather than
       // exposing color as a variant. White lives at BP 425; black lives at BP 1152.
       // Both are listed so the gallery carries both options.
-      { id: "mug_15oz",             name: "Ceramic Mug — 15oz (White)", desc: "Large white ceramic mug, full-wrap print", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front", aspectRatio: { w: 2790, h: 1219 } },
-      { id: "mug_15oz_black",       name: "Ceramic Mug — 15oz (Black)", desc: "Large black ceramic mug, full-wrap print", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 1152, printProviderId: 28,  variantId: 88132, position: "front", aspectRatio: { w: 2448, h: 1266 } },
+      { id: "mug_15oz",             name: "Ceramic Mug — 15oz", desc: "Large ceramic mug, full-wrap print — white or black", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front", aspectRatio: { w: 2790, h: 1219 },
+        // Merged mug: this visible card is the White mug; Black is a hidden
+        // sibling (different Printify blueprint + print geometry) reached via
+        // the color chooser. Selecting a colour commits the real child
+        // product, so the editor/checkout run unchanged. Stats for both
+        // colours canonicalize onto this id (see _canonicalStatId).
+        colorOptions: [
+          { label: "White", productId: "mug_15oz",       hex: "#f2f2f2" },
+          { label: "Black", productId: "mug_15oz_black", hex: "#1c1c1c" }
+        ] },
+      { id: "mug_15oz_black",       name: "Ceramic Mug — 15oz (Black)", desc: "Large black ceramic mug, full-wrap print", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 1152, printProviderId: 28,  variantId: 88132, position: "front", aspectRatio: { w: 2448, h: 1266 }, _hiddenFromGrid: true },
       // Tumbler print panel is 2795×2100 (~4:3 landscape), not the rolled-out
       // 2:1 we used to advertise. The mug-15oz-white panel is closer to 2:1
       // (genuine full-wrap) but the tumbler's panel reflects a single-side
@@ -1178,6 +1187,13 @@
         var btn = card.querySelector(".product-select-btn");
         if (btn && btn.disabled) return;
         if (!state.originalImage || !product.blueprintId || !product.printProviderId) return;
+        // Merged product (e.g. mug): pick a colour first, which resolves to
+        // the real child product, then run the normal commit/editor flow.
+        if (product.colorOptions && product.colorOptions.length > 1 &&
+            typeof showColorChooser === "function") {
+          showColorChooser(product);
+          return;
+        }
         showConfirmSelectModal(product, function() { commitProductSelection(product); });
       }
       gridEl.addEventListener("click", function(e) {
@@ -7751,6 +7767,22 @@
     // productStats being undefined — otherwise the first render throws a
     // TypeError and aborts the whole script.
     var productStats = {};
+    // Merged-product stat canonicalization: a colour-sibling child id
+    // (e.g. the black mug) maps onto the visible card's id (the white
+    // mug) so both colours' clicks/buys aggregate under one honest
+    // badge. Built from PRODUCTS colorOptions.
+    var _statIdMap = (function() {
+      var m = {};
+      PRODUCTS.forEach(function(p) {
+        if (p.colorOptions) {
+          p.colorOptions.forEach(function(c) {
+            if (c.productId && c.productId !== p.id) m[c.productId] = p.id;
+          });
+        }
+      });
+      return m;
+    })();
+    function _canonicalStatId(pid) { return _statIdMap[pid] || pid; }
     // Whether THIS viewer's IP is on the server exclusion list (from
     // /api/stats). Set async; defaults false.
     var _viewerIpExcluded = false;
@@ -7813,17 +7845,20 @@
       if (!productId) return;
       if (_statsOptedOut()) return;  // operator device — don't count
       if (!productStats) productStats = {};
+      // Canonicalize merged-product children (e.g. black mug → white-mug
+      // card id) so both colours aggregate under one badge.
+      var canonId = _canonicalStatId(productId);
       // Optimistic local bump so the next grid render reflects it even
       // before the server round-trips.
-      var s = productStats[productId] || { buys: 0, clicks: 0 };
+      var s = productStats[canonId] || { buys: 0, clicks: 0 };
       if (kind === "buy") s.buys = (s.buys || 0) + 1;
       else s.clicks = (s.clicks || 0) + 1;
-      productStats[productId] = s;
+      productStats[canonId] = s;
       try {
         fetch(API_BASE + "/api/stats/event", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ product_id: productId, kind: kind }),
+          body: JSON.stringify({ product_id: canonId, kind: kind }),
           keepalive: true  // a "buy" fires right before navigation — keepalive still sends it
         }).catch(function() {});
       } catch (_e) {}
@@ -7854,6 +7889,9 @@
       // the grid surfaces the most-wanted products first. Per-product
       // routing to the user-requested grid below is unchanged.
       _productsByPopularity().forEach(function(p) {
+        // Hidden siblings (e.g. the black mug, reached via the merged
+        // mug card's colour chooser) never render as their own card.
+        if (p._hiddenFromGrid) return;
         var card = document.createElement("div");
         var hasMockup = state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0;
         var statusDot = hasMockup
@@ -9853,6 +9891,96 @@
     // solar preview loads, ensuring cards only populate after the user picks a date.
 
     // ── Pre-editor variant picker + confirmation modal ────────────
+    // Colour chooser for a merged product (e.g. the mug, whose White/Black
+    // colours are separate Printify blueprints). Shows one tile per colour
+    // with a live mockup of that colour; picking one resolves to the real
+    // child product and runs the normal commit→editor flow. Built
+    // dynamically so it doesn't touch the markup. Gated to open only when
+    // an image is loaded (so the mockups render).
+    function showColorChooser(product) {
+      var opts = (product.colorOptions || []).filter(function(o) {
+        return o && o.productId && PRODUCTS.some(function(p) { return p.id === o.productId; });
+      });
+      if (opts.length < 2) {
+        showConfirmSelectModal(product, function() { commitProductSelection(product); });
+        return;
+      }
+      var prevFocus = document.activeElement;
+      var overlay = document.createElement("div");
+      overlay.className = "color-chooser-modal";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", "Choose a colour for " + product.name);
+
+      var backdrop = document.createElement("div");
+      backdrop.className = "color-chooser-backdrop";
+      overlay.appendChild(backdrop);
+
+      var panel = document.createElement("div");
+      panel.className = "color-chooser-panel";
+      panel.innerHTML =
+        '<button class="color-chooser-close" type="button" aria-label="Close">&#x2715;</button>' +
+        '<h2 class="color-chooser-title">' + escapeHtmlSimple(product.name) + '</h2>' +
+        '<p class="color-chooser-sub">Choose a colour — then customize on the next screen.</p>' +
+        '<div class="color-chooser-grid"></div>';
+      overlay.appendChild(panel);
+      document.body.appendChild(overlay);
+
+      var grid = panel.querySelector(".color-chooser-grid");
+      opts.forEach(function(opt) {
+        var child = PRODUCTS.find(function(p) { return p.id === opt.productId; });
+        if (!child) return;
+        var tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "color-chooser-tile";
+        tile.setAttribute("aria-label", opt.label + " " + product.name);
+        // Live mockup of this colour.
+        var prev = document.createElement("div");
+        prev.className = "color-chooser-preview";
+        try {
+          if (state.originalImage && typeof drawProductMockup === "function" && solarCanvas && solarCanvas.width > 0) {
+            var cv = document.createElement("canvas");
+            cv.width = 240; cv.height = 240;
+            var mctx = cv.getContext("2d"); mctx.scale(2, 2);
+            var variant = (typeof getSelectedVariantForProduct === "function") ? getSelectedVariantForProduct(child.id) : null;
+            drawProductMockup(mctx, child.id, solarCanvas.width, solarCanvas.height, variant);
+            prev.appendChild(cv);
+          }
+        } catch (_e) {}
+        var sw = document.createElement("span");
+        sw.className = "color-chooser-swatch";
+        sw.style.background = opt.hex || "#888";
+        var lbl = document.createElement("span");
+        lbl.className = "color-chooser-label";
+        lbl.appendChild(sw);
+        lbl.appendChild(document.createTextNode(" " + opt.label));
+        tile.appendChild(prev);
+        tile.appendChild(lbl);
+        tile.addEventListener("click", function() {
+          close();
+          // Resolve to the real child product and run the standard flow.
+          if (state.selectedVariantByProduct[child.id] == null && child.variantId != null) {
+            state.selectedVariantByProduct[child.id] = child.variantId;
+          }
+          commitProductSelection(child);
+        });
+        grid.appendChild(tile);
+      });
+
+      function close() {
+        document.removeEventListener("keydown", onKey);
+        if (release) { release(); release = null; }
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (_e) {}
+      }
+      function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+      backdrop.addEventListener("click", close);
+      panel.querySelector(".color-chooser-close").addEventListener("click", close);
+      document.addEventListener("keydown", onKey);
+      var release = (typeof installModalFocusTrap === "function")
+        ? installModalFocusTrap(overlay, { onEscape: close }) : null;
+    }
+
     // Single-step variant selection: clicking "Pick a variant" on a product
     // card opens this modal with a scrollable list of variants, a live mockup
     // preview, and a Continue button. Tapping a variant updates the mockup
