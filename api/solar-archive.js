@@ -7758,8 +7758,31 @@
       badge.title = "buys | clicks";
       parentEl.appendChild(badge);
     }
+    // Operator opt-out: a browser/device flagged via ?operator=1 never
+    // fires stat events, so the operator's own clicks don't skew the
+    // counts. localStorage is keyed by origin, so setting it on the
+    // standalone site also applies inside the same-origin Shopify
+    // iframe. ?operator=0 turns counting back on.
+    function _statsOptedOut() {
+      try { return localStorage.getItem("sa_stats_optout") === "1"; }
+      catch (_e) { return false; }
+    }
+    (function _applyOperatorFlag() {
+      try {
+        var m = /[?&]operator=([01])/.exec(window.location.search);
+        if (!m) return;
+        if (m[1] === "1") {
+          localStorage.setItem("sa_stats_optout", "1");
+          if (typeof showToast === "function") showToast("Operator mode: your activity won't count toward product stats.", "success");
+        } else {
+          localStorage.removeItem("sa_stats_optout");
+          if (typeof showToast === "function") showToast("Operator mode off: your activity counts again.");
+        }
+      } catch (_e) {}
+    })();
     function recordStatEvent(productId, kind) {
       if (!productId) return;
+      if (_statsOptedOut()) return;  // operator device — don't count
       if (!productStats) productStats = {};
       // Optimistic local bump so the next grid render reflects it even
       // before the server round-trips.
