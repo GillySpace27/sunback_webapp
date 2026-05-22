@@ -3142,6 +3142,22 @@ html.embedded .modal-box {
    inline with the rest of the editor and the user scrolls the
    outer page linearly. JS adds .embedded to <html> when it
    detects window.self !== window.top. */
+/* Sticky-nav scroll offset (embed): the app's scrollIntoView calls would
+   otherwise land the target at the parent viewport's top — under the
+   storefront's fixed nav — and the cross-origin iframe can't move the
+   parent's scroll to correct it. scroll-margin-top reserves the nav's
+   height above each scroll target. --sa-scroll-offset defaults to a
+   typical nav height and is refined to the exact parent-reported value
+   (topCoverPx) by the message handler. Standalone is unaffected (scoped
+   to html.embedded). */
+html.embedded .section,
+html.embedded #wlGrid,
+html.embedded #productSection,
+html.embedded #editSection,
+html.embedded .image-stage {
+  scroll-margin-top: var(--sa-scroll-offset, 90px);
+}
+
 html.embedded .editor-with-preview {
   /* Single-column grid in embedded mode (same shape as mobile),
      and drop every sticky so the iframe scrolls linearly through
