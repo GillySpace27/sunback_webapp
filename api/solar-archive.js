@@ -7736,6 +7736,19 @@
     // productStats being undefined — otherwise the first render throws a
     // TypeError and aborts the whole script.
     var productStats = {};
+    // Whether THIS viewer's IP is on the server exclusion list (from
+    // /api/stats). Set async; defaults false.
+    var _viewerIpExcluded = false;
+    // The popularity badge is an internal/operator tool, not customer-
+    // facing social proof (early zero/low counts read as "unpopular",
+    // and exposing non-converting clicks hurts conversion). Show it only
+    // to the operator (opt-out flag OR excluded IP) or while BETA_MODE is
+    // on. The popularity SORT stays on for everyone — it surfaces popular
+    // items without exposing numbers.
+    function _canSeeStatsBadge() {
+      return (typeof BETA_MODE !== "undefined" && BETA_MODE) ||
+             _statsOptedOut() || _viewerIpExcluded;
+    }
     function _statShown(pid) {
       var s = (productStats && productStats[pid]) || {};
       var buys = s.buys || 0, clicks = s.clicks || 0;
@@ -7750,6 +7763,7 @@
       });
     }
     function _addStatsBadge(parentEl, prod) {
+      if (!_canSeeStatsBadge()) return;  // operator/beta only
       if (!parentEl || parentEl.querySelector(".product-stats-badge")) return;
       var s = _statShown(prod.id);
       var badge = document.createElement("span");
@@ -7804,6 +7818,7 @@
         .then(function(r) { return r.json(); })
         .then(function(d) {
           if (d && d.stats) productStats = d.stats;
+          if (d && typeof d.viewer_excluded !== "undefined") _viewerIpExcluded = !!d.viewer_excluded;
           if (typeof renderProducts === "function") renderProducts();
         })
         .catch(function() {});
@@ -9491,6 +9506,9 @@
           // Re-sync the buy button now that we know the mode.
           if (typeof updateBuyButtonState === "function") updateBuyButtonState();
           if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+          // Re-render so the operator/beta-only popularity badge appears
+          // now that BETA_MODE is known.
+          if (typeof renderProducts === "function") renderProducts();
         }
       })
       .catch(function() { /* keep default */ });
