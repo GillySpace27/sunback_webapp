@@ -8294,6 +8294,15 @@
         if (clockTabBtn && !clockTabBtn.classList.contains("active")) clockTabBtn.click();
       }
       _scrollToEl(editSection, "start");
+      // Surface the "behind the image" data-credits once per session, the
+      // moment the user lands in the editor — every entry path (confirm
+      // modal, mug colour chooser, etc.) routes through here. The delay
+      // lets the scroll settle + _lastVisibleTop update so showInfo pins
+      // the modal into the user's current view (embed) rather than at a
+      // stale offset.
+      if (typeof maybeShowDataCredits === "function") {
+        setTimeout(maybeShowDataCredits, 650);
+      }
     }
 
     // ── Reusable modal focus trap ────────────────────────────────
@@ -10566,14 +10575,9 @@
         state.pendingVariantByProduct[product.id] = undefined;
         _close(false);
         if (onContinue) onContinue();
-        // Now that they've picked their product + variant and the editor
-        // is opening (with the HQ render finishing in the background),
-        // surface the "behind the image" credits once per session. Short
-        // delay so the editor lays out + the viewport offset settles
-        // before the popup positions itself in view.
-        if (typeof maybeShowDataCredits === "function") {
-          setTimeout(maybeShowDataCredits, 400);
-        }
+        // (Data-credits popup now fires from commitProductSelection — the
+        // single editor-entry chokepoint — so it covers the mug colour
+        // chooser path too. No need to trigger it here.)
       }
       function onListClick(e) {
         var tile = e.target.closest(".confirm-variant-tile");
