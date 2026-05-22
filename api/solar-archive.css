@@ -1718,6 +1718,27 @@ input[type="range"]::-moz-range-thumb {
    without reading each name — this is the same fa-icon that renders pre-load,
    shrunk to a corner badge. The backdrop is semi-opaque for legibility on
    both light-product and dark-product mockups. */
+/* Faint popularity counter, caddy-corner (bottom-right) from the type
+   icon. Shows "buys | clicks-that-didn't-convert"; tooltip "buys |
+   clicks". The grid sorts by these same numbers. */
+.product-preview .product-stats-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(10, 12, 22, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+  cursor: help;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 2;
+}
 .product-preview .product-icon-badge {
   position: absolute;
   top: 8px;
