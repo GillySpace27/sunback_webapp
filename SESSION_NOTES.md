@@ -1,5 +1,82 @@
 # Session continuity notes (post-compression breadcrumb)
 
+## ▶ NEXT SESSION — EXECUTE THIS (plan locked 2026-05-22)
+
+Two pre-render/cache features, then HEK. **Decisions already made:**
+warm via an **admin endpoint I hit once** (result persists on the
+`/var/data` disk); **delete the draft Printify products after caching**
+their mockups; build order **A → B → HEK**.
+
+Default moment is fixed: **AR 2192, 2014-10-24, 193 Å** (chosen over
+the 2017-09-06 X9.3, which oversaturates). Landing already defaults to
+this date + auto-loads the 193 JPG preview (commit shipped 2026-05-22).
+
+### Phase A — cache the default HQ RHEF (quick win)
+Goal: a user who keeps the default date gets full HQ instantly, no
+1–3 min wait.
+1. **Persistent path**: HQ/preview images currently save to `OUTPUT_DIR`
+   which defaults to `/tmp` (EPHEMERAL — wiped every deploy). Add a
+   persistent location on the disk, e.g. `DEFAULT_CACHE_DIR =
+   FEEDBACK_DATA_DIR-style /var/data/default_cache` (reuse the same env
+   pattern as `feedback_routes._data_dir()`), and a static mount/route
+   to serve it.
+2. **Warm-up**: admin-gated route `POST /api/admin/warm_default`
+   (reuse `FEEDBACK_ADMIN_KEY` + `X-Admin-Key`, constant-time check).
+   If the default HQ PNG isn't on disk, run the existing HQ-RHEF
+   pipeline for 2014-10-24 / 193, write the PNG to the persistent dir.
+   Idempotent (skip if present). Returns status JSON. I trigger it once
+   post-deploy; it persists across future deploys (disk).
+3. **Frontend**: on landing, if the cached default HQ exists, load it
+   into the editor/canvas (so product mockups + editor use HQ from the
+   start) instead of / after the JPG preview. Probe a known URL (e.g.
+   `/asset/default/hq_193_20141024.png`) — 200 → use it; 404 → fall
+   back to the current JPG-preview path.
+
+### Phase B — pre-rendered REAL Printify mockups for the default (wow factor)
+Goal: product tiles show photorealistic ACTUAL-product mockups on
+landing instead of the JS canvas approximations. (Reverts to canvas
+mockups once the user picks their own date — pre-renders are
+default-image only.)
+1. Upload the default HQ to Printify once (reuse the upload path in
+   `printify_routes.upload_image`'s underlying call, NOT the gated HTTP
+   route — call the Printify API directly server-side to bypass the
+   origin/rate-limit/BETA_MODE gates, which are for public callers).
+2. For each product in `PRODUCTS` (~24): create a **draft** product
+   with the default image on one representative variant (the product's
+   default `variantId`). Printify returns mockup `images` on create.
+3. Download the primary mockup image for each → write to the persistent
+   dir (`/var/data/default_cache/mockups/<product_id>.png`). Record a
+   manifest `default_mockups.json` mapping product_id → cached path/URL.
+4. **Delete the draft products** from Printify after caching (Gilly
+   OK'd destructive deletes here): `DELETE /v1/shops/{shop}/products/
+   {id}.json`. Keep nothing lingering.
+5. Fold into the same `POST /api/admin/warm_default` route (Phase A + B
+   in one warm-up). Idempotent: skip products already cached.
+6. **Frontend**: in `renderProducts` (the L8088 mockup-canvas block),
+   when showing the DEFAULT image and a cached real mockup exists for
+   the product, render an `<img>` of the cached mockup instead of the
+   canvas draw. Once the user loads their own image, use the existing
+   canvas path. Gate on a "still showing default" flag.
+
+GOTCHAS / RISKS:
+- The HQ pipeline + 24 Printify product-creates is heavy + slow → make
+  the warm endpoint stream progress or run async + report; don't block
+  a single request for minutes. Consider a task-id + poll like the HQ
+  flow already uses.
+- Printify rate limits on 24 rapid creates+deletes — add small spacing.
+- Don't route the warm-up through the public gated `/api/printify/*`
+  endpoints (BETA_MODE refuses them). Call the Printify API directly
+  from the server-side warm routine.
+- Representative variant per product: use `product.variantId`; verify
+  it maps to a valid blueprint/provider variant for mockup gen.
+
+### Then — HEK "best time of day" (already queued, see vault solar-archive.md)
+Backend endpoint querying SunPy HEK for a date; rank **CMEs /
+prominences ABOVE flares** (flares oversaturate in 193); report the
+chosen event on the wavelength pane w/ tooltips; quiet-day → noon.
+
+---
+
 **Date snapshot:** 2026-05-17. Latest commit `0a1daf4` ships the
 wavelength-tile divs→buttons conversion (Cole P0 motor-AT). Round 2
 security + safe batch + wavelength tiles all live on Render.
