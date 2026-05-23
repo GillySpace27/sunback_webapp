@@ -298,6 +298,52 @@ OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
 PREVIEW_DIR = os.path.join(OUTPUT_DIR, "preview")
 os.makedirs(PREVIEW_DIR, exist_ok=True)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Persistent default-image cache (survives deploys; lives on the Render disk)
+# ──────────────────────────────────────────────────────────────────────────────
+# OUTPUT_DIR above is ephemeral (/tmp on Render). For the FIXED default landing
+# image (AR 2192 / 2014-10-24 / 193 Å) we want the HQ-RHEF render to persist
+# across deploys, so visitors who keep the default never wait for the 1–3 min
+# pipeline. Same env contract as the feedback persistence: FEEDBACK_DATA_DIR
+# points at /var/data on Render. We tuck the default cache under there.
+def _persistent_data_dir():
+    raw = os.getenv("FEEDBACK_DATA_DIR", "").strip()
+    d = Path(raw) if raw else Path(__file__).resolve().parent.parent
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        d = Path(__file__).resolve().parent.parent
+    return d
+DEFAULT_CACHE_DIR = _persistent_data_dir() / "default_cache"
+try:
+    DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+
+# The default landing image — kept as named constants so the warm endpoint and
+# the do_generate_sync self-restore agree on the tuple. Change BOTH if the
+# default moment ever changes.
+DEFAULT_LANDING_DATE = "2014-10-24"  # AR 2192, largest sunspot in 24 years
+DEFAULT_LANDING_WAVELENGTH = 193
+DEFAULT_LANDING_MISSION = "SDO"
+DEFAULT_LANDING_DETECTOR = "AIA"
+# Filename pattern that do_generate_sync uses for HQ outputs:
+#   hq_{mission}_{wavelength}_{YYYYMMDD}.png
+DEFAULT_HQ_FILENAME = f"hq_{DEFAULT_LANDING_MISSION}_{DEFAULT_LANDING_WAVELENGTH}_{DEFAULT_LANDING_DATE.replace('-', '')}.png"
+
+def _is_default_tuple(date, wavelength, mission, detector):
+    """Does this HQ render request match the fixed landing default?"""
+    try:
+        ds = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)[:10]
+    except Exception:
+        ds = ""
+    return (
+        ds == DEFAULT_LANDING_DATE
+        and int(wavelength) == DEFAULT_LANDING_WAVELENGTH
+        and str(mission).upper() == DEFAULT_LANDING_MISSION
+        and str(detector).upper() == DEFAULT_LANDING_DETECTOR
+    )
+
 if os.getenv("RENDER"):
     os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com/"
 else:
@@ -1181,6 +1227,23 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
         log_to_queue(f"[do_generate_sync] PNG already exists, using cached: {out_path}")
         return url_path
+    # Persistent-cache self-restore for the FIXED default landing image —
+    # OUTPUT_DIR is ephemeral (/tmp on Render) so a fresh deploy would
+    # otherwise re-run the 1–3 min HQ pipeline for the default tuple. If
+    # we previously wrote it to the persistent disk (DEFAULT_CACHE_DIR),
+    # restore from there instead. Cheap, idempotent, only kicks in for
+    # the default — user-picked dates regenerate as before.
+    if _is_default_tuple(date, wavelength, mission, detector):
+        persistent_default = DEFAULT_CACHE_DIR / out_name
+        if persistent_default.exists() and persistent_default.stat().st_size > 1000:
+            try:
+                import shutil
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                shutil.copy2(str(persistent_default), out_path)
+                log_to_queue(f"[do_generate_sync] Restored default HQ from persistent cache: {out_path}")
+                return url_path
+            except Exception as e:
+                log_to_queue(f"[do_generate_sync][warn] Persistent default restore failed: {e}")
     # Fetch and process HQ map
     log_to_queue(f"[do_generate_sync] Generating HQ PNG: {out_path}")
     smap = fido_fetch_map(date, mission, wavelength, detector)
@@ -1215,6 +1278,17 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
             break
         time.sleep(0.05)
     log_to_queue(f"[do_generate_sync] HQ PNG written: {out_path}")
+    # Write-through to the persistent default cache so the next deploy
+    # (after /tmp wipes) self-restores instead of regenerating. Only the
+    # FIXED default tuple — user-picked dates stay ephemeral.
+    if _is_default_tuple(date, wavelength, mission, detector):
+        try:
+            import shutil
+            DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(out_path, str(DEFAULT_CACHE_DIR / out_name))
+            log_to_queue(f"[do_generate_sync] Default HQ written through to persistent cache")
+        except Exception as e:
+            log_to_queue(f"[do_generate_sync][warn] Persistent write-through failed: {e}")
     return url_path
 
 @app.post("/api/generate")
@@ -1254,6 +1328,109 @@ async def get_status(task_id: str):
     with status_lock:
         task_status = tasks.get(task_id, {"status": "unknown", "message": "No such task"})
     return JSONResponse(content=task_status)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Admin: warm the persistent default-image caches
+# ──────────────────────────────────────────────────────────────────────────────
+# Phase A: pre-render the HQ-RHEF for the FIXED default landing tuple
+# (AR 2192 / 2014-10-24 / 193 Å) so a visitor who keeps the default never
+# waits for the 1–3 min HQ pipeline. Result lands on /var/data via
+# do_generate_sync's write-through (already wired above). Idempotent — if
+# the persistent file already exists, returns immediately. (Phase B will
+# extend this endpoint to also pre-render real Printify mockups.)
+#
+# Gated by FEEDBACK_ADMIN_KEY (X-Admin-Key header — same key + same
+# constant-time compare contract as the feedback admin endpoint). Trigger
+# once post-deploy:
+#   source ~/.claude/secrets/solar-archive.env
+#   curl -X POST -H "X-Admin-Key: $FEEDBACK_ADMIN_KEY" \
+#     https://solar-archive.onrender.com/api/admin/warm_default
+import hmac as _hmac
+
+def _check_warm_admin_key(provided: Optional[str]) -> None:
+    expected = os.getenv("FEEDBACK_ADMIN_KEY", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Admin access disabled — set FEEDBACK_ADMIN_KEY to enable.")
+    if not provided or not _hmac.compare_digest(provided.strip(), expected):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+
+@app.post("/api/admin/warm_default")
+async def warm_default(request: Request):
+    """Pre-render + cache the default-landing assets on the persistent disk.
+
+    Currently warms Phase A only: the HQ-RHEF for the fixed default tuple
+    (DEFAULT_LANDING_*). Idempotent: returns {ok, cached:true} if the
+    persistent PNG already exists; otherwise runs the HQ pipeline (1–3 min
+    cold) and writes it through to DEFAULT_CACHE_DIR so it survives deploys.
+
+    The actual generation is offloaded to a thread so we don't block the
+    asyncio loop for minutes. The HTTP request still waits for completion
+    (no task-id polling yet) — for an admin operation triggered once per
+    deploy, the few-minute wait is acceptable and gives a definitive
+    success/failure response.
+    """
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
+
+    persistent_default = DEFAULT_CACHE_DIR / DEFAULT_HQ_FILENAME
+    out_path_in_output = os.path.join(OUTPUT_DIR, DEFAULT_HQ_FILENAME)
+    served_url = f"/asset/{DEFAULT_HQ_FILENAME}"
+
+    # Fast path: already on the persistent disk → ensure it's also in
+    # OUTPUT_DIR so /asset/ serves it without re-running the pipeline.
+    if persistent_default.exists() and persistent_default.stat().st_size > 1000:
+        if not os.path.exists(out_path_in_output) or os.path.getsize(out_path_in_output) <= 1000:
+            try:
+                import shutil
+                os.makedirs(os.path.dirname(out_path_in_output), exist_ok=True)
+                shutil.copy2(str(persistent_default), out_path_in_output)
+            except Exception as e:
+                _log = print
+                _log(f"[warm_default] OUTPUT_DIR sync failed: {e}", flush=True)
+        return {
+            "ok": True,
+            "cached": True,
+            "url": served_url,
+            "persistent_path": str(persistent_default),
+            "size_bytes": persistent_default.stat().st_size,
+            "phase": "A",
+        }
+
+    # Cold path: run the HQ pipeline for the default tuple. do_generate_sync
+    # is the same code path the public HQ task uses; we just call it
+    # directly in a thread (no Printify, no auth — purely server-side
+    # asset generation). On success it writes through to the persistent
+    # cache (see the write-through block in do_generate_sync).
+    try:
+        dt = datetime.strptime(DEFAULT_LANDING_DATE, "%Y-%m-%d").replace(hour=12, minute=0)
+        png_url = await asyncio.to_thread(
+            do_generate_sync, dt,
+            DEFAULT_LANDING_WAVELENGTH,
+            DEFAULT_LANDING_MISSION,
+            DEFAULT_LANDING_DETECTOR,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Warm-default generation failed: {e}")
+
+    # Re-check the persistent disk after generation — write-through should
+    # have copied it; if not, raise rather than report a false success.
+    if not (persistent_default.exists() and persistent_default.stat().st_size > 1000):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Generation completed but write-through to persistent cache failed. "
+                "Check do_generate_sync's write-through block and DEFAULT_CACHE_DIR permissions."
+            ),
+        )
+    return {
+        "ok": True,
+        "cached": False,
+        "url": png_url,
+        "persistent_path": str(persistent_default),
+        "size_bytes": persistent_default.stat().st_size,
+        "phase": "A",
+    }
 
 
 
