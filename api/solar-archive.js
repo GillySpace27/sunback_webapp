@@ -806,7 +806,13 @@
       { id: "acrylic_print",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front", aspectRatio: { w: 2250, h: 1650 } },
       { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 } },
       { id: "framed_poster",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $29.99", checkoutPrice: 2999, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front", aspectRatio: { w: 11, h: 14 } },
-      { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 } },
+      { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 },
+        // Two color axes: base (auto-detected via _variantColorOption,
+        // shown in the primary swatch row) + hands (declared here as an
+        // extra axis). The modal renders one swatch row per axis and
+        // composes the selection so 3 bases × 2 hands = 6 variants
+        // become two compact selectors instead of a 6-tile list.
+        colorAxes: [ { key: "hands", label: "Hand color", keyPattern: "^hands?$" } ] },
       { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front", aspectRatio: { w: 4350, h: 5850 } },
       // ── Drinkware ──
       // NOTE: Printify splits mug color across separate blueprints rather than
@@ -10571,6 +10577,9 @@
         // and re-rendering would re-show the redundant row.
         if (_twoAxis && typeof _renderSizeChips === "function") _renderSizeChips();
         if (typeof _setColorLabel === "function") _setColorLabel();
+        // Refresh any extra colour-axis rows (e.g. wall-clock hands) so
+        // the active swatch + the "<Label>: <value>" header update.
+        if (product.colorAxes && typeof _renderAllExtraAxes === "function") _renderAllExtraAxes();
         _renderSummary(v);
         _renderMockup(v);
       }
@@ -10674,7 +10683,139 @@
         var pick = currentSize
           ? pool.find(function(v) { return _variantSize(v) === currentSize; }) || pool[0]
           : pool[0];
+        // Also preserve any extra colour axes (e.g. wall-clock hands)
+        // when switching the primary colour.
+        if (product.colorAxes && product.colorAxes.length) {
+          var preserved = pool.filter(function(v) {
+            return (product.colorAxes || []).every(function(ax) {
+              var cur = _variantAxisValue(current, ax);
+              if (cur == null) return true;
+              return _variantAxisValue(v, ax) === cur;
+            });
+          });
+          if (preserved.length) pick = preserved[0];
+        }
         _selectInModal(pick.id);
+      }
+
+      // ── Extra colour axes (e.g. wall-clock hands) ─────────────────
+      // Read variant.options[<matching key>] case-insensitively. Each
+      // axis declares a string regex (axisDef.keyPattern) to match
+      // catalog key variations like "Hands" / "hand".
+      function _variantAxisValue(v, axisDef) {
+        if (!v || !v.options || !axisDef) return null;
+        var re = new RegExp(axisDef.keyPattern || ("^" + axisDef.key + "$"), "i");
+        var keys = Object.keys(v.options);
+        for (var i = 0; i < keys.length; i++) {
+          if (re.test(keys[i])) {
+            var val = v.options[keys[i]];
+            return (val == null || val === "") ? null : String(val);
+          }
+        }
+        return null;
+      }
+
+      // Build a swatch row for an extra colour axis. Returns the
+      // container element (a div appended after the primary swatches).
+      // Reuses .confirm-color-swatch styling so it matches visually.
+      function _ensureExtraAxesEl() {
+        var el = document.getElementById("confirmSelectExtraAxes");
+        if (!el && swatchesEl && swatchesEl.parentNode) {
+          el = document.createElement("div");
+          el.id = "confirmSelectExtraAxes";
+          el.className = "confirm-extra-axes";
+          swatchesEl.parentNode.insertBefore(el, swatchesEl.nextSibling);
+        }
+        return el;
+      }
+      function _renderExtraAxisSwatches(axisDef) {
+        var container = _ensureExtraAxesEl();
+        if (!container) return;
+        var variants = _variantsList();
+        // Bucket variants by this axis's value.
+        var ordered = [];
+        var bucketsByVal = {};
+        variants.forEach(function(v) {
+          var val = _variantAxisValue(v, axisDef);
+          if (!val) return;
+          if (!bucketsByVal[val]) {
+            bucketsByVal[val] = { variants: [], hex: _hexForColorName(val) || "#888" };
+            ordered.push(val);
+          }
+          bucketsByVal[val].variants.push(v);
+        });
+        if (ordered.length < 2) return; // nothing meaningful to pick
+
+        var activeV = variants.find(function(v) { return v.id === pendingVariantId; });
+        var activeVal = _variantAxisValue(activeV, axisDef);
+        var label = axisDef.label || axisDef.key;
+
+        var html = '<div class="confirm-axis-label" title="' +
+          escapeHtmlSimple("Sets the " + label.toLowerCase() + " of the printed product — your solar image stays the same.") +
+          '">' + escapeHtmlSimple(label) + (activeVal ? ": " + escapeHtmlSimple(activeVal) : "") + '</div>' +
+          '<div class="confirm-color-swatches" role="listbox" aria-label="' + escapeHtmlSimple(label) + '" data-axis-key="' + escapeHtmlSimple(axisDef.key) + '">';
+        ordered.forEach(function(val) {
+          var hex = bucketsByVal[val].hex;
+          var isActive = (val === activeVal) ? " active" : "";
+          var tone = (function(h) {
+            var r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
+            return ((0.2126*r + 0.7152*g + 0.0722*b)/255 < 0.28) ? "dark" : "light";
+          })(hex);
+          html += '<button type="button" role="option" class="confirm-color-swatch' + isActive + '"' +
+                  ' data-axis-value="' + escapeHtmlSimple(val) + '"' +
+                  ' data-tone="' + tone + '"' +
+                  ' title="' + escapeHtmlSimple(val + " (" + bucketsByVal[val].variants.length + ")") + '"' +
+                  ' style="background:' + hex + ';"></button>';
+        });
+        html += '</div>';
+        // Append/replace this axis's block inside the container.
+        var blockId = "confirmSelectAxis_" + axisDef.key;
+        var existing = document.getElementById(blockId);
+        var wrap = document.createElement("div");
+        wrap.id = blockId;
+        wrap.innerHTML = html;
+        if (existing) existing.replaceWith(wrap);
+        else container.appendChild(wrap);
+      }
+      function _renderAllExtraAxes() {
+        if (!product.colorAxes || !product.colorAxes.length) {
+          var el = document.getElementById("confirmSelectExtraAxes");
+          if (el) el.innerHTML = "";
+          return;
+        }
+        var el = _ensureExtraAxesEl();
+        if (el) el.innerHTML = ""; // clear stale before re-render
+        product.colorAxes.forEach(function(ax) { _renderExtraAxisSwatches(ax); });
+      }
+      function _onExtraAxisClick(axisKey, value) {
+        var axisDef = (product.colorAxes || []).find(function(a) { return a.key === axisKey; });
+        if (!axisDef) return;
+        var variants = _variantsList();
+        var current = variants.find(function(v) { return v.id === pendingVariantId; });
+        // Preserve the primary (base) colour + any OTHER extra axes;
+        // only the clicked axis flips to `value`.
+        var primary = _variantColorOption(current);
+        var primaryHex = primary && primary.hex;
+        var otherAxisVals = (product.colorAxes || [])
+          .filter(function(a) { return a.key !== axisKey; })
+          .map(function(a) { return { ax: a, want: _variantAxisValue(current, a) }; });
+        var pool = variants.filter(function(v) {
+          if (_variantAxisValue(v, axisDef) !== value) return false;
+          if (primaryHex) {
+            var c = _variantColorOption(v);
+            if (c && c.hex !== primaryHex) return false;
+          }
+          for (var i = 0; i < otherAxisVals.length; i++) {
+            var oth = otherAxisVals[i];
+            if (oth.want != null && _variantAxisValue(v, oth.ax) !== oth.want) return false;
+          }
+          return true;
+        });
+        if (!pool.length) {
+          // Loosen: same axis value only.
+          pool = variants.filter(function(v) { return _variantAxisValue(v, axisDef) === value; });
+        }
+        if (pool.length) _selectInModal(pool[0].id);
       }
 
       // Read whichever option key carries a size value. Most providers
@@ -10844,18 +10985,33 @@
         return { twoAxis: (nColors > 1 && nSizes > 1) };
       }
       function _renderSelectors() {
+        // Multi-colour-axis products (e.g. wall clock: base × hands) get
+        // one swatch row per axis, composing the selection. The variant
+        // grid is hidden so the modal stays compact.
+        if (product.colorAxes && product.colorAxes.length) {
+          _twoAxis = true; // suppress the "re-render chips on swatch click" path
+          _renderColorSwatches();
+          _renderAllExtraAxes();
+          if (sizeChipsEl) { sizeChipsEl.innerHTML = ""; sizeChipsEl.classList.add("hidden"); }
+          if (listEl) { listEl.innerHTML = ""; listEl.classList.add("hidden"); }
+          return;
+        }
         _twoAxis = _axisInfo().twoAxis;
         if (_twoAxis) {
           _renderColorSwatches();
           _renderSizeChips();
           // Hide the redundant full variant grid.
           if (listEl) { listEl.innerHTML = ""; listEl.classList.add("hidden"); }
+          var _xa = document.getElementById("confirmSelectExtraAxes");
+          if (_xa) _xa.innerHTML = "";
         } else {
           if (listEl) listEl.classList.remove("hidden");
           _renderTiles();
           if (swatchesEl) { swatchesEl.innerHTML = ""; swatchesEl.classList.add("hidden"); }
           if (sizeChipsEl) { sizeChipsEl.innerHTML = ""; sizeChipsEl.classList.add("hidden"); }
           if (colorLabelEl) { colorLabelEl.classList.add("hidden"); colorLabelEl.textContent = ""; }
+          var _xa2 = document.getElementById("confirmSelectExtraAxes");
+          if (_xa2) _xa2.innerHTML = "";
         }
       }
       function _refreshAfterPricing() {
@@ -10915,6 +11071,7 @@
         listEl.removeEventListener("click", onListClick);
         if (swatchesEl) swatchesEl.removeEventListener("click", onSwatchClick);
         if (sizeChipsEl) sizeChipsEl.removeEventListener("click", onSizeChipClick);
+        modal.removeEventListener("click", onExtraAxisClick);
         continueBtn.removeEventListener("click", onContinueClick);
         closeBtn.removeEventListener("click", onCancel);
         backdrop.removeEventListener("click", onCancel);
@@ -10951,6 +11108,17 @@
         e.preventDefault();
         _onSizeChipClick(chip.dataset.size);
       }
+      // Delegated click handler for extra colour-axis swatches (the
+      // wall-clock "Hand color" row, etc.). Each swatch carries
+      // data-axis-value; its row carries data-axis-key.
+      function onExtraAxisClick(e) {
+        var sw = e.target.closest(".confirm-color-swatch[data-axis-value]");
+        if (!sw) return;
+        var row = sw.closest("[data-axis-key]");
+        if (!row) return;
+        e.preventDefault();
+        _onExtraAxisClick(row.dataset.axisKey, sw.dataset.axisValue);
+      }
       function onKey(e) {
         if (e.key === "Escape") onCancel();
         else if (e.key === "Enter") { e.preventDefault(); onContinueClick(); }
@@ -10959,6 +11127,10 @@
       listEl.addEventListener("click", onListClick);
       if (swatchesEl) swatchesEl.addEventListener("click", onSwatchClick);
       if (sizeChipsEl) sizeChipsEl.addEventListener("click", onSizeChipClick);
+      // Delegated listener for extra-axis swatches (clock hands, etc.).
+      // Bound to the modal panel so it covers the dynamically-injected
+      // confirmSelectExtraAxes container.
+      modal.addEventListener("click", onExtraAxisClick);
       continueBtn.addEventListener("click", onContinueClick);
       closeBtn.addEventListener("click", onCancel);
       backdrop.addEventListener("click", onCancel);
