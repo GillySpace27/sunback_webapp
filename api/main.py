@@ -1451,6 +1451,89 @@ def _phase_b_pick_mockup_url(product_json):
             return img["src"]
     return None
 
+def _phase_b_cdn_download(url, timeout=60, max_attempts=4):
+    """Download a public asset (Printify mockup CDN) verifying with certifi.
+
+    The rest of the process points SSL_CERT_FILE / REQUESTS_CA_BUNDLE at the
+    NASA-augmented bundle for VSO/JSOC FITS work — that bundle does NOT
+    cover the public CA chain CDNs use, which makes a plain requests.get
+    to images.printify.com fail with "Max retries exceeded". Pop those env
+    vars during the call and pass verify=certifi.where(). Restore after.
+
+    Also retries with small backoff — fresh Printify mockup URLs sometimes
+    return transient errors while the CDN warms up.
+    """
+    import requests as _requests
+    import certifi as _certifi, time as _time
+    saved_ca = os.environ.pop("REQUESTS_CA_BUNDLE", None)
+    saved_ssl = os.environ.pop("SSL_CERT_FILE", None)
+    last_err = None
+    try:
+        for attempt in range(1, max_attempts + 1):
+            try:
+                r = _requests.get(url, timeout=timeout, verify=_certifi.where())
+                if r.status_code == 200 and r.content:
+                    return r.content
+                last_err = f"HTTP {r.status_code}"
+            except Exception as e:
+                last_err = str(e)[:160]
+            if attempt < max_attempts:
+                _time.sleep(1.5 * attempt)  # 1.5s, 3s, 4.5s
+        raise RuntimeError(f"download failed after {max_attempts} attempts: {last_err}")
+    finally:
+        if saved_ca: os.environ["REQUESTS_CA_BUNDLE"] = saved_ca
+        if saved_ssl: os.environ["SSL_CERT_FILE"] = saved_ssl
+
+
+def _phase_b_cleanup_orphan_drafts():
+    """Delete any leftover draft products whose title starts with the warm
+    marker '[MOCKUP-WARM]' — from a previous failed warm run. Best-effort.
+    Returns the count deleted (and printed failures)."""
+    from api.printify_routes import _printify_request, _headers, _shop_id, PRINTIFY_BASE
+    import time as _time
+    shop_id = _shop_id()
+    deleted = 0
+    # Paginate through the shop's products. Printify supports ?limit=&page=.
+    page = 1
+    while True:
+        r = _printify_request(
+            "GET", f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
+            headers=_headers(), params={"limit": 50, "page": page}, timeout=60,
+        )
+        if r.status_code >= 400:
+            print(f"[warm_default][cleanup] list page {page} failed: {r.status_code} {r.text[:160]}", flush=True)
+            break
+        body = r.json() or {}
+        data = body.get("data") or body if isinstance(body, list) else (body.get("data") or [])
+        if not data:
+            break
+        for prod in data:
+            title = (prod.get("title") or "")
+            if title.startswith("[MOCKUP-WARM]"):
+                pid = prod.get("id")
+                if not pid:
+                    continue
+                try:
+                    dr = _printify_request(
+                        "DELETE", f"{PRINTIFY_BASE}/shops/{shop_id}/products/{pid}.json",
+                        headers=_headers(), timeout=60,
+                    )
+                    if dr.status_code < 400:
+                        deleted += 1
+                    else:
+                        print(f"[warm_default][cleanup] delete {pid} failed: {dr.status_code}", flush=True)
+                except Exception as e:
+                    print(f"[warm_default][cleanup] delete {pid} error: {e}", flush=True)
+                _time.sleep(0.3)
+        # Stop if we've reached the last page (heuristic: < 50 items)
+        if len(data) < 50:
+            break
+        page += 1
+        if page > 20:  # safety cap
+            break
+    return deleted
+
+
 def _phase_b_warm(image_id_cache):
     """Synchronously pre-render + cache real Printify mockups for every
     product in `_DEFAULT_MOCKUP_PRODUCTS`. Idempotent: skips products
@@ -1497,8 +1580,17 @@ def _phase_b_warm(image_id_cache):
     skipped = 0
     failed = []
     per_product = []
-
     shop_id = _shop_id()
+
+    # Clean up any orphan drafts from a previous failed warm run so we
+    # don't accumulate "[MOCKUP-WARM]" garbage on the Printify dashboard.
+    # Best-effort — a failure here doesn't block the actual warm.
+    try:
+        orphan_count = _phase_b_cleanup_orphan_drafts()
+        if orphan_count:
+            print(f"[warm_default][phase_b] cleaned {orphan_count} orphan draft(s) from prior run", flush=True)
+    except Exception as _e:
+        print(f"[warm_default][phase_b] orphan cleanup error (continuing): {_e}", flush=True)
 
     for prod in _DEFAULT_MOCKUP_PRODUCTS:
         pid = prod["id"]
@@ -1544,40 +1636,38 @@ def _phase_b_warm(image_id_cache):
                 raise RuntimeError(f"create failed: {r.status_code} {r.text[:200]}")
             product_json = r.json()
             printify_product_id = product_json.get("id")
-            mockup_url = _phase_b_pick_mockup_url(product_json)
-            if not mockup_url:
-                raise RuntimeError("create succeeded but no mockup images in response")
-
-            # Download the mockup image to the persistent disk.
-            img_resp = _requests.get(mockup_url, timeout=60)
-            if img_resp.status_code != 200 or not img_resp.content:
-                raise RuntimeError(f"mockup download failed: {img_resp.status_code}")
-            mock_path.write_bytes(img_resp.content)
-
-            # Delete the draft now that we have the mockup. Best-effort —
-            # a failed delete just leaves a draft lingering (harmless,
-            # unpublished). Log but don't fail the whole product on this.
-            if printify_product_id:
-                try:
-                    dr = _printify_request(
-                        "DELETE",
-                        f"{PRINTIFY_BASE}/shops/{shop_id}/products/{printify_product_id}.json",
-                        headers=_headers(), timeout=60,
-                    )
-                    if dr.status_code >= 400:
-                        print(f"[warm_default][phase_b] delete failed for {pid} ({printify_product_id}): "
-                              f"{dr.status_code} {dr.text[:120]}", flush=True)
-                except Exception as _e:
-                    print(f"[warm_default][phase_b] delete error for {pid}: {_e}", flush=True)
-
-            manifest[pid] = {
-                "url": f"/asset/default/mockups/{pid}.png",
-                "size_bytes": mock_path.stat().st_size,
-                "source_mockup_url": mockup_url,
-            }
-            created += 1
-            status["status"] = "created"
-            status["size_bytes"] = mock_path.stat().st_size
+            # try/finally: even if the download fails, we still attempt to
+            # DELETE the draft so failed runs don't accumulate orphans.
+            try:
+                mockup_url = _phase_b_pick_mockup_url(product_json)
+                if not mockup_url:
+                    raise RuntimeError("create succeeded but no mockup images in response")
+                # certifi-verified, retried download — plain requests.get
+                # fails on this CDN because our process has SSL_CERT_FILE
+                # pointed at a NASA-augmented bundle for VSO/FITS work.
+                img_bytes = _phase_b_cdn_download(mockup_url)
+                mock_path.write_bytes(img_bytes)
+                manifest[pid] = {
+                    "url": f"/asset/default/mockups/{pid}.png",
+                    "size_bytes": mock_path.stat().st_size,
+                    "source_mockup_url": mockup_url,
+                }
+                created += 1
+                status["status"] = "created"
+                status["size_bytes"] = mock_path.stat().st_size
+            finally:
+                if printify_product_id:
+                    try:
+                        dr = _printify_request(
+                            "DELETE",
+                            f"{PRINTIFY_BASE}/shops/{shop_id}/products/{printify_product_id}.json",
+                            headers=_headers(), timeout=60,
+                        )
+                        if dr.status_code >= 400:
+                            print(f"[warm_default][phase_b] delete failed for {pid} ({printify_product_id}): "
+                                  f"{dr.status_code} {dr.text[:120]}", flush=True)
+                    except Exception as _e:
+                        print(f"[warm_default][phase_b] delete error for {pid}: {_e}", flush=True)
         except Exception as e:
             failed.append({"id": pid, "error": str(e)[:240]})
             status["status"] = "failed"
