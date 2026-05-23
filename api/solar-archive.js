@@ -6676,7 +6676,7 @@
       return { sx: sx, sy: sy, sw: sw, sh: sh };
     }
 
-    function drawProductMockup(mctx, productId, sw, sh, variant) {
+    function drawProductMockup(mctx, productId, sw, sh, variant, opts) {
       var W = 160, H = 160;
       mctx.fillStyle = "#1a1a2e";
       mctx.fillRect(0, 0, W, H);
@@ -6688,7 +6688,14 @@
       // full gallery too. Positional edits (vignette, crop-edge feather,
       // timestamp, text, clock numerals) stay tied to the selected product's
       // preview — their geometry depends on its aspect ratio.
-      var isSelected = (productId === state.selectedProduct);
+      // opts.useSelectedSource: callers like the pre-editor variant picker
+      // open BEFORE state.selectedProduct is committed but still want the
+      // high-quality solarCanvas path (which reflects state.editorFilter →
+      // HQ RHEF when promoted). Without this flag the picker would fall
+      // through to the JPG-backed _getEditedSharedSource path and show a
+      // visibly softer preview than the showcase tile right next to it.
+      var forceSelected = !!(opts && opts.useSelectedSource);
+      var isSelected = forceSelected || (productId === state.selectedProduct);
       var sourceCanvas = null;
       var shareSrc = null;
       if (isSelected) {
@@ -10564,13 +10571,27 @@
         var canDraw = !!state.originalImage && typeof drawProductMockup === "function"
           && solarCanvas && solarCanvas.width > 0;
         if (!canDraw) { mockupEl.classList.add("empty"); return; }
+        // Promote the editor filter to the highest available tier (HQ RHEF >
+        // RHEF/Raw > JPG) before snapshotting, so the picker's mockup matches
+        // the photorealistic showcase tile next to it instead of falling
+        // back to the Helioviewer JPG preview. No-op when state.editorFilter
+        // is already at the best tier.
+        if (typeof _promoteFilterToBest === "function") {
+          try { _promoteFilterToBest(); } catch (_e) {}
+        }
         try {
           var c = document.createElement("canvas");
           c.width = 320; c.height = 320;
           c.className = "confirm-mockup-canvas";
           var mctx = c.getContext("2d");
           mctx.scale(2, 2);
-          drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height, variant);
+          // useSelectedSource: the picker opens BEFORE commitProductSelection
+          // runs, so productId !== state.selectedProduct (the previous
+          // selection or null). Force the solarCanvas path anyway — we just
+          // promoted to the best tier, and the alternative (JPG-backed
+          // shareSrc) would visibly soften the preview.
+          drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height, variant,
+                            { useSelectedSource: true });
           mockupEl.appendChild(c);
           mockupEl.classList.remove("empty");
         } catch (e) { mockupEl.classList.add("empty"); }
