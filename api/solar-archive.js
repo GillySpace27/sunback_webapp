@@ -594,8 +594,17 @@
     });
 
     // ── State ────────────────────────────────────────────────────
+    // Pre-rendered REAL Printify mockups for the default landing image
+    // (Phase B). Manifest fetched once on init: { product_id: { url, ... } }.
+    // When state.isDefaultActive is true AND a manifest entry exists for a
+    // product, renderProducts uses the cached <img> instead of the JS canvas
+    // mockup approximation — landing tiles show photorealistic actual
+    // products. Invalidated to false the moment the user picks their own
+    // date or wavelength.
+    var _defaultMockupManifest = null;
     var state = {
       wavelength: 171,
+      isDefaultActive: true,
       originalImage: null,
       editedImageData: null,
       brightness: 0,
@@ -1455,12 +1464,16 @@
       if (BETA_MODE && typeof _applyBetaModeUI === "function") _applyBetaModeUI();
 
       // Create (or reuse) the persistent preview canvas.
-      // Always use a square 260×260 canvas — the product shape drawn inside it communicates
+      // Always use a square canvas — the product shape drawn inside it communicates
       // the proportions without distorting the illustration by squashing the canvas itself.
+      // 2026-05-22: on mobile (≤749 px) the preview pane becomes the
+      // PRIMARY visual (image-stage is hidden via CSS), so pump the
+      // backing-store resolution to keep the upscaled render crisp.
       var mockupContainer = previewPane.querySelector(".preview-mockup");
       var existing = mockupContainer.querySelector("canvas.live-preview-canvas");
-      var pw = 260;
-      var ph = 260;
+      var _isMobileEditor = window.matchMedia && window.matchMedia("(max-width: 749px)").matches;
+      var pw = _isMobileEditor ? 360 : 260;
+      var ph = pw;
       if (!existing) {
         mockupContainer.innerHTML = "";
         existing = document.createElement("canvas");
@@ -1615,7 +1628,12 @@
           nextBtnEl.style.display = "none";
         }
 
-        if (labelEl) labelEl.textContent = "Reset to mock mockup";
+        // Mobile (image-stage hidden): "View live edit" reads more
+        // clearly than "Reset to mock mockup" — on a phone the
+        // preview pane IS the canvas, so the toggle is the back-out
+        // affordance Gilly described in the audit.
+        var _isMobileLbl = window.matchMedia && window.matchMedia("(max-width: 749px)").matches;
+        if (labelEl) labelEl.textContent = _isMobileLbl ? "Back to live edit" : "Reset to mock mockup";
         btn.title = "Switch back to the live canvas preview.";
       } else {
         var slideshowEl = mockupContainer.querySelector(".mockup-slideshow");
@@ -1850,6 +1868,11 @@
       wlGrid.querySelectorAll(".wl-card").forEach(function(c) { c.classList.remove("selected"); });
       card.classList.add("selected");
       state.wavelength = parseInt(card.dataset.wl, 10);
+      // User picked their own wavelength — landing default no longer
+      // active, so product tiles stop using the pre-rendered Printify
+      // mockups (which were rendered against the default image) and
+      // fall back to live canvas mockups of the user's actual image.
+      if (state.wavelength !== 193) state.isDefaultActive = false;
 
       if (!dateInput.value) {
         showToast("Select a date first", "error");
@@ -2818,11 +2841,21 @@
     // instead of 8. The "change" event stays unbuffered because it
     // fires once on commit (picker selection, blur, Enter).
     if (dateInput) {
-      dateInput.addEventListener("change", loadWavelengthThumbnails);
+      dateInput.addEventListener("change", function () {
+        // User picked their own date — landing default no longer active,
+        // so the pre-rendered Printify mockups (which match the default
+        // date's HQ image) stop applying. Tiles fall back to live canvas
+        // mockups of the user's actual image.
+        if (dateInput.value !== "2014-10-24") state.isDefaultActive = false;
+        loadWavelengthThumbnails();
+      });
       var _dateInputTimer = null;
       dateInput.addEventListener("input", function() {
         clearTimeout(_dateInputTimer);
-        _dateInputTimer = setTimeout(loadWavelengthThumbnails, 250);
+        _dateInputTimer = setTimeout(function () {
+          if (dateInput.value !== "2014-10-24") state.isDefaultActive = false;
+          loadWavelengthThumbnails();
+        }, 250);
       });
     }
     // Time changes: same flow as date, since JPG previews and FITS queries
@@ -2864,6 +2897,22 @@
         // short-circuits to the cached PNG instead of running the 1–3 min
         // pipeline. Cache MISS is fine — the server's do_generate_sync
         // self-restores from /var/data on the eventual HQ request anyway.
+        // Fetch the pre-rendered REAL Printify mockup manifest (Phase B).
+        // When present, renderProducts will render <img> tiles instead of
+        // the JS canvas approximations for the default landing image.
+        // Missing / 404 is fine — falls through to the canvas mockups.
+        (function _fetchDefaultMockupManifest() {
+          fetch("/asset/default/default_mockups.json", { cache: "no-store" })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (json) {
+              if (!json || typeof json !== "object") return;
+              _defaultMockupManifest = json;
+              if (typeof renderProducts === "function" && state.isDefaultActive) {
+                renderProducts();
+              }
+            })
+            .catch(function () { /* not warmed yet — fine */ });
+        })();
         (function _primeDefaultHQ() {
           var defaultUrl = "/asset/hq_SDO_193_20141024.png";
           var probe = new Image();
@@ -8177,6 +8226,27 @@
             })(p.id, mockImages, img, ctrBadge, slideLoader);
           }
           _addIconBadge(previewEl, p.icon);
+        } else if (
+          state.isDefaultActive
+          && _defaultMockupManifest
+          && _defaultMockupManifest[p.id]
+          && _defaultMockupManifest[p.id].url
+        ) {
+          // Default-image, real Printify mockup cached on disk (Phase B):
+          // photorealistic actual-product photo for the landing showcase.
+          // Falls back to the canvas branch below the moment the user
+          // personalizes (state.isDefaultActive flips false).
+          var realImg = new Image();
+          realImg.alt = p.name + " mockup";
+          realImg.loading = "lazy";
+          realImg.style.width = "100%";
+          realImg.style.height = "100%";
+          realImg.style.objectFit = "contain";
+          realImg.src = _defaultMockupManifest[p.id].url;
+          var realPreviewEl = card.querySelector(".product-preview");
+          realPreviewEl.innerHTML = "";
+          realPreviewEl.appendChild(realImg);
+          _addIconBadge(realPreviewEl, p.icon);
         } else if (state.originalImage && solarCanvas.width > 0) {
           var miniCanvas = document.createElement("canvas");
           miniCanvas.width = 160;
