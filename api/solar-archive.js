@@ -2858,6 +2858,37 @@
         state.wavelength = 193;
         var _defTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="193"]');
         if (_defTile) _defTile.classList.add("selected");
+        // Probe for the pre-rendered HQ-RHEF of the default tuple on the
+        // server's persistent disk (Phase A — see /api/admin/warm_default).
+        // If present, prime hqCache + state so the very next HQ check
+        // short-circuits to the cached PNG instead of running the 1–3 min
+        // pipeline. Cache MISS is fine — the server's do_generate_sync
+        // self-restores from /var/data on the eventual HQ request anyway.
+        (function _primeDefaultHQ() {
+          var defaultUrl = "/asset/hq_SDO_193_20141024.png";
+          var probe = new Image();
+          probe.crossOrigin = "anonymous";
+          probe.onload = function () {
+            try {
+              if (typeof hqCache !== "undefined") {
+                var cacheKey = "2014-10-24T12:00_193_hq_rhef";
+                hqCache[cacheKey] = { url: defaultUrl, imageObj: probe };
+              }
+              state.hqReady = true;
+              state.hqImageUrl = defaultUrl;
+              state.hqFilterImage = probe;
+              state.hqFormat = "rhef";
+              if (typeof _hqApplyUpgrade === "function") {
+                try { _hqApplyUpgrade("rhef"); } catch (_e) {}
+              }
+              if (typeof renderProducts === "function") renderProducts();
+              if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
+              if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+            } catch (_e) { /* prime failed; cold path still works */ }
+          };
+          probe.onerror = function () { /* not cached yet — fine */ };
+          probe.src = defaultUrl;
+        })();
         if (typeof loadHelioviewerPreview === "function") {
           loadHelioviewerPreview(193, dateInput.value);
         }
@@ -7943,6 +7974,10 @@
       badge.className = "product-stats-badge";
       badge.textContent = s.buys + " | " + s.other;
       badge.title = "buys | clicks";
+      // a11y / mobile (no hover for `title`): expose the same info via
+      // aria-label so VoiceOver reads "3 buys, 12 clicks" instead of
+      // "3 vertical bar 12".
+      badge.setAttribute("aria-label", s.buys + " buys, " + s.other + " clicks");
       parentEl.appendChild(badge);
     }
     // Operator opt-out: a browser/device flagged via ?operator=1 never
@@ -8626,6 +8661,32 @@
           badge.className = "app-title-beta-badge";
           badge.textContent = "BETA";
           titleEl.appendChild(badge);
+        }
+        // Mobile UX (audit 2026-05-22): the orange beta banner eats
+        // ~52 px above the picker. The H1 already carries a BETA pill,
+        // so the banner is partly redundant. Add a tap-to-dismiss × on
+        // narrow viewports; once dismissed the choice persists for the
+        // session (sessionStorage, not local — testers should still see
+        // it on a fresh visit).
+        var banner = document.getElementById("betaBanner");
+        if (banner && !banner.querySelector(".beta-banner-dismiss")) {
+          var dismissed = false;
+          try { dismissed = sessionStorage.getItem("sa_beta_banner_dismissed") === "1"; } catch (_e) {}
+          if (dismissed) {
+            banner.style.display = "none";
+          } else if (window.matchMedia && window.matchMedia("(max-width: 749px)").matches) {
+            var x = document.createElement("button");
+            x.type = "button";
+            x.className = "beta-banner-dismiss";
+            x.setAttribute("aria-label", "Dismiss beta notice");
+            x.textContent = "×";
+            x.style.cssText = "background:none;border:0;color:inherit;font-size:18px;line-height:1;margin-left:8px;padding:0 4px;cursor:pointer;opacity:0.7;";
+            x.addEventListener("click", function () {
+              banner.style.display = "none";
+              try { sessionStorage.setItem("sa_beta_banner_dismissed", "1"); } catch (_e) {}
+            });
+            banner.appendChild(x);
+          }
         }
       } else {
         document.body.classList.remove("beta-mode-active");
