@@ -581,6 +581,100 @@
     }
     setupEditorResize();
 
+    // ── Mobile-only: drag-to-resize the sticky preview pane ──────
+    // F16 (audit 2026-05-22, round 3): with image-stage hidden on
+    // mobile, the mockup preview is now THE canvas. CSS pins it
+    // sticky at top:0; this handle lets the user scale the canvas
+    // down to free up viewport for sliders (or back up to inspect
+    // detail) without scrolling away from the live preview.
+    // Mirrors setupEditorResize() above but targets
+    // .selected-product-preview and drives --preview-scale.
+    function setupMobilePreviewResize() {
+      if (!window.matchMedia || !window.matchMedia("(max-width: 749px)").matches) return;
+      var pane = document.getElementById("selectedProductPreview");
+      if (!pane || pane.querySelector(".preview-resize-handle")) return;
+      var KEY = "sa_preview_scale";
+      var MIN = 0.4, MAX = 1.2;
+      // Restore saved scale (per device).
+      try {
+        var saved = parseFloat(localStorage.getItem(KEY));
+        if (saved >= MIN && saved <= MAX) {
+          pane.style.setProperty("--preview-scale", saved.toFixed(3));
+        }
+      } catch (_e) { /* localStorage blocked — defaults to 1 */ }
+
+      var handle = document.createElement("div");
+      handle.className = "preview-resize-handle";
+      handle.setAttribute("role", "slider");
+      handle.setAttribute("tabindex", "0");
+      handle.setAttribute("aria-label",
+        "Resize preview. Drag to scale; arrow keys adjust; double-click to reset.");
+      handle.setAttribute("aria-valuemin", String(Math.round(MIN * 100)));
+      handle.setAttribute("aria-valuemax", String(Math.round(MAX * 100)));
+      pane.appendChild(handle);
+
+      function curScale() {
+        var s = parseFloat(getComputedStyle(pane).getPropertyValue("--preview-scale"));
+        return (s >= MIN && s <= MAX) ? s : 1;
+      }
+      function applyScale(s) {
+        s = Math.max(MIN, Math.min(MAX, s));
+        pane.style.setProperty("--preview-scale", s.toFixed(3));
+        handle.setAttribute("aria-valuenow", String(Math.round(s * 100)));
+        return s;
+      }
+      function persist(s) {
+        try {
+          if (Math.abs(s - 1) < 0.005) localStorage.removeItem(KEY);
+          else localStorage.setItem(KEY, s.toFixed(3));
+        } catch (_e) {}
+      }
+      // Seed aria-valuenow.
+      handle.setAttribute("aria-valuenow", String(Math.round(curScale() * 100)));
+
+      var dragging = false, startX = 0, startY = 0, startScale = 1;
+      handle.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragging = true;
+        handle.classList.add("dragging");
+        try { handle.setPointerCapture(e.pointerId); } catch (_e) {}
+        startX = e.clientX; startY = e.clientY;
+        startScale = curScale();
+      });
+      handle.addEventListener("pointermove", function (e) {
+        if (!dragging) return;
+        // Average X+Y so the corner feels natural: out (right/down) = bigger.
+        // 1.0 of scale ≈ 200 px of diagonal drag (felt right on a 390-px viewport).
+        var delta = ((e.clientX - startX) + (e.clientY - startY)) / 2;
+        applyScale(startScale + delta / 200);
+      });
+      function endDrag(e) {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove("dragging");
+        try { handle.releasePointerCapture(e.pointerId); } catch (_e) {}
+        persist(curScale());
+      }
+      handle.addEventListener("pointerup", endDrag);
+      handle.addEventListener("pointercancel", endDrag);
+      handle.addEventListener("dblclick", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        persist(applyScale(1));
+      });
+      handle.addEventListener("keydown", function (e) {
+        var cur = curScale(), next = cur;
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") next = cur - 0.05;
+        else if (e.key === "ArrowRight" || e.key === "ArrowUp") next = cur + 0.05;
+        else if (e.key === "Home") next = MIN;
+        else if (e.key === "End") next = MAX;
+        else return;
+        e.preventDefault();
+        persist(applyScale(next));
+      });
+    }
+    setupMobilePreviewResize();
+
     // ── Dark mode detection ──────────────────────────────────────
     if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
       document.documentElement.classList.add("dark");
