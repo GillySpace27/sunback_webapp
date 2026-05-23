@@ -344,6 +344,52 @@ def _is_default_tuple(date, wavelength, mission, detector):
         and str(detector).upper() == DEFAULT_LANDING_DETECTOR
     )
 
+# Phase B persistent paths: cached real-Printify mockups for the default image.
+# /asset/default/mockups/<product_id>.png  (one per product)
+# /asset/default/default_mockups.json     (manifest the frontend reads)
+DEFAULT_MOCKUPS_DIR = DEFAULT_CACHE_DIR / "mockups"
+try:
+    DEFAULT_MOCKUPS_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+DEFAULT_MOCKUPS_MANIFEST = DEFAULT_CACHE_DIR / "default_mockups.json"
+
+# Server-side mirror of the visible product catalog (frontend PRODUCTS in
+# solar-archive.js). We only need the fields the create-product call uses:
+# id (our key), blueprintId, printProviderId, variantId (one representative
+# variant per product — the same default the editor opens with), and the
+# print-area position. Keep in sync with the frontend if products are
+# added / removed / re-keyed. (Excludes _hiddenFromGrid entries like the
+# Black mug sibling — those are surfaced via the colour-chooser, not as
+# their own grid tile.)
+_DEFAULT_MOCKUP_PRODUCTS = [
+    {"id": "canvas_stretched",     "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
+    {"id": "metal_sign",           "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
+    {"id": "acrylic_print",        "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
+    {"id": "poster_matte",         "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
+    {"id": "framed_poster",        "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
+    {"id": "wall_clock",           "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
+    {"id": "tapestry",             "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
+    {"id": "mug_15oz",             "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
+    {"id": "tumbler_20oz",         "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
+    {"id": "tshirt_unisex",        "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
+    {"id": "hoodie_pullover",      "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
+    {"id": "crewneck_sweatshirt",  "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
+    {"id": "crew_socks",           "blueprintId": 365,  "printProviderId": 14,  "variantId": 44904, "position": "front"},
+    {"id": "phone_case",           "blueprintId": 269,  "printProviderId": 1,   "variantId": 62582, "position": "front"},
+    {"id": "laptop_sleeve",        "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
+    {"id": "mouse_pad",            "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
+    {"id": "desk_mat",             "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
+    {"id": "throw_pillow",         "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
+    {"id": "sherpa_blanket",       "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
+    {"id": "shower_curtain",       "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
+    {"id": "puzzle_1000",          "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
+    {"id": "coaster_set",          "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
+    {"id": "sticker_kiss",         "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
+    {"id": "journal_hardcover",    "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
+    {"id": "backpack",             "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
+]
+
 if os.getenv("RENDER"):
     os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com/"
 else:
@@ -388,6 +434,10 @@ app.mount("/api/static", StaticFiles(directory=str(app_dir)), name="static")
 app.mount("/asset", StaticFiles(directory=OUTPUT_DIR), name="asset")
 # New: serve preview images from the preview subfolder
 app.mount("/asset/preview", StaticFiles(directory=PREVIEW_DIR), name="asset_preview")
+# Persistent default-image cache (Phase A HQ + Phase B real Printify mockups +
+# the default_mockups.json manifest). Lives on the /var/data Render disk so
+# it survives deploys. Served at /asset/default/.
+app.mount("/asset/default", StaticFiles(directory=str(DEFAULT_CACHE_DIR)), name="default_cache")
 
 @app.get("/api/frontend.html")
 async def serve_frontend():
@@ -1356,6 +1406,203 @@ def _check_warm_admin_key(provided: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="Invalid admin key")
 
 
+# ── Phase B helpers ──────────────────────────────────────────────────────────
+# Pre-render REAL Printify mockups for each product using the cached default
+# HQ image. We call the Printify API DIRECTLY (not through /api/printify/*)
+# so we bypass the public origin/rate-limit/BETA_MODE gates — this is a
+# server-side admin operation, not a public caller. The flow per product:
+#   create draft  →  read mockup URL from response  →  download  →  delete
+# Cached files: /var/data/default_cache/mockups/<product_id>.png
+# Manifest:     /var/data/default_cache/default_mockups.json
+#
+# Cost: Printify creates are FREE (only ordering charges). Drafts never
+# publish to the Shopify store. We delete them after grabbing the mockup
+# so the Printify dashboard stays clean.
+
+def _phase_b_load_default_image_b64():
+    """Read the persistent default HQ PNG and return it base64-encoded for
+    the Printify uploads endpoint. Raises if Phase A hasn't run yet."""
+    import base64
+    path = DEFAULT_CACHE_DIR / DEFAULT_HQ_FILENAME
+    if not (path.exists() and path.stat().st_size > 1000):
+        raise RuntimeError(
+            f"Phase B needs the Phase A HQ image first; not found at {path}. "
+            "Run Phase A (default warm) before Phase B."
+        )
+    return base64.b64encode(path.read_bytes()).decode("ascii")
+
+def _phase_b_pick_mockup_url(product_json):
+    """Pick the primary mockup URL from a Printify product-create response.
+    Prefers the first image marked `is_default: true`, then the first front
+    image, then the first image overall. Returns None if there are no
+    usable mockup images."""
+    imgs = (product_json or {}).get("images") or []
+    if not imgs:
+        return None
+    for img in imgs:
+        if img.get("is_default") and img.get("src"):
+            return img["src"]
+    for img in imgs:
+        pos = str(img.get("position") or "").lower()
+        if pos == "front" and img.get("src"):
+            return img["src"]
+    for img in imgs:
+        if img.get("src"):
+            return img["src"]
+    return None
+
+def _phase_b_warm(image_id_cache):
+    """Synchronously pre-render + cache real Printify mockups for every
+    product in `_DEFAULT_MOCKUP_PRODUCTS`. Idempotent: skips products
+    whose mockup file already exists on disk. Per-product try/except so
+    one failure doesn't break the batch.
+
+    `image_id_cache` is a one-item list used as a lazy holder for the
+    uploaded image id — uploaded only when at least one product actually
+    needs to be rendered.
+
+    Returns a summary dict with counts + per-product status + the
+    written manifest path."""
+    # Lazy imports so module load order stays clean.
+    from api.printify_routes import _printify_request, _headers, _shop_id, PRINTIFY_BASE
+    import json, time, requests as _requests
+
+    DEFAULT_MOCKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Load any existing manifest so re-runs preserve previous entries.
+    manifest = {}
+    if DEFAULT_MOCKUPS_MANIFEST.exists():
+        try:
+            manifest = json.loads(DEFAULT_MOCKUPS_MANIFEST.read_text()) or {}
+        except Exception:
+            manifest = {}
+
+    def _ensure_uploaded():
+        if image_id_cache[0]:
+            return image_id_cache[0]
+        b64 = _phase_b_load_default_image_b64()
+        body = {"file_name": DEFAULT_HQ_FILENAME, "contents": b64}
+        r = _printify_request(
+            "POST", f"{PRINTIFY_BASE}/uploads/images.json",
+            headers=_headers(), json=body, timeout=120,
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"Printify upload failed: {r.status_code} {r.text[:200]}")
+        image_id_cache[0] = r.json().get("id")
+        if not image_id_cache[0]:
+            raise RuntimeError(f"Printify upload returned no id: {r.text[:200]}")
+        return image_id_cache[0]
+
+    created = 0
+    skipped = 0
+    failed = []
+    per_product = []
+
+    shop_id = _shop_id()
+
+    for prod in _DEFAULT_MOCKUP_PRODUCTS:
+        pid = prod["id"]
+        mock_path = DEFAULT_MOCKUPS_DIR / f"{pid}.png"
+        status = {"id": pid}
+        # Idempotent skip: file on disk AND manifest entry → done.
+        if mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
+            skipped += 1
+            status["status"] = "skipped_cached"
+            per_product.append(status)
+            continue
+
+        # Pace ourselves so Printify doesn't rate-limit a 25-product blast.
+        time.sleep(1.2)
+
+        try:
+            image_id = _ensure_uploaded()
+            payload = {
+                "title": f"[MOCKUP-WARM] Solar Archive default — {pid}",
+                "description": "Auto-generated default mockup; will be deleted.",
+                "blueprint_id": prod["blueprintId"],
+                "print_provider_id": prod["printProviderId"],
+                "variants": [{"id": prod["variantId"], "price": 100, "is_enabled": True}],
+                "print_areas": [{
+                    "variant_ids": [prod["variantId"]],
+                    "placeholders": [{
+                        "position": prod.get("position", "front"),
+                        "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}],
+                    }],
+                }],
+            }
+            # Reuse the same _expand_print_areas helper the public route uses,
+            # so blueprints with multi-position panel layouts (crew socks,
+            # journal, pillow) get all their placeholders filled.
+            from api.printify_routes import _expand_print_areas
+            payload = _expand_print_areas(payload)
+
+            r = _printify_request(
+                "POST", f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
+                headers=_headers(), json=payload, timeout=120,
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"create failed: {r.status_code} {r.text[:200]}")
+            product_json = r.json()
+            printify_product_id = product_json.get("id")
+            mockup_url = _phase_b_pick_mockup_url(product_json)
+            if not mockup_url:
+                raise RuntimeError("create succeeded but no mockup images in response")
+
+            # Download the mockup image to the persistent disk.
+            img_resp = _requests.get(mockup_url, timeout=60)
+            if img_resp.status_code != 200 or not img_resp.content:
+                raise RuntimeError(f"mockup download failed: {img_resp.status_code}")
+            mock_path.write_bytes(img_resp.content)
+
+            # Delete the draft now that we have the mockup. Best-effort —
+            # a failed delete just leaves a draft lingering (harmless,
+            # unpublished). Log but don't fail the whole product on this.
+            if printify_product_id:
+                try:
+                    dr = _printify_request(
+                        "DELETE",
+                        f"{PRINTIFY_BASE}/shops/{shop_id}/products/{printify_product_id}.json",
+                        headers=_headers(), timeout=60,
+                    )
+                    if dr.status_code >= 400:
+                        print(f"[warm_default][phase_b] delete failed for {pid} ({printify_product_id}): "
+                              f"{dr.status_code} {dr.text[:120]}", flush=True)
+                except Exception as _e:
+                    print(f"[warm_default][phase_b] delete error for {pid}: {_e}", flush=True)
+
+            manifest[pid] = {
+                "url": f"/asset/default/mockups/{pid}.png",
+                "size_bytes": mock_path.stat().st_size,
+                "source_mockup_url": mockup_url,
+            }
+            created += 1
+            status["status"] = "created"
+            status["size_bytes"] = mock_path.stat().st_size
+        except Exception as e:
+            failed.append({"id": pid, "error": str(e)[:240]})
+            status["status"] = "failed"
+            status["error"] = str(e)[:240]
+        per_product.append(status)
+
+    # Persist the manifest. Always rewrite (with any new entries merged in
+    # via the existing dict).
+    try:
+        DEFAULT_MOCKUPS_MANIFEST.write_text(json.dumps(manifest, indent=2))
+    except Exception as e:
+        print(f"[warm_default][phase_b] manifest write failed: {e}", flush=True)
+
+    return {
+        "phase": "B",
+        "total_products": len(_DEFAULT_MOCKUP_PRODUCTS),
+        "created": created,
+        "skipped_cached": skipped,
+        "failed": len(failed),
+        "failures": failed,
+        "manifest_url": "/asset/default/default_mockups.json",
+        "per_product": per_product,
+    }
+
+
 @app.post("/api/admin/warm_default")
 async def warm_default(request: Request):
     """Pre-render + cache the default-landing assets on the persistent disk.
@@ -1377,6 +1624,7 @@ async def warm_default(request: Request):
     out_path_in_output = os.path.join(OUTPUT_DIR, DEFAULT_HQ_FILENAME)
     served_url = f"/asset/{DEFAULT_HQ_FILENAME}"
 
+    phase_a_result = None
     # Fast path: already on the persistent disk → ensure it's also in
     # OUTPUT_DIR so /asset/ serves it without re-running the pipeline.
     if persistent_default.exists() and persistent_default.stat().st_size > 1000:
@@ -1386,9 +1634,8 @@ async def warm_default(request: Request):
                 os.makedirs(os.path.dirname(out_path_in_output), exist_ok=True)
                 shutil.copy2(str(persistent_default), out_path_in_output)
             except Exception as e:
-                _log = print
-                _log(f"[warm_default] OUTPUT_DIR sync failed: {e}", flush=True)
-        return {
+                print(f"[warm_default] OUTPUT_DIR sync failed: {e}", flush=True)
+        phase_a_result = {
             "ok": True,
             "cached": True,
             "url": served_url,
@@ -1402,35 +1649,50 @@ async def warm_default(request: Request):
     # directly in a thread (no Printify, no auth — purely server-side
     # asset generation). On success it writes through to the persistent
     # cache (see the write-through block in do_generate_sync).
-    try:
-        dt = datetime.strptime(DEFAULT_LANDING_DATE, "%Y-%m-%d").replace(hour=12, minute=0)
-        png_url = await asyncio.to_thread(
-            do_generate_sync, dt,
-            DEFAULT_LANDING_WAVELENGTH,
-            DEFAULT_LANDING_MISSION,
-            DEFAULT_LANDING_DETECTOR,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Warm-default generation failed: {e}")
+    if phase_a_result is None:
+        try:
+            dt = datetime.strptime(DEFAULT_LANDING_DATE, "%Y-%m-%d").replace(hour=12, minute=0)
+            png_url = await asyncio.to_thread(
+                do_generate_sync, dt,
+                DEFAULT_LANDING_WAVELENGTH,
+                DEFAULT_LANDING_MISSION,
+                DEFAULT_LANDING_DETECTOR,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Warm-default generation failed: {e}")
+        # Re-check the persistent disk after generation — write-through should
+        # have copied it; if not, raise rather than report a false success.
+        if not (persistent_default.exists() and persistent_default.stat().st_size > 1000):
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Generation completed but write-through to persistent cache failed. "
+                    "Check do_generate_sync's write-through block and DEFAULT_CACHE_DIR permissions."
+                ),
+            )
+        phase_a_result = {
+            "ok": True,
+            "cached": False,
+            "url": png_url,
+            "persistent_path": str(persistent_default),
+            "size_bytes": persistent_default.stat().st_size,
+            "phase": "A",
+        }
 
-    # Re-check the persistent disk after generation — write-through should
-    # have copied it; if not, raise rather than report a false success.
-    if not (persistent_default.exists() and persistent_default.stat().st_size > 1000):
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Generation completed but write-through to persistent cache failed. "
-                "Check do_generate_sync's write-through block and DEFAULT_CACHE_DIR permissions."
-            ),
-        )
-    return {
-        "ok": True,
-        "cached": False,
-        "url": png_url,
-        "persistent_path": str(persistent_default),
-        "size_bytes": persistent_default.stat().st_size,
-        "phase": "A",
-    }
+    # Phase B — pre-render real Printify mockups for every product using the
+    # Phase A HQ image. Idempotent per product (skips cached ones), so a
+    # client timeout can re-trigger and pick up where it left off. Runs in
+    # a thread to avoid blocking the asyncio loop for the heavy Printify
+    # orchestration.
+    try:
+        phase_b_result = await asyncio.to_thread(_phase_b_warm, [None])
+    except Exception as e:
+        # Phase B failed wholesale (likely Phase A image missing or
+        # Printify creds). Return Phase A success + the B error so the
+        # operator can fix and re-trigger.
+        return {"phase_a": phase_a_result, "phase_b": {"phase": "B", "ok": False, "error": str(e)}}
+
+    return {"phase_a": phase_a_result, "phase_b": phase_b_result}
 
 
 
