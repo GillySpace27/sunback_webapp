@@ -6100,6 +6100,96 @@
       _detachDocDragListeners();
     }
 
+    // ── Mobile: pan via dragging the preview pane ───────────────
+    // F15 hides #imageStage on mobile, so the existing pan
+    // listeners on solarCanvas have nothing visible to drag
+    // against — pan was effectively dead. Bind a parallel handler
+    // to the preview pane: drag → update state.panX/panY in REF
+    // space, then renderCanvas() (which redraws the hidden source
+    // canvas AND refreshes the live preview at the end).
+    // Pan engages either when the Pan tool is active OR — to make
+    // the gesture obvious on mobile where the Pan button is two
+    // tabs away — whenever no other interactive mode is in play
+    // (cropping / text). Resize handle + close-button taps are
+    // excluded so they keep working.
+    var _mobilePanDragging = false;
+    var _mobilePanStartX = 0, _mobilePanStartY = 0;
+    var _mobilePanStartPanX = 0, _mobilePanStartPanY = 0;
+    var _mobilePanCanvas = null;
+    function _mobilePanShouldEngage(targetEl) {
+      if (!window.matchMedia || !window.matchMedia("(max-width: 749px)").matches) return false;
+      if (state.cropping || state.textMode) return false;
+      // Don't hijack drags on the handle, close button, or other interactive children
+      if (targetEl && targetEl.closest &&
+          (targetEl.closest(".preview-resize-handle") ||
+           targetEl.closest(".preview-close-btn") ||
+           targetEl.closest("button, a, select, input, [role='slider']"))) {
+        return false;
+      }
+      // Need a visible live-preview canvas (real-mockup mode → no pan)
+      var pane = document.getElementById("selectedProductPreview");
+      if (!pane) return false;
+      var canvas = pane.querySelector("canvas.live-preview-canvas");
+      if (!canvas) return false;
+      if (canvas.style.display === "none") return false;
+      return true;
+    }
+    function _mobilePanDown(e) {
+      if (!_mobilePanShouldEngage(e.target)) return;
+      var canvas = document.getElementById("selectedProductPreview")
+        .querySelector("canvas.live-preview-canvas");
+      if (!canvas) return;
+      e.preventDefault();
+      _mobilePanDragging = true;
+      _mobilePanCanvas = canvas;
+      _mobilePanStartX = e.clientX;
+      _mobilePanStartY = e.clientY;
+      var ref = state.originalImage;
+      var refW = ref ? (state.rotation % 180 !== 0 ? ref.naturalHeight : ref.naturalWidth) : 1024;
+      var refH = ref ? (state.rotation % 180 !== 0 ? ref.naturalWidth : ref.naturalHeight) : 1024;
+      _mobilePanStartPanX = state.panX != null ? state.panX : (refW / 2);
+      _mobilePanStartPanY = state.panY != null ? state.panY : (refH / 2);
+      canvas.style.cursor = "grabbing";
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_e) {}
+    }
+    function _mobilePanMove(e) {
+      if (!_mobilePanDragging || !_mobilePanCanvas) return;
+      e.preventDefault();
+      var rect = _mobilePanCanvas.getBoundingClientRect();
+      var previewW = rect.width || 1;
+      var previewH = rect.height || 1;
+      var ref = state.originalImage;
+      var refW = ref ? (state.rotation % 180 !== 0 ? ref.naturalHeight : ref.naturalWidth) : 1024;
+      var refH = ref ? (state.rotation % 180 !== 0 ? ref.naturalWidth : ref.naturalHeight) : 1024;
+      var zoom = (state.cropZoom || 100) / 100;
+      // 1 preview-px = (refW / previewW) ref-px, /zoom for finer control when zoomed in.
+      var dx = (e.clientX - _mobilePanStartX) * (refW / previewW) / zoom;
+      var dy = (e.clientY - _mobilePanStartY) * (refH / previewH) / zoom;
+      // Negative because dragging right pulls the image right (window content moves left in REF space).
+      state.panX = _mobilePanStartPanX - dx;
+      state.panY = _mobilePanStartPanY - dy;
+      // renderCanvas() ends with refreshLivePreview() so the visible canvas updates.
+      if (typeof renderCanvas === "function") renderCanvas();
+    }
+    function _mobilePanUp(e) {
+      if (!_mobilePanDragging) return;
+      _mobilePanDragging = false;
+      if (_mobilePanCanvas) _mobilePanCanvas.style.cursor = "";
+      _mobilePanCanvas = null;
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_e) {}
+    }
+    // Attach to the preview pane (delegated; survives canvas re-creation
+    // in selectProduct since the pane itself isn't replaced).
+    (function _attachMobilePanListeners() {
+      var pane = document.getElementById("selectedProductPreview");
+      if (!pane) return;
+      pane.addEventListener("pointerdown", _mobilePanDown);
+      pane.addEventListener("pointermove", _mobilePanMove);
+      pane.addEventListener("pointerup", _mobilePanUp);
+      pane.addEventListener("pointercancel", _mobilePanUp);
+      pane.addEventListener("pointerleave", _mobilePanUp);
+    })();
+
     // ── Crop mode ────────────────────────────────────────────────
     var cropDragging = false;
 
