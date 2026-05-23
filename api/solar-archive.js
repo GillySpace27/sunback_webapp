@@ -3010,6 +3010,14 @@
               if (typeof renderProducts === "function" && state.isDefaultActive) {
                 renderProducts();
               }
+              // Race-safety: a user who selected a product BEFORE the
+              // manifest fetch returned would still see the buy/download
+              // button disabled. Re-run the gate now that the Phase B
+              // manifest is in memory — _hasRealMockup will pick it up.
+              if (state.isDefaultActive && state.selectedProduct) {
+                if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+                if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+              }
             })
             .catch(function () { /* not warmed yet — fine */ });
         })();
@@ -7769,7 +7777,13 @@
       "black": "#1a1a1a", "deep black": "#0d0d0d", "vintage black": "#2a2a2a", "jet black": "#0a0a0a",
       "silver": "#c8c8c8",
       "brown": "#5a3a23", "chocolate": "#3a2618", "tan": "#b09373", "camel": "#a98763",
-      "khaki": "#a8956b", "sand": "#d4c39b"
+      "khaki": "#a8956b", "sand": "#d4c39b",
+      // Wall-clock base material. Printify names it "Wooden" / "Wooden Base"
+      // on the wall-clock blueprint; the substring scan in _hexForColorName
+      // catches both because "wood" is a key here. Warm oak tone to read
+      // clearly next to the Black + White base swatches.
+      "wood": "#a07a4f", "wooden": "#a07a4f", "wooden base": "#a07a4f",
+      "oak": "#a07a4f", "walnut": "#6b4a2b", "maple": "#c89a64"
     };
     function _hexForColorName(name) {
       if (!name) return null;
@@ -8772,7 +8786,24 @@
       var pid = state.selectedProduct;
       if (!pid) return false;
       var entry = state.mockups[pid];
-      return !!(entry && entry.images && entry.images.length > 0);
+      if (entry && entry.images && entry.images.length > 0) return true;
+      // Phase B fallback: when the user is still on the default landing
+      // image (AR 2014-10-24, 193 Å) we have a pre-rendered photorealistic
+      // Printify mockup cached on disk. That counts as "real" for the
+      // gate — the user has already SEEN the actual-product preview in
+      // the showcase tile, so making them click "Generate real mockup"
+      // a second time is pure friction. The moment they personalize
+      // (date/wavelength change → isDefaultActive=false), the gate
+      // re-engages and the user has to generate a fresh mockup matching
+      // their image. _saveDesignLocally synthesizes a mockup entry from
+      // the manifest URL so the download bundle still gets the photo.
+      if (state.isDefaultActive
+          && _defaultMockupManifest
+          && _defaultMockupManifest[pid]
+          && _defaultMockupManifest[pid].url) {
+        return true;
+      }
+      return false;
     }
 
     // ── FITS-quality gating for prints / mockups ─────────────────
@@ -8961,9 +8992,10 @@
       // only download leaves the tester wondering whether the mockup
       // step worked. Disabled state + the "Generate real mockup first"
       // tooltip steer them to hit that button first.
-      var pid = state.selectedProduct;
-      var hasMocks = !!(pid && state.mockups && state.mockups[pid]
-                        && state.mockups[pid].images && state.mockups[pid].images.length);
+      // Single source of truth: _hasRealMockup() also accepts the Phase B
+      // default-landing manifest entry as "real" so the gate doesn't block
+      // when the user hasn't personalized away from the showcase image.
+      var hasMocks = _hasRealMockup();
       btnBuyInEditor.title = hasMocks
         ? "Beta: save your design + all generated product mockups as a .zip."
         : "Generate a real mockup first (use the Generate real mockup button in the preview pane), then download the bundle.";
@@ -9201,6 +9233,18 @@
       var mockupImages = (mockupEntry && Array.isArray(mockupEntry.images))
         ? mockupEntry.images.filter(function(img) { return img && img.src; })
         : [];
+      // Phase B fallback: if the user is still on the default landing
+      // image and hasn't run a personalized real-mockup generation, use
+      // the pre-rendered photorealistic mockup we cached on disk. Same
+      // photo the showcase tile is already displaying — counts as "real".
+      if (!mockupImages.length
+          && state.isDefaultActive
+          && _defaultMockupManifest
+          && pid
+          && _defaultMockupManifest[pid]
+          && _defaultMockupManifest[pid].url) {
+        mockupImages = [{ src: _defaultMockupManifest[pid].url, position: "default" }];
+      }
 
       var startedMessage = mockupImages.length
         ? "Packaging your design + " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") + "…"
