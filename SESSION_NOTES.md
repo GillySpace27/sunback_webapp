@@ -2,16 +2,50 @@
 
 ## ▶ NEXT SESSION — EXECUTE THIS (plan locked 2026-05-22)
 
-Two pre-render/cache features, then HEK. **Decisions already made:**
-warm via an **admin endpoint I hit once** (result persists on the
-`/var/data` disk); **delete the draft Printify products after caching**
-their mockups; build order **A → B → HEK**.
+### Status (2026-05-22 evening)
+
+- **Phase A — DONE + live.** Default HQ-RHEF (AR 2192 / 193) cached on
+  `/var/data` via `POST /api/admin/warm_default` (X-Admin-Key gated).
+  `do_generate_sync` self-restores from /var/data + writes through.
+  Frontend probes `/asset/hq_SDO_193_20141024.png` on landing and
+  primes `hqCache` + `state.hqReady`.
+- **Phase B — DONE + live.** 25 real Printify mockups pre-rendered for
+  the default image, cached at `/var/data/default_cache/mockups/*.png`
+  with `/asset/default/default_mockups.json` as the manifest. Server
+  cleans draft Printify products in a `finally` + a startup
+  orphan-purge for `[MOCKUP-WARM]` titles. Frontend renderProducts
+  swaps in the cached `<img>` per tile while `state.isDefaultActive`
+  is true (flips false on user date/wavelength change).
+- **Mount-order trap (logged for future):** Starlette evaluates mounts
+  in registration order, first match wins. Specific mounts (e.g.
+  `/asset/default`, `/asset/preview`) must register BEFORE the
+  catch-all `/asset` or they're shadowed and silently return 404 from
+  the wrong tree.
+
+### NEXT — HEK best-time-of-day backend
+
+The lone remaining big rock. Decisions still locked from earlier:
+- Backend route that queries the Heliophysics Event Knowledgebase via
+  SunPy's HEK module for a given date; returns the time of the most
+  striking event so the frontend can auto-fill the time-of-day input.
+- Ranking: **CMEs / prominences ABOVE flares** (flares oversaturate
+  in 193). Then largest active region. Quiet-day → noon fallback.
+- Report the chosen event on the wavelength pane with tooltips
+  (event type, GOES class if any, peak time UTC).
+- Per-date caching (HEK queries take a few seconds).
+
+The earlier full plan for HEK is below (the A → B → HEK section).
+Skip the A/B detail; both shipped.
+
+---
+
+### Earlier plan (kept for reference) — A and B shipped 2026-05-22
 
 Default moment is fixed: **AR 2192, 2014-10-24, 193 Å** (chosen over
 the 2017-09-06 X9.3, which oversaturates). Landing already defaults to
 this date + auto-loads the 193 JPG preview (commit shipped 2026-05-22).
 
-### Phase A — cache the default HQ RHEF (quick win)
+### Phase A — cache the default HQ RHEF (quick win) — SHIPPED
 Goal: a user who keeps the default date gets full HQ instantly, no
 1–3 min wait.
 1. **Persistent path**: HQ/preview images currently save to `OUTPUT_DIR`
@@ -32,7 +66,7 @@ Goal: a user who keeps the default date gets full HQ instantly, no
    `/asset/default/hq_193_20141024.png`) — 200 → use it; 404 → fall
    back to the current JPG-preview path.
 
-### Phase B — pre-rendered REAL Printify mockups for the default (wow factor)
+### Phase B — pre-rendered REAL Printify mockups for the default — SHIPPED
 Goal: product tiles show photorealistic ACTUAL-product mockups on
 landing instead of the JS canvas approximations. (Reverts to canvas
 mockups once the user picks their own date — pre-renders are
