@@ -4575,19 +4575,17 @@ html.embedded .feedback-product-results {
     font-size: 16px;
   }
 
-  /* ── F10 · Editor: drop sticky on phone, let it scroll linearly ──
+  /* ── F10 · Editor: drop sticky on the image-stage only ─────────
      The existing rule at line ~3106 keeps `.image-stage` sticky at
      top:0 AND `.selected-product-preview` sticky at top:30vh — on a
      390 × 844 viewport that's 65 vh of pinned chrome (≈ 549 px),
-     leaving ~295 px for the toolbar/sliders, and the two panes
-     visually fight each other. Phone users naturally scroll; mirror
-     what `html.embedded` does and let canvas → preview → toolbar →
-     actions scroll inline. Action bar still sticks to the bottom so
-     Generate/Download are always reachable.
+     leaving ~295 px for the toolbar/sliders. Since F15 hides the
+     image-stage entirely on mobile, only the preview pane needs to
+     stick — and F16 (below) handles that with a single sticky-at-
+     top pinning the canvas while the toolbar scrolls underneath.
      The !important is needed to beat the more-specific
      `.editor-with-preview .image-stage` selectors above. */
-  .editor-with-preview .image-stage,
-  .editor-with-preview .selected-product-preview {
+  .editor-with-preview .image-stage {
     position: static !important;
     top: auto !important;
     max-height: none !important;
@@ -4695,6 +4693,79 @@ html.embedded .feedback-product-results {
      wrapped in `.btn-preview-mockup-label`; we hide it and inject a
      mobile-clearer string. (JS still updates the inner label on
      state change, so we keep both in sync by re-asserting both.) */
+
+  /* ── F16 · Sticky mobile preview pane + drag-to-resize ─────────
+     Gilly + beta (2026-05-22, round 3): with image-stage hidden
+     (F15) the mockup preview IS the canvas — let it float pinned
+     at the top of the viewport so edits made in the toolbar below
+     are visible in real time without scrolling back up. Drag the
+     bottom-right corner grip to scale the canvas down (free up
+     viewport for sliders) or back up (see detail). Persisted in
+     localStorage so the choice survives page loads.
+     Implementation: pane goes position:sticky with a solid
+     background so toolbar contents scrolling underneath don't
+     bleed through. The canvas itself is scaled via the
+     --preview-scale CSS var, written by JS setupMobilePreviewResize. */
+  .editor-with-preview .selected-product-preview {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--bg-elevated, #1a1a2e);
+    /* Hard cap on the pane's height so the toolbar isn't pushed
+       offscreen even when the user maxes the canvas. Pane scrolls
+       internally if its content exceeds. */
+    max-height: 70vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    /* Establish positioning context for the absolutely-placed close
+       button (already there) AND the new resize handle. */
+    position: sticky; /* re-asserted; keeps the cascade obvious */
+  }
+  /* Canvas + real-mockup img both ride on --preview-scale. Default
+     1 = the 340px cap from F15. */
+  .editor-with-preview .selected-product-preview .preview-mockup {
+    max-width: calc(340px * var(--preview-scale, 1));
+    transition: max-width 0.05s linear; /* a hair, so dragging feels live */
+  }
+  .editor-with-preview .selected-product-preview .preview-mockup
+    canvas.live-preview-canvas,
+  .editor-with-preview .selected-product-preview .preview-mockup
+    img.preview-real-mockup {
+    max-width: 100%;
+    width: 100%;
+    height: auto;
+  }
+  /* Corner grip — bottom-right, a "≡"-ish chevron stack so it
+     reads as draggable rather than decorative. Touch-action:none
+     keeps page scroll from stealing the drag gesture. */
+  .preview-resize-handle {
+    position: absolute;
+    bottom: 4px; right: 4px;
+    width: 30px; height: 30px;
+    cursor: nwse-resize;
+    touch-action: none;
+    z-index: 7;
+    border-radius: 6px;
+    background:
+      linear-gradient(135deg,
+        transparent 0 38%,
+        var(--accent-corona, #7b61ff) 38% 46%,
+        transparent 46% 56%,
+        var(--accent-corona, #7b61ff) 56% 64%,
+        transparent 64% 74%,
+        var(--accent-corona, #7b61ff) 74% 82%,
+        transparent 82% 100%);
+    opacity: 0.65;
+    transition: opacity 0.15s ease;
+  }
+  .preview-resize-handle:hover,
+  .preview-resize-handle:focus-visible,
+  .preview-resize-handle.dragging { opacity: 1; outline: none; }
+  /* Move the close × inboard a touch so it doesn't crowd the handle
+     when the user drags the pane to its smallest size. */
+  .selected-product-preview .preview-close-btn {
+    /* keep top-right — handle is bottom-right, so they're far apart */
+  }
 }
 
 /* ── F11 · Very-narrow phones (≤ 389 px, e.g. iPhone SE 1) ──────
