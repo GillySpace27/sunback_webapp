@@ -430,14 +430,20 @@ app = FastAPI(title=APP_NAME)
 app_dir = Path(__file__).parent
 # Serve all static files (HTML, JS, CSS) from /api/
 app.mount("/api/static", StaticFiles(directory=str(app_dir)), name="static")
-# Main asset mount: serves HQ/full-res images from OUTPUT_DIR (not including preview subdir)
-app.mount("/asset", StaticFiles(directory=OUTPUT_DIR), name="asset")
-# New: serve preview images from the preview subfolder
-app.mount("/asset/preview", StaticFiles(directory=PREVIEW_DIR), name="asset_preview")
-# Persistent default-image cache (Phase A HQ + Phase B real Printify mockups +
-# the default_mockups.json manifest). Lives on the /var/data Render disk so
-# it survives deploys. Served at /asset/default/.
+# MOUNT ORDER MATTERS in Starlette/FastAPI: registration order is the
+# match order, and the first matching prefix wins. So the more-specific
+# /asset/default and /asset/preview mounts must be registered BEFORE the
+# catch-all /asset, otherwise /asset shadows them and Static lookups land
+# in OUTPUT_DIR (the wrong tree).
+#
+# Persistent default-image cache (Phase A HQ + Phase B real Printify
+# mockups + default_mockups.json manifest). Lives on /var/data; survives
+# deploys. Served at /asset/default/.
 app.mount("/asset/default", StaticFiles(directory=str(DEFAULT_CACHE_DIR)), name="default_cache")
+# Preview images.
+app.mount("/asset/preview", StaticFiles(directory=PREVIEW_DIR), name="asset_preview")
+# Main asset mount: HQ/full-res images from OUTPUT_DIR (the catch-all).
+app.mount("/asset", StaticFiles(directory=OUTPUT_DIR), name="asset")
 
 @app.get("/api/frontend.html")
 async def serve_frontend():
