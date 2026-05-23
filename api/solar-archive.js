@@ -7165,8 +7165,28 @@
         mctx.stroke();
       } else if (productId === "throw_pillow" || productId === "sherpa_blanket" ||
                  productId === "shower_curtain" || productId === "tapestry" || productId === "crew_socks") {
-        // Square-ish products
-        var pilL = 18, pilT = 18, pilW = 124, pilH = 124;
+        // Square-ish soft-goods family. Frame geometry now follows the
+        // effective AR so dualPanel products (throw_pillow in "span"
+        // mode → 2:1 spread) get a wide pillow instead of a square one
+        // letterboxing a stretched design. Non-dualPanel members of
+        // this branch were always close to square so the AR-driven
+        // sizing reduces to the original 124×124 for them.
+        var _pilProd = PRODUCTS.find(function(p) { return p.id === productId; });
+        var _pilAR = (_pilProd && typeof getEffectiveAspectRatio === "function")
+                       ? getEffectiveAspectRatio(_pilProd)
+                       : { w: 1, h: 1 };
+        var pilMax = 124;
+        var pilArR = _pilAR.w / _pilAR.h;
+        var pilW, pilH;
+        if (pilArR >= 1) {
+          pilW = pilMax;
+          pilH = pilW / pilArR;
+        } else {
+          pilH = pilMax;
+          pilW = pilH * pilArR;
+        }
+        var pilL = (160 - pilW) / 2;
+        var pilT = (160 - pilH) / 2;
         mctx.fillStyle = "rgba(0,0,0,0.2)";
         mctx.fillRect(pilL + 4, pilT + 4, pilW, pilH);
         mctx.save();
@@ -7182,7 +7202,11 @@
         mctx.quadraticCurveTo(pilL, pilT, pilL + 8, pilT);
         mctx.closePath();
         mctx.clip();
-        drawCropped(pilL, pilT, pilW, pilH);
+        // drawStretched (center-crop fill) instead of drawCropped: the
+        // frame AR now matches the canvas AR, so the source fills with
+        // no letterbox — and dualPanel "span" mode no longer shows a
+        // thin band of design across a black square.
+        drawStretched(pilL, pilT, pilW, pilH);
         mctx.restore();
       } else if (productId === "puzzle_1000") {
         // Square puzzle with grid overlay
@@ -7231,15 +7255,47 @@
         mctx.arc(phL + phW - 16, phT + 18, 6, 0, Math.PI * 2);
         mctx.fill();
       } else if (productId === "journal_hardcover") {
-        // Journal — double-width cover wrap (front + spine + back)
-        var jL = 10, jT = 20, jW = 140, jH = 120, jR = 6;
-        // Spine
-        mctx.fillStyle = "#4a3728";
-        mctx.fillRect(jL + jW / 2 - 3, jT, 6, jH);
-        // Shadow
+        // Hardcover journal — cover-frame geometry follows the effective
+        // layout aspect, not a hard-coded landscape rectangle:
+        //   • match (default) → portrait single-cover view (~15:22).
+        //     Shows the front cover only; user understands "same design
+        //     on both covers". No spine line — the front cover of a
+        //     closed book doesn't show one.
+        //   • span → landscape open-spread view (~1.43:1, back + spine
+        //     + front as one continuous design). Spine bar drawn through
+        //     the centre to show where the seam falls.
+        // Prior version always drew a 140×120 landscape frame in BOTH
+        // modes and fit-letterboxed a portrait canvas inside it, which
+        // bisected the sun with a spine line + black side bars.
+        var _jProd = PRODUCTS.find(function(p) { return p.id === "journal_hardcover"; });
+        var _jAR = (_jProd && typeof getEffectiveAspectRatio === "function")
+                     ? getEffectiveAspectRatio(_jProd)
+                     : { w: 4065, h: 2850 };
+        var _jMode = (state.dualPanelModeByProduct && state.dualPanelModeByProduct.journal_hardcover) || "match";
+        // Fit the largest rectangle with the effective AR inside the
+        // 160×160 mockup canvas (leaving 8 px of breathing room).
+        var jMaxW = 144, jMaxH = 144;
+        var jArR = _jAR.w / _jAR.h;
+        var jW, jH;
+        if (jArR >= jMaxW / jMaxH) {
+          jW = jMaxW;
+          jH = jW / jArR;
+        } else {
+          jH = jMaxH;
+          jW = jH * jArR;
+        }
+        var jL = (160 - jW) / 2;
+        var jT = (160 - jH) / 2;
+        var jR = 6;
+        // Drop shadow behind the cover.
         mctx.fillStyle = "rgba(0,0,0,0.3)";
         mctx.fillRect(jL + 4, jT + 4, jW, jH);
-        // Cover image
+        // Spine (span mode only — closed-cover view has no spine on the face).
+        if (_jMode === "span") {
+          mctx.fillStyle = "#4a3728";
+          mctx.fillRect(jL + jW / 2 - 3, jT, 6, jH);
+        }
+        // Cover image (clipped to rounded-corner cover shape).
         mctx.save();
         mctx.beginPath();
         mctx.moveTo(jL + jR, jT);
@@ -7253,11 +7309,18 @@
         mctx.quadraticCurveTo(jL, jT, jL + jR, jT);
         mctx.closePath();
         mctx.clip();
-        drawCropped(jL, jT, jW, jH);
+        // drawStretched (center-crop fill) instead of drawCropped
+        // (fit-inside letterbox). The cover-frame AR now matches the
+        // editor-canvas AR, so the source fills edge-to-edge without
+        // distortion — no more horizontal black bars around a portrait
+        // design squeezed into a landscape frame.
+        drawStretched(jL, jT, jW, jH);
         mctx.restore();
-        // Spine overlay
-        mctx.fillStyle = "rgba(0,0,0,0.15)";
-        mctx.fillRect(jL + jW / 2 - 2, jT, 4, jH);
+        // Spine overlay (span only).
+        if (_jMode === "span") {
+          mctx.fillStyle = "rgba(0,0,0,0.15)";
+          mctx.fillRect(jL + jW / 2 - 2, jT, 4, jH);
+        }
         // Border
         mctx.strokeStyle = "#5a4938";
         mctx.lineWidth = 2;
