@@ -1652,6 +1652,13 @@ def _phase_b_warm(image_id_cache):
                     "size_bytes": mock_path.stat().st_size,
                     "source_mockup_url": mockup_url,
                 }
+                # Incremental manifest write: persists partial progress so a
+                # Render edge-cut on a long-running warm doesn't lose
+                # everything. Re-runs read this manifest + skip cached.
+                try:
+                    DEFAULT_MOCKUPS_MANIFEST.write_text(json.dumps(manifest, indent=2))
+                except Exception as _e:
+                    print(f"[warm_default][phase_b] manifest incremental-write failed: {_e}", flush=True)
                 created += 1
                 status["status"] = "created"
                 status["size_bytes"] = mock_path.stat().st_size
