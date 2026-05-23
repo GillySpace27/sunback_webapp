@@ -307,7 +307,36 @@
       }
     }
     var _floatRafPending = false;
-    var _lastVisibleTop = null;   // last reported viewport offset (for re-sync on resize)
+    var _lastVisibleTop = null;     // last reported viewport offset (for re-sync on resize)
+    var _lastVisibleBottom = null;  // last reported visible-bottom (for centred overlay tracking)
+    // Overlays (e.g. the data-credits modal in embedded mode) that want to
+    // float at the centre of the visible window and TRACK the user's scroll
+    // until closed. Each entry: { el, onClose? }. The viewport message
+    // handler re-positions them on every update.
+    var _centeredOverlays = [];
+    function _centerInVisible(overlay) {
+      if (!overlay) return;
+      if (typeof _lastVisibleTop !== "number") return;
+      var oh = overlay.offsetHeight || 200;
+      if (typeof _lastVisibleBottom === "number") {
+        // Vertically centre within the visible window; clamp 8px from the top
+        // so a tall overlay doesn't slip above the nav.
+        var visH = Math.max(0, _lastVisibleBottom - _lastVisibleTop);
+        overlay.style.top = (_lastVisibleTop + Math.max(8, (visH - oh) / 2)) + "px";
+      } else {
+        // No visible-bottom reported yet — fall back to top-pinning
+        // (24px below the nav) until the next viewport message lands.
+        overlay.style.top = (_lastVisibleTop + 24) + "px";
+      }
+    }
+    function _registerCenteredOverlay(overlay) {
+      _centeredOverlays.push(overlay);
+      _centerInVisible(overlay);
+    }
+    function _unregisterCenteredOverlay(overlay) {
+      var i = _centeredOverlays.indexOf(overlay);
+      if (i >= 0) _centeredOverlays.splice(i, 1);
+    }
     function _updateFloatingCanvas(visibleTopInIframe) {
       _lastVisibleTop = visibleTopInIframe;
       // rAF-coalesce: the parent fires this on every scroll tick.
@@ -367,6 +396,7 @@
         // FAB anchoring (existing behaviour).
         var fab = document.getElementById("feedbackFabGroup");
         var vis = e.data.visibleBottomInIframe;
+        if (typeof vis === "number" && isFinite(vis)) _lastVisibleBottom = vis;
         if (fab && typeof vis === "number" && isFinite(vis)) {
           var fabH = fab.offsetHeight || 60;
           // Pin FAB so its BOTTOM aligns with the visible viewport's
@@ -396,6 +426,14 @@
         var cover = e.data.topCoverPx;
         if (typeof cover === "number" && isFinite(cover)) {
           document.documentElement.style.setProperty("--sa-scroll-offset", (Math.max(0, cover) + 12) + "px");
+        }
+
+        // Re-position any floating-centered overlays (data-credits modal,
+        // etc.) so they track the user's scroll while open.
+        if (_centeredOverlays.length) {
+          for (var _i = 0; _i < _centeredOverlays.length; _i++) {
+            _centerInVisible(_centeredOverlays[_i]);
+          }
         }
       });
     }
@@ -2985,25 +3023,26 @@
       box.appendChild(actions);
       overlay.appendChild(box);
       document.body.appendChild(overlay);
-      btn.addEventListener("click", function() {
+      function _closeOverlay() {
+        _unregisterCenteredOverlay(overlay);
         overlay.remove();
-      });
+      }
+      btn.addEventListener("click", _closeOverlay);
       // Embedded mode: a content-sized iframe can't use a fixed overlay
-      // (it wouldn't track the parent's scroll), and scrollIntoView
-      // can't move the parent's scroll either. If the parent has told us
-      // where the visible region falls (_lastVisibleTop, from the same
-      // postMessage protocol the floating canvas + FAB use), pin the box
-      // there so it lands in the user's CURRENT view instead of at the
-      // bottom of the iframe — no scrolling to find it. Falls back to
+      // (it wouldn't track the parent's scroll). Position absolutely
+      // centred in the parent's visible window (_lastVisibleTop /
+      // _lastVisibleBottom from the viewport postMessage), register it so
+      // the message handler re-centres on every scroll → the modal
+      // FLOATS at the visible centre until closed. Falls back to
       // scrollIntoView when no viewport offset is known yet.
       if (document.documentElement.classList.contains("embedded")) {
         if (typeof _lastVisibleTop === "number" && isFinite(_lastVisibleTop)) {
           overlay.style.position = "absolute";
           overlay.style.left = "0";
           overlay.style.right = "0";
-          overlay.style.top = (_lastVisibleTop + 24) + "px";
           overlay.style.margin = "0 auto";
           overlay.style.zIndex = "9995";
+          _registerCenteredOverlay(overlay);
         } else {
           try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
           catch (_e) { overlay.scrollIntoView(); }
