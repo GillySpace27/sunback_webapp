@@ -2770,7 +2770,13 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
         // Magnitude > 5 within letter, or X-class always
         var bigFlare = goes.charAt(0) === "X" ||
                        (goes.charAt(0) === "M" && parseFloat(goes.slice(1)) >= 5);
-        if (bigFlare) return { wl: 131, why: "hot flaring plasma peaks here" };
+        // 131 Å (Fe XXI ~10 MK) is technically where flaring plasma peaks,
+        // but it saturates ferociously at X-class peaks (Lemen 2012's
+        // dynamic range can't hold the bloom), and the resulting raw
+        // frame is a washed-out blob. 211 Å (Fe XIV ~2 MK) shows the
+        // active region around the flare cleanly without the saturation
+        // bloom — the picture you actually want printed.
+        if (bigFlare) return { wl: 211, why: "211 Å shows the flare's active region without 131 Å's saturation bloom" };
         return { wl: 171, why: "post-flare loops show best in the warm corona" };
       }
       if (code === "AR") return { wl: 171, why: "active-region loops trace magnetic structure" };
@@ -2929,14 +2935,14 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       // pipeline (loadWavelengthThumbnails) reloads at the new time.
       // Hour rolls over at 24, minute rolls over at 60 (wraps the hour).
       return '<div class="hek-tile hek-tile-custom" role="group"' +
-             ' data-hek-rank="custom" aria-label="Fine-tune the time of day, plus or minus one minute">' +
+             ' data-hek-rank="custom" aria-label="Fine-tune the time of day, plus or minus five minutes">' +
              '<span class="hek-tile-rank">Fine-tune time</span>' +
              '<div class="hek-time-fine">' +
-               '<button type="button" class="hek-time-step" data-step="-1" aria-label="Decrease time by one minute">−</button>' +
+               '<button type="button" class="hek-time-step" data-step="-5" aria-label="Decrease time by five minutes">−</button>' +
                '<span class="hek-time-display" id="hekTimeDisplay" aria-live="polite">' + escapeHtml(display) + '</span>' +
-               '<button type="button" class="hek-time-step" data-step="1" aria-label="Increase time by one minute">+</button>' +
+               '<button type="button" class="hek-time-step" data-step="5" aria-label="Increase time by five minutes">+</button>' +
              '</div>' +
-             '<span class="hek-tile-meta">UTC · ±1 min</span>' +
+             '<span class="hek-tile-meta">UTC · ±5 min</span>' +
              '</div>';
     }
 
@@ -3181,7 +3187,8 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
     // Manifest of pre-warmed HQ Raw + RHEF tiles. Populated async on load
     // from /asset/default/vibe_manifest.json. Used by the vibe cards to
     // (a) show the high-fidelity thumb instead of a Helioviewer JPG, and
-    // (b) enable the Raw/RHEF tier toggle in each card's top-right.
+    // (b) enable the per-card Raw/RHEF tier toggle once the narrative
+    // master reveal has fired.
     var _vibeManifest = null;
     function _loadVibeManifest() {
       return fetch("/asset/default/vibe_manifest.json", { cache: "no-store" })
@@ -3191,6 +3198,30 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
           _vibeManifest = (json && json.vibes) ? json.vibes : null;
           return _vibeManifest;
         });
+    }
+
+    // ── In-memory thumb URL → loaded Image() LRU cache ────────────
+    // Per the rate-limit agent's recommendation: a small front-end
+    // cache eliminates duplicate Helioviewer fetches when the user
+    // toggles Raw/RHEF or fine-tunes the time. 20 entries × ~100KB
+    // ≈ 2 MB; trivial. Eviction is FIFO via Map insertion order.
+    var _THUMB_CACHE_MAX = 20;
+    var _thumbCache = new Map();
+    function _thumbCacheGet(url) {
+      if (!_thumbCache.has(url)) return null;
+      // Touch (re-insert) to push it to the back of the LRU order.
+      var v = _thumbCache.get(url);
+      _thumbCache.delete(url);
+      _thumbCache.set(url, v);
+      return v;
+    }
+    function _thumbCacheSet(url, img) {
+      if (_thumbCache.has(url)) _thumbCache.delete(url);
+      _thumbCache.set(url, img);
+      while (_thumbCache.size > _THUMB_CACHE_MAX) {
+        var first = _thumbCache.keys().next().value;
+        _thumbCache.delete(first);
+      }
     }
 
     // Pick the thumb URL for a given card and tier. Falls back to the
@@ -3210,10 +3241,21 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
         "&image_scale=12&size=256";
     }
 
-    // Swap a card's thumb image, with crossfade-ready DOM swap.
+    // Swap a card's thumb image. Uses the URL → Image() LRU cache so a
+    // toggle from RHEF → Raw → RHEF doesn't re-fetch each time.
     function _setVibeThumb(card, url) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;
+      var cached = _thumbCacheGet(url);
+      if (cached) {
+        thumbWell.classList.remove("is-loading");
+        thumbWell.innerHTML = "";
+        // Clone the cached node so each well has its own DOM element.
+        var c = cached.cloneNode(false);
+        c.alt = "";
+        thumbWell.appendChild(c);
+        return;
+      }
       thumbWell.classList.add("is-loading");
       var img = new Image();
       img.alt = "";
@@ -3221,24 +3263,81 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
         thumbWell.classList.remove("is-loading");
         thumbWell.innerHTML = "";
         thumbWell.appendChild(img);
+        _thumbCacheSet(url, img);
       };
       img.onerror = function () { thumbWell.classList.remove("is-loading"); };
       img.src = url;
     }
 
+    // Radial-wipe transition: layer the new-tier image on top of the
+    // current thumb with clip-path: circle(0%), animate to circle(150%).
+    // Once the animation ends, swap the underlying image and remove the
+    // overlay. Used by the master "Reveal filtered view" button so all
+    // six cards transition Raw → RHEF dramatically and simultaneously.
+    function _runTierWipe(card, toTier) {
+      return new Promise(function (resolve) {
+        var slug = card.getAttribute("data-vibe-slug");
+        if (!slug || slug === "birthday") return resolve();
+        var thumbWell = card.querySelector(".vibe-thumb");
+        if (!thumbWell) return resolve();
+        var url = _vibeThumbUrl(toTier, toTier === "raw" ? "raw" : "rhef", {
+          date: card.getAttribute("data-vibe-date") || "",
+          wl:   card.getAttribute("data-vibe-wl") || "171",
+          time: card.getAttribute("data-vibe-time") || "12:00",
+        });
+        // _vibeThumbUrl signature was (slug, tier, ...) — call properly:
+        url = _vibeThumbUrl(slug, toTier, {
+          date: card.getAttribute("data-vibe-date") || "",
+          wl:   card.getAttribute("data-vibe-wl") || "171",
+          time: card.getAttribute("data-vibe-time") || "12:00",
+        });
+        if (!url) return resolve();
+        var overlay = new Image();
+        overlay.alt = "";
+        overlay.className = "vibe-thumb-overlay";
+        overlay.onload = function () {
+          thumbWell.appendChild(overlay);
+          // Force a reflow so the starting clip-path value is committed
+          // before we add the animation class.
+          void overlay.offsetWidth;
+          overlay.classList.add("is-wiping");
+          var done = function () {
+            overlay.removeEventListener("animationend", done);
+            // Promote overlay to the permanent thumb image.
+            var prev = thumbWell.querySelector("img:not(.vibe-thumb-overlay)");
+            if (prev) prev.remove();
+            overlay.classList.remove("is-wiping", "vibe-thumb-overlay");
+            overlay.style.clipPath = "none";
+            _thumbCacheSet(url, overlay);
+            card.setAttribute("data-vibe-active-tier", toTier);
+            // Update toggle UI to match the new active tier.
+            card.querySelectorAll(".vibe-tier-btn").forEach(function (b) {
+              var on = b.getAttribute("data-tier") === toTier;
+              b.classList.toggle("is-active", on);
+              b.setAttribute("aria-pressed", on ? "true" : "false");
+            });
+            resolve();
+          };
+          // Handle reduced-motion (animation may not fire animationend).
+          if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            setTimeout(done, 0);
+          } else {
+            overlay.addEventListener("animationend", done);
+            // Safety: if animationend doesn't fire (e.g. tab hidden),
+            // finish manually after 1.2 s.
+            setTimeout(done, 1200);
+          }
+        };
+        overlay.onerror = function () { resolve(); };
+        overlay.src = url;
+      });
+    }
+
     function _wireVibeGrid() {
       var grid = document.querySelector(".vibe-grid");
       if (!grid) return;
-      // Set today's date on the today-card.
-      var todayCard = grid.querySelector(".vibe-card[data-vibe-today='1']");
-      if (todayCard) {
-        var d = new Date();
-        d.setUTCDate(d.getUTCDate() - 2);
-        var iso = d.toISOString().slice(0, 10);
-        todayCard.setAttribute("data-vibe-date", iso);
-        var lbl = todayCard.querySelector("[data-vibe-today-label]");
-        if (lbl) lbl.textContent = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) + " · 171 Å";
-      }
+      // (Recent-corona's dynamic today-2 date is gone; all 5 static
+      // vibes have hardcoded dates now. The 6th is the birthday card.)
       // Set the birthday-input's max to today's UTC date (so users can't
       // pick a future date that has no data).
       var bdayInput = document.getElementById("vibeBirthdayInput");
@@ -3248,24 +3347,63 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       }
 
       // Initial thumb load (manifest first, fall back to Helioviewer).
+      // Cards START in Raw — the narrative reveal flips them to RHEF.
       _loadVibeManifest().then(function () {
+        var anyHasTiers = false;
         grid.querySelectorAll(".vibe-card[data-vibe-slug]").forEach(function (card) {
           var slug = card.getAttribute("data-vibe-slug");
-          if (slug === "birthday") return;  // no thumb on Your-day card
-          // If manifest has both tiers, enable the toggle.
-          if (_vibeManifest && _vibeManifest[slug] && _vibeManifest[slug].raw_thumb_url && _vibeManifest[slug].rhef_thumb_url) {
-            card.classList.add("has-tiers");
-          }
+          if (slug === "birthday") return;
+          var entry = _vibeManifest && _vibeManifest[slug];
+          var hasBoth = entry && entry.raw_thumb_url && entry.rhef_thumb_url;
+          if (hasBoth) { card.classList.add("has-tiers"); anyHasTiers = true; }
           var date = card.getAttribute("data-vibe-date") || "";
           var wl = card.getAttribute("data-vibe-wl") || "171";
           var time = card.getAttribute("data-vibe-time") || "12:00";
-          // Default tier shown is RHEF (matches the toggle's initial state).
-          var url = _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
+          // Start in Raw. Fall back to Helioviewer JPG if manifest absent.
+          var url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time });
           _setVibeThumb(card, url);
+          card.setAttribute("data-vibe-active-tier", "raw");
         });
+        // Reveal the master "Click here for the filtered view" CTA only
+        // if at least one card has both tiers available (otherwise the
+        // narrative would lie). When the warm hasn't run, cards just
+        // show Raw (Helioviewer fallback) and no CTA appears.
+        var cta = document.getElementById("vibeRevealCta");
+        if (cta && anyHasTiers) cta.classList.remove("hidden");
       });
 
-      // Tier-toggle clicks — swap the thumb without firing the open flow.
+      // Wire the master reveal — radial wipe Raw → RHEF across all
+      // has-tiers cards, then fade out the CTA and enable per-card
+      // toggles for A/B comparison.
+      var revealBtn = document.getElementById("vibeRevealBtn");
+      var revealCta = document.getElementById("vibeRevealCta");
+      if (revealBtn && revealCta) {
+        revealBtn.addEventListener("click", function () {
+          var cards = grid.querySelectorAll(".vibe-card.has-tiers");
+          if (!cards.length) return;
+          revealBtn.disabled = true;
+          // Staggered wipe across cards — 90 ms gap gives a moderately
+          // fast cascade without feeling chaotic. Reduced-motion users
+          // get a near-instant snap (the CSS handles that).
+          var staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
+          cards.forEach(function (card, i) {
+            setTimeout(function () { _runTierWipe(card, "rhef"); }, i * staggerMs);
+          });
+          // Mark cards reveal-complete so per-card toggles become
+          // visible. Fade the CTA out a beat after the last wipe starts.
+          var fadeDelay = cards.length * staggerMs + 200;
+          setTimeout(function () {
+            cards.forEach(function (card) { card.classList.add("reveal-complete"); });
+            revealCta.classList.add("is-dismissed");
+            setTimeout(function () { revealCta.classList.add("hidden"); }, 700);
+          }, fadeDelay);
+        });
+      }
+
+      // Tier-toggle clicks — radial-wipe transition for visual
+      // consistency with the master reveal (so per-card A/B feels like
+      // the same delight). Skip if the user clicked the already-active
+      // tier (idempotent).
       grid.addEventListener("click", function (e) {
         var tierBtn = e.target.closest(".vibe-tier-btn");
         if (tierBtn) {
@@ -3274,21 +3412,10 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
           var slug = card && card.getAttribute("data-vibe-slug");
           if (!card || !slug) return;
           var tier = tierBtn.getAttribute("data-tier");
-          // Update aria-pressed + is-active styling.
-          card.querySelectorAll(".vibe-tier-btn").forEach(function (b) {
-            var on = b === tierBtn;
-            b.classList.toggle("is-active", on);
-            b.setAttribute("aria-pressed", on ? "true" : "false");
-          });
-          var url = _vibeThumbUrl(slug, tier, {
-            date: card.getAttribute("data-vibe-date") || "",
-            wl:   card.getAttribute("data-vibe-wl") || "171",
-            time: card.getAttribute("data-vibe-time") || "12:00",
-          });
-          _setVibeThumb(card, url);
-          // Remember the user's tier choice — vibe-open will use it to
-          // pre-select Raw vs RHEF when the editor flow loads.
-          card.setAttribute("data-vibe-active-tier", tier);
+          var currentTier = card.getAttribute("data-vibe-active-tier") || "raw";
+          if (tier === currentTier) return;  // already on this tier
+          // _runTierWipe updates the toggle button state on completion.
+          _runTierWipe(card, tier);
           return;
         }
         // Info-button — toggle the attribution popover.
@@ -3390,8 +3517,8 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       x93_flare: {
         title: "X9.3 flare — September 6, 2017",
         body: 'Solar Cycle 24\'s largest X-ray flare. Peak GOES class X9.3 at 11:53 UTC. ' +
-              'Image: NASA/SDO/AIA 131 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
-              'RHEF tier: Gilly et al. 2025.'
+              'Shown at 211 Å (Fe XIV ~2 MK) rather than 131 Å, which saturates at flare peaks. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
       },
       mothers_day_storm: {
         title: "Mother's Day storm — May 10, 2024",
@@ -3399,10 +3526,11 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
               'RHEF tier: Gilly et al. 2025.'
       },
-      recent_corona: {
-        title: "Recent corona",
-        body: 'Near-current view of the quiet corona at 171 Å. Two days behind real-time ' +
-              'to allow the AIA L1 pipeline to publish. ' +
+      limb_x82_flare: {
+        title: "Limb X8.2 flare — September 10, 2017",
+        body: 'Off-limb X8.2 flare, four days after the X9.3 on the same active region (12673). ' +
+              'The post-flare arcade off the limb is one of the most iconic images of the SDO era. ' +
+              'Shown at 211 Å to avoid 131 Å saturation. ' +
               CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
       },
       monster_prominence: {
