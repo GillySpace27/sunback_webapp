@@ -1,8 +1,14 @@
 /* ===============================================================
    Solar Archive — Poe Canvas App
+
+   Loaded as an ES module from index.html (<script type="module">).
+   Modules are strict-mode by default and have their own top-level
+   scope, so the old (function () { … })(); IIFE wrapper that used
+   to fence this file is now redundant — the module boundary does
+   the same job. As we extract slices into sibling .js files this
+   file gradually shrinks; for now it still hosts the bulk of the
+   app while we move pieces out one commit at a time.
    =============================================================== */
-   (function () {
-    "use strict";
 
     // ── Config ───────────────────────────────────────────────────
     // Derive API base from current origin so the same page works in local dev,
@@ -12616,5 +12622,3 @@
         if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
       });
     })();
-
-  })();
