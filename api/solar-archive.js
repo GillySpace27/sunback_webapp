@@ -1756,13 +1756,19 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       }
 
       // Request a scroll to the product section once it becomes visible.
-      // If it's already visible (subsequent tile clicks), scroll immediately.
-      // If it's still hidden (first load), set a flag so _installPreviewImage scrolls after revealing it.
-      var productSectionEl = document.getElementById("productSection");
-      if (productSectionEl && !productSectionEl.classList.contains("hidden")) {
-        _scrollToEl(productSectionEl, "start");
+      // Suppressed via state.suppressNextProductScroll (one-shot) when
+      // the wavelength tile is being clicked programmatically by the
+      // vibe-card flow — in that case we want the user to land on
+      // section 1 (the HEK picker) NOT scrolled past it to the products.
+      if (state.suppressNextProductScroll) {
+        state.suppressNextProductScroll = false;
       } else {
-        state.scrollToProductsOnLoad = true;
+        var productSectionEl = document.getElementById("productSection");
+        if (productSectionEl && !productSectionEl.classList.contains("hidden")) {
+          _scrollToEl(productSectionEl, "start");
+        } else {
+          state.scrollToProductsOnLoad = true;
+        }
       }
 
       loadHelioviewerPreview(state.wavelength, dateInput.value);
@@ -2852,6 +2858,10 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
     function _updateCustomTimeDisplay(hhmm) {
       var d = document.getElementById("hekTimeDisplay");
       if (d) d.textContent = hhmm;
+      // Keep the exact-time input in sync so the picker opens at the
+      // current value and reflects [-]/[+] step changes.
+      var ex = document.getElementById("hekTimeExact");
+      if (ex && ex.value !== hhmm) ex.value = hhmm;
     }
 
     // Debounced JPG-preview refresh: after the user stops clicking
@@ -2935,14 +2945,20 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       // pipeline (loadWavelengthThumbnails) reloads at the new time.
       // Hour rolls over at 24, minute rolls over at 60 (wraps the hour).
       return '<div class="hek-tile hek-tile-custom" role="group"' +
-             ' data-hek-rank="custom" aria-label="Fine-tune the time of day, plus or minus five minutes">' +
+             ' data-hek-rank="custom" aria-label="Fine-tune the time of day">' +
              '<span class="hek-tile-rank">Fine-tune time</span>' +
              '<div class="hek-time-fine">' +
                '<button type="button" class="hek-time-step" data-step="-5" aria-label="Decrease time by five minutes">−</button>' +
                '<span class="hek-time-display" id="hekTimeDisplay" aria-live="polite">' + escapeHtml(display) + '</span>' +
                '<button type="button" class="hek-time-step" data-step="5" aria-label="Increase time by five minutes">+</button>' +
              '</div>' +
-             '<span class="hek-tile-meta">UTC · ±5 min</span>' +
+             '<div class="hek-time-exact">' +
+               '<label for="hekTimeExact" class="hek-time-exact-label">Or pick exact:</label>' +
+               '<input type="time" id="hekTimeExact" class="hek-time-exact-input"' +
+                 ' step="60" value="' + escapeHtml(display) + '"' +
+                 ' aria-label="Pick an exact time of day">' +
+             '</div>' +
+             '<span class="hek-tile-meta">UTC</span>' +
              '</div>';
     }
 
@@ -3014,29 +3030,50 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       _applyHekTimePick(t, event);
     }
 
+    // Shared time-set helper used by both the [-]/[+] step buttons and
+    // the native <input type="time"> exact picker. Mutates #solarTime
+    // (without firing change yet), updates the display + exact input,
+    // un-checks event radios, marks user-touched, schedules refresh.
+    function _applyFineTuneTime(next) {
+      if (!timeInput) return;
+      timeInput.value = next;
+      _updateCustomTimeDisplay(next);
+      if (hekTileGrid) {
+        hekTileGrid.querySelectorAll('.hek-tile[role="radio"]').forEach(function (t) {
+          t.setAttribute("aria-checked", "false");
+        });
+      }
+      _hekSelectedRank = "custom";
+      _userTouchedTime = true;
+      _scheduleFineTuneRefresh();
+    }
+
     if (hekTileGrid) {
       hekTileGrid.addEventListener("click", function (e) {
-        // [-] / [+] fine-tune buttons: ±1-min step, immediate display
-        // update, debounced JPG-preview refresh. Also un-checks event
-        // radios since the user is now off the catalogued event.
+        // [-] / [+] fine-tune buttons: ±5-min step, immediate display
+        // update, debounced JPG-preview refresh.
         var stepBtn = e.target.closest(".hek-time-step");
         if (stepBtn) {
           var delta = parseInt(stepBtn.getAttribute("data-step"), 10) || 0;
           var current = (timeInput && timeInput.value) || "12:00";
-          var next = _hhmmAddMinutes(current, delta);
-          if (timeInput) timeInput.value = next;  // mutate without firing change yet
-          _updateCustomTimeDisplay(next);
-          hekTileGrid.querySelectorAll('.hek-tile[role="radio"]').forEach(function (t) {
-            t.setAttribute("aria-checked", "false");
-          });
-          _hekSelectedRank = "custom";
-          _userTouchedTime = true;
-          _scheduleFineTuneRefresh();
+          _applyFineTuneTime(_hhmmAddMinutes(current, delta));
           return;
         }
         var tile = e.target.closest(".hek-tile[role='radio']");
         if (!tile) return;
         _pickEventTile(tile);
+      });
+
+      // Native <input type="time"> exact-pick listener — delegated since
+      // the input is rebuilt by _renderHekTiles on every date change.
+      // Same flow as a [-]/[+] step: stamps #solarTime, updates the
+      // display, un-checks radios, debounces the preview refresh.
+      hekTileGrid.addEventListener("input", function (e) {
+        var t = e.target.closest("#hekTimeExact");
+        if (!t) return;
+        var v = t.value;
+        if (!/^\d{2}:\d{2}/.test(v)) return;
+        _applyFineTuneTime(v.slice(0, 5));
       });
 
       // WAI-ARIA radiogroup keyboard pattern: arrow keys cycle through
@@ -3497,10 +3534,16 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       // If this card carries a preset wavelength, click that tile to
       // trigger the existing pipeline. If not (birthday card), the user
       // picks a wavelength manually after the HEK suggestion fires.
+      // Suppress the wavelength-click's default scroll-to-products so
+      // the user lands on section 1 (the HEK picker), not pushed past
+      // it to the editor / product grid below.
       if (wl) {
         _userTouchedWavelength = true;
         var wlTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + wl + '"]');
-        if (wlTile) setTimeout(function () { wlTile.click(); }, 50);
+        if (wlTile) setTimeout(function () {
+          state.suppressNextProductScroll = true;
+          wlTile.click();
+        }, 50);
       }
       // Scroll the configurator into view, respecting reduced-motion.
       var configSection = wlGrid && wlGrid.closest(".section");
