@@ -52,6 +52,14 @@ import sys
 from dotenv import load_dotenv
 # Load environment variables from ../.env (backend startup)
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
+# Also load operator-only secrets from ~/.claude/secrets/solar-archive.env
+# if it exists. This file is gitignored / lives outside the repo and holds
+# things like FEEDBACK_ADMIN_KEY, RESEND_API_KEY, FEEDBACK_NOTIFY_EMAIL —
+# letting the localhost dev server fire feedback emails just like prod.
+# override=False so the repo-tracked .env still wins for anything it sets.
+_operator_secrets = os.path.expanduser("~/.claude/secrets/solar-archive.env")
+if os.path.isfile(_operator_secrets):
+    load_dotenv(_operator_secrets, override=False)
 os.environ["PYTHONUNBUFFERED"] = "1"
 try:
     sys.stdout.reconfigure(write_through=True)
