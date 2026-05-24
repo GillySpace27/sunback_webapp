@@ -1040,6 +1040,9 @@
   </defs>
 </svg>
 
-<script src="solar-archive.js"></script>
+<!-- type="module" → browser-native ES modules. Module scripts are
+     deferred by default (run after DOM parse) and live in their own
+     top-level scope, replacing the old (function(){…})() IIFE wrapper. -->
+<script type="module" src="solar-archive.js"></script>
 </body>
 </html>
