@@ -404,16 +404,21 @@ _DEFAULT_MOCKUP_PRODUCTS = [
 
 # Vibe-grid landing tiles — pre-rendered HQ pairs (raw + RHEF) for the
 # 5 "famous moments" cards on the landing page (api/index.html L73–148).
-# The 5th tile (`recent_corona`) is dynamic: warmed at today_utc - 2 days
-# / 171 Å / 12:00 — appended to this list at warm time. See the
-# /api/admin/warm_vibe_grid route below.
+# All entries are static dates so the cache is fully idempotent — the
+# earlier dynamic `recent_corona` tile was replaced with `limb_x82_flare`
+# (2017-09-10) at the user's request.
+#
+# X-class flares (X9.3 on 2017-09-06, X8.2 limb on 2017-09-10) use 211 Å
+# rather than 131 Å for the vibe-card thumbnails: 131 Å saturates
+# severely at the flare peak (Fe XXI ~10 MK blows the detector dynamic
+# range), whereas 211 Å (Fe XIV ~2 MK) cleanly shows the active region
+# surrounding the flare without the bloom artifact.
 _VIBE_GRID_TUPLES = [
     {"slug": "ar2192",             "date": "2014-10-24", "wavelength": 193, "time": "12:00", "mission": "SDO", "detector": "AIA"},
-    {"slug": "x93_flare",          "date": "2017-09-06", "wavelength": 131, "time": "12:02", "mission": "SDO", "detector": "AIA"},
+    {"slug": "x93_flare",          "date": "2017-09-06", "wavelength": 211, "time": "12:02", "mission": "SDO", "detector": "AIA"},
     {"slug": "mothers_day_storm",  "date": "2024-05-10", "wavelength": 193, "time": "17:00", "mission": "SDO", "detector": "AIA"},
     {"slug": "monster_prominence", "date": "2012-08-31", "wavelength": 304, "time": "20:00", "mission": "SDO", "detector": "AIA"},
-    # 5th entry ("recent_corona") is generated dynamically at warm time —
-    # see _resolve_vibe_grid_tuples().
+    {"slug": "limb_x82_flare",     "date": "2017-09-10", "wavelength": 211, "time": "16:06", "mission": "SDO", "detector": "AIA"},
 ]
 
 # Persistent vibe-grid output paths (mirror DEFAULT_MOCKUPS_*):
@@ -1853,21 +1858,11 @@ async def warm_default(request: Request):
 # and RHEF tiers from the same Map — saving a re-download per vibe.
 
 def _resolve_vibe_grid_tuples():
-    """Return the static vibes plus the dynamic 'recent_corona' tuple
-    (today_utc - 2 days, 171 Å, 12:00). Computed at call time so a warm
-    run on a different day picks up a different `recent_corona` date —
-    operators should re-trigger this endpoint on a cadence (daily cron
-    is fine) to keep recent_corona fresh."""
-    recent_dt = (datetime.utcnow() - timedelta(days=2)).date()
-    recent = {
-        "slug": "recent_corona",
-        "date": recent_dt.strftime("%Y-%m-%d"),
-        "wavelength": 171,
-        "time": "12:00",
-        "mission": "SDO",
-        "detector": "AIA",
-    }
-    return list(_VIBE_GRID_TUPLES) + [recent]
+    """All vibes are static now (the earlier dynamic recent_corona was
+    swapped for limb_x82_flare at user request — see _VIBE_GRID_TUPLES
+    comment). Function kept for API stability with the existing warm
+    orchestrator."""
+    return list(_VIBE_GRID_TUPLES)
 
 
 def _vibe_pick_cmap(wavelength: int, mission: str):
@@ -2026,14 +2021,31 @@ def _render_vibe_pair(vibe: dict) -> dict:
     return entry
 
 
-def _warm_vibe_grid() -> dict:
+def _warm_vibe_grid(force: bool = False) -> dict:
     """Sync orchestrator — renders every vibe sequentially. Per-vibe
     try/except so one bad render doesn't sink the others. Writes the
     manifest incrementally so a process restart mid-warm leaves a valid
-    (partial) manifest behind."""
+    (partial) manifest behind.
+
+    `force=True` deletes every existing vibe file + the manifest before
+    starting, so a tuple-list change (e.g. swapping wavelengths from
+    131→211 for the X-flare cards) actually gets re-rendered instead of
+    being skipped as already-cached."""
     DEFAULT_VIBE_DIR.mkdir(parents=True, exist_ok=True)
+    if force:
+        try:
+            import shutil
+            if DEFAULT_VIBE_DIR.exists():
+                shutil.rmtree(DEFAULT_VIBE_DIR)
+            DEFAULT_VIBE_DIR.mkdir(parents=True, exist_ok=True)
+            if DEFAULT_VIBE_MANIFEST.exists():
+                DEFAULT_VIBE_MANIFEST.unlink()
+            print(f"[warm_vibe_grid] force=1 — purged vibe cache + manifest", flush=True)
+        except Exception as e:
+            print(f"[warm_vibe_grid] force purge failed (continuing): {e}", flush=True)
+
     vibes = _resolve_vibe_grid_tuples()
-    print(f"[warm_vibe_grid] starting warm of {len(vibes)} vibes", flush=True)
+    print(f"[warm_vibe_grid] starting warm of {len(vibes)} vibes (force={force})", flush=True)
 
     per_vibe = []
     warmed = 0
@@ -2042,8 +2054,9 @@ def _warm_vibe_grid() -> dict:
     manifest_vibes: Dict[str, Any] = {}
 
     # Preserve any pre-existing manifest entries (e.g. a previous warm
-    # populated some slugs; re-run picks up where it left off).
-    if DEFAULT_VIBE_MANIFEST.exists():
+    # populated some slugs; re-run picks up where it left off). Skipped
+    # when force=True since the cache was just nuked.
+    if not force and DEFAULT_VIBE_MANIFEST.exists():
         try:
             prev = json.loads(DEFAULT_VIBE_MANIFEST.read_text())
             manifest_vibes = dict((prev or {}).get("vibes") or {})
@@ -2094,22 +2107,24 @@ def _warm_vibe_grid() -> dict:
 
 
 @app.post("/api/admin/warm_vibe_grid")
-async def warm_vibe_grid(request: Request):
+async def warm_vibe_grid(request: Request, force: int = 0):
     """Pre-render the landing-page vibe-grid tiles (Raw + RHEF, full +
     thumb) to the persistent disk. Gated by FEEDBACK_ADMIN_KEY.
 
         source ~/.claude/secrets/solar-archive.env
         curl -X POST -H "X-Admin-Key: $FEEDBACK_ADMIN_KEY" \
-            https://solar-archive.onrender.com/api/admin/warm_vibe_grid
+            "https://solar-archive.onrender.com/api/admin/warm_vibe_grid?force=1"
 
     Each vibe takes 1–3 min cold; the full warm runs 20+ min sequentially.
     Idempotent — re-running picks up any vibe whose both `*_full.png`
-    files aren't on disk yet. Held under the heavy-render semaphore so
-    we don't fight a concurrent /api/generate request for memory."""
+    files aren't on disk yet. Pass `?force=1` to purge the existing
+    cache + manifest first (use after changing tuple wavelengths so the
+    new renders actually get written). Held under the heavy-render
+    semaphore so we don't fight a concurrent /api/generate for memory."""
     _check_warm_admin_key(request.headers.get("x-admin-key"))
     async with _HeavyRenderSlot():
         try:
-            result = await asyncio.to_thread(_warm_vibe_grid)
+            result = await asyncio.to_thread(_warm_vibe_grid, bool(force))
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"warm_vibe_grid failed: {e}")
     return result

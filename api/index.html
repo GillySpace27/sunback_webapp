@@ -79,16 +79,31 @@
     <div class="section-header">
       <div class="section-title" id="vibeGridTitle">Famous moments — tap one to start</div>
     </div>
+
+    <!-- Narrative reveal CTA — visible only after the vibe-manifest has
+         loaded both Raw and RHEF tiers for every static card. Cards
+         start showing Raw; clicking this button runs a radial-wipe
+         animation across the cards revealing RHEF. After the reveal,
+         per-card Raw/RHEF toggles become available for A/B comparison. -->
+    <div class="vibe-reveal-cta hidden" id="vibeRevealCta">
+      <button type="button" class="vibe-reveal-btn" id="vibeRevealBtn"
+              aria-label="Reveal the filtered view of all six suns">
+        <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+        Click here for the filtered view
+      </button>
+    </div>
+
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
 
       <div class="vibe-card" data-vibe-slug="ar2192"
            data-vibe-date="2014-10-24" data-vibe-wl="193" data-vibe-time="12:00">
         <div class="vibe-controls">
           <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for AR 2192">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
-            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
+            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
           </div>
-          <button type="button" class="vibe-info-btn" aria-label="AR 2192 image credits and attribution" aria-haspopup="dialog">
+          <button type="button" class="vibe-info-btn" aria-label="AR 2192 image credits and attribution"
+                  title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
           </button>
         </div>
@@ -103,22 +118,23 @@
       </div>
 
       <div class="vibe-card" data-vibe-slug="x93_flare"
-           data-vibe-date="2017-09-06" data-vibe-wl="131" data-vibe-time="12:02">
+           data-vibe-date="2017-09-06" data-vibe-wl="211" data-vibe-time="12:02">
         <div class="vibe-controls">
           <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for X9.3 flare">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
-            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
+            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
           </div>
-          <button type="button" class="vibe-info-btn" aria-label="X9.3 flare image credits and attribution" aria-haspopup="dialog">
+          <button type="button" class="vibe-info-btn" aria-label="X9.3 flare image credits and attribution"
+                  title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
           </button>
         </div>
-        <button type="button" class="vibe-open" aria-label="X9.3 flare, September 6 2017, 131 angstrom. Solar Cycle 24's biggest flare.">
+        <button type="button" class="vibe-open" aria-label="X9.3 flare, September 6 2017, 211 angstrom. Solar Cycle 24's biggest flare.">
           <div class="vibe-thumb"></div>
           <div class="vibe-meta">
             <div class="vibe-title">X9.3 flare</div>
             <div class="vibe-sub">Cycle 24's biggest flare</div>
-            <div class="vibe-date">Sep 6, 2017 · 131 Å</div>
+            <div class="vibe-date">Sep 6, 2017 · 211 Å</div>
           </div>
         </button>
       </div>
@@ -127,10 +143,11 @@
            data-vibe-date="2024-05-10" data-vibe-wl="193" data-vibe-time="17:00">
         <div class="vibe-controls">
           <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Mother's Day storm">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
-            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
+            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
           </div>
-          <button type="button" class="vibe-info-btn" aria-label="Mother's Day storm image credits and attribution" aria-haspopup="dialog">
+          <button type="button" class="vibe-info-btn" aria-label="Mother's Day storm image credits and attribution"
+                  title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
           </button>
         </div>
@@ -144,23 +161,24 @@
         </button>
       </div>
 
-      <div class="vibe-card" data-vibe-slug="recent_corona"
-           data-vibe-date="" data-vibe-wl="171" data-vibe-time="12:00" data-vibe-today="1">
+      <div class="vibe-card" data-vibe-slug="limb_x82_flare"
+           data-vibe-date="2017-09-10" data-vibe-wl="211" data-vibe-time="16:06">
         <div class="vibe-controls">
-          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Recent corona">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
-            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Limb X8.2 flare">
+            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
+            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
           </div>
-          <button type="button" class="vibe-info-btn" aria-label="Recent corona image credits and attribution" aria-haspopup="dialog">
+          <button type="button" class="vibe-info-btn" aria-label="Limb X8.2 flare image credits and attribution"
+                  title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
           </button>
         </div>
-        <button type="button" class="vibe-open" aria-label="Recent quiet corona, 171 angstrom. A near-current view of the Sun.">
+        <button type="button" class="vibe-open" aria-label="Limb X8.2 flare, September 10 2017, 211 angstrom. Spectacular off-limb flare and CME.">
           <div class="vibe-thumb"></div>
           <div class="vibe-meta">
-            <div class="vibe-title">Recent corona</div>
-            <div class="vibe-sub">A near-current view</div>
-            <div class="vibe-date" data-vibe-today-label>· 171 Å</div>
+            <div class="vibe-title">Limb X8.2 flare</div>
+            <div class="vibe-sub">Off-limb fireworks</div>
+            <div class="vibe-date">Sep 10, 2017 · 211 Å</div>
           </div>
         </button>
       </div>
@@ -169,10 +187,11 @@
            data-vibe-date="2012-08-31" data-vibe-wl="304" data-vibe-time="20:00">
         <div class="vibe-controls">
           <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Monster prominence">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
-            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
+            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
           </div>
-          <button type="button" class="vibe-info-btn" aria-label="Monster prominence image credits and attribution" aria-haspopup="dialog">
+          <button type="button" class="vibe-info-btn" aria-label="Monster prominence image credits and attribution"
+                  title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
           </button>
         </div>
