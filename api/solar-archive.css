@@ -2433,6 +2433,41 @@ html.embedded .modal-box {
   color: var(--text-primary, #fff);
   letter-spacing: 0.02em;
 }
+/* Exact-time picker row — sits below the [-]/[+] cluster. Uses the
+   native <input type="time"> so the user gets the OS's clock picker
+   (analog clock on iOS, time spinner on desktop). Same debounced
+   refresh as the step buttons. */
+.hek-time-exact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+}
+.hek-time-exact-label {
+  font-size: 0.75rem;
+  color: var(--text-dim, #9a93a8);
+}
+.hek-time-exact-input {
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.30);
+  color: var(--text-primary, #fff);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.95rem;
+  min-height: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.hek-time-exact-input:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: 1px;
+}
+@media (pointer: coarse) {
+  .hek-time-exact-input { min-height: 44px; }
+}
 .hek-custom-utc { font-size: 0.72rem; color: var(--text-dim, #9a93a8); }
 
 /* Skeleton tiles during loading. */
