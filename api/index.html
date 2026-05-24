@@ -80,17 +80,25 @@
       <div class="section-title" id="vibeGridTitle">Famous moments — tap one to start</div>
     </div>
 
-    <!-- Narrative reveal CTA — visible only after the vibe-manifest has
-         loaded both Raw and RHEF tiers for every static card. Cards
-         start showing Raw; clicking this button runs a radial-wipe
-         animation across the cards revealing RHEF. After the reveal,
-         per-card Raw/RHEF toggles become available for A/B comparison. -->
+    <!-- Narrative reveal CTA + master tier toggle. Two states:
+         1. Pulsing orange "Click for filtered view" button (initial,
+            once the manifest confirms cards have both tiers).
+         2. After first click: button hides, replaced by a Raw/RHEF
+            segmented pill that swaps ALL cards in sync (with the
+            same radial-wipe transition). Single source of truth at
+            the section top — per-card toggles were removed because
+            users expect ONE control. -->
     <div class="vibe-reveal-cta hidden" id="vibeRevealCta">
       <button type="button" class="vibe-reveal-btn" id="vibeRevealBtn"
-              aria-label="Reveal the filtered view of all six suns">
+              aria-label="Reveal the filtered view of all five suns">
         <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
         Click here for the filtered view
       </button>
+      <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
+           role="radiogroup" aria-label="Image tier — Raw or filtered">
+        <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false">Raw</button>
+        <button type="button" class="vibe-master-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+      </div>
     </div>
 
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
@@ -98,10 +106,6 @@
       <div class="vibe-card" data-vibe-slug="ar2192"
            data-vibe-date="2014-10-24" data-vibe-wl="193" data-vibe-time="12:00">
         <div class="vibe-controls">
-          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for AR 2192">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
-            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
-          </div>
           <button type="button" class="vibe-info-btn" aria-label="AR 2192 image credits and attribution"
                   title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
@@ -120,10 +124,6 @@
       <div class="vibe-card" data-vibe-slug="x93_flare"
            data-vibe-date="2017-09-06" data-vibe-wl="211" data-vibe-time="12:02">
         <div class="vibe-controls">
-          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for X9.3 flare">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
-            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
-          </div>
           <button type="button" class="vibe-info-btn" aria-label="X9.3 flare image credits and attribution"
                   title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
@@ -142,10 +142,6 @@
       <div class="vibe-card" data-vibe-slug="mothers_day_storm"
            data-vibe-date="2024-05-10" data-vibe-wl="193" data-vibe-time="17:00">
         <div class="vibe-controls">
-          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Mother's Day storm">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
-            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
-          </div>
           <button type="button" class="vibe-info-btn" aria-label="Mother's Day storm image credits and attribution"
                   title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
@@ -164,10 +160,6 @@
       <div class="vibe-card" data-vibe-slug="limb_x82_flare"
            data-vibe-date="2017-09-10" data-vibe-wl="211" data-vibe-time="16:06">
         <div class="vibe-controls">
-          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Limb X8.2 flare">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
-            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
-          </div>
           <button type="button" class="vibe-info-btn" aria-label="Limb X8.2 flare image credits and attribution"
                   title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
@@ -186,10 +178,6 @@
       <div class="vibe-card" data-vibe-slug="monster_prominence"
            data-vibe-date="2012-08-31" data-vibe-wl="304" data-vibe-time="20:00">
         <div class="vibe-controls">
-          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Monster prominence">
-            <button type="button" class="vibe-tier-btn is-active" data-tier="raw" aria-pressed="true">Raw</button>
-            <button type="button" class="vibe-tier-btn" data-tier="rhef" aria-pressed="false">RHEF</button>
-          </div>
           <button type="button" class="vibe-info-btn" aria-label="Monster prominence image credits and attribution"
                   title="Click for more information about this image" aria-haspopup="dialog">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
