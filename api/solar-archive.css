@@ -2126,12 +2126,44 @@ html.embedded .modal-box {
   50%      { box-shadow: 0 4px 18px rgba(255,179,71,0.35), 0 0 0 14px rgba(255,179,71,0.00); }
 }
 
-/* Per-card Raw/RHEF toggle — hidden until the master reveal runs.
-   Once .has-tiers AND .reveal-complete are both on the card, the
-   toggle becomes visible. Overrides the original .has-tiers rule
-   below which assumed the toggle should appear on manifest-load. */
-.vibe-card.has-tiers .vibe-tier-toggle { display: none; }
-.vibe-card.has-tiers.reveal-complete .vibe-tier-toggle { display: inline-flex; }
+/* Master Raw/RHEF segmented toggle — sits inside #vibeRevealCta,
+   shown after the first reveal click. Single source of truth at the
+   section top; clicking either pill swaps every card in sync. */
+.vibe-master-toggle {
+  display: inline-flex;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+  padding: 4px;
+  border: 1px solid rgba(255,179,71,0.30);
+  gap: 2px;
+}
+.vibe-master-toggle.hidden { display: none; }
+.vibe-master-btn {
+  background: transparent;
+  color: var(--text-secondary, #d0c8d8);
+  border: 0;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  min-height: 36px;
+  transition: background 160ms ease, color 160ms ease;
+}
+.vibe-master-btn.is-active {
+  background: var(--accent-corona, #ffb347);
+  color: #1a1326;
+}
+.vibe-master-btn:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .vibe-master-btn { min-height: 44px; padding: 10px 22px; }
+}
 
 /* Radial-wipe transition overlay: the new RHEF (or Raw) image is
    appended over the current thumb image with clip-path: circle(0%

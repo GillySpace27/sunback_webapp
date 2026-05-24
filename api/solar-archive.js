@@ -3301,7 +3301,17 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
           // before we add the animation class.
           void overlay.offsetWidth;
           overlay.classList.add("is-wiping");
+          var didDone = false;
           var done = function () {
+            // Idempotency latch — `done` is called by BOTH the
+            // animationend listener AND the 1.2s setTimeout fallback.
+            // Without this guard the second call's
+            // querySelector("img:not(.vibe-thumb-overlay)") matched the
+            // just-promoted overlay (which had its class stripped on
+            // the first call) and removed the only remaining image,
+            // blanking the well.
+            if (didDone) return;
+            didDone = true;
             overlay.removeEventListener("animationend", done);
             // Promote overlay to the permanent thumb image.
             var prev = thumbWell.querySelector("img:not(.vibe-thumb-overlay)");
@@ -3310,7 +3320,7 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
             overlay.style.clipPath = "none";
             _thumbCacheSet(url, overlay);
             card.setAttribute("data-vibe-active-tier", toTier);
-            // Update toggle UI to match the new active tier.
+            // Update any per-card toggle UI if present (legacy path).
             card.querySelectorAll(".vibe-tier-btn").forEach(function (b) {
               var on = b.getAttribute("data-tier") === toTier;
               b.classList.toggle("is-active", on);
@@ -3372,52 +3382,57 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
         if (cta && anyHasTiers) cta.classList.remove("hidden");
       });
 
-      // Wire the master reveal — radial wipe Raw → RHEF across all
-      // has-tiers cards, then fade out the CTA and enable per-card
-      // toggles for A/B comparison.
-      var revealBtn = document.getElementById("vibeRevealBtn");
-      var revealCta = document.getElementById("vibeRevealCta");
-      if (revealBtn && revealCta) {
-        revealBtn.addEventListener("click", function () {
-          var cards = grid.querySelectorAll(".vibe-card.has-tiers");
-          if (!cards.length) return;
-          revealBtn.disabled = true;
-          // Staggered wipe across cards — 90 ms gap gives a moderately
-          // fast cascade without feeling chaotic. Reduced-motion users
-          // get a near-instant snap (the CSS handles that).
-          var staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
-          cards.forEach(function (card, i) {
-            setTimeout(function () { _runTierWipe(card, "rhef"); }, i * staggerMs);
-          });
-          // Mark cards reveal-complete so per-card toggles become
-          // visible. Fade the CTA out a beat after the last wipe starts.
-          var fadeDelay = cards.length * staggerMs + 200;
-          setTimeout(function () {
-            cards.forEach(function (card) { card.classList.add("reveal-complete"); });
-            revealCta.classList.add("is-dismissed");
-            setTimeout(function () { revealCta.classList.add("hidden"); }, 700);
-          }, fadeDelay);
+      // Master "swap-all-cards" runner — used by both the initial
+      // reveal click and the subsequent Raw/RHEF master toggle.
+      function _wipeAllCards(toTier) {
+        var cards = grid.querySelectorAll(".vibe-card.has-tiers");
+        if (!cards.length) return;
+        var staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
+        cards.forEach(function (card, i) {
+          if (card.getAttribute("data-vibe-active-tier") === toTier) return;
+          setTimeout(function () { _runTierWipe(card, toTier); }, i * staggerMs);
         });
       }
 
-      // Tier-toggle clicks — radial-wipe transition for visual
-      // consistency with the master reveal (so per-card A/B feels like
-      // the same delight). Skip if the user clicked the already-active
-      // tier (idempotent).
+      // Wire the master reveal — first click runs the cascade Raw → RHEF,
+      // then swaps the pulsing button for the segmented Raw/RHEF pill.
+      // Subsequent clicks on the pill swap all cards in sync.
+      var revealBtn = document.getElementById("vibeRevealBtn");
+      var revealCta = document.getElementById("vibeRevealCta");
+      var masterToggle = document.getElementById("vibeMasterToggle");
+      if (revealBtn && revealCta) {
+        revealBtn.addEventListener("click", function () {
+          revealBtn.disabled = true;
+          _wipeAllCards("rhef");
+          // After the last wipe starts, swap the button for the pill.
+          var cardCount = grid.querySelectorAll(".vibe-card.has-tiers").length;
+          var fadeDelay = (cardCount * 90) + 200;
+          setTimeout(function () {
+            revealBtn.classList.add("hidden");
+            if (masterToggle) masterToggle.classList.remove("hidden");
+          }, fadeDelay);
+        });
+      }
+      if (masterToggle) {
+        masterToggle.addEventListener("click", function (e) {
+          var btn = e.target.closest(".vibe-master-btn");
+          if (!btn) return;
+          var tier = btn.getAttribute("data-tier");
+          // Update aria-pressed + active styling.
+          masterToggle.querySelectorAll(".vibe-master-btn").forEach(function (b) {
+            var on = b === btn;
+            b.classList.toggle("is-active", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+          _wipeAllCards(tier);
+        });
+      }
+
+      // Per-card click delegate. The per-card Raw/RHEF toggle was
+      // removed in favour of a single master toggle at the section
+      // top; this listener only handles the info-popover button + the
+      // main vibe-open card click now.
       grid.addEventListener("click", function (e) {
-        var tierBtn = e.target.closest(".vibe-tier-btn");
-        if (tierBtn) {
-          e.stopPropagation();
-          var card = tierBtn.closest(".vibe-card");
-          var slug = card && card.getAttribute("data-vibe-slug");
-          if (!card || !slug) return;
-          var tier = tierBtn.getAttribute("data-tier");
-          var currentTier = card.getAttribute("data-vibe-active-tier") || "raw";
-          if (tier === currentTier) return;  // already on this tier
-          // _runTierWipe updates the toggle button state on completion.
-          _runTierWipe(card, tier);
-          return;
-        }
         // Info-button — toggle the attribution popover.
         var infoBtn = e.target.closest(".vibe-info-btn");
         if (infoBtn) {
