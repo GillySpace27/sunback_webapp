@@ -1798,6 +1798,14 @@ async def warm_default(request: Request):
     return {"phase_a": phase_a_result, "phase_b": phase_b_result}
 
 
+# ──────────────────────────────────────────────────────────────────────
+# HEK "best time of day" — auto-fill the time picker per date.
+# Lookup helper + per-date JSON cache live in api/hek_routes.py;
+# cache is rooted at the same persistent disk dir as the default-image
+# cache so HEK queries (2–10s) survive deploys.
+# ──────────────────────────────────────────────────────────────────────
+from api.hek_routes import register_hek_routes as _register_hek_routes
+_register_hek_routes(app, DEFAULT_CACHE_DIR)
 
 
 # Legacy /static mount (kept for backward compatibility)
