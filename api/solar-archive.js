@@ -11,6 +11,8 @@
    =============================================================== */
 
 import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.js";
+import { PRODUCTS } from "./products.js";
+import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
 
     // ── Config ───────────────────────────────────────────────────
     // Derive API base from current origin so the same page works in local dev,
@@ -704,132 +706,11 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
     // are read-only from outside their declaring module.
 
     // ── Product catalog (Printify blueprint/provider/variant model) ──
-    // IDs are pre-resolved from the live Printify catalog.
-    // blueprintId = product type, printProviderId = fulfiller,
-    // variantId = default size/color (customer picks final variant on Shopify).
-    //
-    // previewView controls how each gallery mockup frames the shared source
-    // image (state.originalImage) so every card shows a distinct subset:
-    //   - zoom >1 tightens the crop (detail view), <1 shows more breathing room
-    //   - cx, cy (0..1) offset the center of the source rect — tweak these so
-    //     different products look visually different even when aspect matches
-    // The selected product in the editor keeps using the live solarCanvas so
-    // user edits are reflected; non-selected gallery cards use this preset.
-    // Aspect ratios are taken from each blueprint's actual print-panel
-    // dimensions (queried from the Printify catalog), not arbitrary
-    // declared aspects. parseVariantAspectRatio overrides per-variant
-    // when a variant title encodes WxH (e.g. canvas 12"×16"); the
-    // product default below is the panel aspect for the variantId
-    // shown here, so canvas + upload + Printify panel all agree even
-    // before variants finish loading.
-    var PRODUCTS = [
-      // ── Wall Art & Home Decor ──
-      { id: "canvas_stretched",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas, 1.25\" bars",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 2400, h: 3000 } },
-      { id: "metal_sign",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front", aspectRatio: { w: 2250, h: 1650 } },
-      { id: "acrylic_print",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front", aspectRatio: { w: 2250, h: 1650 } },
-      { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 } },
-      { id: "framed_poster",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $29.99", checkoutPrice: 2999, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front", aspectRatio: { w: 11, h: 14 } },
-      { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $29.99", checkoutPrice: 2999, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 },
-        // Two color axes: base (auto-detected via _variantColorOption,
-        // shown in the primary swatch row) + hands (declared here as an
-        // extra axis). The modal renders one swatch row per axis and
-        // composes the selection so 3 bases × 2 hands = 6 variants
-        // become two compact selectors instead of a 6-tile list.
-        colorAxes: [ { key: "hands", label: "Hand color", keyPattern: "^hands?$" } ] },
-      { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front", aspectRatio: { w: 4350, h: 5850 } },
-      // ── Drinkware ──
-      // NOTE: Printify splits mug color across separate blueprints rather than
-      // exposing color as a variant. White lives at BP 425; black lives at BP 1152.
-      // Both are listed so the gallery carries both options.
-      { id: "mug_15oz",             name: "Ceramic Mug — 15oz", desc: "Large ceramic mug, full-wrap print — white or black", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 425,  printProviderId: 1,   variantId: 62014, position: "front", aspectRatio: { w: 2790, h: 1219 },
-        // Merged mug: this visible card is the White mug; Black is a hidden
-        // sibling (different Printify blueprint + print geometry) reached via
-        // the color chooser. Selecting a colour commits the real child
-        // product, so the editor/checkout run unchanged. Stats for both
-        // colours canonicalize onto this id (see _canonicalStatId).
-        colorOptions: [
-          { label: "White", productId: "mug_15oz",       hex: "#f2f2f2" },
-          { label: "Black", productId: "mug_15oz_black", hex: "#1c1c1c" }
-        ] },
-      { id: "mug_15oz_black",       name: "Ceramic Mug — 15oz (Black)", desc: "Large black ceramic mug, full-wrap print", icon: "fa-mug-hot", price: "From $14.99", checkoutPrice: 1499, blueprintId: 1152, printProviderId: 28,  variantId: 88132, position: "front", aspectRatio: { w: 2448, h: 1266 }, _hiddenFromGrid: true },
-      // Tumbler print panel is 2795×2100 (~4:3 landscape), not the rolled-out
-      // 2:1 we used to advertise. The mug-15oz-white panel is closer to 2:1
-      // (genuine full-wrap) but the tumbler's panel reflects a single-side
-      // print area shaped like the cup face.
-      { id: "tumbler_20oz",         name: "Tumbler — 20oz",      desc: "Insulated stainless steel with lid",        icon: "fa-glass-whiskey", price: "From $19.99", checkoutPrice: 1999, blueprintId: 353,  printProviderId: 1,   variantId: 44519, position: "front", aspectRatio: { w: 2795, h: 2100 } },
-      // ── Apparel ──
-      // T-shirt/hoodie/crewneck DTG print area is 3319×3761 (slightly
-      // taller than wide). All three share the same panel because
-      // they use provider 29 (Monster Digital) with a single DTG
-      // press; only the garment template differs.
-      { id: "tshirt_unisex",        name: "Unisex T-Shirt",      desc: "Bella+Canvas 3001 jersey tee, DTG print",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front", aspectRatio: { w: 3319, h: 3761 },
-        variantFilter: { sizes: ["XS","S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Forest Green","Dark Heather","Athletic Heather","True Royal","Maroon","Red","Military Green"] } },
-      { id: "hoodie_pullover",      name: "Pullover Hoodie",     desc: "Unisex heavy blend hooded sweatshirt",      icon: "fa-mitten",       price: "From $39.99", checkoutPrice: 3999, blueprintId: 77,   printProviderId: 29,  variantId: 32878, position: "front", aspectRatio: { w: 3319, h: 3761 },
-        variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green","Military Green"] } },
-      { id: "crewneck_sweatshirt",  name: "Crewneck Sweatshirt", desc: "Unisex heavy blend crewneck",               icon: "fa-vest",         price: "From $34.99", checkoutPrice: 3499, blueprintId: 49,   printProviderId: 29,  variantId: 25377, position: "front", aspectRatio: { w: 3319, h: 3761 },
-        variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green"] } },
-      // Crew socks blueprint requires four 1358×3839 leg-panel placeholders
-      // (front_left_leg, front_right_leg, back_left_leg, back_right_leg).
-      // The editor canvas mirrors the panel aspect — the same image is
-      // sent to all four panels, so the design has to look right within
-      // the tall narrow rectangle. initialCropZoom of 136 zooms in to the
-      // largest sock-aspect rectangle that fits inside the solar disk
-      // (formula in selectProductCard): the full disk doesn't fit in a
-      // 1:2.83 panel, but a slice through it does, and looks like an
-      // intentional close-up rather than letterboxed white space.
-      { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front", aspectRatio: { w: 1358, h: 3839 }, initialCropZoom: 136,
-        variantFilter: { sizes: ["S","M","L","XS","XL","2XL"] } },
-      // ── Tech & Desk ──
-      // Blueprint 269 / provider 1 (SPOKE) covers iPhone 11–17 and Samsung Galaxy S21–S25.
-      // Google Pixel cases require blueprint 421 / provider 23 (WOYC) — a separate product
-      // entry can be added once that blueprint's checkout flow is verified.
-      { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case — iPhone & Samsung",        icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front", aspectRatio: { w: 1290, h: 2160 } },
-      // Pixel Phone Case — blueprint 421, provider 23 (WOYC). Uncomment and verify variant IDs
-      // before enabling.  Pixel 7/8/8a/9/9 Pro confirmed on WOYC catalog.
-      // { id: "phone_case_pixel", name: "Phone Case (Pixel)", desc: "Tough snap case — Google Pixel", icon: "fa-mobile-alt", price: "From $19.99", checkoutPrice: 1999, blueprintId: 421, printProviderId: 23, variantId: null, position: "front", aspectRatio: { w: 9, h: 19 } },
-      { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
-      // Mouse pad's physical print area is a circle, not a square. Same treatment
-      // as wall_clock — round frame border in the editor, circular clip on the
-      // canvas, and a circular preview in the mockup pane.
-      { id: "mouse_pad",            name: "Mouse Pad",           desc: "Non-slip rubber base, smooth fabric top",   icon: "fa-mouse",        price: "From $11.99", checkoutPrice: 1199, blueprintId: 582,  printProviderId: 99,  variantId: 71665, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle" },
-      { id: "desk_mat",             name: "Desk Mat",            desc: "Large-format mat for your workspace",       icon: "fa-desktop",      price: "From $24.99", checkoutPrice: 2499, blueprintId: 488,  printProviderId: 1,   variantId: 65240, position: "front", aspectRatio: { w: 5610, h: 3839 }, forceOrientation: "landscape" },
-      // ── Home & Living ──
-      // throw_pillow + journal_hardcover are "dual-panel" products: the
-      // Printify print area is a two-face wraparound (front + back on
-      // the pillow; back-cover + spine + front-cover on the journal),
-      // but the user designs against one face. The editor canvas uses
-      // aspectRatio (the single-face shape). At upload, layoutMode
-      // controls how the canvas maps onto the panel:
-      //   • "match"  → render canvas, duplicate horizontally, upload
-      //                a panelAspectRatio PNG — same design on both
-      //                sides (default; safest for a glance-test)
-      //   • "span"   → editor canvas becomes the full panel aspect so
-      //                the design can intentionally bridge front+back
-      //                (sun-center on the spine, etc.)
-      // dualPanelToggle UI sits in the preview pane.
-      { id: "throw_pillow",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 }, dualPanel: true, panelAspectRatio: { w: 4650, h: 2325 } },
-      { id: "sherpa_blanket",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front", aspectRatio: { w: 7875, h: 9375 } },
-      { id: "shower_curtain",       name: "Shower Curtain",      desc: "Polyester shower curtain, vibrant print",   icon: "fa-shower",       price: "From $34.99", checkoutPrice: 3499, blueprintId: 235,  printProviderId: 10,  variantId: 41653, position: "front", aspectRatio: { w: 7104, h: 7392 } },
-      { id: "puzzle_1000",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front", aspectRatio: { w: 4200, h: 3300 } },
-      { id: "coaster_set",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $14.99", checkoutPrice: 1499, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front", aspectRatio: { w: 1, h: 1 } },
-      // ── Accessories & Stationery ──
-      { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: { w: 1, h: 1 },
-        sizePricing: { 45748: "$2.99", 45750: "$3.99", 45752: "$4.99", 45754: "$7.99" } },
-      // Hardcover journal panel is 4065×2850 — back cover + spine +
-      // front cover laid flat. Editor canvas uses the single front-cover
-      // aspect 2032×2850 (panel halved); dualPanel concatenation paints
-      // the same design on both faces at upload. Spine is treated as
-      // part of one face for simplicity (a slim slice of the design
-      // shows on the spine).
-      { id: "journal_hardcover",    name: "Hardcover Journal",   desc: "Matte hardcover, ruled pages",              icon: "fa-book",         price: "From $17.99", checkoutPrice: 1799, blueprintId: 485,  printProviderId: 28,  variantId: 65223, position: "front", aspectRatio: { w: 2032, h: 2850 }, dualPanel: true, panelAspectRatio: { w: 4065, h: 2850 } },
-      // Backpack disabled — it's an all-over print with seven separate
-      // placeholders (front, back, left/right side, top-to-front, top-to-
-      // back, front pocket, pocket flap). Each panel needs its own design
-      // crop, so one editor canvas can't represent the product faithfully.
-      // Re-enable once we have a panel-picker UI to drive multi-placeholder
-      // products.
-      // { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
-    ];
+    // The PRODUCTS array lives in ./products.js and is imported at the
+    // top of this file. previewView (per-product framing for the gallery
+    // mockup) is still local — it'll migrate with the mockup module in
+    // step 4. See products.js for the catalog rationale + how aspect
+    // ratios map to Printify print panels.
 
     // ── Session catalog (user-requested products) ────────────────
     // Products the user submits via the "Request a product" tab are added
@@ -7380,7 +7261,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         // one; falls back to the previous neutral grey so the silhouette
         // still reads as fabric for variants we don't have a hex for.
         var apparelFallback = productId === "tshirt_unisex" ? "#e8e8e8" : "#d0d0d0";
-        var apparelTint = _variantColorOption(variant);
+        var apparelTint = variantColorOption(variant);
         mctx.fillStyle = apparelTint ? apparelTint.hex : apparelFallback;
         mctx.beginPath();
         mctx.moveTo(60, 18);
@@ -7425,7 +7306,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
           // preview instead of inert. Layout: coloured frame → white
           // mat → image. Falls back to a neutral dark frame when we
           // can't resolve a colour.
-          var _fcol = _variantColorOption(variant);
+          var _fcol = variantColorOption(variant);
           var _frameHex = _fcol ? _fcol.hex : "#2a2a2a";
           var _mat = 7;
           mctx.fillStyle = _frameHex;
@@ -8265,83 +8146,11 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
     }
 
     // ── Variant-colour palette helpers ────────────────────────
-    // Printify's catalog API names variant colours but doesn't expose
-    // hex values — every product/provider names "navy blue" slightly
-    // differently. This is a curated palette covering Printify's most
-    // common apparel + accessory tokens, normalised to lowercase.
-    // Used by:
-    //   • drawProductMockup's apparel/accessory branches to paint the
-    //     mock-mockup silhouette in the variant's actual colour
-    //     instead of a generic grey.
-    //   • The variant-picker swatch row, which shows one clickable
-    //     square per distinct colour so users can browse by colour
-    //     before drilling into sizes.
-    var _PRINTIFY_COLOR_HEX = {
-      "white": "#ffffff", "natural": "#f4ecd8", "ash": "#cdd0d4", "cream": "#efe5cb",
-      "light blue": "#a6c5e0", "carolina blue": "#7ba4d9", "sky blue": "#7fbcd9",
-      "blue": "#3b6cb8", "royal": "#1c3aa3", "royal blue": "#1c3aa3", "navy": "#1a2240",
-      "midnight navy": "#0f1a3c",
-      "aqua": "#5fcfd6", "teal": "#1f8a8a", "turquoise": "#3bb7b7",
-      "purple": "#5b3a9e", "violet": "#6a3aa8", "lavender": "#c4a6d6", "lilac": "#c8a8db",
-      "red": "#c2202c", "true red": "#c2202c", "cardinal red": "#a8202b", "cherry": "#a8232f",
-      "maroon": "#601822", "burgundy": "#5a1f29",
-      "pink": "#f4a3c5", "soft pink": "#f7c4d2", "heather pink": "#dca0b1", "berry": "#a83a73",
-      "orange": "#e25b27", "burnt orange": "#b85128", "rust": "#a3401f", "peach": "#f7c3a1",
-      "yellow": "#f3c100", "gold": "#cd9c2b", "old gold": "#a8842c", "daisy": "#fadc6e",
-      "mustard": "#c69a16",
-      "green": "#2f7d3a", "kelly": "#2f7d3a", "irish green": "#1f7a37", "mint": "#a8d8b2",
-      "forest green": "#1f4a2a", "forest": "#1f4a2a", "olive": "#5b5a30",
-      "military green": "#4a4f2c", "army": "#4a4f2c", "sage": "#8fa68a",
-      "heather grey": "#9aa1a8", "heather gray": "#9aa1a8", "athletic heather": "#b9bdc1",
-      "dark heather": "#4a4d51", "sport grey": "#9aa1a8", "sport gray": "#9aa1a8",
-      "heavy metal": "#6a6e72",
-      "grey": "#7e8489", "gray": "#7e8489", "charcoal": "#3f4347", "graphite heather": "#525558",
-      "graphite": "#36393d",
-      "black": "#1a1a1a", "deep black": "#0d0d0d", "vintage black": "#2a2a2a", "jet black": "#0a0a0a",
-      "silver": "#c8c8c8",
-      "brown": "#5a3a23", "chocolate": "#3a2618", "tan": "#b09373", "camel": "#a98763",
-      "khaki": "#a8956b", "sand": "#d4c39b",
-      // Wall-clock base material. Printify names it "Wooden" / "Wooden Base"
-      // on the wall-clock blueprint; the substring scan in _hexForColorName
-      // catches both because "wood" is a key here. Warm oak tone to read
-      // clearly next to the Black + White base swatches.
-      "wood": "#a07a4f", "wooden": "#a07a4f", "wooden base": "#a07a4f",
-      "oak": "#a07a4f", "walnut": "#6b4a2b", "maple": "#c89a64"
-    };
-    function _hexForColorName(name) {
-      if (!name) return null;
-      var s = String(name).toLowerCase().trim();
-      if (_PRINTIFY_COLOR_HEX[s]) return _PRINTIFY_COLOR_HEX[s];
-      // Strip common provider-specific prefixes ("Solid Red" → "red",
-      // "Heavy Metal" already in palette, etc.) so we resolve the long
-      // tail of provider-coined names.
-      var stripped = s.replace(/^(solid|vintage|deep|light|dark|true|cardinal|sport|athletic|graphite|heavy)\s+/, "");
-      if (_PRINTIFY_COLOR_HEX[stripped]) return _PRINTIFY_COLOR_HEX[stripped];
-      var stripped2 = s.replace(/^heather\s+/, "");
-      if (_PRINTIFY_COLOR_HEX[stripped2]) return _PRINTIFY_COLOR_HEX[stripped2];
-      // Last-ditch substring scan ("solid midnight navy" → "navy").
-      for (var k in _PRINTIFY_COLOR_HEX) {
-        if (s.indexOf(k) !== -1) return _PRINTIFY_COLOR_HEX[k];
-      }
-      return null;
-    }
-    // Returns { name, hex } for a variant's colour option, or null if
-    // the variant carries no colour or the colour can't be resolved.
-    // Walks every option key because some products use "Color" rather
-    // than "color", and a few use "Frame" or other domain-specific labels.
-    function _variantColorOption(v) {
-      if (!v || !v.options) return null;
-      var keys = Object.keys(v.options);
-      // Prefer keys that LOOK like color labels first; otherwise scan all.
-      var preferred = keys.filter(function(k) { return /col?or|colour/i.test(k); });
-      var ordered = preferred.concat(keys.filter(function(k) { return preferred.indexOf(k) === -1; }));
-      for (var i = 0; i < ordered.length; i++) {
-        var v2 = v.options[ordered[i]];
-        var hex = _hexForColorName(v2);
-        if (hex) return { name: v2, hex: hex };
-      }
-      return null;
-    }
+    // The palette + name→hex resolver + variant-colour extractor live
+    // in ./colors.js, imported at the top of this file. Names dropped
+    // the leading-underscore convention — the module boundary handles
+    // privacy and `hexForColorName` reads better at call sites than
+    // `hexForColorName`.
 
     function variantLabel(v) {
       var opts = v.options || {};
@@ -11145,7 +10954,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         // tile clicks (which need the swatch to follow) and swatch
         // clicks (which already routed through this function).
         if (swatchesEl) {
-          var newColor = v && _variantColorOption(v);
+          var newColor = v && variantColorOption(v);
           var newHex = newColor && newColor.hex;
           swatchesEl.querySelectorAll(".confirm-color-swatch").forEach(function(s) {
             s.classList.toggle("active", s.dataset.hex === newHex);
@@ -11185,7 +10994,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         }
         var term = _colorAxisTerm();
         var v = _variantsList().find(function(x) { return x.id === pendingVariantId; });
-        var c = v && _variantColorOption(v);
+        var c = v && variantColorOption(v);
         colorLabelEl.textContent = term + (c && c.name ? ": " + c.name : "");
         colorLabelEl.title = "Sets the " + term.toLowerCase() +
           " of the printed product — your solar image stays the same.";
@@ -11205,7 +11014,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         var bucketsByHex = {};
         var orderedHexes = [];
         variants.forEach(function(v) {
-          var c = _variantColorOption(v);
+          var c = variantColorOption(v);
           if (!c) return;
           if (!bucketsByHex[c.hex]) {
             bucketsByHex[c.hex] = { name: c.name, variants: [] };
@@ -11224,7 +11033,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         // Resolve the active variant's colour so we can mark a swatch
         // as currently selected.
         var activeVariant = variants.find(function(v) { return v.id === pendingVariantId; });
-        var activeColor = activeVariant && _variantColorOption(activeVariant);
+        var activeColor = activeVariant && variantColorOption(activeVariant);
         var activeHex = activeColor && activeColor.hex;
         // Detect "dark" swatches so the CSS can ring them with a
         // lighter outline that's visible on the modal background.
@@ -11257,7 +11066,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         var current = variants.find(function(v) { return v.id === pendingVariantId; });
         var currentSize = _variantSize(current);
         var pool = variants.filter(function(v) {
-          var c = _variantColorOption(v);
+          var c = variantColorOption(v);
           return c && c.hex === hex;
         });
         if (!pool.length) return;
@@ -11320,7 +11129,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
           var val = _variantAxisValue(v, axisDef);
           if (!val) return;
           if (!bucketsByVal[val]) {
-            bucketsByVal[val] = { variants: [], hex: _hexForColorName(val) || "#888" };
+            bucketsByVal[val] = { variants: [], hex: hexForColorName(val) || "#888" };
             ordered.push(val);
           }
           bucketsByVal[val].variants.push(v);
@@ -11375,7 +11184,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         var current = variants.find(function(v) { return v.id === pendingVariantId; });
         // Preserve the primary (base) colour + any OTHER extra axes;
         // only the clicked axis flips to `value`.
-        var primary = _variantColorOption(current);
+        var primary = variantColorOption(current);
         var primaryHex = primary && primary.hex;
         var otherAxisVals = (product.colorAxes || [])
           .filter(function(a) { return a.key !== axisKey; })
@@ -11383,7 +11192,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         var pool = variants.filter(function(v) {
           if (_variantAxisValue(v, axisDef) !== value) return false;
           if (primaryHex) {
-            var c = _variantColorOption(v);
+            var c = variantColorOption(v);
             if (c && c.hex !== primaryHex) return false;
           }
           for (var i = 0; i < otherAxisVals.length; i++) {
@@ -11461,7 +11270,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
 
         var activeVariant = variants.find(function(v) { return v.id === pendingVariantId; });
         var activeSize = _variantSize(activeVariant);
-        var activeColor = activeVariant && _variantColorOption(activeVariant);
+        var activeColor = activeVariant && variantColorOption(activeVariant);
         var activeHex = activeColor && activeColor.hex;
 
         var html = "";
@@ -11472,7 +11281,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
           var unavailable = false;
           if (activeHex) {
             unavailable = !bucket.variants.some(function(v) {
-              var c = _variantColorOption(v);
+              var c = variantColorOption(v);
               return c && c.hex === activeHex;
             });
           }
@@ -11491,13 +11300,13 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         // Match the active colour where possible; otherwise pick any
         // variant with the chosen size.
         var current = variants.find(function(v) { return v.id === pendingVariantId; });
-        var currentColor = current && _variantColorOption(current);
+        var currentColor = current && variantColorOption(current);
         var currentHex = currentColor && currentColor.hex;
         var pool = variants.filter(function(v) { return _variantSize(v) === size; });
         if (!pool.length) return;
         var pick = currentHex
           ? pool.find(function(v) {
-              var c = _variantColorOption(v);
+              var c = variantColorOption(v);
               return c && c.hex === currentHex;
             }) || pool[0]
           : pool[0];
@@ -11556,7 +11365,7 @@ import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.
         var variants = _variantsList();
         var colors = {}, sizes = {};
         variants.forEach(function(v) {
-          var c = _variantColorOption(v);
+          var c = variantColorOption(v);
           if (c && c.hex) colors[c.hex] = 1;
           var s = _variantSize(v);
           if (s) sizes[s] = 1;

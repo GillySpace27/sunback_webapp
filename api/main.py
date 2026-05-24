@@ -3041,6 +3041,8 @@ async def serve_css():
 # avoid serving arbitrary files under api/ if a path-traversal sneaks in.
 _FRONTEND_MODULES = {
     "state.js",
+    "products.js",
+    "colors.js",
 }
 
 @app.get("/{module_name}")
