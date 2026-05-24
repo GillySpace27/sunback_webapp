@@ -3376,6 +3376,7 @@ _FRONTEND_MODULES = {
     "products.js",
     "colors.js",
     "mockups.js",
+    "feedback.js",
 }
 
 @app.get("/{module_name}")
