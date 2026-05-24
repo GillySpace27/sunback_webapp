@@ -2940,13 +2940,538 @@
     // the typing pauses, so a single date entry costs one network burst
     // instead of 8. The "change" event stays unbuffered because it
     // fires once on commit (picker selection, blur, Enter).
+    // ── HEK best-time-of-day auto-fill ──────────────────────────────
+    // For each date the user picks, query the backend's HEK endpoint and
+    // (a) auto-populate the time-of-day input with the peak time of the
+    // most striking event, and (b) surface a small badge above the
+    // wavelength grid describing the event. Ranking is server-side and
+    // locked: CMEs / prominence eruptions above flares (flares oversaturate
+    // at 193 Å), then largest active region, then noon fallback.
+    //
+    // We DON'T fire on the fixed landing date 2014-10-24: the persistent
+    // HQ + Printify-mockup cache is keyed at 12:00 UTC, and shifting the
+    // time would defeat both caches on the very first paint. The badge is
+    // hidden in that case — the user sees the eye-candy default at noon
+    // and the HEK pick kicks in the moment they choose their own date.
+    var hekPickerSection = document.getElementById("hekPickerSection");
+    var hekTileGrid = document.getElementById("hekTileGrid");
+    var wlSuggestCaption = document.getElementById("wlSuggestCaption");
+    // Latch: once the user manually edits the time input we stop
+    // overwriting it from HEK. Avoids surprising the user who wants a
+    // specific UTC hour.
+    var _userTouchedTime = false;
+    var _userTouchedWavelength = false;
+    if (timeInput) {
+      timeInput.addEventListener("input", function () { _userTouchedTime = true; });
+    }
+
+    // ── Wavelength auto-suggest from HEK event type ────────────────
+    // Locked policy plus on-disk-vs-limb branch for filament eruptions:
+    //   CME                        → 193 (warm corona; bright disturbances)
+    //   Filament/prominence on-disk → 193 (arcade + dimming dominate;
+    //                                 chromospheric foot-points overwhelm 304)
+    //   Filament/prominence off-limb→ 304 (cool He II glows in prominences)
+    //   Flare ≥ M5                 → 131 (hot Fe XXI / Fe XXIII, ~10–15 MK)
+    //   Flare  < M5                → 171 (post-flare loops dominate)
+    //   Active region              → 171 (loop tracers, Patricia-confirmed)
+    //   Quiet day                  → 171 (default photogenic corona)
+    function _suggestWavelengthFor(event) {
+      if (!event || event.fallback) {
+        return { wl: 171, why: "171 Å shows the quiet corona well" };
+      }
+      var code = event.event_code;
+      if (code === "CE") return { wl: 193, why: "CMEs show best in the warm corona" };
+      if (code === "FE") {
+        // on_disk may be true, false, or null (unknown). Default to disk
+        // because most FEs catalogued by HEK are on-disk filament rises.
+        if (event.on_disk === false) {
+          return { wl: 304, why: "off-limb prominences glow brightest in cool helium" };
+        }
+        return { wl: 193, why: "on-disk filament arcade + dimming show best in the warm corona" };
+      }
+      if (code === "FL") {
+        var goes = String(event.goes_class || "").toUpperCase();
+        // Magnitude > 5 within letter, or X-class always
+        var bigFlare = goes.charAt(0) === "X" ||
+                       (goes.charAt(0) === "M" && parseFloat(goes.slice(1)) >= 5);
+        if (bigFlare) return { wl: 131, why: "hot flaring plasma peaks here" };
+        return { wl: 171, why: "post-flare loops show best in the warm corona" };
+      }
+      if (code === "AR") return { wl: 171, why: "active-region loops trace magnetic structure" };
+      return { wl: 193, why: "193 Å is the default photogenic corona view" };
+    }
+
+    var _lastSuggestionKey = "";  // dedup aria-live announcements
+    function _applyWavelengthSuggestion(event) {
+      var s = _suggestWavelengthFor(event);
+      // If the user has already explicitly picked a wavelength (e.g. via
+      // a vibe-card), the suggestion would contradict their choice. Only
+      // surface the caption when the suggestion matches their current
+      // wavelength OR they haven't touched a wavelength tile yet.
+      var currentWl = state && state.wavelength ? parseInt(state.wavelength, 10) : null;
+      var captionApplies = !_userTouchedWavelength || currentWl === s.wl;
+      if (wlSuggestCaption) {
+        if (captionApplies) {
+          // Pull the colour tone from the existing wavelength tile label so
+          // the suggestion reads in plain language ("the amber view") and
+          // anchors the number to the visual.
+          var tone = "";
+          if (wlGrid) {
+            var tile = wlGrid.querySelector('.wl-card[data-wl="' + s.wl + '"] .wl-label');
+            if (tile) {
+              var first = (tile.textContent || "").split("·")[0].trim();
+              if (first) tone = first.toLowerCase();
+            }
+          }
+          var toneFrag = tone ? " (the " + escapeHtml(tone) + " view)" : "";
+          // Dedup: if the same suggestion is being re-applied, skip the
+          // DOM rewrite so aria-live doesn't spam screen readers.
+          var key = s.wl + "|" + tone + "|" + s.why;
+          if (key === _lastSuggestionKey) return;
+          _lastSuggestionKey = key;
+          wlSuggestCaption.classList.remove("hidden");
+          wlSuggestCaption.innerHTML =
+            "We picked <strong>" + s.wl + " Å</strong>" + toneFrag + " — " +
+            escapeHtml(s.why) + ". Want a different look? Tap any tile.";
+        } else {
+          // Suggestion conflicts with user's explicit pick — stay quiet.
+          _lastSuggestionKey = "";
+          wlSuggestCaption.classList.add("hidden");
+          wlSuggestCaption.innerHTML = "";
+        }
+      }
+      // Visual ring on the suggested tile, only if the user hasn't picked
+      // their own wavelength yet.
+      if (wlGrid && !_userTouchedWavelength) {
+        wlGrid.querySelectorAll(".wl-card.is-suggested").forEach(function (el) {
+          el.classList.remove("is-suggested");
+        });
+        var ringTile = wlGrid.querySelector('.wl-card[data-wl="' + s.wl + '"]');
+        if (ringTile) ringTile.classList.add("is-suggested");
+      }
+    }
+
+    // ── HEK 4-tile picker ──────────────────────────────────────────
+    var _hekFetchToken = 0;
+    var _hekCurrentEvents = [];   // events currently rendered in the grid
+    var _hekSelectedRank = null;  // 1-based rank of the picked tile, or "custom"
+
+    function _hhmmOptions(rangeEnd, step) {
+      var out = [];
+      for (var v = 0; v < rangeEnd; v += step) {
+        var s = (v < 10 ? "0" + v : "" + v);
+        out.push(s);
+      }
+      return out;
+    }
+    var _HOURS = _hhmmOptions(24, 1);
+    var _MINUTES = _hhmmOptions(60, 15);
+
+    function _eventTileAccessibleName(event) {
+      // Per a11y agent: rank goes IN the accessible name, not just visual.
+      var rankPhrase =
+        event.rank === 1 ? "Top pick. " :
+        event.rank === 2 ? "Second pick. " :
+        event.rank === 3 ? "Third pick. " : "";
+      var typePhrase = event.event_type || "Event";
+      var timePhrase = "at " + event.time_utc + " UTC";
+      var metaPhrase = "";
+      if (event.goes_class) {
+        metaPhrase = "GOES class " + event.goes_class + ". ";
+      } else if (event.intensity_label) {
+        metaPhrase = event.intensity_label + ". ";
+      } else if (event.ar_number) {
+        metaPhrase = "NOAA active region " + event.ar_number + ". ";
+      }
+      return rankPhrase + typePhrase + " " + timePhrase + ". " + metaPhrase + "Tap to select.";
+    }
+
+    function _eventTileHTML(event, isFirstRadio) {
+      var rankClass = event.rank === 1 ? "is-top" : "";
+      var fallbackClass = event.fallback ? "is-fallback" : "";
+      var rankLabel = escapeHtml(event.rank_label || "");
+      var time = escapeHtml(event.time_utc || "12:00");
+      var type = escapeHtml(event.event_type || "—");
+      var metaHtml = "";
+      if (event.goes_class) {
+        var cls = String(event.goes_class).charAt(0).toUpperCase();
+        metaHtml = '<span class="hek-tile-goes" data-cls="' + escapeHtml(cls) + '">' +
+                   escapeHtml(event.goes_class) + '-class flare</span>';
+      } else if (event.intensity_label) {
+        metaHtml = '<span class="hek-tile-meta">' + escapeHtml(event.intensity_label) + '</span>';
+      } else if (event.ar_number) {
+        metaHtml = '<span class="hek-tile-meta">NOAA AR ' + escapeHtml(String(event.ar_number)) + '</span>';
+      } else if (event.fallback) {
+        metaHtml = '<span class="hek-tile-meta">No notable events catalogued</span>';
+      }
+      // Roving tabindex per WAI-ARIA radiogroup pattern: only the first
+      // (or currently-checked) radio is tabbable; the rest are tabindex=-1
+      // and reached via arrow keys. _selectHekTile keeps this in sync.
+      var tabIndex = isFirstRadio ? "0" : "-1";
+      return '<button type="button" class="hek-tile ' + rankClass + ' ' + fallbackClass + '"' +
+             ' role="radio" aria-checked="false" tabindex="' + tabIndex + '"' +
+             ' data-hek-rank="' + event.rank + '"' +
+             ' data-hek-time="' + escapeHtml(event.time_utc || "12:00") + '"' +
+             ' aria-label="' + escapeHtml(_eventTileAccessibleName(event)) + '">' +
+             '<span class="hek-tile-rank">' + rankLabel + '</span>' +
+             '<span class="hek-tile-time">' + time + ' UTC</span>' +
+             '<span class="hek-tile-type">' + type + '</span>' +
+             metaHtml +
+             '</button>';
+    }
+
+    function _customTileHTML(initialTime) {
+      var hh = (initialTime || "12:00").split(":")[0] || "12";
+      var mm = (initialTime || "12:00").split(":")[1] || "00";
+      var hourOpts = _HOURS.map(function (v) {
+        return '<option value="' + v + '"' + (v === hh ? " selected" : "") + '>' + v + '</option>';
+      }).join("");
+      var minOpts = _MINUTES.map(function (v) {
+        return '<option value="' + v + '"' + (v === mm ? " selected" : "") + '>' + v + '</option>';
+      }).join("");
+      // role="group" (not "radio") per the a11y audit: a radio cannot
+      // contain interactive descendants (the two <select>s + the Apply
+      // button). The custom tile lives as a sibling of the radiogroup
+      // inside the same CSS grid; the keydown arrow handler skips it.
+      return '<div class="hek-tile hek-tile-custom" role="group"' +
+             ' data-hek-rank="custom" aria-label="Or set a custom UTC time">' +
+             '<span class="hek-tile-rank">Custom time</span>' +
+             '<div class="hek-custom-selects">' +
+               '<select id="hekCustomHour" aria-label="Hour, UTC">' + hourOpts + '</select>' +
+               '<span class="hek-custom-utc">:</span>' +
+               '<select id="hekCustomMin" aria-label="Minute">' + minOpts + '</select>' +
+             '</div>' +
+             '<span class="hek-custom-utc">UTC, 15-min steps</span>' +
+             '<button type="button" class="hek-custom-apply" id="hekCustomApply">Use this time</button>' +
+             '</div>';
+    }
+
+    function _renderHekSkeleton() {
+      if (!hekTileGrid) return;
+      hekTileGrid.innerHTML =
+        '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
+        '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
+        '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
+        _customTileHTML(timeInput ? timeInput.value : "12:00");
+    }
+
+    function _renderHekTiles(payload, dateStr) {
+      if (!hekTileGrid || !hekPickerSection) return;
+      hekPickerSection.classList.remove("hidden");
+      _hekCurrentEvents = (payload && payload.events) ? payload.events.slice(0, 3) : [];
+      var html = _hekCurrentEvents.map(function (e, i) {
+        return _eventTileHTML(e, i === 0);
+      }).join("");
+      html += _customTileHTML(timeInput ? timeInput.value : "12:00");
+      hekTileGrid.innerHTML = html;
+      _hekSelectedRank = null;
+      // Update subhead per state
+      var sub = document.getElementById("hekPickerSub");
+      if (sub) {
+        if (!_hekCurrentEvents.length || (_hekCurrentEvents.length === 1 && _hekCurrentEvents[0].fallback)) {
+          sub.textContent = "No notable events catalogued for " + dateStr + ". Use noon UTC or set a custom time.";
+        } else {
+          sub.textContent = "Top " + _hekCurrentEvents.length +
+            " event" + (_hekCurrentEvents.length === 1 ? "" : "s") +
+            " for " + dateStr + ", or set a custom time.";
+        }
+      }
+    }
+
+    function _selectHekTile(tile) {
+      if (!tile) return;
+      hekTileGrid.querySelectorAll('.hek-tile[role="radio"]').forEach(function (t) {
+        t.setAttribute("aria-checked", "false");
+        t.setAttribute("tabindex", "-1");
+      });
+      tile.setAttribute("aria-checked", "true");
+      tile.setAttribute("tabindex", "0");  // roving tabindex follows selection
+    }
+
+    function _applyHekTimePick(timeStr, eventOrNull) {
+      // Push the time into the canonical time input and re-trigger the
+      // tile-thumbnail / preview pipeline. Mark the user as "not having
+      // touched" the time so the latch doesn't fight subsequent picks.
+      if (!timeInput) return;
+      _userTouchedTime = false;
+      if (timeInput.value !== timeStr) {
+        timeInput.value = timeStr;
+        timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      // Wavelength suggestion — only when picking a real event.
+      if (eventOrNull) _applyWavelengthSuggestion(eventOrNull);
+    }
+
+    function _pickEventTile(tile) {
+      var rank = parseInt(tile.getAttribute("data-hek-rank"), 10);
+      var t = tile.getAttribute("data-hek-time") || "12:00";
+      var event = _hekCurrentEvents[rank - 1] || null;
+      _selectHekTile(tile);
+      _hekSelectedRank = rank;
+      _applyHekTimePick(t, event);
+    }
+
+    if (hekTileGrid) {
+      hekTileGrid.addEventListener("click", function (e) {
+        var customApply = e.target.closest("#hekCustomApply");
+        if (customApply) {
+          var hh = (document.getElementById("hekCustomHour") || {}).value || "12";
+          var mm = (document.getElementById("hekCustomMin") || {}).value || "00";
+          // Custom time picked → un-check all radios; the custom group
+          // is intentionally NOT a radio (interactive descendants).
+          hekTileGrid.querySelectorAll('.hek-tile[role="radio"]').forEach(function (t) {
+            t.setAttribute("aria-checked", "false");
+          });
+          _hekSelectedRank = "custom";
+          _applyHekTimePick(hh + ":" + mm, null);
+          return;
+        }
+        var tile = e.target.closest(".hek-tile[role='radio']");
+        if (!tile) return;
+        _pickEventTile(tile);
+      });
+
+      // WAI-ARIA radiogroup keyboard pattern: arrow keys cycle through
+      // role="radio" siblings (skipping the custom group), Home/End jump
+      // to ends, Space/Enter activate the focused radio. Without this,
+      // keyboard users could Tab through but not arrow-select, which
+      // regresses Sam's editor-tablist precedent from May 2026.
+      hekTileGrid.addEventListener("keydown", function (e) {
+        var current = e.target.closest('.hek-tile[role="radio"]');
+        if (!current) return;
+        var radios = Array.prototype.slice.call(
+          hekTileGrid.querySelectorAll('.hek-tile[role="radio"]')
+        );
+        if (!radios.length) return;
+        var idx = radios.indexOf(current);
+        var nextIdx = null;
+        switch (e.key) {
+          case "ArrowRight":
+          case "ArrowDown":
+            nextIdx = (idx + 1) % radios.length;
+            break;
+          case "ArrowLeft":
+          case "ArrowUp":
+            nextIdx = (idx - 1 + radios.length) % radios.length;
+            break;
+          case "Home":
+            nextIdx = 0;
+            break;
+          case "End":
+            nextIdx = radios.length - 1;
+            break;
+          case " ":
+          case "Enter":
+            e.preventDefault();
+            _pickEventTile(current);
+            return;
+          default:
+            return;
+        }
+        if (nextIdx !== null) {
+          e.preventDefault();
+          var next = radios[nextIdx];
+          _pickEventTile(next);  // selection follows focus inside radiogroup
+          next.focus({ preventScroll: false });
+        }
+      });
+    }
+
+    function fetchHEKEvents(dateStr) {
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+      // Skip the fixed landing default so we don't bust the noon-keyed
+      // HQ + Printify-mockup caches on first paint.
+      if (dateStr === "2014-10-24" && state.isDefaultActive) {
+        if (hekPickerSection) hekPickerSection.classList.add("hidden");
+        return;
+      }
+      var token = ++_hekFetchToken;
+      _renderHekSkeleton();
+      if (hekPickerSection) hekPickerSection.classList.remove("hidden");
+      var sub = document.getElementById("hekPickerSub");
+      if (sub) sub.textContent = "Looking up the day’s top events…";
+      fetch("/api/hek/best_time?date=" + encodeURIComponent(dateStr), { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (token !== _hekFetchToken) return;
+          if (!data) {
+            _renderHekTiles({ events: [{
+              rank: 1, rank_label: "Noon UTC (couldn't reach HEK)",
+              time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
+              event_type: "Noon UTC", event_code: null, family: null, tier: 4,
+              fallback: true,
+            }] }, dateStr);
+            return;
+          }
+          _renderHekTiles(data, dateStr);
+          // Auto-fill the time from top-1 event, only if user hasn't
+          // already chosen a tile or typed in the time field.
+          var top = (data.events && data.events[0]) || null;
+          if (top && !_userTouchedTime && timeInput && top.time_utc) {
+            if (timeInput.value !== top.time_utc) {
+              timeInput.value = top.time_utc;
+              timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+            // Pre-check the top tile for AT users.
+            var topTile = hekTileGrid.querySelector('.hek-tile[data-hek-rank="1"]');
+            if (topTile) topTile.setAttribute("aria-checked", "true");
+            _hekSelectedRank = 1;
+            _applyWavelengthSuggestion(top);
+          }
+        })
+        .catch(function () {
+          if (token !== _hekFetchToken) return;
+          _renderHekTiles({ events: [{
+            rank: 1, rank_label: "Noon UTC (couldn't reach HEK)",
+            time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
+            event_type: "Noon UTC", event_code: null, family: null, tier: 4,
+            fallback: true,
+          }] }, dateStr);
+        });
+    }
+
+    // Backward-compat alias (some earlier code paths reference fetchHEKBestTime).
+    var fetchHEKBestTime = fetchHEKEvents;
+
+    // Track explicit wavelength clicks so we don't override the user's
+    // pick when a later HEK call suggests something else.
+    if (wlGrid) {
+      wlGrid.addEventListener("click", function (e) {
+        if (e.target && e.target.closest(".wl-card")) {
+          _userTouchedWavelength = true;
+        }
+      }, true);
+    }
+
+    // ── Vibe-grid card click handlers ──────────────────────────────
+    // A vibe card pre-fills date + wavelength + time, then scrolls down
+    // to the configurator and fires the existing pipeline. Today's card
+    // gets its date set dynamically on landing.
+    function _prefersReducedMotion() {
+      try { return matchMedia("(prefers-reduced-motion: reduce)").matches; }
+      catch (_e) { return false; }
+    }
+    function _wireVibeGrid() {
+      var grid = document.querySelector(".vibe-grid");
+      if (!grid) return;
+      // Set today's date on the today-card.
+      var todayCard = grid.querySelector(".vibe-card[data-vibe-today='1']");
+      if (todayCard) {
+        // Use today_utc - 2 days. AIA L1 science-grade cadence has a
+        // 24-48h trailing lag; "yesterday UTC" can 404 from JSOC during
+        // the lag window. Two days back is the safe "near-now" sample.
+        var d = new Date();
+        d.setUTCDate(d.getUTCDate() - 2);
+        var iso = d.toISOString().slice(0, 10);
+        todayCard.setAttribute("data-vibe-date", iso);
+        var lbl = todayCard.querySelector("[data-vibe-today-label]");
+        if (lbl) lbl.textContent = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) + " · 171 Å";
+      }
+      // Eagerly load thumbnails for each card. (Phase 2: wrap in
+      // IntersectionObserver so off-fold cards don't fire on landing.)
+      grid.querySelectorAll(".vibe-card").forEach(function (card) {
+        var date = card.getAttribute("data-vibe-date") || "";
+        var wl = card.getAttribute("data-vibe-wl") || "171";
+        var time = card.getAttribute("data-vibe-time") || "12:00";
+        var thumbWell = card.querySelector(".vibe-thumb");
+        if (thumbWell && date && API_BASE) {
+          thumbWell.classList.add("is-loading");
+          var iso = date + "T" + time + ":00Z";
+          var url = API_BASE + "/api/helioviewer_thumb?date=" +
+            encodeURIComponent(iso) + "&wavelength=" + encodeURIComponent(wl) +
+            "&image_scale=12&size=256";
+          var img = new Image();
+          img.alt = "";
+          img.loading = "lazy";
+          img.onload = function () {
+            thumbWell.classList.remove("is-loading");
+            thumbWell.innerHTML = "";
+            thumbWell.appendChild(img);
+          };
+          img.onerror = function () {
+            thumbWell.classList.remove("is-loading");
+          };
+          img.src = url;
+        }
+      });
+      grid.addEventListener("click", function (e) {
+        var card = e.target.closest(".vibe-card");
+        if (!card) return;
+        var date = card.getAttribute("data-vibe-date") || "";
+        var wl = parseInt(card.getAttribute("data-vibe-wl") || "171", 10);
+        var time = card.getAttribute("data-vibe-time") || "12:00";
+        if (!date) return;
+        // Vibe-card flow: the user explicitly picked a tuple, so we
+        // bypass the HEK auto-fill and use what the card supplies.
+        // The date change will trigger _resetTouchedLatchesForNewDate
+        // first; we then set the latches AFTER the inputs settle so
+        // subsequent HEK / suggest calls treat this as user-chosen.
+        state.isDefaultActive = false;
+        if (dateInput) {
+          dateInput.value = date;
+          dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        // Set the latches AFTER the date-change reset, so the vibe-card's
+        // chosen time/wavelength stick.
+        _userTouchedTime = true;
+        _userTouchedWavelength = true;
+        if (timeInput) {
+          timeInput.value = time;
+          timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        // Click the wavelength tile to fire the existing pipeline.
+        var wlTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + wl + '"]');
+        if (wlTile) {
+          setTimeout(function () { wlTile.click(); }, 50);
+        }
+        // Scroll the configurator into view, respecting reduced-motion.
+        var configSection = wlGrid && wlGrid.closest(".section");
+        if (configSection) {
+          configSection.scrollIntoView({
+            behavior: _prefersReducedMotion() ? "auto" : "smooth",
+            block: "start",
+          });
+          // After the scroll settles, move keyboard focus to the top HEK
+          // tile (or, if HEK hasn't returned, the time input) so the
+          // keyboard user lands inside the configurator instead of being
+          // stranded on the now-off-screen vibe card. Per WCAG 2.4.3.
+          setTimeout(function () {
+            var target = hekTileGrid && hekTileGrid.querySelector('.hek-tile[role="radio"]') ||
+                         document.getElementById("solarTime") ||
+                         configSection;
+            if (target && typeof target.focus === "function") {
+              try { target.focus({ preventScroll: true }); } catch (_e) {}
+            }
+          }, _prefersReducedMotion() ? 50 : 400);
+        }
+      });
+    }
+    _wireVibeGrid();
+
+    // Expose for debugging / future callers (e.g. the birthday CTA).
+    try { window.SolarArchive = window.SolarArchive || {}; window.SolarArchive.fetchHEKBestTime = fetchHEKEvents; window.SolarArchive.fetchHEKEvents = fetchHEKEvents; } catch (_e) {}
+
+    function _resetTouchedLatchesForNewDate() {
+      // A fresh date means previous time / wavelength choices were for a
+      // DIFFERENT day's events; clearing the latches lets HEK + the
+      // wavelength-suggest caption do their job again. Without this, a
+      // vibe-card click would permanently suppress suggestions for the
+      // rest of the session.
+      _userTouchedTime = false;
+      _userTouchedWavelength = false;
+      _lastSuggestionKey = "";
+      if (wlGrid) {
+        wlGrid.querySelectorAll(".wl-card.is-suggested").forEach(function (el) {
+          el.classList.remove("is-suggested");
+        });
+      }
+    }
+
     if (dateInput) {
       dateInput.addEventListener("change", function () {
-        // User picked their own date — landing default no longer active,
-        // so the pre-rendered Printify mockups (which match the default
-        // date's HQ image) stop applying. Tiles fall back to live canvas
-        // mockups of the user's actual image.
         if (dateInput.value !== "2014-10-24") state.isDefaultActive = false;
+        _resetTouchedLatchesForNewDate();
+        fetchHEKBestTime(dateInput.value);
         loadWavelengthThumbnails();
       });
       var _dateInputTimer = null;
@@ -2954,6 +3479,8 @@
         clearTimeout(_dateInputTimer);
         _dateInputTimer = setTimeout(function () {
           if (dateInput.value !== "2014-10-24") state.isDefaultActive = false;
+          _resetTouchedLatchesForNewDate();
+          fetchHEKBestTime(dateInput.value);
           loadWavelengthThumbnails();
         }, 250);
       });

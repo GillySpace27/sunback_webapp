@@ -13,3 +13,4 @@ feedback.jsonl
 approved_catalog.json
 product_stats.json
 product_stats.json.tmp
+default_cache/

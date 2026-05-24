@@ -1960,6 +1960,258 @@ html.embedded .modal-box {
 .info-row i { color: var(--accent-corona); }
 .info-row span { font-size: 0.82rem; color: var(--text-secondary); }
 
+/* ── Vibe grid (above-the-fold curated moments) ─────────────────────
+   Six cards in a 3-col grid on desktop, 2-col on tablet, 1-col on mobile.
+   Each card is a real <button>: clicking pre-fills date+wl+time in the
+   configurator below and scrolls to it. The thumbnail lives in a circular
+   well so the Sun reads as a Sun even before the image loads. */
+.vibe-grid-section { margin-bottom: 24px; }
+.vibe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 880px) { .vibe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .vibe-grid { grid-template-columns: 1fr; } }
+
+.vibe-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-md, 14px);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.vibe-card:hover {
+  background: rgba(255,179,71,0.06);
+  border-color: rgba(255,179,71,0.35);
+}
+.vibe-card:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .vibe-card:hover { transform: translateY(-1px); }
+}
+.vibe-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(255,179,71,0.10), rgba(0,0,0,0.4) 70%);
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.vibe-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+.vibe-thumb.is-loading::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(255,179,71,0.18), transparent 70%);
+}
+.vibe-meta { display: flex; flex-direction: column; gap: 2px; }
+.vibe-title { font-weight: 700; font-size: 1.0rem; color: var(--text-primary, #fff); }
+.vibe-sub   { font-size: 0.85rem; color: var(--text-secondary, #d0c8d8); }
+.vibe-date  { font-size: 0.78rem; color: var(--text-dim, #9a93a8); margin-top: 2px; }
+
+/* ── HEK 4-tile picker (replaces the single badge) ───────────────────
+   3 event tiles + 1 custom-time tile. Section is visible-but-skeleton
+   during HEK loading; never hidden on quiet/error days (landmark
+   consistency per a11y agent). */
+.hek-picker-section {
+  margin-top: 12px;
+  padding: 14px;
+  background: rgba(255,179,71,0.05);
+  border: 1px solid rgba(255,179,71,0.18);
+  border-radius: var(--radius-md, 14px);
+}
+.hek-picker-section.hidden { display: none; }
+.hek-picker-header { margin-bottom: 10px; }
+.hek-picker-title  { margin: 0; font-size: 1.0rem; color: var(--text-primary, #fff); font-weight: 600; }
+.hek-picker-sub    { margin: 4px 0 0; font-size: 0.82rem; color: var(--text-secondary, #d0c8d8); }
+.hek-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 760px) { .hek-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.hek-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm, 10px);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  position: relative;
+  transition: background 160ms ease, border-color 160ms ease;
+  /* WCAG 2.5.5 / 2.5.8 target-size: guarantee 64px+ hit area regardless
+     of inner content height. Inner flex column will still grow past
+     this for multi-line tiles. */
+  min-height: 64px;
+}
+.hek-tile:hover { background: rgba(255,179,71,0.10); border-color: rgba(255,179,71,0.45); }
+.hek-tile:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 2px; }
+.hek-tile[aria-checked="true"] {
+  background: rgba(255,179,71,0.15);
+  border-color: #ffb347;
+}
+.hek-tile.is-top { border-left: 3px solid #ffb347; }
+.hek-tile.is-fallback { border-left-color: rgba(160,160,160,0.45); background: rgba(255,255,255,0.02); }
+.hek-tile-rank {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-dim, #9a93a8); font-weight: 600;
+}
+.hek-tile.is-top .hek-tile-rank { color: #ffb347; }
+.hek-tile-time { font-size: 1.05rem; font-weight: 700; color: var(--text-primary, #fff); }
+.hek-tile-type { font-size: 0.82rem; color: var(--text-secondary, #d0c8d8); }
+.hek-tile-meta { font-size: 0.72rem; color: var(--text-dim, #9a93a8); }
+
+/* GOES class badges — three redundant channels per WCAG 1.4.1 (color
+   alone isn't enough; icon-shape + letter + color). */
+.hek-tile-goes {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem; font-weight: 700;
+  background: rgba(255,255,255,0.06);
+}
+.hek-tile-goes[data-cls="X"] { background: rgba(255,80,80,0.20); color: #ffb0b0; }
+.hek-tile-goes[data-cls="M"] { background: rgba(255,160,60,0.18); color: #ffd089; }
+.hek-tile-goes[data-cls="C"] { background: rgba(255,220,80,0.12); color: #ffe18a; }
+
+/* Custom-time tile — two native <select>s laid out inline. */
+.hek-tile-custom {
+  background: rgba(255,255,255,0.03);
+  cursor: default;
+}
+.hek-tile-custom:hover { background: rgba(255,179,71,0.06); }
+.hek-tile-custom .hek-tile-rank { color: var(--accent-corona, #ffb347); }
+.hek-custom-selects {
+  display: flex; gap: 6px; align-items: center;
+  margin-top: 4px;
+}
+.hek-custom-selects select {
+  flex: 1;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.30);
+  color: var(--text-primary, #fff);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  font: inherit; font-size: 0.95rem;
+  min-height: 44px;  /* WCAG 2.5.5 AAA hit-area */
+}
+@media (pointer: coarse) {
+  .hek-custom-selects select { min-height: 48px; }
+}
+.hek-custom-selects select:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: 1px;
+}
+.hek-custom-utc { font-size: 0.72rem; color: var(--text-dim, #9a93a8); }
+.hek-custom-apply {
+  margin-top: 6px;
+  align-self: stretch;
+  padding: 8px 14px;
+  background: rgba(255,179,71,0.15);
+  color: var(--accent-corona, #ffb347);
+  border: 1px solid rgba(255,179,71,0.45);
+  border-radius: 6px;
+  font: inherit; font-size: 0.85rem; font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;  /* WCAG 2.5.5 AA hit-area */
+}
+@media (pointer: coarse) {
+  .hek-custom-apply { min-height: 48px; }
+}
+.hek-custom-apply:hover { background: rgba(255,179,71,0.25); }
+.hek-custom-apply:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
+
+/* Skeleton tiles during loading. */
+.hek-tile.is-skeleton {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.06);
+  cursor: default;
+  pointer-events: none;
+  min-height: 80px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hek-tile.is-skeleton::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+    animation: hekShimmer 1.4s ease-in-out infinite;
+  }
+}
+@keyframes hekShimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Wavelength auto-suggest caption (above the wavelength grid).
+   Surfaces "we picked 304 Å because the event was a prominence" so the
+   user understands the recommendation isn't random. */
+.wl-suggest-caption {
+  margin: 10px 0 6px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #d0c8d8);
+  background: rgba(123,97,255,0.06);
+  border-left: 3px solid var(--accent-corona, #ffb347);
+  border-radius: var(--radius-sm, 8px);
+}
+.wl-suggest-caption.hidden { display: none; }
+.wl-suggest-caption strong { color: var(--text-primary, #fff); font-weight: 600; }
+.wl-card.is-suggested { box-shadow: 0 0 0 2px rgba(255,179,71,0.55) inset; }
+
+/* HEK best-time badge — sits between the info-row and the wavelength grid.
+   Visually parallel to .info-row (same padding / radius) but uses a
+   warmer accent so it reads as a per-date suggestion rather than a
+   static notice. The dot before the label gets a subtle pulse to draw
+   the eye when the time auto-fills. */
+.hek-event-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 14px;
+  background: rgba(255,179,71,0.08);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #ffb347;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+.hek-event-info.hidden { display: none; }
+.hek-event-info.is-loading { opacity: 0.7; }
+.hek-event-info.is-fallback { border-left-color: rgba(160,160,160,0.5); background: rgba(255,255,255,0.03); }
+.hek-event-info strong { color: var(--text-primary); font-weight: 600; }
+.hek-event-info .hek-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #ffb347; flex: 0 0 7px;
+}
+.hek-event-info.is-fallback .hek-dot { background: rgba(160,160,160,0.6); }
+@media (prefers-reduced-motion: no-preference) {
+  .hek-event-info:not(.is-fallback) .hek-dot {
+    animation: hekPulse 2.4s ease-in-out 1;
+  }
+}
+@keyframes hekPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255,179,71,0.45); }
+  60%  { box-shadow: 0 0 0 8px rgba(255,179,71,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,179,71,0); }
+}
+
 /* Crop overlay */
 .crop-overlay {
   position: absolute;
