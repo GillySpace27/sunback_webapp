@@ -965,6 +965,51 @@ first-name-only.)
       Run these through the existing approved-catalog flow if they fit
       the lineup.
 
+### Round 2 — operator dogfood (2026-05-24)
+
+Submitted by Gilly testing the localhost build of the just-shipped
+default-image pre-render pipeline. Originally landed in the localhost
+`feedback.jsonl`; mirrored into the prod admin log on 2026-05-24.
+
+- [ ] **P1** **Pre-rendered mockup aspect ratios are off → letterboxing.**
+      A noticeable fraction of the Phase B real-Printify mockups render
+      with the wrong aspect, leaving black bars. Re-render the affected
+      products — likely a print-area / variant-image scale mismatch in
+      the warm-default body. May need per-product fit logic in the
+      placeholder `x/y/scale` we send to Printify on create.
+- [ ] **P2** **Email field shouldn't be required to leave a comment.**
+      The feedback form gates submit on email; if the user just wants
+      to drop a note ("don't contact me about this") that's friction.
+      Make email optional in the comment-tab form (server already
+      handles `email=None`); keep required only on product requests
+      where reply matters.
+- [ ] **P2** **Helioviewer-tile rate-limit is noticeably slower** after
+      whatever throttle landed recently. Loosen the cadence on the
+      per-tile preview fetches — or look at the existing
+      `_HELIOVIEWER_LIMITER` and bump the budget. (Profile first; if
+      it's actually a server-side queue, the answer is different.)
+- [ ] **P3** **Teal t-shirt mockup with the 193 image reads garish** —
+      pick a more flattering shirt colour for the default mockup
+      variant (this is the Phase B representative variant for the
+      `tshirt_unisex` blueprint). Try a black / navy / heather grey.
+- [ ] **P3** **Drop the Crew Socks product entirely** — too complicated
+      (four leg-panel placeholders, narrow aspect, awkward editor UX).
+      Remove from `PRODUCTS` in `solar-archive.js` + the
+      `_DEFAULT_MOCKUP_PRODUCTS` catalog mirror in `main.py`. Also
+      clean up the cached `crew_socks.png` mockup + manifest entry
+      on /var/data (or just let the next warm rebuild without it).
+- [ ] **P2** **Per-product long descriptions + variant-picker
+      restructure.** Each product needs a paragraph-length description
+      somewhere — the 5-word `desc` under the tile is too thin. And
+      the variant picker should show the **best available real
+      mockup** next to the live editor preview, with the long
+      description on that modal too. Big visual upgrade to the picker.
+- [ ] **P2** **Expose an HQ-Raw export tier alongside HQ-RHEF.**
+      The pipeline already has the raw FITS-to-PNG step; surface it
+      as a fourth user-selectable export so scientists who want the
+      uncolorized/unfiltered frame can grab it. Tooltip should
+      explain the difference from RHEF.
+
 ## Cross-cutting work (not from a single persona)
 
 - [x] FITS-quality gate on buy / generate-real-mockup — block on
