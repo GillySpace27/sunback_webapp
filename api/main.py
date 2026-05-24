@@ -169,14 +169,18 @@ class _RateLimiter:
         if sleep_for > 0:
             time.sleep(sleep_for)
 
-# Helioviewer: 3 req/sec. The wavelength tile picker fires 9 thumb
+# Helioviewer: 6 req/sec. The wavelength tile picker fires 9 thumb
 # requests in parallel the moment a user picks a date, plus the
 # main-canvas preview, so 1/sec stretched the visible "all tiles
-# load" wait to ~9-10s. 3/sec gets the tile grid populated in
-# ~3-4s while still well below Helioviewer's public soft limit.
-_HELIOVIEWER_LIMITER = _RateLimiter(180, "helioviewer")
+# load" wait to ~9-10s. 3/sec got the tile grid populated in
+# ~3-4s; bumped 2× to 6/sec to absorb the new [-]/[+] time-of-day
+# fine-tune feature (debounced bursts of ~10 thumb refetches per
+# editing session) while still staying below Helioviewer's public
+# soft limit.
+_HELIOVIEWER_LIMITER = _RateLimiter(360, "helioviewer")
 # VSO is heavier per-call (FITS download), so throttle it tighter.
-_VSO_LIMITER = _RateLimiter(30, "vso")
+# Bumped 2× alongside the Helioviewer bump for parity.
+_VSO_LIMITER = _RateLimiter(60, "vso")
 
 class PreviewRequest(BaseModel):
     date: str
@@ -397,6 +401,31 @@ _DEFAULT_MOCKUP_PRODUCTS = [
     {"id": "journal_hardcover",    "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
     {"id": "backpack",             "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
 ]
+
+# Vibe-grid landing tiles — pre-rendered HQ pairs (raw + RHEF) for the
+# 5 "famous moments" cards on the landing page (api/index.html L73–148).
+# The 5th tile (`recent_corona`) is dynamic: warmed at today_utc - 2 days
+# / 171 Å / 12:00 — appended to this list at warm time. See the
+# /api/admin/warm_vibe_grid route below.
+_VIBE_GRID_TUPLES = [
+    {"slug": "ar2192",             "date": "2014-10-24", "wavelength": 193, "time": "12:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "x93_flare",          "date": "2017-09-06", "wavelength": 131, "time": "12:02", "mission": "SDO", "detector": "AIA"},
+    {"slug": "mothers_day_storm",  "date": "2024-05-10", "wavelength": 193, "time": "17:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "monster_prominence", "date": "2012-08-31", "wavelength": 304, "time": "20:00", "mission": "SDO", "detector": "AIA"},
+    # 5th entry ("recent_corona") is generated dynamically at warm time —
+    # see _resolve_vibe_grid_tuples().
+]
+
+# Persistent vibe-grid output paths (mirror DEFAULT_MOCKUPS_*):
+#   /asset/default/vibe/<slug>/<tier>_full.png    full-res HQ
+#   /asset/default/vibe/<slug>/<tier>_thumb.png   256² thumbnail
+#   /asset/default/vibe_manifest.json             frontend manifest
+DEFAULT_VIBE_DIR = DEFAULT_CACHE_DIR / "vibe"
+try:
+    DEFAULT_VIBE_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+DEFAULT_VIBE_MANIFEST = DEFAULT_CACHE_DIR / "vibe_manifest.json"
 
 if os.getenv("RENDER"):
     os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com/"
@@ -1804,6 +1833,286 @@ async def warm_default(request: Request):
         return {"phase_a": phase_a_result, "phase_b": {"phase": "B", "ok": False, "error": str(e)}}
 
     return {"phase_a": phase_a_result, "phase_b": phase_b_result}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Admin: warm the vibe-grid HQ images (Raw + RHEF, full + thumb)
+# ──────────────────────────────────────────────────────────────────────
+# Pre-renders the 5 landing-page "famous moments" cards (api/index.html
+# L73–148). For each vibe we produce FOUR PNGs on the persistent disk:
+#   raw_full.png   — RHEF-free HQ science PNG (gamma-stretched)
+#   raw_thumb.png  — 256² downsample of raw_full
+#   rhef_full.png  — RHEF-filtered HQ (same pipeline as do_generate_sync)
+#   rhef_thumb.png — 256² downsample of rhef_full
+# Thumbs are what the landing card displays; full-res is what loads when
+# the user clicks into the editor. Manifest at /asset/default/vibe_manifest.json.
+#
+# Pipeline note: do_generate_sync always applies RHEF, so it can't double
+# as the raw-tier renderer. The helper below fetches the FITS once via
+# fido_fetch_map (cached on disk so a re-run is cheap), then renders raw
+# and RHEF tiers from the same Map — saving a re-download per vibe.
+
+def _resolve_vibe_grid_tuples():
+    """Return the static vibes plus the dynamic 'recent_corona' tuple
+    (today_utc - 2 days, 171 Å, 12:00). Computed at call time so a warm
+    run on a different day picks up a different `recent_corona` date —
+    operators should re-trigger this endpoint on a cadence (daily cron
+    is fine) to keep recent_corona fresh."""
+    recent_dt = (datetime.utcnow() - timedelta(days=2)).date()
+    recent = {
+        "slug": "recent_corona",
+        "date": recent_dt.strftime("%Y-%m-%d"),
+        "wavelength": 171,
+        "time": "12:00",
+        "mission": "SDO",
+        "detector": "AIA",
+    }
+    return list(_VIBE_GRID_TUPLES) + [recent]
+
+
+def _vibe_pick_cmap(wavelength: int, mission: str):
+    """AIA wavelength → SunPy-registered colormap. Mirrors map_to_png's
+    instrument/wavelength dispatch but stripped down — we don't need the
+    annotation / metadata logic here."""
+    from sunpy.visualization.colormaps import color_tables as ct
+    try:
+        wl_int = int(wavelength)
+    except Exception:
+        wl_int = 211
+    if mission.upper() == "SDO" and wl_int in [94, 131, 171, 193, 211, 304, 335, 1600, 1700, 4500]:
+        try:
+            return ct.aia_color_table(wl_int * u.angstrom)
+        except Exception:
+            pass
+    if mission.upper() == "SOHO-EIT":
+        if wl_int == 195:
+            return plt.get_cmap("sohoeit195")
+    try:
+        return plt.get_cmap(f"sdoaia{wl_int}")
+    except Exception:
+        return plt.get_cmap("gray")
+
+
+def _vibe_render_array_to_png(data, out_path: str, cmap):
+    """Write a 2D array to a square borderless PNG at the same dpi/size
+    do_generate_sync uses (10in × 300dpi ≈ 3000²)."""
+    import numpy as _np
+    arr = _np.asarray(data)
+    finite = arr[_np.isfinite(arr)]
+    if finite.size == 0:
+        vmin, vmax = 0.0, 1.0
+    else:
+        vmin = _np.nanpercentile(arr, 1)
+        vmax = _np.nanpercentile(arr, 99.7)
+        if not _np.isfinite(vmin) or not _np.isfinite(vmax) or vmax <= vmin:
+            vmin, vmax = float(finite.min()), float(finite.max() or finite.min() + 1.0)
+    fig = plt.figure(figsize=(10, 10), dpi=300)
+    plt.axis("off")
+    plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+    plt.tight_layout(pad=0)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+    plt.close(fig)
+
+
+def _vibe_write_thumb(full_path: str, thumb_path: str, size: int = 256):
+    """Downsample full-res PNG to a `size`² thumbnail via Pillow."""
+    from PIL import Image
+    with Image.open(full_path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((size, size), Image.LANCZOS)
+        # Force exact square by pasting onto a black canvas if needed
+        # (Pillow's thumbnail preserves aspect ratio — our full pngs are
+        # already square so this is a no-op, but keeps the contract).
+        if im.size != (size, size):
+            canvas = Image.new("RGB", (size, size), (0, 0, 0))
+            x = (size - im.size[0]) // 2
+            y = (size - im.size[1]) // 2
+            canvas.paste(im, (x, y))
+            im = canvas
+        os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+        im.save(thumb_path, format="PNG", optimize=True)
+
+
+def _render_vibe_pair(vibe: dict) -> dict:
+    """Render Raw + RHEF (full + thumb) for one vibe. Returns the manifest
+    sub-entry. Raises on fatal failures so the orchestrator can mark the
+    vibe failed without taking down siblings."""
+    import ssl as _ssl, certifi as _certifi
+    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", _certifi.where())
+    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", _certifi.where())
+    _ssl._create_default_https_context = _ssl._create_unverified_context
+
+    slug = vibe["slug"]
+    date_str = vibe["date"]
+    wl = int(vibe["wavelength"])
+    mission = vibe["mission"]
+    detector = vibe["detector"]
+    time_str = vibe.get("time", "12:00")
+
+    out_dir = DEFAULT_VIBE_DIR / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    raw_full = out_dir / "raw_full.png"
+    raw_thumb = out_dir / "raw_thumb.png"
+    rhef_full = out_dir / "rhef_full.png"
+    rhef_thumb = out_dir / "rhef_thumb.png"
+
+    entry = {
+        "date": date_str,
+        "wavelength": wl,
+        "time": time_str,
+        "mission": mission,
+        "detector": detector,
+        "raw_full_url":   f"/asset/default/vibe/{slug}/raw_full.png",
+        "raw_thumb_url":  f"/asset/default/vibe/{slug}/raw_thumb.png",
+        "rhef_full_url":  f"/asset/default/vibe/{slug}/rhef_full.png",
+        "rhef_thumb_url": f"/asset/default/vibe/{slug}/rhef_thumb.png",
+    }
+
+    # Idempotent skip: both full-res tiers already on disk → we're done.
+    # (Thumbs are derived from full; we always re-derive them below if a
+    # full was regenerated. If a thumb is missing but its full is present,
+    # we re-derive the thumb without re-running the heavy pipeline.)
+    both_full_present = (
+        raw_full.exists() and raw_full.stat().st_size > 1000
+        and rhef_full.exists() and rhef_full.stat().st_size > 1000
+    )
+    if both_full_present:
+        # Backfill thumbs if missing
+        if not (raw_thumb.exists() and raw_thumb.stat().st_size > 100):
+            _vibe_write_thumb(str(raw_full), str(raw_thumb))
+        if not (rhef_thumb.exists() and rhef_thumb.stat().st_size > 100):
+            _vibe_write_thumb(str(rhef_full), str(rhef_thumb))
+        entry["ok"] = True
+        entry["status"] = "skipped_cached"
+        return entry
+
+    # Build the datetime carrying the user-picked time (mirrors the
+    # date+time folding /api/generate does in start_generate).
+    try:
+        hh, mm = time_str.split(":")
+        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(
+            hour=max(0, min(23, int(hh))),
+            minute=max(0, min(59, int(mm))),
+        )
+    except Exception:
+        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=12, minute=0)
+
+    print(f"[warm_vibe_grid] {slug}: fetching FITS for {date_str}T{time_str} {mission} {wl}Å", flush=True)
+    smap = fido_fetch_map(dt, mission, wl, detector)
+
+    cmap = _vibe_pick_cmap(wl, mission)
+
+    # ── Raw tier (no RHEF, just gamma-stretched percentile scaling) ──
+    if not (raw_full.exists() and raw_full.stat().st_size > 1000):
+        print(f"[warm_vibe_grid] {slug}: rendering RAW full → {raw_full}", flush=True)
+        _vibe_render_array_to_png(smap.data, str(raw_full), cmap)
+    _vibe_write_thumb(str(raw_full), str(raw_thumb))
+
+    # ── RHEF tier (same primitive as do_generate_sync) ──
+    if not (rhef_full.exists() and rhef_full.stat().st_size > 1000):
+        print(f"[warm_vibe_grid] {slug}: applying RHEF + rendering → {rhef_full}", flush=True)
+        try:
+            rhef_map = rhef(smap, progress=False)
+            rhef_data = rhef_map.data
+        except Exception as e:
+            print(f"[warm_vibe_grid] {slug}: RHEF on Map failed ({e}); falling back to array path", flush=True)
+            rhef_data = rhef(smap.data, progress=False).data
+        _vibe_render_array_to_png(rhef_data, str(rhef_full), cmap)
+    _vibe_write_thumb(str(rhef_full), str(rhef_thumb))
+
+    entry["ok"] = True
+    entry["status"] = "created"
+    return entry
+
+
+def _warm_vibe_grid() -> dict:
+    """Sync orchestrator — renders every vibe sequentially. Per-vibe
+    try/except so one bad render doesn't sink the others. Writes the
+    manifest incrementally so a process restart mid-warm leaves a valid
+    (partial) manifest behind."""
+    DEFAULT_VIBE_DIR.mkdir(parents=True, exist_ok=True)
+    vibes = _resolve_vibe_grid_tuples()
+    print(f"[warm_vibe_grid] starting warm of {len(vibes)} vibes", flush=True)
+
+    per_vibe = []
+    warmed = 0
+    skipped = 0
+    failed = 0
+    manifest_vibes: Dict[str, Any] = {}
+
+    # Preserve any pre-existing manifest entries (e.g. a previous warm
+    # populated some slugs; re-run picks up where it left off).
+    if DEFAULT_VIBE_MANIFEST.exists():
+        try:
+            prev = json.loads(DEFAULT_VIBE_MANIFEST.read_text())
+            manifest_vibes = dict((prev or {}).get("vibes") or {})
+        except Exception:
+            manifest_vibes = {}
+
+    for vibe in vibes:
+        slug = vibe["slug"]
+        try:
+            entry = _render_vibe_pair(vibe)
+            if entry.get("status") == "skipped_cached":
+                skipped += 1
+            else:
+                warmed += 1
+            manifest_vibes[slug] = entry
+            per_vibe.append({"slug": slug, "status": entry.get("status", "ok"), "ok": True})
+        except Exception as e:
+            failed += 1
+            err = str(e)[:240]
+            print(f"[warm_vibe_grid] {slug}: FAILED — {err}", flush=True)
+            manifest_vibes[slug] = {
+                "date": vibe.get("date"),
+                "wavelength": vibe.get("wavelength"),
+                "time": vibe.get("time"),
+                "ok": False,
+                "error": err,
+            }
+            per_vibe.append({"slug": slug, "status": "failed", "ok": False, "error": err})
+
+        # Incremental manifest write — survives mid-run process death.
+        try:
+            DEFAULT_VIBE_MANIFEST.write_text(json.dumps({
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "vibes": manifest_vibes,
+            }, indent=2))
+        except Exception as e:
+            print(f"[warm_vibe_grid] manifest incremental-write failed: {e}", flush=True)
+
+    print(f"[warm_vibe_grid] done — warmed={warmed} skipped={skipped} failed={failed}", flush=True)
+    return {
+        "ok": failed == 0,
+        "warmed": warmed,
+        "skipped": skipped,
+        "failed": failed,
+        "per_vibe": per_vibe,
+        "manifest_url": "/asset/default/vibe_manifest.json",
+    }
+
+
+@app.post("/api/admin/warm_vibe_grid")
+async def warm_vibe_grid(request: Request):
+    """Pre-render the landing-page vibe-grid tiles (Raw + RHEF, full +
+    thumb) to the persistent disk. Gated by FEEDBACK_ADMIN_KEY.
+
+        source ~/.claude/secrets/solar-archive.env
+        curl -X POST -H "X-Admin-Key: $FEEDBACK_ADMIN_KEY" \
+            https://solar-archive.onrender.com/api/admin/warm_vibe_grid
+
+    Each vibe takes 1–3 min cold; the full warm runs 20+ min sequentially.
+    Idempotent — re-running picks up any vibe whose both `*_full.png`
+    files aren't on disk yet. Held under the heavy-render semaphore so
+    we don't fight a concurrent /api/generate request for memory."""
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
+    async with _HeavyRenderSlot():
+        try:
+            result = await asyncio.to_thread(_warm_vibe_grid)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"warm_vibe_grid failed: {e}")
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────

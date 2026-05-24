@@ -1975,30 +1975,176 @@ html.embedded .modal-box {
 @media (max-width: 520px) { .vibe-grid { grid-template-columns: 1fr; } }
 
 .vibe-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  padding: 14px;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: var(--radius-md, 14px);
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-  font: inherit;
   transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  overflow: visible;  /* allow info-popover to escape */
 }
 .vibe-card:hover {
   background: rgba(255,179,71,0.06);
   border-color: rgba(255,179,71,0.35);
 }
-.vibe-card:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
-  outline-offset: 2px;
-}
 @media (prefers-reduced-motion: no-preference) {
   .vibe-card:hover { transform: translateY(-1px); }
+}
+
+/* The main click target — wraps thumb + meta. */
+.vibe-open {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md, 14px);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+}
+.vibe-open:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: -2px;
+}
+
+/* Controls cluster (Raw/RHEF + info) sits top-right, layered over thumb.
+   Hidden by default; .has-tiers reveals the toggle once the manifest
+   confirms a Raw/RHEF pair exists for this slug. */
+.vibe-controls {
+  position: absolute;
+  top: 8px; right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none;  /* let clicks pass to .vibe-open by default */
+}
+.vibe-controls > * { pointer-events: auto; }
+.vibe-tier-toggle {
+  display: none;  /* shown via .has-tiers below */
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.vibe-card.has-tiers .vibe-tier-toggle { display: inline-flex; }
+.vibe-tier-btn {
+  background: transparent;
+  color: var(--text-secondary, #d0c8d8);
+  border: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  min-height: 24px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.vibe-tier-btn.is-active {
+  background: var(--accent-corona, #ffb347);
+  color: #1a1326;
+}
+.vibe-tier-btn:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: 1px;
+}
+.vibe-info-btn {
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  color: var(--text-secondary, #d0c8d8);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 999px;
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.vibe-info-btn:hover { color: var(--accent-corona, #ffb347); }
+.vibe-info-btn:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
+
+/* Attribution popover (created dynamically — kept stylable here). */
+.vibe-info-popover {
+  position: absolute;
+  top: 44px; right: 8px;
+  z-index: 10;
+  max-width: min(280px, calc(100% - 16px));
+  padding: 12px 14px 12px 14px;
+  background: #1a1326;
+  border: 1px solid rgba(255,179,71,0.35);
+  border-radius: var(--radius-sm, 10px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  font-size: 0.80rem;
+  color: var(--text-secondary, #d0c8d8);
+  line-height: 1.4;
+}
+.vibe-info-popover.hidden { display: none; }
+.vibe-info-popover h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary, #fff);
+}
+.vibe-info-popover p { margin: 0 0 6px; }
+.vibe-info-popover p:last-child { margin-bottom: 0; }
+.vibe-info-popover a { color: var(--accent-corona, #ffb347); }
+.vibe-info-close {
+  position: absolute;
+  top: 4px; right: 6px;
+  background: transparent;
+  color: var(--text-dim, #9a93a8);
+  border: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.vibe-info-close:hover { color: var(--text-primary, #fff); }
+
+/* "Your day" birthday card — no thumb; date input + hint only. */
+.vibe-card-birthday { background: linear-gradient(135deg, rgba(255,179,71,0.06), rgba(123,97,255,0.06)); border-color: rgba(255,179,71,0.20); }
+.vibe-birthday-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 16px;
+  height: 100%;
+  justify-content: center;
+  text-align: left;
+}
+.vibe-birthday-icon {
+  color: var(--accent-corona, #ffb347);
+  font-size: 1.8rem;
+}
+.vibe-birthday-meta { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.vibe-birthday-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, #9a93a8);
+  font-weight: 600;
+}
+.vibe-birthday-input {
+  padding: 10px 12px;
+  background: rgba(0,0,0,0.30);
+  color: var(--text-primary, #fff);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 1.0rem;
+  min-height: 44px;
+  width: 100%;
+}
+.vibe-birthday-input:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
+.vibe-birthday-hint {
+  font-size: 0.78rem;
+  color: var(--text-dim, #9a93a8);
 }
 .vibe-thumb {
   position: relative;
@@ -2090,52 +2236,57 @@ html.embedded .modal-box {
 .hek-tile-goes[data-cls="M"] { background: rgba(255,160,60,0.18); color: #ffd089; }
 .hek-tile-goes[data-cls="C"] { background: rgba(255,220,80,0.12); color: #ffe18a; }
 
-/* Custom-time tile — two native <select>s laid out inline. */
+/* Fine-tune custom-time tile — [-] / display / [+] row.
+   Replaces the earlier <select>+Apply pattern. ±1 min per click, with
+   a 1.5 s debounce in JS before the JPG previews refresh. The display
+   doubles as the live aria-live readout. */
 .hek-tile-custom {
   background: rgba(255,255,255,0.03);
   cursor: default;
 }
 .hek-tile-custom:hover { background: rgba(255,179,71,0.06); }
 .hek-tile-custom .hek-tile-rank { color: var(--accent-corona, #ffb347); }
-.hek-custom-selects {
-  display: flex; gap: 6px; align-items: center;
+.hek-time-fine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 4px;
 }
-.hek-custom-selects select {
-  flex: 1;
-  padding: 8px 10px;
-  background: rgba(0,0,0,0.30);
-  color: var(--text-primary, #fff);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  font: inherit; font-size: 0.95rem;
-  min-height: 44px;  /* WCAG 2.5.5 AAA hit-area */
+.hek-time-step {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;     /* WCAG 2.5.5 hit-area */
+  background: rgba(255,179,71,0.12);
+  color: var(--accent-corona, #ffb347);
+  border: 1px solid rgba(255,179,71,0.40);
+  border-radius: 999px;
+  font: inherit; font-size: 1.25rem; font-weight: 700;
+  line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease;
+}
+.hek-time-step:hover { background: rgba(255,179,71,0.22); }
+@media (prefers-reduced-motion: no-preference) {
+  .hek-time-step:active { transform: scale(0.95); }
+}
+.hek-time-step:focus-visible {
+  outline: 2px solid var(--accent-corona, #ffb347);
+  outline-offset: 2px;
 }
 @media (pointer: coarse) {
-  .hek-custom-selects select { min-height: 48px; }
+  .hek-time-step { width: 48px; height: 48px; }
 }
-.hek-custom-selects select:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
-  outline-offset: 1px;
+.hek-time-display {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #fff);
+  letter-spacing: 0.02em;
 }
 .hek-custom-utc { font-size: 0.72rem; color: var(--text-dim, #9a93a8); }
-.hek-custom-apply {
-  margin-top: 6px;
-  align-self: stretch;
-  padding: 8px 14px;
-  background: rgba(255,179,71,0.15);
-  color: var(--accent-corona, #ffb347);
-  border: 1px solid rgba(255,179,71,0.45);
-  border-radius: 6px;
-  font: inherit; font-size: 0.85rem; font-weight: 600;
-  cursor: pointer;
-  min-height: 36px;  /* WCAG 2.5.5 AA hit-area */
-}
-@media (pointer: coarse) {
-  .hek-custom-apply { min-height: 48px; }
-}
-.hek-custom-apply:hover { background: rgba(255,179,71,0.25); }
-.hek-custom-apply:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
 
 /* Skeleton tiles during loading. */
 .hek-tile.is-skeleton {
