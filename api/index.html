@@ -67,163 +67,188 @@
   </div>
 
   <!-- Vibe grid — curated "famous moments" above the fold.
-       One-tap entry into the configurator: each card pre-fills date +
-       wavelength + time and scrolls down to the editor. This is the
-       hybrid (alt C) landing — novices land on one-tap, configurators
-       scroll past to the date/wavelength flow below. The 7th tile
-       (Birthday) lives in the section just below as its own CTA so
-       its date-input form has the room it needs. -->
+       One-tap entry into the configurator. Five static-date cards plus
+       a sixth "Your day" tile that takes a date input directly (no
+       submit button — selecting the date triggers the flow). Each
+       static card has a Raw/RHEF tier toggle in the top-right and an
+       info button that opens an attribution popover.
+       The card is a <div> (not <button>) so it can legally contain
+       child <button>s (HTML disallows nested interactive content);
+       the main click target is the inner .vibe-open button. -->
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
       <div class="section-title" id="vibeGridTitle">Famous moments — tap one to start</div>
     </div>
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
-      <button type="button" class="vibe-card"
-              data-vibe-date="2014-10-24" data-vibe-wl="193" data-vibe-time="12:00"
-              aria-label="AR 2192, October 24 2014, 193 angstrom. Largest sunspot in 24 years.">
-        <div class="vibe-thumb"></div>
-        <div class="vibe-meta">
-          <div class="vibe-title">AR 2192</div>
-          <div class="vibe-sub">Largest sunspot in 24 years</div>
-          <div class="vibe-date">Oct 24, 2014 · 193 Å</div>
-        </div>
-      </button>
-      <button type="button" class="vibe-card"
-              data-vibe-date="2017-09-06" data-vibe-wl="131" data-vibe-time="12:02"
-              aria-label="X9.3 flare, September 6 2017, 131 angstrom. Solar Cycle 24's biggest flare.">
-        <div class="vibe-thumb"></div>
-        <div class="vibe-meta">
-          <div class="vibe-title">X9.3 flare</div>
-          <div class="vibe-sub">Cycle 24's biggest flare</div>
-          <div class="vibe-date">Sep 6, 2017 · 131 Å</div>
-        </div>
-      </button>
-      <button type="button" class="vibe-card"
-              data-vibe-date="2024-05-10" data-vibe-wl="193" data-vibe-time="17:00"
-              aria-label="Mother's Day storm, May 10 2024, 193 angstrom. Famous geomagnetic storm, global aurora.">
-        <div class="vibe-thumb"></div>
-        <div class="vibe-meta">
-          <div class="vibe-title">Mother's Day storm</div>
-          <div class="vibe-sub">Global aurora, May 2024</div>
-          <div class="vibe-date">May 10, 2024 · 193 Å</div>
-        </div>
-      </button>
-      <button type="button" class="vibe-card"
-              data-vibe-date="" data-vibe-wl="171" data-vibe-time="12:00"
-              data-vibe-today="1"
-              aria-label="Recent quiet corona, 171 angstrom. A near-current view of the Sun.">
-        <div class="vibe-thumb"></div>
-        <div class="vibe-meta">
-          <div class="vibe-title">Recent corona</div>
-          <div class="vibe-sub">A near-current view</div>
-          <div class="vibe-date" data-vibe-today-label>· 171 Å</div>
-        </div>
-      </button>
-      <button type="button" class="vibe-card"
-              data-vibe-date="2012-08-31" data-vibe-wl="304" data-vibe-time="20:00"
-              aria-label="Monster prominence, August 31 2012, 304 angstrom. Spectacular CME and prominence eruption.">
-        <div class="vibe-thumb"></div>
-        <div class="vibe-meta">
-          <div class="vibe-title">Monster prominence</div>
-          <div class="vibe-sub">A wall of plasma</div>
-          <div class="vibe-date">Aug 31, 2012 · 304 Å</div>
-        </div>
-      </button>
-      <button type="button" class="vibe-card"
-              data-vibe-date="2017-09-10" data-vibe-wl="131" data-vibe-time="16:06"
-              aria-label="Limb X8.2 flare, September 10 2017, 131 angstrom. Spectacular limb flare and CME.">
-        <div class="vibe-thumb"></div>
-        <div class="vibe-meta">
-          <div class="vibe-title">Limb X8.2 flare</div>
-          <div class="vibe-sub">Off-limb fireworks</div>
-          <div class="vibe-date">Sep 10, 2017 · 131 Å</div>
-        </div>
-      </button>
-    </div>
-  </div>
 
-  <!-- Birthday Sun CTA — fast path for the dominant use case
-       (your sun on a specific date — anniversary, birthday, the
-       day someone was born). Sets the date input + scrolls to
-       the wavelength tiles in one tap. -->
-  <div class="section birthday-cta-section">
-    <div class="birthday-cta">
-      <div class="birthday-cta-icon" aria-hidden="true">
-        <i class="fas fa-gift"></i>
-      </div>
-      <div class="birthday-cta-text">
-        <h2 class="birthday-cta-title">The Sun on your day.</h2>
-        <p class="birthday-cta-sub">Type a birthday, anniversary, or any date back to May 2010 — print the sun that was shining.</p>
-      </div>
-      <form class="birthday-cta-form" id="birthdayCtaForm">
-        <label class="birthday-cta-label" for="birthdayCtaInput">Date</label>
-        <input type="date" id="birthdayCtaInput" class="birthday-cta-input" required>
-        <button type="submit" class="birthday-cta-btn">
-          See your sun &rarr;
+      <div class="vibe-card" data-vibe-slug="ar2192"
+           data-vibe-date="2014-10-24" data-vibe-wl="193" data-vibe-time="12:00">
+        <div class="vibe-controls">
+          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for AR 2192">
+            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+          </div>
+          <button type="button" class="vibe-info-btn" aria-label="AR 2192 image credits and attribution" aria-haspopup="dialog">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button type="button" class="vibe-open" aria-label="AR 2192, October 24 2014, 193 angstrom. Largest sunspot in 24 years.">
+          <div class="vibe-thumb"></div>
+          <div class="vibe-meta">
+            <div class="vibe-title">AR 2192</div>
+            <div class="vibe-sub">Largest sunspot in 24 years</div>
+            <div class="vibe-date">Oct 24, 2014 · 193 Å</div>
+          </div>
         </button>
-      </form>
+      </div>
+
+      <div class="vibe-card" data-vibe-slug="x93_flare"
+           data-vibe-date="2017-09-06" data-vibe-wl="131" data-vibe-time="12:02">
+        <div class="vibe-controls">
+          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for X9.3 flare">
+            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+          </div>
+          <button type="button" class="vibe-info-btn" aria-label="X9.3 flare image credits and attribution" aria-haspopup="dialog">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button type="button" class="vibe-open" aria-label="X9.3 flare, September 6 2017, 131 angstrom. Solar Cycle 24's biggest flare.">
+          <div class="vibe-thumb"></div>
+          <div class="vibe-meta">
+            <div class="vibe-title">X9.3 flare</div>
+            <div class="vibe-sub">Cycle 24's biggest flare</div>
+            <div class="vibe-date">Sep 6, 2017 · 131 Å</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="vibe-card" data-vibe-slug="mothers_day_storm"
+           data-vibe-date="2024-05-10" data-vibe-wl="193" data-vibe-time="17:00">
+        <div class="vibe-controls">
+          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Mother's Day storm">
+            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+          </div>
+          <button type="button" class="vibe-info-btn" aria-label="Mother's Day storm image credits and attribution" aria-haspopup="dialog">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button type="button" class="vibe-open" aria-label="Mother's Day storm, May 10 2024, 193 angstrom. Famous geomagnetic storm, global aurora.">
+          <div class="vibe-thumb"></div>
+          <div class="vibe-meta">
+            <div class="vibe-title">Mother's Day storm</div>
+            <div class="vibe-sub">Global aurora, May 2024</div>
+            <div class="vibe-date">May 10, 2024 · 193 Å</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="vibe-card" data-vibe-slug="recent_corona"
+           data-vibe-date="" data-vibe-wl="171" data-vibe-time="12:00" data-vibe-today="1">
+        <div class="vibe-controls">
+          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Recent corona">
+            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+          </div>
+          <button type="button" class="vibe-info-btn" aria-label="Recent corona image credits and attribution" aria-haspopup="dialog">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button type="button" class="vibe-open" aria-label="Recent quiet corona, 171 angstrom. A near-current view of the Sun.">
+          <div class="vibe-thumb"></div>
+          <div class="vibe-meta">
+            <div class="vibe-title">Recent corona</div>
+            <div class="vibe-sub">A near-current view</div>
+            <div class="vibe-date" data-vibe-today-label>· 171 Å</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="vibe-card" data-vibe-slug="monster_prominence"
+           data-vibe-date="2012-08-31" data-vibe-wl="304" data-vibe-time="20:00">
+        <div class="vibe-controls">
+          <div class="vibe-tier-toggle" role="radiogroup" aria-label="Image tier for Monster prominence">
+            <button type="button" class="vibe-tier-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+            <button type="button" class="vibe-tier-btn" data-tier="raw" aria-pressed="false">Raw</button>
+          </div>
+          <button type="button" class="vibe-info-btn" aria-label="Monster prominence image credits and attribution" aria-haspopup="dialog">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button type="button" class="vibe-open" aria-label="Monster prominence, August 31 2012, 304 angstrom. Spectacular CME and prominence eruption.">
+          <div class="vibe-thumb"></div>
+          <div class="vibe-meta">
+            <div class="vibe-title">Monster prominence</div>
+            <div class="vibe-sub">A wall of plasma</div>
+            <div class="vibe-date">Aug 31, 2012 · 304 Å</div>
+          </div>
+        </button>
+      </div>
+
+      <!-- 6th tile: "Your day" — date input only, no preview thumbnail,
+           no submit button. The date input's "change" event fires the
+           same flow as a vibe-card click (sets date, triggers HEK +
+           wavelength suggestion + editor scroll). Replaces the older
+           below-the-grid birthday CTA section. -->
+      <div class="vibe-card vibe-card-birthday" data-vibe-slug="birthday">
+        <div class="vibe-birthday-inner">
+          <div class="vibe-birthday-icon" aria-hidden="true">
+            <i class="fas fa-gift"></i>
+          </div>
+          <div class="vibe-birthday-meta">
+            <div class="vibe-title">Your day</div>
+            <div class="vibe-sub">Birthday, anniversary, any date</div>
+          </div>
+          <label for="vibeBirthdayInput" class="vibe-birthday-label">Pick a date</label>
+          <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
+                 min="2010-05-15" aria-describedby="vibeBirthdayHint">
+          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Back to May 2010 — print the sun that was shining.</div>
+        </div>
+      </div>
+
     </div>
   </div>
 
-  <!-- Step 1: Select Date & Wavelength -->
+  <!-- Step 1: Pick a moment that day + wavelength.
+       The date is already chosen upstream (vibe card or birthday tile),
+       so the explicit date/time/mission inputs are hidden — they stay
+       in the DOM as canonical state holders that the HEK picker and
+       wavelength tiles write into, but the user never sees them. -->
   <div class="section">
     <div class="section-header">
       <div class="step-badge">1</div>
-      <div class="section-title" title="“Wavelength” here is the AIA filter bandpass — e.g. 171 Å is a ~3 Å-wide EUV passband dominated by Fe IX emission, not a single monochromatic line. Common parlance keeps it as wavelength.">Choose your date &amp; wavelength</div>
+      <div class="section-title">Pick a moment that day</div>
     </div>
 
-    <div class="controls-grid">
-      <div class="field-group">
-        <span class="field-label">Date</span>
-        <input type="date" id="solarDate">
-      </div>
-      <div class="field-group">
-        <span class="field-label">Time (UTC)</span>
-        <input type="time" id="solarTime" value="12:00" step="60"
-               title="Time of day in UTC. Defaults to 12:00 (noon UTC), where AIA's coverage is densest.">
-      </div>
-      <!-- Mission Data is hidden until we add a second mission option.
-           Kept in the DOM so any code that reads `#missionSelect.value`
-           still gets "SDO" without conditional checks. -->
-      <div class="field-group" style="display:none;">
-        <span class="field-label">Mission Data</span>
-        <select id="missionSelect">
-          <option value="SDO">SDO / AIA (2010–present)</option>
-        </select>
-      </div>
+    <!-- Canonical state-holder inputs. Hidden from sight; HEK tiles
+         and wavelength tiles read/write them; legacy code paths that
+         reference #solarDate / #solarTime / #missionSelect still work.
+         `display:none !important` overrides .controls-grid's `display:grid`. -->
+    <div class="controls-grid" aria-hidden="true" style="display:none !important;">
+      <input type="date" id="solarDate">
+      <input type="time" id="solarTime" value="12:00" step="60">
+      <select id="missionSelect">
+        <option value="SDO">SDO / AIA (2010–present)</option>
+      </select>
     </div>
 
-    <!-- Date guidance + coverage note live next to the date picker (the
-         decision point), not buried under the wavelength tiles. "May
-         2010" links to the SDO spacecraft (the imagery source); the
-         future-spacecraft line sets expectations for pre-2010 dates. -->
-    <div class="status-msg" id="statusMsg">
-      Select a date, then click a wavelength tile to load your solar image.
-    </div>
-    <div class="info-row">
-      <i class="fas fa-info-circle" aria-hidden="true"></i>
-      <span>AIA imagery available from <a href="https://en.wikipedia.org/wiki/Solar_Dynamics_Observatory" target="_blank" rel="noopener" title="The launch of the SDO spacecraft, which is the source of these images. Click to learn more.">May 2010</a> onward. Earlier dates may be added from other spacecraft in the future.</span>
-    </div>
-    <!-- HEK 4-tile time-of-day picker.
-         The first three tiles are the day's top events (CMEs / prominence
-         eruptions > flares > active regions; backend enforces ≥45-min
-         spread + tier diversity). The fourth tile is always a custom-time
-         picker so the user is never blocked by HEK latency. On a quiet
-         day the events array contracts to one fallback tile + the custom
-         tile. Replaces the single-line badge that shipped earlier today.
-         a11y agent's recommendations baked in:
-         - rank is in each tile's accessible name ("Top pick:" prefix on #1)
-         - native <select>s for hour/minute (no <input type="time">)
-         - tile section is visible-but-skeletonized during loading
-         - quiet/error days STILL render the section (landmark consistency) -->
+    <!-- Status row kept for legacy JS that updates #statusMsg. -->
+    <div class="status-msg" id="statusMsg" style="display:none !important;"></div>
+    <!-- HEK 4-tile time-of-day picker. Three event tiles (Top pick +
+         "Also notable") plus a 4th "Fine-tune" tile with [-]/[+]
+         buttons that step the time by 1 min and (after 1.5s of no
+         clicks) re-fire the JPG preview pipeline. The HEK picker is
+         now the section's primary UI — the section header above
+         carries the "Pick a moment that day" title that used to live
+         here, so this inner header is just the per-date subtitle. -->
     <section class="hek-picker-section hidden" id="hekPickerSection"
-             aria-labelledby="hekPickerTitle">
+             aria-labelledby="hekPickerSub">
       <div class="hek-picker-header">
-        <h3 class="hek-picker-title" id="hekPickerTitle">Pick a moment that day</h3>
-        <p class="hek-picker-sub" id="hekPickerSub">Choose one of the most striking events for the date you picked, or set a custom time.</p>
+        <p class="hek-picker-sub" id="hekPickerSub">Choose one of the most striking events for the date you picked, or fine-tune the time below.</p>
       </div>
       <div class="hek-tile-grid" id="hekTileGrid" role="radiogroup"
-           aria-labelledby="hekPickerTitle">
+           aria-label="Top events for this date, plus fine-tune">
         <!-- Skeleton tiles render here from JS during loading; real event
              tiles + the custom tile replace them once HEK returns. -->
       </div>

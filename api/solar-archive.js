@@ -2832,16 +2832,36 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
     var _hekCurrentEvents = [];   // events currently rendered in the grid
     var _hekSelectedRank = null;  // 1-based rank of the picked tile, or "custom"
 
-    function _hhmmOptions(rangeEnd, step) {
-      var out = [];
-      for (var v = 0; v < rangeEnd; v += step) {
-        var s = (v < 10 ? "0" + v : "" + v);
-        out.push(s);
-      }
-      return out;
+    // Time arithmetic for the [-]/[+] fine-tuner. ±1 minute steps,
+    // wrapping at the day boundary so step-back at 00:00 goes to 23:59.
+    function _hhmmAddMinutes(hhmm, delta) {
+      var m = /^(\d{1,2}):(\d{2})/.exec(hhmm || "");
+      var hh = m ? parseInt(m[1], 10) : 12;
+      var mm = m ? parseInt(m[2], 10) : 0;
+      var total = ((hh * 60 + mm + delta) % 1440 + 1440) % 1440;
+      var nh = Math.floor(total / 60), nm = total % 60;
+      return (nh < 10 ? "0" + nh : nh) + ":" + (nm < 10 ? "0" + nm : nm);
     }
-    var _HOURS = _hhmmOptions(24, 1);
-    var _MINUTES = _hhmmOptions(60, 15);
+
+    function _updateCustomTimeDisplay(hhmm) {
+      var d = document.getElementById("hekTimeDisplay");
+      if (d) d.textContent = hhmm;
+    }
+
+    // Debounced JPG-preview refresh: after the user stops clicking
+    // [-]/[+] for ~1.5 s, fire a "change" on #solarTime so the existing
+    // pipeline (loadWavelengthThumbnails + active wavelength reload)
+    // picks up the new time. While the user is still tapping, the
+    // display updates immediately but the network calls are coalesced.
+    var _fineTuneTimer = null;
+    var _FINE_TUNE_DEBOUNCE_MS = 1500;
+    function _scheduleFineTuneRefresh() {
+      if (!timeInput) return;
+      clearTimeout(_fineTuneTimer);
+      _fineTuneTimer = setTimeout(function () {
+        timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }, _FINE_TUNE_DEBOUNCE_MS);
+    }
 
     function _eventTileAccessibleName(event) {
       // Per a11y agent: rank goes IN the accessible name, not just visual.
@@ -2897,28 +2917,26 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
     }
 
     function _customTileHTML(initialTime) {
-      var hh = (initialTime || "12:00").split(":")[0] || "12";
-      var mm = (initialTime || "12:00").split(":")[1] || "00";
-      var hourOpts = _HOURS.map(function (v) {
-        return '<option value="' + v + '"' + (v === hh ? " selected" : "") + '>' + v + '</option>';
-      }).join("");
-      var minOpts = _MINUTES.map(function (v) {
-        return '<option value="' + v + '"' + (v === mm ? " selected" : "") + '>' + v + '</option>';
-      }).join("");
+      var display = initialTime && /^\d{2}:\d{2}/.test(initialTime) ? initialTime.slice(0, 5) : "12:00";
       // role="group" (not "radio") per the a11y audit: a radio cannot
-      // contain interactive descendants (the two <select>s + the Apply
-      // button). The custom tile lives as a sibling of the radiogroup
-      // inside the same CSS grid; the keydown arrow handler skips it.
+      // contain interactive descendants (the [-] / [+] buttons). The
+      // tile lives as a sibling of the event radios in the same CSS
+      // grid; the radiogroup's arrow-key handler skips it.
+      //
+      // Time is mutated by [-] / [+] (±1 minute each), which writes back
+      // to #solarTime. After 1.5s with no further clicks (a debounced
+      // window), a "change" event fires on #solarTime so the JPG preview
+      // pipeline (loadWavelengthThumbnails) reloads at the new time.
+      // Hour rolls over at 24, minute rolls over at 60 (wraps the hour).
       return '<div class="hek-tile hek-tile-custom" role="group"' +
-             ' data-hek-rank="custom" aria-label="Or set a custom UTC time">' +
-             '<span class="hek-tile-rank">Custom time</span>' +
-             '<div class="hek-custom-selects">' +
-               '<select id="hekCustomHour" aria-label="Hour, UTC">' + hourOpts + '</select>' +
-               '<span class="hek-custom-utc">:</span>' +
-               '<select id="hekCustomMin" aria-label="Minute">' + minOpts + '</select>' +
+             ' data-hek-rank="custom" aria-label="Fine-tune the time of day, plus or minus one minute">' +
+             '<span class="hek-tile-rank">Fine-tune time</span>' +
+             '<div class="hek-time-fine">' +
+               '<button type="button" class="hek-time-step" data-step="-1" aria-label="Decrease time by one minute">−</button>' +
+               '<span class="hek-time-display" id="hekTimeDisplay" aria-live="polite">' + escapeHtml(display) + '</span>' +
+               '<button type="button" class="hek-time-step" data-step="1" aria-label="Increase time by one minute">+</button>' +
              '</div>' +
-             '<span class="hek-custom-utc">UTC, 15-min steps</span>' +
-             '<button type="button" class="hek-custom-apply" id="hekCustomApply">Use this time</button>' +
+             '<span class="hek-tile-meta">UTC · ±1 min</span>' +
              '</div>';
     }
 
@@ -2974,6 +2992,9 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
         timeInput.value = timeStr;
         timeInput.dispatchEvent(new Event("change", { bubbles: true }));
       }
+      // Mirror the chosen time into the fine-tune display so the
+      // [-]/[+] starting point matches the picked event.
+      _updateCustomTimeDisplay(timeStr);
       // Wavelength suggestion — only when picking a real event.
       if (eventOrNull) _applyWavelengthSuggestion(eventOrNull);
     }
@@ -2989,17 +3010,22 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
 
     if (hekTileGrid) {
       hekTileGrid.addEventListener("click", function (e) {
-        var customApply = e.target.closest("#hekCustomApply");
-        if (customApply) {
-          var hh = (document.getElementById("hekCustomHour") || {}).value || "12";
-          var mm = (document.getElementById("hekCustomMin") || {}).value || "00";
-          // Custom time picked → un-check all radios; the custom group
-          // is intentionally NOT a radio (interactive descendants).
+        // [-] / [+] fine-tune buttons: ±1-min step, immediate display
+        // update, debounced JPG-preview refresh. Also un-checks event
+        // radios since the user is now off the catalogued event.
+        var stepBtn = e.target.closest(".hek-time-step");
+        if (stepBtn) {
+          var delta = parseInt(stepBtn.getAttribute("data-step"), 10) || 0;
+          var current = (timeInput && timeInput.value) || "12:00";
+          var next = _hhmmAddMinutes(current, delta);
+          if (timeInput) timeInput.value = next;  // mutate without firing change yet
+          _updateCustomTimeDisplay(next);
           hekTileGrid.querySelectorAll('.hek-tile[role="radio"]').forEach(function (t) {
             t.setAttribute("aria-checked", "false");
           });
           _hekSelectedRank = "custom";
-          _applyHekTimePick(hh + ":" + mm, null);
+          _userTouchedTime = true;
+          _scheduleFineTuneRefresh();
           return;
         }
         var tile = e.target.closest(".hek-tile[role='radio']");
@@ -3080,19 +3106,44 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
             return;
           }
           _renderHekTiles(data, dateStr);
-          // Auto-fill the time from top-1 event, only if user hasn't
-          // already chosen a tile or typed in the time field.
-          var top = (data.events && data.events[0]) || null;
-          if (top && !_userTouchedTime && timeInput && top.time_utc) {
-            if (timeInput.value !== top.time_utc) {
-              timeInput.value = top.time_utc;
+          // Auto-fill the time. If the user has already set the time
+          // input (e.g. via vibe-card preset), try to match it to one of
+          // the returned events within 5 min and pre-check that tile —
+          // gives the visual confirmation that the vibe card's choice
+          // lined up with a real catalogued event. Otherwise pre-check
+          // the top pick.
+          var presetTime = timeInput && _userTouchedTime ? timeInput.value : null;
+          var events = (data.events || []);
+          var matchIdx = -1;
+          if (presetTime && /^\d{2}:\d{2}/.test(presetTime)) {
+            var presetMin = parseInt(presetTime.slice(0, 2), 10) * 60 +
+                            parseInt(presetTime.slice(3, 5), 10);
+            for (var i = 0; i < events.length; i++) {
+              if (!events[i].time_utc) continue;
+              var em = parseInt(events[i].time_utc.slice(0, 2), 10) * 60 +
+                       parseInt(events[i].time_utc.slice(3, 5), 10);
+              if (Math.abs(em - presetMin) <= 5) { matchIdx = i; break; }
+            }
+          }
+          var picked = matchIdx >= 0 ? events[matchIdx] : (events[0] || null);
+          if (picked && timeInput) {
+            // Only overwrite the time field if there's no preset OR the
+            // preset matches an event (in which case we snap to the
+            // event's exact peak time).
+            var shouldWriteTime = !presetTime || matchIdx >= 0;
+            if (shouldWriteTime && timeInput.value !== picked.time_utc) {
+              timeInput.value = picked.time_utc;
               timeInput.dispatchEvent(new Event("change", { bubbles: true }));
             }
-            // Pre-check the top tile for AT users.
-            var topTile = hekTileGrid.querySelector('.hek-tile[data-hek-rank="1"]');
-            if (topTile) topTile.setAttribute("aria-checked", "true");
-            _hekSelectedRank = 1;
-            _applyWavelengthSuggestion(top);
+            _updateCustomTimeDisplay(timeInput.value || picked.time_utc);
+            var pickedRank = matchIdx >= 0 ? (matchIdx + 1) : 1;
+            var pickedTile = hekTileGrid.querySelector('.hek-tile[data-hek-rank="' + pickedRank + '"]');
+            if (pickedTile) pickedTile.setAttribute("aria-checked", "true");
+            _hekSelectedRank = pickedRank;
+            if (!_userTouchedWavelength) _applyWavelengthSuggestion(picked);
+          } else if (timeInput) {
+            // No events at all (edge case) — just update the display.
+            _updateCustomTimeDisplay(timeInput.value || "12:00");
           }
         })
         .catch(function () {
@@ -3127,15 +3178,60 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
       try { return matchMedia("(prefers-reduced-motion: reduce)").matches; }
       catch (_e) { return false; }
     }
+    // Manifest of pre-warmed HQ Raw + RHEF tiles. Populated async on load
+    // from /asset/default/vibe_manifest.json. Used by the vibe cards to
+    // (a) show the high-fidelity thumb instead of a Helioviewer JPG, and
+    // (b) enable the Raw/RHEF tier toggle in each card's top-right.
+    var _vibeManifest = null;
+    function _loadVibeManifest() {
+      return fetch("/asset/default/vibe_manifest.json", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (json) {
+          _vibeManifest = (json && json.vibes) ? json.vibes : null;
+          return _vibeManifest;
+        });
+    }
+
+    // Pick the thumb URL for a given card and tier. Falls back to the
+    // Helioviewer JPG when the manifest doesn't have the slug yet (i.e.,
+    // warm hasn't been run).
+    function _vibeThumbUrl(slug, tier, fallbackArgs) {
+      var entry = _vibeManifest && _vibeManifest[slug];
+      if (entry) {
+        var k = tier === "raw" ? "raw_thumb_url" : "rhef_thumb_url";
+        if (entry[k]) return entry[k];
+      }
+      // fallbackArgs = {date, wl, time}. Build a Helioviewer thumb URL.
+      if (!fallbackArgs || !fallbackArgs.date) return null;
+      var iso = fallbackArgs.date + "T" + (fallbackArgs.time || "12:00") + ":00Z";
+      return API_BASE + "/api/helioviewer_thumb?date=" +
+        encodeURIComponent(iso) + "&wavelength=" + encodeURIComponent(fallbackArgs.wl || "171") +
+        "&image_scale=12&size=256";
+    }
+
+    // Swap a card's thumb image, with crossfade-ready DOM swap.
+    function _setVibeThumb(card, url) {
+      var thumbWell = card.querySelector(".vibe-thumb");
+      if (!thumbWell || !url) return;
+      thumbWell.classList.add("is-loading");
+      var img = new Image();
+      img.alt = "";
+      img.onload = function () {
+        thumbWell.classList.remove("is-loading");
+        thumbWell.innerHTML = "";
+        thumbWell.appendChild(img);
+      };
+      img.onerror = function () { thumbWell.classList.remove("is-loading"); };
+      img.src = url;
+    }
+
     function _wireVibeGrid() {
       var grid = document.querySelector(".vibe-grid");
       if (!grid) return;
       // Set today's date on the today-card.
       var todayCard = grid.querySelector(".vibe-card[data-vibe-today='1']");
       if (todayCard) {
-        // Use today_utc - 2 days. AIA L1 science-grade cadence has a
-        // 24-48h trailing lag; "yesterday UTC" can 404 from JSOC during
-        // the lag window. Two days back is the safe "near-now" sample.
         var d = new Date();
         d.setUTCDate(d.getUTCDate() - 2);
         var iso = d.toISOString().slice(0, 10);
@@ -3143,88 +3239,199 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
         var lbl = todayCard.querySelector("[data-vibe-today-label]");
         if (lbl) lbl.textContent = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) + " · 171 Å";
       }
-      // Eagerly load thumbnails for each card. (Phase 2: wrap in
-      // IntersectionObserver so off-fold cards don't fire on landing.)
-      grid.querySelectorAll(".vibe-card").forEach(function (card) {
-        var date = card.getAttribute("data-vibe-date") || "";
-        var wl = card.getAttribute("data-vibe-wl") || "171";
-        var time = card.getAttribute("data-vibe-time") || "12:00";
-        var thumbWell = card.querySelector(".vibe-thumb");
-        if (thumbWell && date && API_BASE) {
-          thumbWell.classList.add("is-loading");
-          var iso = date + "T" + time + ":00Z";
-          var url = API_BASE + "/api/helioviewer_thumb?date=" +
-            encodeURIComponent(iso) + "&wavelength=" + encodeURIComponent(wl) +
-            "&image_scale=12&size=256";
-          // Don't set img.loading = "lazy" — for a detached Image() the
-          // browser defers the network request until the image is in the
-          // DOM, but we only append in onload, so it deadlocks and the
-          // thumb never paints. Phase 2 will use IntersectionObserver
-          // instead for off-fold cards.
-          var img = new Image();
-          img.alt = "";
-          img.onload = function () {
-            thumbWell.classList.remove("is-loading");
-            thumbWell.innerHTML = "";
-            thumbWell.appendChild(img);
-          };
-          img.onerror = function () {
-            thumbWell.classList.remove("is-loading");
-          };
-          img.src = url;
-        }
+      // Set the birthday-input's max to today's UTC date (so users can't
+      // pick a future date that has no data).
+      var bdayInput = document.getElementById("vibeBirthdayInput");
+      if (bdayInput) {
+        var maxD = new Date(); maxD.setUTCDate(maxD.getUTCDate() - 1);
+        bdayInput.max = maxD.toISOString().slice(0, 10);
+      }
+
+      // Initial thumb load (manifest first, fall back to Helioviewer).
+      _loadVibeManifest().then(function () {
+        grid.querySelectorAll(".vibe-card[data-vibe-slug]").forEach(function (card) {
+          var slug = card.getAttribute("data-vibe-slug");
+          if (slug === "birthday") return;  // no thumb on Your-day card
+          // If manifest has both tiers, enable the toggle.
+          if (_vibeManifest && _vibeManifest[slug] && _vibeManifest[slug].raw_thumb_url && _vibeManifest[slug].rhef_thumb_url) {
+            card.classList.add("has-tiers");
+          }
+          var date = card.getAttribute("data-vibe-date") || "";
+          var wl = card.getAttribute("data-vibe-wl") || "171";
+          var time = card.getAttribute("data-vibe-time") || "12:00";
+          // Default tier shown is RHEF (matches the toggle's initial state).
+          var url = _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
+          _setVibeThumb(card, url);
+        });
       });
+
+      // Tier-toggle clicks — swap the thumb without firing the open flow.
       grid.addEventListener("click", function (e) {
-        var card = e.target.closest(".vibe-card");
-        if (!card) return;
-        var date = card.getAttribute("data-vibe-date") || "";
-        var wl = parseInt(card.getAttribute("data-vibe-wl") || "171", 10);
-        var time = card.getAttribute("data-vibe-time") || "12:00";
-        if (!date) return;
-        // Vibe-card flow: the user explicitly picked a tuple, so we
-        // bypass the HEK auto-fill and use what the card supplies.
-        // The date change will trigger _resetTouchedLatchesForNewDate
-        // first; we then set the latches AFTER the inputs settle so
-        // subsequent HEK / suggest calls treat this as user-chosen.
-        state.isDefaultActive = false;
-        if (dateInput) {
-          dateInput.value = date;
-          dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+        var tierBtn = e.target.closest(".vibe-tier-btn");
+        if (tierBtn) {
+          e.stopPropagation();
+          var card = tierBtn.closest(".vibe-card");
+          var slug = card && card.getAttribute("data-vibe-slug");
+          if (!card || !slug) return;
+          var tier = tierBtn.getAttribute("data-tier");
+          // Update aria-pressed + is-active styling.
+          card.querySelectorAll(".vibe-tier-btn").forEach(function (b) {
+            var on = b === tierBtn;
+            b.classList.toggle("is-active", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+          var url = _vibeThumbUrl(slug, tier, {
+            date: card.getAttribute("data-vibe-date") || "",
+            wl:   card.getAttribute("data-vibe-wl") || "171",
+            time: card.getAttribute("data-vibe-time") || "12:00",
+          });
+          _setVibeThumb(card, url);
+          // Remember the user's tier choice — vibe-open will use it to
+          // pre-select Raw vs RHEF when the editor flow loads.
+          card.setAttribute("data-vibe-active-tier", tier);
+          return;
         }
-        // Set the latches AFTER the date-change reset, so the vibe-card's
-        // chosen time/wavelength stick.
+        // Info-button — toggle the attribution popover.
+        var infoBtn = e.target.closest(".vibe-info-btn");
+        if (infoBtn) {
+          e.stopPropagation();
+          var ccard = infoBtn.closest(".vibe-card");
+          _toggleVibeInfo(ccard, infoBtn);
+          return;
+        }
+        // Anything else inside the popover (close button or link).
+        var infoClose = e.target.closest(".vibe-info-close");
+        if (infoClose) {
+          e.stopPropagation();
+          var pop = infoClose.closest(".vibe-info-popover");
+          if (pop) pop.classList.add("hidden");
+          return;
+        }
+        // Main "open" click (vibe-open button OR anywhere outside controls).
+        var openBtn = e.target.closest(".vibe-open");
+        var card2 = openBtn && openBtn.closest(".vibe-card");
+        if (!card2) return;
+        _activateVibe(card2);
+      });
+
+      // Birthday-card date input — change-event-triggered, no submit button.
+      if (bdayInput) {
+        bdayInput.addEventListener("change", function () {
+          if (!bdayInput.value) return;
+          // Build a synthetic vibe payload and run _activateVibe to share
+          // the same flow (HEK fetch, scroll, focus, etc.).
+          var card = bdayInput.closest(".vibe-card");
+          card.setAttribute("data-vibe-date", bdayInput.value);
+          card.setAttribute("data-vibe-time", "");  // let HEK auto-fill
+          card.setAttribute("data-vibe-wl", "");    // let HEK suggest
+          _activateVibe(card, { fromBirthday: true });
+        });
+      }
+    }
+
+    function _activateVibe(card, opts) {
+      opts = opts || {};
+      var date = card.getAttribute("data-vibe-date") || "";
+      var wlRaw = card.getAttribute("data-vibe-wl");
+      var wl = wlRaw ? parseInt(wlRaw, 10) : null;
+      var time = card.getAttribute("data-vibe-time") || "";
+      if (!date) return;
+      state.isDefaultActive = false;
+      // Dispatch date change first (resets latches and triggers HEK fetch).
+      if (dateInput) {
+        dateInput.value = date;
+        dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      // If this card carries a preset time, stamp it AFTER the date-change
+      // latch-reset so the vibe-card's choice sticks. Birthday card has
+      // no preset time — leave HEK to auto-fill the top pick.
+      if (time) {
         _userTouchedTime = true;
-        _userTouchedWavelength = true;
         if (timeInput) {
           timeInput.value = time;
           timeInput.dispatchEvent(new Event("change", { bubbles: true }));
         }
-        // Click the wavelength tile to fire the existing pipeline.
+      }
+      // If this card carries a preset wavelength, click that tile to
+      // trigger the existing pipeline. If not (birthday card), the user
+      // picks a wavelength manually after the HEK suggestion fires.
+      if (wl) {
+        _userTouchedWavelength = true;
         var wlTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + wl + '"]');
-        if (wlTile) {
-          setTimeout(function () { wlTile.click(); }, 50);
-        }
-        // Scroll the configurator into view, respecting reduced-motion.
-        var configSection = wlGrid && wlGrid.closest(".section");
-        if (configSection) {
-          configSection.scrollIntoView({
-            behavior: _prefersReducedMotion() ? "auto" : "smooth",
-            block: "start",
-          });
-          // After the scroll settles, move keyboard focus to the top HEK
-          // tile (or, if HEK hasn't returned, the time input) so the
-          // keyboard user lands inside the configurator instead of being
-          // stranded on the now-off-screen vibe card. Per WCAG 2.4.3.
-          setTimeout(function () {
-            var target = hekTileGrid && hekTileGrid.querySelector('.hek-tile[role="radio"]') ||
-                         document.getElementById("solarTime") ||
-                         configSection;
-            if (target && typeof target.focus === "function") {
-              try { target.focus({ preventScroll: true }); } catch (_e) {}
-            }
-          }, _prefersReducedMotion() ? 50 : 400);
-        }
-      });
+        if (wlTile) setTimeout(function () { wlTile.click(); }, 50);
+      }
+      // Scroll the configurator into view, respecting reduced-motion.
+      var configSection = wlGrid && wlGrid.closest(".section");
+      if (configSection) {
+        configSection.scrollIntoView({
+          behavior: _prefersReducedMotion() ? "auto" : "smooth",
+          block: "start",
+        });
+        setTimeout(function () {
+          var target = hekTileGrid && hekTileGrid.querySelector('.hek-tile[role="radio"]') ||
+                       document.getElementById("solarTime") ||
+                       configSection;
+          if (target && typeof target.focus === "function") {
+            try { target.focus({ preventScroll: true }); } catch (_e) {}
+          }
+        }, _prefersReducedMotion() ? 50 : 400);
+      }
+    }
+
+    // Attribution popover content per slug. Light HTML kept inline; nothing
+    // user-supplied so this is safe to insertAdjacentHTML.
+    var _VIBE_INFO = {
+      ar2192: {
+        title: "AR 2192 — October 24, 2014",
+        body: 'Active Region 2192 was the largest sunspot group since November 1990. ' +
+              'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012 (Sol. Phys. 275, 17). ' +
+              'RHEF tier: Gilly et al. 2025 (Sol. Phys. 300, 174).'
+      },
+      x93_flare: {
+        title: "X9.3 flare — September 6, 2017",
+        body: 'Solar Cycle 24\'s largest X-ray flare. Peak GOES class X9.3 at 11:53 UTC. ' +
+              'Image: NASA/SDO/AIA 131 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
+              'RHEF tier: Gilly et al. 2025.'
+      },
+      mothers_day_storm: {
+        title: "Mother's Day storm — May 10, 2024",
+        body: 'G5 geomagnetic storm from active region 13664, the strongest since 2003. ' +
+              'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
+              'RHEF tier: Gilly et al. 2025.'
+      },
+      recent_corona: {
+        title: "Recent corona",
+        body: 'Near-current view of the quiet corona at 171 Å. Two days behind real-time ' +
+              'to allow the AIA L1 pipeline to publish. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      monster_prominence: {
+        title: "Monster prominence — August 31, 2012",
+        body: 'Iconic prominence eruption captured in 304 Å He II — sometimes called the ' +
+              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      }
+    };
+    function _toggleVibeInfo(card, btn) {
+      if (!card) return;
+      var existing = card.querySelector(".vibe-info-popover");
+      if (existing) {
+        existing.classList.toggle("hidden");
+        return;
+      }
+      var slug = card.getAttribute("data-vibe-slug");
+      var info = _VIBE_INFO[slug] || {
+        title: "Image attribution",
+        body: CITATIONS.SDO_ACK + ' Lemen et al. 2012.'
+      };
+      var pop = document.createElement("div");
+      pop.className = "vibe-info-popover";
+      pop.setAttribute("role", "dialog");
+      pop.setAttribute("aria-label", info.title);
+      pop.innerHTML =
+        '<button type="button" class="vibe-info-close" aria-label="Close attribution">&times;</button>' +
+        '<h4>' + escapeHtml(info.title) + '</h4>' +
+        '<p>' + info.body + '</p>';  // body is template-controlled, not user input
+      card.appendChild(pop);
     }
     _wireVibeGrid();
 
