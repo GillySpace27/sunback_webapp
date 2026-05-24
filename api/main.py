@@ -2120,7 +2120,13 @@ async def warm_vibe_grid(request: Request, force: int = 0):
     files aren't on disk yet. Pass `?force=1` to purge the existing
     cache + manifest first (use after changing tuple wavelengths so the
     new renders actually get written). Held under the heavy-render
-    semaphore so we don't fight a concurrent /api/generate for memory."""
+    semaphore so we don't fight a concurrent /api/generate for memory.
+
+    **NOTE:** On Render's 2 GB Standard instance this routinely OOMs
+    on the RHEF step (a 4096² float64 array + matplotlib at 300dpi
+    flirts with the limit and gets killed by the kernel mid-render).
+    Prefer `POST /api/admin/upload_vibe_bundle` from a local machine
+    with more headroom; see that route's docstring."""
     _check_warm_admin_key(request.headers.get("x-admin-key"))
     async with _HeavyRenderSlot():
         try:
@@ -2128,6 +2134,117 @@ async def warm_vibe_grid(request: Request, force: int = 0):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"warm_vibe_grid failed: {e}")
     return result
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Upload pre-rendered vibe bundle from a local machine.
+# Workaround for Render's 2 GB OOM on the warm route: render the
+# tiles on a beefier dev box, tar them up, POST the tar here. Server
+# just extracts under DEFAULT_CACHE_DIR — no heavy compute, no
+# semaphore contention.
+# ──────────────────────────────────────────────────────────────────────
+
+# Cap upload at 200 MB — five vibes × 4 PNGs × ~5 MB worst-case ≈ 100 MB.
+_VIBE_BUNDLE_MAX_BYTES = 200 * 1024 * 1024
+# Permit only these path prefixes inside the tar (everything else is
+# rejected so a malicious bundle can't write outside the vibe cache).
+_VIBE_BUNDLE_ALLOWED_PREFIXES = ("vibe/", "vibe_manifest.json")
+
+
+@app.post("/api/admin/upload_vibe_bundle")
+async def upload_vibe_bundle(request: Request):
+    """Accept a tar (or tar.gz) of the vibe/ directory + vibe_manifest.json,
+    extract it under DEFAULT_CACHE_DIR. Gated by FEEDBACK_ADMIN_KEY.
+
+    Use when the on-server warm route OOMs (Render's 2 GB Standard
+    instance can't hold a 4096² float64 RHEF array + matplotlib +
+    SunPy + the Python interpreter without the kernel killing it).
+    Render the bundle on a machine with headroom, ship it here:
+
+        source ~/.claude/secrets/solar-archive.env
+        # 1. Render locally
+        curl -X POST -H "X-Admin-Key: $FEEDBACK_ADMIN_KEY" \
+            "http://localhost:8000/api/admin/warm_vibe_grid?force=1"
+        # 2. Bundle
+        cd default_cache && tar czf /tmp/vibe_bundle.tar.gz vibe vibe_manifest.json
+        # 3. Ship
+        curl -X POST -H "X-Admin-Key: $FEEDBACK_ADMIN_KEY" \
+            --data-binary @/tmp/vibe_bundle.tar.gz \
+            -H "Content-Type: application/gzip" \
+            "https://solar-archive.onrender.com/api/admin/upload_vibe_bundle"
+
+    The wrapper script `scripts/warm_and_upload_vibe.sh` does all three.
+
+    Safety: rejects any tar entry whose normalised path escapes
+    DEFAULT_CACHE_DIR, isn't under `vibe/` or the manifest filename,
+    or is a symlink/hardlink/device node. Replaces the manifest
+    atomically; replaces individual vibe files in place. Bundle size
+    capped at 200 MB."""
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="empty body — POST a tar(.gz) of vibe/ + vibe_manifest.json")
+    if len(body) > _VIBE_BUNDLE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"bundle too large ({len(body)} bytes > {_VIBE_BUNDLE_MAX_BYTES})",
+        )
+
+    import io as _io
+    import tarfile as _tarfile
+    import shutil as _shutil
+
+    DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    target_root = DEFAULT_CACHE_DIR.resolve()
+    extracted = []
+    rejected = []
+
+    # Open tar in read-mode auto-detecting gzip vs plain. Stream from
+    # memory so we don't write the upload to disk twice.
+    try:
+        with _tarfile.open(fileobj=_io.BytesIO(body), mode="r:*") as tf:
+            for member in tf.getmembers():
+                # Path safety: only regular files + dirs; reject links
+                # and devices; reject anything that escapes target_root.
+                if not (member.isfile() or member.isdir()):
+                    rejected.append({"name": member.name, "reason": "not a regular file/dir"})
+                    continue
+                name = member.name.lstrip("./")
+                if not any(name == p or name.startswith(p) for p in _VIBE_BUNDLE_ALLOWED_PREFIXES):
+                    rejected.append({"name": member.name, "reason": "path outside vibe/ or vibe_manifest.json"})
+                    continue
+                dst = (target_root / name).resolve()
+                try:
+                    dst.relative_to(target_root)
+                except ValueError:
+                    rejected.append({"name": member.name, "reason": "resolves outside target root"})
+                    continue
+                if member.isdir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                    continue
+                # Regular file — extract directly.
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                src = tf.extractfile(member)
+                if src is None:
+                    rejected.append({"name": member.name, "reason": "extractfile returned None"})
+                    continue
+                with open(dst, "wb") as out:
+                    _shutil.copyfileobj(src, out, length=64 * 1024)
+                extracted.append({"name": name, "bytes": dst.stat().st_size})
+    except _tarfile.TarError as e:
+        raise HTTPException(status_code=400, detail=f"tar error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"extract failed: {type(e).__name__}: {e}")
+
+    return {
+        "ok": True,
+        "extracted_count": len(extracted),
+        "rejected_count": len(rejected),
+        "extracted": extracted,
+        "rejected": rejected or None,
+        "manifest_url": "/asset/default/vibe_manifest.json",
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────
