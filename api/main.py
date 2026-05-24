@@ -3034,3 +3034,21 @@ async def serve_js():
 @app.get("/solar-archive.css")
 async def serve_css():
     return FileResponse(Path(__file__).parent / "solar-archive.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
+
+# ES-module siblings of solar-archive.js. The module's `import "./foo.js"`
+# resolves to `/foo.js`, so each extracted module needs its own route at
+# the root path. Whitelisted (rather than a catch-all on /{name}.js) to
+# avoid serving arbitrary files under api/ if a path-traversal sneaks in.
+_FRONTEND_MODULES = {
+    "state.js",
+}
+
+@app.get("/{module_name}")
+async def serve_frontend_module(module_name: str):
+    if module_name not in _FRONTEND_MODULES:
+        raise HTTPException(status_code=404)
+    return FileResponse(
+        Path(__file__).parent / module_name,
+        media_type="application/javascript",
+        headers=_NO_CACHE_HEADERS,
+    )
