@@ -3156,9 +3156,13 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
           var url = API_BASE + "/api/helioviewer_thumb?date=" +
             encodeURIComponent(iso) + "&wavelength=" + encodeURIComponent(wl) +
             "&image_scale=12&size=256";
+          // Don't set img.loading = "lazy" — for a detached Image() the
+          // browser defers the network request until the image is in the
+          // DOM, but we only append in onload, so it deadlocks and the
+          // thumb never paints. Phase 2 will use IntersectionObserver
+          // instead for off-fold cards.
           var img = new Image();
           img.alt = "";
-          img.loading = "lazy";
           img.onload = function () {
             thumbWell.classList.remove("is-loading");
             thumbWell.innerHTML = "";
