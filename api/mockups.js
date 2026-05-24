@@ -262,6 +262,24 @@ export function initMockups(deps) {
       return { sx: box.x, sy: box.y, sw: box.w, sh: box.h };
     }
 
+    /**
+     * Fit a rectangle of aspect ratio `ar` inside `maxW × maxH` so the print
+     * area in the live preview mockup matches the editor canvas's effective
+     * aspect ratio. Without this, square-hardcoded mockup print rects (e.g.
+     * canvas/metal/acrylic) letterbox or crop the editor view differently
+     * from the canvas itself, which beta testers flagged as confusing.
+     * Moved here from solar-archive.js during step 4 of the module split
+     * — only drawProductMockup's per-product branches call it.
+     */
+    function _fitPrintRectToAR(maxW, maxH, ar) {
+      if (!ar || !ar.w || !ar.h) return { w: maxW, h: maxH };
+      var R = ar.w / ar.h;
+      var w, h;
+      if (R >= maxW / maxH) { w = maxW; h = maxW / R; }
+      else                  { h = maxH; w = maxH * R; }
+      return { w: Math.round(w), h: Math.round(h) };
+    }
+
     function drawProductMockup(mctx, productId, sw, sh, variant, opts) {
       var W = 160, H = 160;
       mctx.fillStyle = "#1a1a2e";

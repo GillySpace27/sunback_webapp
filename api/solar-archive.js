@@ -6762,21 +6762,10 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
 
 
 
-    /**
-     * Fit a rectangle of aspect ratio `ar` inside `maxW × maxH` so the print
-     * area in the live preview mockup matches the editor canvas's effective
-     * aspect ratio. Without this, square-hardcoded mockup print rects (e.g.
-     * canvas/metal/acrylic) letterbox or crop the editor view differently
-     * from the canvas itself, which beta testers flagged as confusing.
-     */
-    function _fitPrintRectToAR(maxW, maxH, ar) {
-      if (!ar || !ar.w || !ar.h) return { w: maxW, h: maxH };
-      var R = ar.w / ar.h;
-      var w, h;
-      if (R >= maxW / maxH) { w = maxW; h = maxW / R; }
-      else                  { h = maxH; w = maxH * R; }
-      return { w: Math.round(w), h: Math.round(h) };
-    }
+    // _fitPrintRectToAR moved to ./mockups.js with step 4 — it's used
+    // only by drawProductMockup's per-product branches (canvas/metal/
+    // acrylic/etc.) to size the printable rectangle to the editor's
+    // effective aspect ratio.
 
     /**
      * Compute a center-crop source rect so the solar canvas fills a destination
