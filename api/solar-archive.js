@@ -3287,14 +3287,37 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
     }
 
-    // Pick the thumb URL for a given card and tier. Falls back to the
-    // Helioviewer JPG when the manifest doesn't have the slug yet (i.e.,
-    // warm hasn't been run).
+    // Pick the thumb URL for a vibe CARD and tier. Falls back to the
+    // Helioviewer JPG when the manifest doesn't have the slug yet
+    // (i.e., warm hasn't been run).
+    //
+    // Tier semantics:
+    //   "jpg"  — use a Helioviewer JPG (cached if available, else
+    //            the live proxy). Wavelength comes from the vibe's
+    //            primary event's wavelength so the card colorimetry
+    //            matches what the wavelength tile shows.
+    //   "raw"  — pre-rendered FITS-derived percentile-clipped PNG
+    //            (raw_thumb_url at the vibe level if present, else
+    //            falls through to JPG).
+    //   "rhef" — Radial Histogram Equalization Filter applied to the
+    //            Raw (rhef_thumb_url, or fallback to JPG).
     function _vibeThumbUrl(slug, tier, fallbackArgs) {
+      tier = tier || "raw";
       var entry = _vibeManifest && _vibeManifest[slug];
       if (entry) {
-        var k = tier === "raw" ? "raw_thumb_url" : "rhef_thumb_url";
-        if (entry[k]) return entry[k];
+        if (tier === "raw" && entry.raw_thumb_url) return entry.raw_thumb_url;
+        if (tier === "rhef" && entry.rhef_thumb_url) return entry.rhef_thumb_url;
+        if (tier === "jpg") {
+          // Use the primary event's primary-wavelength cached JPG when
+          // possible. Falls through to the live Helioviewer proxy.
+          var ev1 = (entry.events || [])[0];
+          if (ev1 && ev1.wavelengths) {
+            var primaryWl = String(fallbackArgs && fallbackArgs.wl ? fallbackArgs.wl : "171");
+            var w = ev1.wavelengths[primaryWl] ||
+                    ev1.wavelengths[Object.keys(ev1.wavelengths)[0]];
+            if (w && w.jpg_thumb_url) return w.jpg_thumb_url;
+          }
+        }
       }
       // fallbackArgs = {date, wl, time}. Build a Helioviewer thumb URL.
       if (!fallbackArgs || !fallbackArgs.date) return null;
@@ -3304,11 +3327,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         "&image_scale=12&size=256";
     }
 
-    // Cached-wavelength-thumb index: pre-built (date, time, wl) → cached
-    // URL map from the manifest's per-event wavelength entries.
+    // Cached-wavelength-thumb index: pre-built (tier, date, time, wl) →
+    // cached URL map from the manifest's per-event wavelength entries.
     // Populated when _loadVibeManifest resolves; loadWavelengthThumbnails
     // checks it before falling back to /api/helioviewer_thumb so the
     // 9 wavelength tiles per click hit /var/data instead of Helioviewer.
+    //
+    // Three tiers populated when present in the manifest:
+    //   "jpg"  → jpg_thumb_url   (always populated after Phase A warm)
+    //   "raw"  → raw_thumb_url   (populated by Phase C MQ warm)
+    //   "rhef" → rhef_thumb_url  (populated by Phase C MQ warm)
     var _wlThumbCacheIndex = {};
     function _buildWlThumbCacheIndex() {
       _wlThumbCacheIndex = {};
@@ -3318,19 +3346,40 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (!v || !v.events || !v.date) return;
         v.events.forEach(function (ev) {
           if (!ev || !ev.wavelengths || !ev.time_utc) return;
+          var keyPrefix = v.date + "T" + ev.time_utc + "/";
           Object.keys(ev.wavelengths).forEach(function (wl) {
             var w = ev.wavelengths[wl];
-            if (w && w.jpg_thumb_url) {
-              _wlThumbCacheIndex[v.date + "T" + ev.time_utc + "/" + wl] = w.jpg_thumb_url;
-            }
+            if (!w) return;
+            if (w.jpg_thumb_url)  _wlThumbCacheIndex["jpg/"  + keyPrefix + wl] = w.jpg_thumb_url;
+            if (w.raw_thumb_url)  _wlThumbCacheIndex["raw/"  + keyPrefix + wl] = w.raw_thumb_url;
+            if (w.rhef_thumb_url) _wlThumbCacheIndex["rhef/" + keyPrefix + wl] = w.rhef_thumb_url;
           });
         });
       });
     }
-    function _cachedWavelengthThumb(dateStr, timeStr, wl) {
+    // Tier-aware lookup. Tier defaults to the currently active master
+    // toggle setting (state.vibeMasterTier); falls back through
+    // rhef → raw → jpg if the requested tier isn't cached for this
+    // combo, so the user always sees SOMETHING.
+    function _cachedWavelengthThumb(dateStr, timeStr, wl, tier) {
       if (!dateStr || !timeStr) return null;
-      return _wlThumbCacheIndex[dateStr + "T" + timeStr + "/" + wl] || null;
+      tier = tier || (state && state.vibeMasterTier) || "jpg";
+      var keyTail = dateStr + "T" + timeStr + "/" + wl;
+      var url = _wlThumbCacheIndex[tier + "/" + keyTail];
+      if (url) return url;
+      // Fallback ladder: requested tier missing, try in graceful order.
+      var ladder = (tier === "rhef") ? ["raw", "jpg"]
+                 : (tier === "raw")  ? ["jpg", "rhef"]
+                 :                     ["raw", "rhef"];  // tier === "jpg"
+      for (var i = 0; i < ladder.length; i++) {
+        url = _wlThumbCacheIndex[ladder[i] + "/" + keyTail];
+        if (url) return url;
+      }
+      return null;
     }
+    // (The pre-Phase-B 2-arg form lives in git history at the parent of
+    // this commit; the new 4-arg form is back-compat — `tier` is
+    // optional and defaults to the current master toggle.)
     // Expose for the loadWavelengthThumbnails consumer.
     try { window.SolarArchive = window.SolarArchive || {};
           window.SolarArchive.cachedWavelengthThumb = _cachedWavelengthThumb;
@@ -3499,12 +3548,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         revealBtn.addEventListener("click", function () {
           revealBtn.disabled = true;
           _wipeAllCards("rhef");
+          state.vibeMasterTier = "rhef";  // first reveal commits to RHEF
           // After the last wipe starts, swap the button for the pill.
           var cardCount = grid.querySelectorAll(".vibe-card.has-tiers").length;
           var fadeDelay = (cardCount * 90) + 200;
           setTimeout(function () {
             revealBtn.classList.add("hidden");
             if (masterToggle) masterToggle.classList.remove("hidden");
+            // Reload wavelength tiles in RHEF if any are visible.
+            if (typeof loadWavelengthThumbnails === "function") {
+              try { lastThumbDate = ""; } catch (_e) {}
+              loadWavelengthThumbnails();
+            }
           }, fadeDelay);
         });
       }
@@ -3519,9 +3574,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             b.classList.toggle("is-active", on);
             b.setAttribute("aria-pressed", on ? "true" : "false");
           });
+          // Stamp the current tier on global state so other consumers
+          // (wavelength tile loader, future editor-preview pipe) read
+          // a single source of truth instead of guessing from DOM.
+          state.vibeMasterTier = tier;
           _wipeAllCards(tier);
+          // Reload the wavelength tile thumbnails to pick up the new
+          // tier — they consult state.vibeMasterTier via
+          // _cachedWavelengthThumb. Without this the tiles still show
+          // whatever tier was loaded last (often JPG, since they're
+          // typically loaded once on date change).
+          if (typeof loadWavelengthThumbnails === "function") {
+            // Force a reload by clearing the per-date load latch.
+            try { lastThumbDate = ""; } catch (_e) {}
+            loadWavelengthThumbnails();
+          }
         });
       }
+      // Initial master tier — cards start in Raw (matches the
+      // reveal-button default which wipes Raw → RHEF on first click).
+      state.vibeMasterTier = state.vibeMasterTier || "raw";
 
       // Per-card click delegate. The per-card Raw/RHEF toggle was
       // removed in favour of a single master toggle at the section
