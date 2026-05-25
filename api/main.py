@@ -2152,8 +2152,14 @@ async def warm_vibe_grid(request: Request, force: int = 0):
 # semaphore contention.
 # ──────────────────────────────────────────────────────────────────────
 
-# Cap upload at 200 MB — five vibes × 4 PNGs × ~5 MB worst-case ≈ 100 MB.
-_VIBE_BUNDLE_MAX_BYTES = 200 * 1024 * 1024
+# Cap upload at 1 GB. Originally 200 MB (sized for the 5-vibe HQ bundle
+# = ~100 MB); bumped to handle the 11-vibe Raw+RHEF MQ bundle which
+# runs ~600 MB — RHEF PNGs have high entropy (every pixel carries
+# information after the radial histogram equalization) so they
+# compress poorly compared to smooth Raw images. A 1 GB ceiling
+# still bounds the worst case but covers the realistic warm-and-ship
+# bundles for the foreseeable future.
+_VIBE_BUNDLE_MAX_BYTES = 1024 * 1024 * 1024
 # Permit only these path prefixes inside the tar (everything else is
 # rejected so a malicious bundle can't write outside the vibe cache).
 _VIBE_BUNDLE_ALLOWED_PREFIXES = ("vibe/", "vibe_manifest.json")

@@ -109,23 +109,53 @@ def _percentile_normalize(data):
     return float(lo), float(hi)
 
 
-def _fetch_fits(date: str, time_utc: str, wavelength: int):
+def _fetch_fits(date: str, time_utc: str, wavelength: int, max_attempts: int = 4):
     """Fetch ONE AIA FITS frame nearest the (date, time, wl) target.
-    Reuses SunPy's on-disk cache so re-runs are fast."""
+    Reuses SunPy's on-disk cache so re-runs are fast.
+
+    Retries on VSO socket timeouts (the dominant failure mode in the
+    first overnight run — 158 of 297 combos failed with
+    "Timeout on reading data from socket" during Fido.search, mid-run
+    when Stanford's VSO endpoint was under load). Exponential backoff
+    between attempts. ±60s window (was ±30s) so even slower-cadence
+    UV bands (1600/1700 at 24 s) get at least one frame.
+    """
     hh, mm = (int(x) for x in time_utc.split(":"))
     t = datetime.strptime(date, "%Y-%m-%d").replace(hour=hh, minute=mm)
-    # ±1 min window so VSO returns at least one frame at typical AIA cadence (12 s).
-    res = Fido.search(
-        a.Time(t - timedelta(seconds=30), t + timedelta(seconds=30)),
-        a.Instrument("AIA"),
-        a.Wavelength(wavelength * u.angstrom),
-    )
-    if not len(res) or not len(res[0]):
-        return None
-    files = Fido.fetch(res[0, 0])
-    if not files:
-        return None
-    return Map(files[0])
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            res = Fido.search(
+                a.Time(t - timedelta(seconds=60), t + timedelta(seconds=60)),
+                a.Instrument("AIA"),
+                a.Wavelength(wavelength * u.angstrom),
+            )
+            if not len(res) or not len(res[0]):
+                # Empty result is NOT retried — it usually means there
+                # really wasn't an AIA frame in that window (vs a
+                # timeout, which would have raised an exception).
+                return None
+            files = Fido.fetch(res[0, 0])
+            if not files:
+                return None
+            return Map(files[0])
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            transient = ("timeout" in msg or "connection" in msg or
+                         "temporarily" in msg or "socket" in msg or
+                         "read of closed" in msg)
+            if not transient or attempt >= max_attempts:
+                # Re-raise so the outer try/except logs FAILED with the real reason.
+                raise
+            backoff = 2.0 ** (attempt - 1)  # 1, 2, 4, 8 sec
+            print(f"    [retry {attempt}/{max_attempts}] {type(e).__name__}: {e} → wait {backoff}s",
+                  flush=True)
+            time.sleep(backoff)
+    # If we somehow exited the loop without returning or raising:
+    if last_err:
+        raise last_err
+    return None
 
 
 def _render_png(data, cmap, out_path: Path, size_px: int):
