@@ -497,6 +497,20 @@ export function initBundler(deps) {
       state.selectedProduct = null;
       state.mockups = {};
       state.mockupSlideIndex = {};
+      // Reset vignette to OFF on workflow restart (parity with the
+      // editor's per-image reset tool — users were surprised to find
+      // their previous vignette setting persisting onto the next
+      // print attempt).
+      state.vignette = 0;
+      state.vignetteWidth = 0;
+      var vSlider = document.getElementById("vignetteSlider");
+      if (vSlider) vSlider.value = 100;  // 100 = no vignette (slider inverted)
+      var vwSlider = document.getElementById("vigWidthSlider");
+      if (vwSlider) vwSlider.value = 0;
+      var vVal = document.getElementById("vignetteVal");
+      if (vVal) vVal.textContent = "0";
+      var vwVal = document.getElementById("vigWidthVal");
+      if (vwVal) vwVal.textContent = "0";
       // Close the live-preview pane if it's open.
       var preview = document.getElementById("selectedProductPreview");
       if (preview) preview.classList.add("hidden");
