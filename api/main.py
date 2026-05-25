@@ -414,11 +414,19 @@ _DEFAULT_MOCKUP_PRODUCTS = [
 # range), whereas 211 Å (Fe XIV ~2 MK) cleanly shows the active region
 # surrounding the flare without the bloom artifact.
 _VIBE_GRID_TUPLES = [
-    {"slug": "ar2192",             "date": "2014-10-24", "wavelength": 193, "time": "12:00", "mission": "SDO", "detector": "AIA"},
-    {"slug": "x93_flare",          "date": "2017-09-06", "wavelength": 211, "time": "12:02", "mission": "SDO", "detector": "AIA"},
-    {"slug": "mothers_day_storm",  "date": "2024-05-10", "wavelength": 193, "time": "17:00", "mission": "SDO", "detector": "AIA"},
-    {"slug": "monster_prominence", "date": "2012-08-31", "wavelength": 304, "time": "20:00", "mission": "SDO", "detector": "AIA"},
-    {"slug": "limb_x82_flare",     "date": "2017-09-10", "wavelength": 211, "time": "16:06", "mission": "SDO", "detector": "AIA"},
+    {"slug": "ar2192",                     "date": "2014-10-24", "wavelength": 193,  "time": "12:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "x93_flare",                  "date": "2017-09-06", "wavelength": 211,  "time": "12:02", "mission": "SDO", "detector": "AIA"},
+    {"slug": "mothers_day_storm",          "date": "2024-05-10", "wavelength": 193,  "time": "17:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "monster_prominence",         "date": "2012-08-31", "wavelength": 304,  "time": "20:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "limb_x82_flare",             "date": "2017-09-10", "wavelength": 211,  "time": "16:06", "mission": "SDO", "detector": "AIA"},
+    # Round-6 additions — one card per previously-missing wavelength so
+    # the vibe-grid covers all 9 AIA bands. Per-band rationale:
+    {"slug": "pre_x93_powderkeg",          "date": "2017-09-04", "wavelength": 94,   "time": "12:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "post_flare_arcade",          "date": "2012-07-19", "wavelength": 131,  "time": "06:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "great_sympathetic_eruption", "date": "2010-08-01", "wavelength": 171,  "time": "02:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "ar13664_emergence",          "date": "2024-05-08", "wavelength": 335,  "time": "12:00", "mission": "SDO", "detector": "AIA"},
+    {"slug": "x16_flare_ribbons",          "date": "2014-09-10", "wavelength": 1600, "time": "17:45", "mission": "SDO", "detector": "AIA"},
+    {"slug": "ar2192_photosphere",         "date": "2014-10-24", "wavelength": 1700, "time": "12:00", "mission": "SDO", "detector": "AIA"},
 ]
 
 # Persistent vibe-grid output paths (mirror DEFAULT_MOCKUPS_*):

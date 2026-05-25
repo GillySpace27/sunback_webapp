@@ -65,11 +65,18 @@ except ImportError as e:
 
 
 _VIBE_GRID_TUPLES = [
-    {"slug": "ar2192",             "date": "2014-10-24"},
-    {"slug": "x93_flare",          "date": "2017-09-06"},
-    {"slug": "mothers_day_storm",  "date": "2024-05-10"},
-    {"slug": "monster_prominence", "date": "2012-08-31"},
-    {"slug": "limb_x82_flare",     "date": "2017-09-10"},
+    {"slug": "ar2192",                     "date": "2014-10-24"},
+    {"slug": "x93_flare",                  "date": "2017-09-06"},
+    {"slug": "mothers_day_storm",          "date": "2024-05-10"},
+    {"slug": "monster_prominence",         "date": "2012-08-31"},
+    {"slug": "limb_x82_flare",             "date": "2017-09-10"},
+    # Round-6 additions for full wavelength coverage:
+    {"slug": "pre_x93_powderkeg",          "date": "2017-09-04"},
+    {"slug": "post_flare_arcade",          "date": "2012-07-19"},
+    {"slug": "great_sympathetic_eruption", "date": "2010-08-01"},
+    {"slug": "ar13664_emergence",          "date": "2024-05-08"},
+    {"slug": "x16_flare_ribbons",          "date": "2014-09-10"},
+    {"slug": "ar2192_photosphere",         "date": "2014-10-24"},
 ]
 
 WAVELENGTHS = [94, 131, 171, 193, 211, 304, 335, 1600, 1700]
