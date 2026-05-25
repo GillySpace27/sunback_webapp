@@ -2191,10 +2191,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           "date=" + encodeURIComponent(isoDate) +
           "&imageScale=11.7&layers=[SDO,AIA,AIA," + wl + ",1,100]" +
           "&x0=0&y0=0&width=256&height=256&display=true&watermark=false";
-        var proxyUrl256 = API_BASE
+        // Vibe-cache shortcut: if this (date, time, wl) was pre-warmed
+        // for one of the 5 vibe cards (5 × 3 events × 9 wavelengths =
+        // 135 cached JPGs on /var/data), serve straight from disk and
+        // skip the Helioviewer round-trip. Falls through to the proxy
+        // for any combo that isn't in the manifest.
+        var cachedThumbUrl = (typeof _cachedWavelengthThumb === "function")
+          ? _cachedWavelengthThumb(dateVal, _solarTimeValue(), wl) : null;
+        var proxyUrl256 = cachedThumbUrl || (API_BASE
           ? API_BASE + "/api/helioviewer_thumb?date=" +
               encodeURIComponent(isoDate) + "&wavelength=" + wl + "&image_scale=12&size=256"
-          : null;
+          : null);
 
         var tileImg = document.createElement("img");
         tileImg.alt = wl + " Å";
@@ -3251,6 +3258,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         .catch(function () { return null; })
         .then(function (json) {
           _vibeManifest = (json && json.vibes) ? json.vibes : null;
+          _buildWlThumbCacheIndex();
           return _vibeManifest;
         });
     }
@@ -3295,6 +3303,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         encodeURIComponent(iso) + "&wavelength=" + encodeURIComponent(fallbackArgs.wl || "171") +
         "&image_scale=12&size=256";
     }
+
+    // Cached-wavelength-thumb index: pre-built (date, time, wl) → cached
+    // URL map from the manifest's per-event wavelength entries.
+    // Populated when _loadVibeManifest resolves; loadWavelengthThumbnails
+    // checks it before falling back to /api/helioviewer_thumb so the
+    // 9 wavelength tiles per click hit /var/data instead of Helioviewer.
+    var _wlThumbCacheIndex = {};
+    function _buildWlThumbCacheIndex() {
+      _wlThumbCacheIndex = {};
+      if (!_vibeManifest) return;
+      Object.keys(_vibeManifest).forEach(function (slug) {
+        var v = _vibeManifest[slug];
+        if (!v || !v.events || !v.date) return;
+        v.events.forEach(function (ev) {
+          if (!ev || !ev.wavelengths || !ev.time_utc) return;
+          Object.keys(ev.wavelengths).forEach(function (wl) {
+            var w = ev.wavelengths[wl];
+            if (w && w.jpg_thumb_url) {
+              _wlThumbCacheIndex[v.date + "T" + ev.time_utc + "/" + wl] = w.jpg_thumb_url;
+            }
+          });
+        });
+      });
+    }
+    function _cachedWavelengthThumb(dateStr, timeStr, wl) {
+      if (!dateStr || !timeStr) return null;
+      return _wlThumbCacheIndex[dateStr + "T" + timeStr + "/" + wl] || null;
+    }
+    // Expose for the loadWavelengthThumbnails consumer.
+    try { window.SolarArchive = window.SolarArchive || {};
+          window.SolarArchive.cachedWavelengthThumb = _cachedWavelengthThumb;
+    } catch (_e) {}
 
     // Swap a card's thumb image. Uses the URL → Image() LRU cache so a
     // toggle from RHEF → Raw → RHEF doesn't re-fetch each time.
