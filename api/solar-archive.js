@@ -3739,6 +3739,46 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         title: "Monster prominence — August 31, 2012",
         body: 'Iconic prominence eruption captured in 304 Å He II — sometimes called the ' +
               '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      pre_x93_powderkeg: {
+        title: "AR 12673 brewing — September 4, 2017",
+        body: 'Active Region 12673 two days before its X9.3 flare. The hottest coronal loops ' +
+              '(6 MK Fe XVIII) glow in 94 Å, foreshadowing what was coming. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      post_flare_arcade: {
+        title: "Post-flare arcade — July 19, 2012",
+        body: 'M7.7 limb event with the textbook post-flare arcade — magnetic loops reconnecting ' +
+              'and cooling into the 131 Å Fe XXI band (~10 MK). One of the most-shared SDO ' +
+              'images from cycle 24\'s rising phase. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      great_sympathetic_eruption: {
+        title: "Great sympathetic eruption — August 1, 2010",
+        body: 'Schrijver & Title (2011) called this "the great connected eruption" — a cascade ' +
+              'of filament lifts and CMEs across the entire visible disk, linked by long-range ' +
+              'magnetic connections. 171 Å reveals the warm-corona loop network that carried the cascade. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      ar13664_emergence: {
+        title: "AR 13664 emerges — May 8, 2024",
+        body: 'Active region 13664 two days before it caused the Mother\'s Day G5 geomagnetic ' +
+              'storm. Shown at 335 Å (Fe XVI, ~2.5 MK) which catches the active-region core ' +
+              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      x16_flare_ribbons: {
+        title: "X1.6 flare ribbons — September 10, 2014",
+        body: 'The X1.6 flare from AR 12158 with textbook two-ribbon structure in the ' +
+              'chromospheric 1600 Å band. Flare ribbons trace footprints of the reconnection ' +
+              'sheet where magnetic energy is released. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+      },
+      ar2192_photosphere: {
+        title: "AR 2192 in deep UV — October 24, 2014",
+        body: 'The same monster sunspot as the AR 2192 card, seen in 1700 Å (UV continuum from ' +
+              'the temperature-minimum region, ~5000 K). Where 193 Å shows the corona above, ' +
+              '1700 Å shows the photospheric sunspot itself. ' +
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
       }
     };
     function _toggleVibeInfo(card, btn) {
