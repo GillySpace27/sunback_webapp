@@ -3552,6 +3552,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // If this card carries a preset wavelength, click that tile to
       // trigger the existing pipeline. If not (birthday card), the user
       // picks a wavelength manually after the HEK suggestion fires.
+      // Scroll first, THEN fire the wavelength-tile click.
+      //
+      // Tap-a-vibe-card was visually a no-op on prod because the order
+      // was inverted: a smooth `scrollIntoView` launched, then 50 ms
+      // later wlTile.click() called loadHelioviewerPreview which
+      // un-hid #productSection — and that mid-flight DOM mutation
+      // CANCELS the running smooth scroll, leaving scrollY at 0. From
+      // the user's seat: state changed correctly under the hood but
+      // the page didn't move. No console error, no clue.
+      //
+      // Fix: snap-scroll (behavior:"auto") completes synchronously
+      // before the wavelength-tile click mutates the layout, so the
+      // scroll lands at the right offset every time. Reduced-motion
+      // users were already on "auto"; sighted users lose the gentle
+      // glide but actually see the section they tapped into — net
+      // win.
+      var configSection = wlGrid && wlGrid.closest(".section");
+      if (configSection) {
+        configSection.scrollIntoView({ behavior: "auto", block: "start" });
+      }
       // Suppress the wavelength-click's default scroll-to-products so
       // the user lands on section 1 (the HEK picker), not pushed past
       // it to the editor / product grid below.
@@ -3563,13 +3583,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           wlTile.click();
         }, 50);
       }
-      // Scroll the configurator into view, respecting reduced-motion.
-      var configSection = wlGrid && wlGrid.closest(".section");
       if (configSection) {
-        configSection.scrollIntoView({
-          behavior: _prefersReducedMotion() ? "auto" : "smooth",
-          block: "start",
-        });
         setTimeout(function () {
           var target = hekTileGrid && hekTileGrid.querySelector('.hek-tile[role="radio"]') ||
                        document.getElementById("solarTime") ||

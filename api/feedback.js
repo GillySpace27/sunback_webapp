@@ -22,6 +22,30 @@
    path changes here but the deps contract stays the same.
    =============================================================== */
 
+/**
+ * captureContext — small DOM snapshot of "what is the user looking at."
+ * Used by the feedback modal AND (since bundler.js was extracted) by
+ * the beta-save operator email. Lives at module scope so other modules
+ * can import it; only reads from DOM so it has no closure dependency
+ * on setupFeedback's locals.
+ */
+export function captureContext() {
+  var ctx = {};
+  try {
+    var dateInput = document.getElementById("solarDate");
+    if (dateInput && dateInput.value) ctx.date = dateInput.value;
+    var selectedCard = document.querySelector(".wl-card.selected");
+    if (selectedCard && selectedCard.dataset.wl) ctx.wavelength = selectedCard.dataset.wl;
+    var filterChecked = document.querySelector('input[name="editorFilter"]:checked');
+    if (filterChecked) ctx.filter = filterChecked.value;
+    var bgChecked = document.querySelector('input[name="vignetteFade"]:checked');
+    if (bgChecked) ctx.background = bgChecked.value;
+    var selectedProduct = document.querySelector(".product-card.selected");
+    if (selectedProduct) ctx.selectedProduct = selectedProduct.dataset.productId;
+  } catch (_e) { /* best-effort */ }
+  return ctx;
+}
+
 // Feedback widget — floating button + modal with two tabs:
 //   1. Free-text comment  → POST /api/feedback
 //   2. Product request    → search /api/printify/blueprints, pick
@@ -142,24 +166,10 @@ export function setupFeedback(deps) {
       // Fallback API base when served from a different origin (e.g., Shopify).
       var API_BASE = (typeof window !== "undefined" && window.location && window.location.origin) || "";
 
-      function captureContext() {
-        // Pull a small, helpful snapshot of what the user is looking at. Values
-        // are derived from global state if available; missing fields are fine.
-        var ctx = {};
-        try {
-          var dateInput = document.getElementById("solarDate");
-          if (dateInput && dateInput.value) ctx.date = dateInput.value;
-          var selectedCard = document.querySelector(".wl-card.selected");
-          if (selectedCard && selectedCard.dataset.wl) ctx.wavelength = selectedCard.dataset.wl;
-          var filterChecked = document.querySelector('input[name="editorFilter"]:checked');
-          if (filterChecked) ctx.filter = filterChecked.value;
-          var bgChecked = document.querySelector('input[name="vignetteFade"]:checked');
-          if (bgChecked) ctx.background = bgChecked.value;
-          var selectedProduct = document.querySelector(".product-card.selected");
-          if (selectedProduct) ctx.selectedProduct = selectedProduct.dataset.productId;
-        } catch (_e) { /* best-effort */ }
-        return ctx;
-      }
+      // captureContext lives at module scope (below) so other modules
+      // — notably bundler.js, which decorates the beta-save operator
+      // email with editor context — can import it. The reference here
+      // resolves to the module-level definition via closure.
 
       // ── Contact prefill / persistence ──────────────────────────
       // Name + email are required on submit; remember whatever the

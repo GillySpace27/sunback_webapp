@@ -40,6 +40,18 @@ export function initMockups(deps) {
   Object.assign(_deps, deps);
 }
 
+// Roman numeral labels for the wall-clock face. Inlined here because
+// drawProductMockup's wall_clock branch (line ~697 in this module)
+// reads `ROMAN_NUMERALS[nh]` when state.clockNumbers.style === "roman",
+// and ES-module scoping means the `var ROMAN_NUMERALS` in
+// solar-archive.js is not visible across the module boundary —
+// without this declaration, picking the wall clock + roman numerals
+// throws `ReferenceError: ROMAN_NUMERALS is not defined` and the
+// product preview aborts mid-paint. Kept identical to the editor's
+// own ROMAN_NUMERALS list (solar-archive.js:6472) so the two
+// consumers can't drift.
+const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+
     var PRODUCT_PREVIEW_VIEW = {
       // Square wall art — vary zoom/offset so each card looks different
       canvas_stretched:    { zoom: 1.00, cx: 0.50, cy: 0.50 },

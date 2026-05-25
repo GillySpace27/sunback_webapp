@@ -30,6 +30,11 @@
 import { state, defaultMockupManifest } from "./state.js";
 import { PRODUCTS } from "./products.js";
 import { recordStatEvent } from "./stats.js";
+// captureContext lives in feedback.js (module-private to the
+// original IIFE before the refactor; promoted to a module export
+// so the beta-save operator email here can include the same
+// editor-state snapshot the feedback modal sends).
+import { captureContext } from "./feedback.js";
 
 const _deps = {
   solarCanvas: null,
@@ -378,7 +383,7 @@ export function initBundler(deps) {
                      " · " + dateStr + (timeStr ? " " + timeStr + " UTC" : "") +
                      (wl ? " · " + wl + " Å" : "") +
                      (mockupImages.length ? " · zipped with " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") : " · canvas only");
-      var ctx = (typeof captureContext === "function") ? captureContext() : {};
+      var ctx = captureContext();  // imported above from feedback.js
       ctx.product = pid;
       ctx.product_name = product ? product.name : null;
       ctx.beta_mode = true;
