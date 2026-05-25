@@ -4371,6 +4371,68 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       checkBackendHealth();
     }
 
+    // ── Mid-session "backend crashed" banner ────────────────────────
+    // The page-load health check above catches a dead-on-arrival
+    // backend, but won't surface anything when the backend crashes
+    // DURING use (OOM mid-render is the common case on Render's
+    // 2 GB tier). Without this, users see a clicked button do
+    // nothing — no console message, no toast, no recourse.
+    //
+    // Wrap window.fetch so any /api/* response that's 5xx or a
+    // network error re-surfaces the existing offline banner with a
+    // concrete error string. Throttled so a single bad render
+    // doesn't spam the banner ten times across the parallel
+    // requests that follow.
+    var _backendCrashLastShownAt = 0;
+    var _BACKEND_CRASH_THROTTLE_MS = 15000;
+    function _surfaceBackendCrash(detail) {
+      var now = Date.now();
+      if (now - _backendCrashLastShownAt < _BACKEND_CRASH_THROTTLE_MS) return;
+      _backendCrashLastShownAt = now;
+      // Un-hide the banner in case onBackendOnline collapsed it.
+      backendBanner.style.opacity = "";
+      backendBanner.style.maxHeight = "";
+      backendBanner.style.overflow = "";
+      backendBanner.style.padding = "";
+      backendBanner.style.marginBottom = "";
+      setBannerState("offline",
+        "Backend appears to have crashed",
+        (detail || "A recent request failed. ") +
+        "The Render server may have run out of memory (a known issue on " +
+        "the 2 GB tier during heavy renders) and restarted. Wait 30–60 " +
+        "seconds for it to come back online, then retry.",
+        true);
+      state.backendOnline = false;
+    }
+    (function _wrapFetchForCrashDetection() {
+      if (!window.fetch || typeof window.fetch !== "function") return;
+      var _origFetch = window.fetch;
+      window.fetch = function (input, init) {
+        var urlStr = typeof input === "string" ? input : (input && input.url) || "";
+        var isOurApi = API_BASE &&
+                       (urlStr.indexOf(API_BASE) === 0 ||
+                        urlStr.indexOf("/api/") === 0 ||
+                        urlStr.indexOf("/asset/") === 0);
+        return _origFetch.call(this, input, init).then(function (resp) {
+          if (isOurApi && resp.status >= 500 && resp.status < 600) {
+            _surfaceBackendCrash("Server returned " + resp.status + " on " +
+              (urlStr.split("?")[0] || "an API call") + ".");
+          }
+          return resp;
+        }).catch(function (err) {
+          // Network errors (TypeError "Failed to fetch", AbortError on
+          // long-running pipelines we cancelled, etc.). Only surface
+          // for "Failed to fetch" — AbortError is user-initiated.
+          if (isOurApi && err && err.name !== "AbortError" &&
+              String(err).indexOf("Failed to fetch") !== -1) {
+            _surfaceBackendCrash("Network error reaching " +
+              (urlStr.split("?")[0] || "the backend") + ".");
+          }
+          throw err;
+        });
+      };
+    })();
+
     // ── Fetch helpers (with timeout) ─────────────────────────────
     var currentAbort = null;
 
@@ -5301,7 +5363,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         state.contrast = 0;
         state.saturation = 100;
         state.hue = 0;
-        state.vignette = 24;
+        // Vignette OFF on reset (was 24 = moderate dark vignette).
+        // Many users were thrown by a "fresh" image showing edge
+        // darkening; the cleaner default is no vignette and let them
+        // dial it in if they want one.
+        state.vignette = 0;
         state.vignetteWidth = 0;
         state.vignetteFade = "black";
         state.vignetteFadeColor = "#000000";
@@ -5316,14 +5382,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         $("#contrastSlider").value = 0;
         $("#saturationSlider").value = 100;
         if ($("#hueSlider")) { $("#hueSlider").value = 0; $("#hueVal").textContent = "0°"; }
-        $("#vignetteSlider").value = 100 - 24;
+        $("#vignetteSlider").value = 100;  // slider is inverted: 100 = no vignette
         $("#vigWidthSlider").value = 0;
         if ($("#cropEdgeXSlider")) { $("#cropEdgeXSlider").value = 0; $("#cropEdgeXVal").textContent = "0"; }
         if ($("#cropEdgeYSlider")) { $("#cropEdgeYSlider").value = 0; $("#cropEdgeYVal").textContent = "0"; }
         $("#brightnessVal").textContent = "0";
         $("#contrastVal").textContent = "0";
         $("#saturationVal").textContent = "100";
-        $("#vignetteVal").textContent = "24";
+        $("#vignetteVal").textContent = "0";
         $("#vigWidthVal").textContent = "0";
         if (typeof applyCropEdgeMask === "function") applyCropEdgeMask();
         if ($("#cropSlider")) { $("#cropSlider").value = 100; $("#cropVal").textContent = "100%"; }
