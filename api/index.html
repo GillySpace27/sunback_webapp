@@ -77,7 +77,7 @@
        the main click target is the inner .vibe-open button. -->
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
-      <div class="section-title" id="vibeGridTitle">Famous moments — tap one to start</div>
+      <h2 class="section-title" id="vibeGridTitle">Famous moments — tap one to start</h2>
     </div>
 
     <!-- Narrative reveal CTA + master tier toggle. Two states:
@@ -338,7 +338,7 @@
   <div class="section">
     <div class="section-header">
       <div class="step-badge">1</div>
-      <div class="section-title">Pick a moment that day</div>
+      <h2 class="section-title">Pick a moment that day</h2>
     </div>
 
     <!-- Canonical state-holder inputs. Hidden from sight; HEK tiles
@@ -440,7 +440,7 @@
   <div class="section hidden" id="editSection">
     <div class="section-header">
       <div class="step-badge">3</div>
-      <div class="section-title">View &amp; edit your image</div>
+      <h2 class="section-title">View &amp; edit your image</h2>
     </div>
 
     <!-- Editor layout — CSS grid with four regions:
@@ -812,42 +812,51 @@
     </div>
 
     <!-- Clock Face Panel (wall_clock product only) -->
+    <!-- Legacy "Clock numbers" tool-button panel. The clock-numbers UI is
+         now ALSO rendered inside the editor tab #tabPanel_clock with the
+         same IDs; the JS hooks resolve to whichever element document.
+         getElementById returns first (the tab-panel one). The inputs
+         below carry _legacy suffixes so duplicate-ID HTML doesn't fail
+         validators. None of the _legacy inputs are wired to live state
+         — interacting with this panel via the tool-button toggle does
+         not affect rendering. Kept here as a visible-but-inert affordance
+         until the tool-button code path is retired entirely. -->
     <div class="text-tool-panel hidden" id="clockNumbersPanel">
       <div class="field-row">
         <span class="field-label-sm">Style</span>
-        <select id="clockNumbersStyleSelect">
+        <select id="clockNumbersStyleSelect_legacy">
           <option value="arabic">Arabic (1, 2, 3…)</option>
           <option value="roman">Roman (I, II, III…)</option>
         </select>
       </div>
       <div class="field-row">
         <span class="field-label-sm">Size</span>
-        <input type="range" id="clockNumbersSizeSlider" min="10" max="100" value="50" style="flex:1;">
-        <span class="slider-val" id="clockNumbersSizeVal" style="min-width:32px;">50</span>
+        <input type="range" id="clockNumbersSizeSlider_legacy" min="10" max="100" value="50" style="flex:1;">
+        <span class="slider-val" id="clockNumbersSizeVal_legacy" style="min-width:32px;">50</span>
       </div>
       <div class="field-row">
         <span class="field-label-sm">Radius</span>
-        <input type="range" id="clockNumbersRadiusSlider" min="20" max="100" value="80" style="flex:1;">
-        <span class="slider-val" id="clockNumbersRadiusVal" style="min-width:32px;">80%</span>
+        <input type="range" id="clockNumbersRadiusSlider_legacy" min="20" max="100" value="80" style="flex:1;">
+        <span class="slider-val" id="clockNumbersRadiusVal_legacy" style="min-width:32px;">80%</span>
       </div>
       <div class="field-row">
         <span class="field-label-sm">Font</span>
-        <select id="clockNumbersFontSelect"><!-- populated by JS from FONT_CATALOG --></select>
+        <select id="clockNumbersFontSelect_legacy"><!-- populated by JS from FONT_CATALOG --></select>
       </div>
       <div class="field-row">
         <span class="field-label-sm">Color</span>
-        <input type="color" id="clockNumbersColorPicker" value="#ffffff">
+        <input type="color" id="clockNumbersColorPicker_legacy" value="#ffffff">
         <span class="field-label-sm">Stroke</span>
-        <input type="color" id="clockNumbersStrokePicker" value="#000000">
+        <input type="color" id="clockNumbersStrokePicker_legacy" value="#000000">
         <span class="field-label-sm" style="min-width:30px;">W</span>
-        <input type="range" id="clockNumbersStrokeWidth" min="0" max="10" value="2" style="flex:1; max-width:100px;">
-        <span class="slider-val" id="clockNumbersStrokeVal" style="min-width:20px;">2</span>
+        <input type="range" id="clockNumbersStrokeWidth_legacy" min="0" max="10" value="2" style="flex:1; max-width:100px;">
+        <span class="slider-val" id="clockNumbersStrokeVal_legacy" style="min-width:20px;">2</span>
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
-        <button class="edit-btn" id="burnClockNumbers" style="flex:1;justify-content:center;">
+        <button class="edit-btn" id="burnClockNumbers_legacy" style="flex:1;justify-content:center;" type="button">
           <i class="fas fa-check" aria-hidden="true"></i> Burn Numbers Into Image
         </button>
-        <button class="edit-btn" id="cancelClockNumbers">
+        <button class="edit-btn" id="cancelClockNumbers" type="button">
           <i class="fas fa-times" aria-hidden="true"></i> Cancel
         </button>
       </div>
@@ -922,7 +931,7 @@
   <div class="section hidden" id="productSection">
     <div class="section-header">
       <div class="step-badge">2</div>
-      <div class="section-title" id="productSectionTitle">Choose your product</div>
+      <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
