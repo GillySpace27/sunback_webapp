@@ -1250,6 +1250,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         _previewPaneNaturalGeom = null;
         return;
       }
+      // Popped-out floating mode owns its own positioning (bottom-
+      // right anchor via CSS, optional drag-to-move via the move
+      // handler). Skip pinning so we don't fight inline left/top
+      // with the popout layout.
+      if (document.body.classList.contains("preview-popped-out")) {
+        return;
+      }
       // Narrow screens stack vertically (see media query in CSS) — no
       // pinning needed; let the natural document flow handle it.
       if (window.innerWidth <= 740) {
@@ -1450,11 +1457,28 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       popBtn.title = "Pop out as a floating preview / dock back";
       popBtn.innerHTML = "&#x2922;";  // ⤢ NORTH-WEST AND SOUTH-EAST ARROW
       popBtn.addEventListener("click", function () {
-        document.body.classList.toggle("preview-popped-out");
+        var nowPopped = !document.body.classList.contains("preview-popped-out");
+        document.body.classList.toggle("preview-popped-out", nowPopped);
+        // The scroll-driven .preview-pinned handler also manages inline
+        // left/top/width on this pane; in popout mode those compete
+        // with our fixed-position bottom-right anchor. When popping
+        // out, strip .preview-pinned + its inline geometry so our CSS
+        // owns positioning. When docking back, clear our own inline
+        // overrides so the grid cell + scroll handler can reclaim it.
+        previewPane.classList.remove("preview-pinned");
+        previewPane.style.left = "";
+        previewPane.style.top = "";
+        previewPane.style.right = "";
+        previewPane.style.bottom = "";
+        // In docked mode, also clear width so the grid cell governs.
+        if (!nowPopped) {
+          previewPane.style.width = "";
+          previewPane.style.maxWidth = "";
+        }
         // Apply remembered popout width in case the user resized.
         try {
           var saved = localStorage.getItem(_PREVIEW_PANE_SIZE_KEY);
-          if (saved && document.body.classList.contains("preview-popped-out")) {
+          if (saved && nowPopped) {
             previewPane.style.setProperty("--popout-w", saved + "px");
           }
         } catch (_e) {}
@@ -1681,14 +1705,40 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var btnDeselectProduct = document.getElementById("btnDeselectProduct");
     if (btnDeselectProduct) {
       btnDeselectProduct.addEventListener("click", function() {
+        // Repurposed 2026-05-25: this is the floating-preview "close /
+        // dock" button now — clicking it docks a popped-out preview
+        // back into the editor grid. Deselect-the-product is owned by
+        // the "Change product" CTA, so the X no longer triggers it.
+        // In single-preview-mode the docked X is hidden via CSS, so
+        // this handler effectively only fires in the popped-out case.
+        if (document.body.classList.contains("preview-popped-out")) {
+          document.body.classList.remove("preview-popped-out");
+          // Clear inline left/top set by the move-drag + the scroll
+          // handler's .preview-pinned width so the pane re-attaches
+          // cleanly to its grid cell instead of carrying the
+          // floating coords back into docked mode.
+          var previewPanel = document.getElementById("selectedProductPreview");
+          if (previewPanel) {
+            previewPanel.classList.remove("preview-pinned");
+            previewPanel.style.left = "";
+            previewPanel.style.top = "";
+            previewPanel.style.right = "";
+            previewPanel.style.bottom = "";
+            previewPanel.style.width = "";
+            previewPanel.style.maxWidth = "";
+          }
+          return;
+        }
+        // Legacy non-single-preview path: hide pane + editor (the
+        // original deselect behaviour). Only reachable via
+        // ?legacy-canvas=1 since the X is CSS-hidden in single-
+        // preview-mode.
         state.selectedProduct = null;
         state.uploadedPrintifyId = null;
         state.uploadedPrintifyIdRaw = null;
         state.uploadedPrintifyIdFiltered = null;
-        var previewPanel = document.getElementById("selectedProductPreview");
-        if (previewPanel) previewPanel.classList.add("hidden");
-        // Hide the sticky action bar too — its buttons only apply
-        // when a product is selected.
+        var previewPanel2 = document.getElementById("selectedProductPreview");
+        if (previewPanel2) previewPanel2.classList.add("hidden");
         var actionBar = document.getElementById("editorActionBar");
         if (actionBar) actionBar.classList.add("hidden");
         if (editSection) editSection.classList.add("hidden");
@@ -7277,21 +7327,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var isSinglePreview = document.body.classList.contains("single-preview-mode");
       if (!isMobile && !isSinglePreview) return false;
       if (state.cropping || state.textMode) return false;
-      // Don't hijack drags on the handle, close button, or other interactive children
-      if (targetEl && targetEl.closest &&
-          (targetEl.closest(".preview-resize-handle") ||
-           targetEl.closest(".preview-pane-resize-handle") ||
-           targetEl.closest(".preview-popout-btn") ||
-           targetEl.closest(".preview-close-btn") ||
-           targetEl.closest("button, a, select, input, [role='slider']"))) {
-        return false;
-      }
-      // Need a visible live-preview canvas (real-mockup mode → no pan)
-      var pane = document.getElementById("selectedProductPreview");
-      if (!pane) return false;
-      var canvas = pane.querySelector("canvas.live-preview-canvas");
+      // Pan engages ONLY when the pointer actually lands on the live-
+      // preview canvas — not on the chrome (header, padding, border)
+      // around it. This frees pane-chrome clicks for other handlers,
+      // most importantly the "drag-to-move" handler that runs in
+      // popped-out mode: previously the pan gate matched any non-
+      // button click inside the pane and starved the move handler.
+      if (!targetEl || !targetEl.closest) return false;
+      var canvas = document.getElementById("selectedProductPreview");
+      canvas = canvas && canvas.querySelector("canvas.live-preview-canvas");
       if (!canvas) return false;
       if (canvas.style.display === "none") return false;
+      // Click must land on (or inside) the live-preview canvas.
+      var hit = targetEl.closest("canvas.live-preview-canvas");
+      if (hit !== canvas) return false;
       return true;
     }
     function _mobilePanDown(e) {
