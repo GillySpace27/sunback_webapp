@@ -3287,7 +3287,8 @@ body.single-preview-mode .editor-with-preview .selected-product-preview canvas.l
 .preview-popout-btn:hover { background: rgba(0,0,0,0.55); }
 
 /* Popped-out floating mode — preview detaches from grid, hovers in
-   the bottom-right corner, draggable by its header. */
+   the bottom-right corner, draggable by its chrome (not the canvas;
+   the canvas is reserved for the source-image pan gesture). */
 body.preview-popped-out .selected-product-preview {
   position: fixed !important;
   bottom: 24px;
@@ -3308,6 +3309,16 @@ body.preview-popped-out .selected-product-preview .preview-mockup {
      the whole panel beyond viewport. */
   max-width: 100%;
   max-height: 60vh;
+}
+
+/* X / close button repurposed (2026-05-25): used to deselect the
+   product, which conflicted with the dedicated "Change product"
+   CTA. Now it docks a popped-out preview back into the editor grid.
+   In docked single-preview-mode there's nothing to "close" — hide
+   it so the chrome isn't misleading. The popout button (top-left)
+   is the way to re-detach when docked. */
+body.single-preview-mode:not(.preview-popped-out) .selected-product-preview .preview-close-btn {
+  display: none;
 }
 
 /* Sticky editor canvas — see header comment for rationale. The cap

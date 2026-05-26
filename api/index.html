@@ -867,7 +867,11 @@
 
       <!-- Selected product mockup preview (side-by-side on wide screens) -->
       <div class="selected-product-preview hidden" id="selectedProductPreview">
-        <button class="preview-close-btn" id="btnDeselectProduct" type="button" aria-label="Deselect product and go back to the product list" title="Deselect product &amp; go back to product list">&#x2715;</button>
+        <!-- In single-preview-mode this is the floating-preview dock
+             button; CSS hides it when docked so the chrome reads
+             cleanly. The original deselect behaviour is on the
+             "Change product" CTA in the editor's nav row. -->
+        <button class="preview-close-btn" id="btnDeselectProduct" type="button" aria-label="Dock the floating preview back into the editor" title="Dock floating preview back into the editor">&#x2715;</button>
         <div class="preview-product-name"></div>
         <div class="preview-mockup"></div>
         <div class="preview-product-ratio"></div>
