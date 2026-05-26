@@ -3116,6 +3116,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         _applyFineTuneTime(v.slice(0, 5));
       });
 
+      // Surface a visible hint when the user commits an invalid value
+      // (e.g. 99:99, 25:00). HTML5 type=time silently clears these
+      // when they fail validation, leaving the user staring at an
+      // empty input with no clue what happened. validity.badInput
+      // catches the "typed but unparseable" case. Beta-tester crew
+      // filed: silent-clear is indistinguishable from "the field
+      // ate my keystrokes".
+      hekTileGrid.addEventListener("change", function (e) {
+        var t = e.target.closest("#hekTimeExact");
+        if (!t) return;
+        if (t.validity && t.validity.badInput) {
+          showToast("Time must be HH:MM (00–23 : 00–59). Cleared.", "error");
+        }
+      });
+
       // WAI-ARIA radiogroup keyboard pattern: arrow keys cycle through
       // role="radio" siblings (skipping the custom group), Home/End jump
       // to ends, Space/Enter activate the focused radio. Without this,
