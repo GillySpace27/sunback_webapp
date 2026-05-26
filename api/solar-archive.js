@@ -1772,6 +1772,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         showToast("Select a date first", "error");
         return;
       }
+      // Date-range guard. The date picker advertises a min/max range
+      // matching SDO/AIA data availability, but JS code (or paste, or
+      // bad URL params) can set #solarDate to a value outside that
+      // range. Without this guard the fetch pipeline spins forever on
+      // "Generating RHE…" because the backend has no data to return.
+      // Beta-tester crew filed: pasting 2099-12-31 → 21s of silent
+      // spinner. Surface the range mismatch up front instead.
+      var _dMin = dateInput.min, _dMax = dateInput.max, _dVal = dateInput.value;
+      if ((_dMin && _dVal < _dMin) || (_dMax && _dVal > _dMax)) {
+        showToast(
+          "No SDO data for " + _dVal + ". Valid range: " + _dMin + " to " + _dMax + ".",
+          "error"
+        );
+        return;
+      }
 
       // Request a scroll to the product section once it becomes visible.
       // Suppressed via state.suppressNextProductScroll (one-shot) when
@@ -3616,10 +3631,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (pop) pop.classList.add("hidden");
           return;
         }
-        // Main "open" click (vibe-open button OR anywhere outside controls).
+        // Main "open" click — the .vibe-open button is the canonical
+        // semantic target (focusable + screen-reader labelled), but a
+        // mouse user clicking on the dominant card image / surrounding
+        // chrome expects the same behaviour. Fall back to ANY click
+        // inside .vibe-card that's outside the dedicated controls
+        // (info button + popover were already handled above; birthday
+        // input gets its own change handler below). This was filed by
+        // the beta-testing crew: clicking the card frame edges did
+        // nothing because the handler was scoped to .vibe-open only.
         var openBtn = e.target.closest(".vibe-open");
-        var card2 = openBtn && openBtn.closest(".vibe-card");
+        var card2 = openBtn ? openBtn.closest(".vibe-card") : e.target.closest(".vibe-card");
         if (!card2) return;
+        // Ignore clicks inside the info-popover region itself (the
+        // popover may overlay part of the card; we don't want a stray
+        // miss to launch the editor flow).
+        if (e.target.closest(".vibe-info-popover")) return;
+        // Birthday card's date input is its own affordance — let its
+        // change handler run instead of treating focus-clicks as opens.
+        if (e.target.closest(".vibe-birthday-input")) return;
         _activateVibe(card2);
       });
 
@@ -8138,7 +8168,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // mug card's colour chooser) never render as their own card.
         if (p._hiddenFromGrid) return;
         var card = document.createElement("div");
-        var hasMockup = state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0;
+        // "Has a real mockup" — either generated this session OR the
+        // Phase B disk-cached photorealistic mockup for the default
+        // landing image. Beta-tester crew filed: every product card
+        // carried a permanent "◌ Generating…" spinner because the
+        // hasMockup check only looked at state.mockups[pid] and not
+        // at the manifest-served defaults; the spinner thus never
+        // cleared on a fresh load.
+        var hasMockup = (state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0)
+          || (state.isDefaultActive && defaultMockupManifest && defaultMockupManifest[p.id] && defaultMockupManifest[p.id].url);
         var statusDot = hasMockup
           ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
           : (state.originalImage ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> ' : '');

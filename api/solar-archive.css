@@ -4758,12 +4758,27 @@ html.embedded .feedback-product-results {
   position: sticky;
   bottom: 0;
   z-index: 1;
-  /* Solid background + small top fade so content scrolling past
-     doesn't visually bleed through the button row. */
+  /* Solid background + a real upward fade so list content scrolling
+     under the sticky CTA visibly dissolves into the button row
+     instead of half-tiles being chopped off. Beta-tester crew
+     filed: on mobile the previous 12-px box-shadow wasn't enough,
+     so "16.0\" tall" text leaked out from underneath the button. */
   background: #17192a;
   padding-top: 14px;
   margin-top: 4px;
-  box-shadow: 0 -10px 12px -8px #17192a;
+}
+.confirm-modal-actions::before {
+  /* Gradient fade above the sticky actions row. Transparent at top
+     → solid panel background at bottom, sitting just above the
+     button so content scrolling under it dissolves smoothly. */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 28px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(23, 25, 42, 0) 0%, #17192a 100%);
 }
 .confirm-modal-btn {
   flex: 1;
@@ -5109,6 +5124,14 @@ html.embedded .feedback-product-results {
      birthday CTA `.birthday-cta-btn` (39 px). Bump both to 44 by
      widening vertical padding, keeping the text size where it is. */
   .product-buy-btn { min-height: 44px; padding: 12px 10px; }
+  /* Hide the arrow icon on narrow viewports so the "Pick a variant"
+     label has the full button width to lay out on one line. Beta-
+     tester crew filed: 2-column grid + arrow + 12 chars wrapped to
+     two lines ("Pick a / variant"), reducing predictability of the
+     tap target. Label-only on phone is readable + tappable. */
+  .product-buy-btn .fa-arrow-right,
+  .product-buy-btn .fas.fa-arrow-right { display: none; }
+  .product-buy-btn { white-space: nowrap; }
   .birthday-cta-btn { min-height: 44px; padding: 12px 16px; }
 
   /* ── F5 · Section headers larger on mobile ─────────────────────
