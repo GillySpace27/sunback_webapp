@@ -1363,10 +1363,32 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // 2026-05-22: on mobile (≤749 px) the preview pane becomes the
       // PRIMARY visual (image-stage is hidden via CSS), so pump the
       // backing-store resolution to keep the upscaled render crisp.
+      // 2026-05-25: also bumped for single-preview-mode, which makes
+      // the preview pane the primary visual on EVERY viewport — the
+      // editor canvas is hidden by default. A 260-px backing store
+      // upscaled to ~600 px on screen reads blurry; 720 px gives a
+      // 1.2× supersample for the typical desktop pane size, ~1.0×
+      // for mobile after the CSS aspect-ratio: 1/1 promotion.
+      // Flip the single-preview body class BEFORE computing pw so
+      // the first updateSelectedProductPreview call also gets the
+      // bumped resolution (otherwise the user sees a 260-px backing
+      // upscaled to 700+ px until the next refresh fires).
+      if (!document.body.classList.contains("single-preview-mode")
+          && !/[?&]legacy-canvas=1\b/.test(window.location.search)) {
+        document.body.classList.add("single-preview-mode");
+      }
       var mockupContainer = previewPane.querySelector(".preview-mockup");
       var existing = mockupContainer.querySelector("canvas.live-preview-canvas");
       var _isMobileEditor = window.matchMedia && window.matchMedia("(max-width: 749px)").matches;
-      var pw = _isMobileEditor ? 360 : 260;
+      var _isSinglePreview = document.body.classList.contains("single-preview-mode");
+      var pw;
+      if (_isSinglePreview) {
+        pw = 720;
+      } else if (_isMobileEditor) {
+        pw = 360;
+      } else {
+        pw = 260;
+      }
       var ph = pw;
       if (!existing) {
         mockupContainer.innerHTML = "";
@@ -1388,6 +1410,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       livePreviewCanvas = existing;
 
+      // ── Preview-pane control affordances ────────────────────────
+      // Inject the resize handle + pop-out button once per pane.
+      // (single-preview-mode body class is set up-front near the pw
+      // calculation above so the very first canvas backing-store
+      // size reflects the mode.)
+      if (typeof _installPreviewPaneControls === "function") {
+        _installPreviewPaneControls(previewPane);
+      }
+
       // Variant selector: load variants and show dropdown so user can override in place
       updatePreviewVariantSelector(product);
       // Dual-panel layout toggle: only shown for throw_pillow / journal
@@ -1395,6 +1426,113 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Draw immediately so the preview isn't blank on first select
       refreshLivePreview();
       updatePreviewPaneMockupState();
+    }
+
+    // ── Preview pane controls: resize handle + pop-out button ────────
+    // Injected once per pane (idempotent). The pane already has a
+    // ✕ deselect button (top-right); we add:
+    //   • ⤢ pop-out button (top-left) → toggles body.preview-popped-out
+    //     so CSS detaches the pane into a draggable floating panel
+    //   • ↘ resize handle (bottom-right) → drag to grow/shrink the
+    //     pane's CSS width (--popout-w in float mode, inline width in
+    //     docked mode). Persisted across sessions via localStorage.
+    var _PREVIEW_PANE_SIZE_KEY = "sa_preview_pane_size_v1";
+    function _installPreviewPaneControls(previewPane) {
+      if (!previewPane || previewPane.dataset.controlsInstalled === "1") return;
+      previewPane.dataset.controlsInstalled = "1";
+
+      // Pop-out toggle. Lives at top-left so it doesn't crash into
+      // the existing ✕ at top-right.
+      var popBtn = document.createElement("button");
+      popBtn.type = "button";
+      popBtn.className = "preview-popout-btn";
+      popBtn.setAttribute("aria-label", "Toggle floating preview");
+      popBtn.title = "Pop out as a floating preview / dock back";
+      popBtn.innerHTML = "&#x2922;";  // ⤢ NORTH-WEST AND SOUTH-EAST ARROW
+      popBtn.addEventListener("click", function () {
+        document.body.classList.toggle("preview-popped-out");
+        // Apply remembered popout width in case the user resized.
+        try {
+          var saved = localStorage.getItem(_PREVIEW_PANE_SIZE_KEY);
+          if (saved && document.body.classList.contains("preview-popped-out")) {
+            previewPane.style.setProperty("--popout-w", saved + "px");
+          }
+        } catch (_e) {}
+      });
+      previewPane.appendChild(popBtn);
+
+      // Resize handle (bottom-right corner). Pointer-events drive a
+      // width-only resize. Width persists across sessions.
+      var resize = document.createElement("div");
+      resize.className = "preview-pane-resize-handle";
+      resize.setAttribute("aria-label", "Resize preview pane (drag)");
+      resize.title = "Drag to resize the preview";
+      previewPane.appendChild(resize);
+      // Restore saved width.
+      try {
+        var savedW = localStorage.getItem(_PREVIEW_PANE_SIZE_KEY);
+        if (savedW) previewPane.style.setProperty("--popout-w", savedW + "px");
+      } catch (_e) {}
+      var _dragging = false, _startX = 0, _startY = 0, _startW = 0, _startH = 0;
+      resize.addEventListener("pointerdown", function (e) {
+        _dragging = true;
+        _startX = e.clientX; _startY = e.clientY;
+        var rect = previewPane.getBoundingClientRect();
+        _startW = rect.width; _startH = rect.height;
+        resize.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      resize.addEventListener("pointermove", function (e) {
+        if (!_dragging) return;
+        var newW = Math.max(220, Math.min(900, _startW + (e.clientX - _startX)));
+        // In popout mode, drive --popout-w (CSS var); in docked mode,
+        // set inline width directly so the grid cell grows visibly.
+        if (document.body.classList.contains("preview-popped-out")) {
+          previewPane.style.setProperty("--popout-w", newW + "px");
+        } else {
+          previewPane.style.width = newW + "px";
+          previewPane.style.maxWidth = newW + "px";
+        }
+        try { localStorage.setItem(_PREVIEW_PANE_SIZE_KEY, String(Math.round(newW))); } catch (_e) {}
+      });
+      resize.addEventListener("pointerup", function (e) {
+        _dragging = false;
+        try { resize.releasePointerCapture(e.pointerId); } catch (_e) {}
+      });
+
+      // Drag-to-move when popped out. Mouse-down anywhere on the
+      // pane (except buttons / canvas / inputs) starts a drag.
+      var _moveDragging = false, _moveStartX = 0, _moveStartY = 0, _moveStartLeft = 0, _moveStartTop = 0;
+      previewPane.addEventListener("pointerdown", function (e) {
+        if (!document.body.classList.contains("preview-popped-out")) return;
+        // Ignore interactive children
+        if (e.target.closest("button, input, select, .preview-pane-resize-handle, canvas, label")) return;
+        _moveDragging = true;
+        _moveStartX = e.clientX;
+        _moveStartY = e.clientY;
+        var rect = previewPane.getBoundingClientRect();
+        _moveStartLeft = rect.left;
+        _moveStartTop = rect.top;
+        previewPane.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      previewPane.addEventListener("pointermove", function (e) {
+        if (!_moveDragging) return;
+        var nx = _moveStartLeft + (e.clientX - _moveStartX);
+        var ny = _moveStartTop + (e.clientY - _moveStartY);
+        // Clamp inside viewport with a small margin so the pane can't
+        // be dragged off-screen and become unreachable.
+        nx = Math.max(8, Math.min(window.innerWidth - 60, nx));
+        ny = Math.max(8, Math.min(window.innerHeight - 60, ny));
+        previewPane.style.left = nx + "px";
+        previewPane.style.top  = ny + "px";
+        previewPane.style.right = "auto";
+        previewPane.style.bottom = "auto";
+      });
+      previewPane.addEventListener("pointerup", function (e) {
+        _moveDragging = false;
+        try { previewPane.releasePointerCapture(e.pointerId); } catch (_e) {}
+      });
     }
 
     // Redraw the preview pane fake mockup: same product shape as grid cards (with variant), scaled to fit.
