@@ -72,8 +72,8 @@
        submit button — selecting the date triggers the flow). Each
        static card has a Raw/RHEF tier toggle in the top-right and an
        info button that opens an attribution popover.
-       The card is a <div> (not <button>) so it can legally contain
-       child <button>s (HTML disallows nested interactive content);
+       The card is a <div> (not <button type="button">) so it can legally contain
+       child <button type="button">s (HTML disallows nested interactive content);
        the main click target is the inner .vibe-open button. -->
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
@@ -380,7 +380,7 @@
          (CME → 193, prominence → 304, flare → 131 or 304, quiet → 171). -->
     <div class="wl-suggest-caption hidden" id="wlSuggestCaption" aria-live="polite"></div>
 
-    <!-- Wavelength tiles are real <button> elements (round-2 a11y,
+    <!-- Wavelength tiles are real <button type="button"> elements (round-2 a11y,
          Cole Ramirez P0): Voice Control users now address each tile
          by its aria-label ("Click 171 angstrom") instead of having
          to ask for numeric overlays. The inner thumb / value / label
@@ -511,13 +511,13 @@
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
         <div class="edit-toolbar-nav-group">
-          <button class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change date or wavelength">
+          <button type="button" class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change date or wavelength">
             <i class="fas fa-sun" aria-hidden="true"></i> Change wavelength
           </button>
-          <button class="edit-btn edit-btn-nav" id="btnChangeProduct" title="Scroll back up to pick a different product">
+          <button type="button" class="edit-btn edit-btn-nav" id="btnChangeProduct" title="Scroll back up to pick a different product">
             <i class="fas fa-shapes" aria-hidden="true"></i> Change product
           </button>
-          <button class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
+          <button type="button" class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
             <i class="fas fa-swatchbook" aria-hidden="true"></i> Change variant
           </button>
         </div>
@@ -553,9 +553,9 @@
         <!-- Crop presets: how much of the image fills the frame -->
         <div class="preset-row">
           <span class="preset-row-label">Crop</span>
-          <button class="edit-btn preset-btn" data-crop="full" title="Fit the entire image inside the print area — no cropping, may letterbox.">Full</button>
-          <button class="edit-btn preset-btn" data-crop="fit"  title="Fit the full solar disk with breathing room around it">Fit</button>
-          <button class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
+          <button type="button" class="edit-btn preset-btn" data-crop="full" title="Fit the entire image inside the print area — no cropping, may letterbox.">Full</button>
+          <button type="button" class="edit-btn preset-btn" data-crop="fit"  title="Fit the full solar disk with breathing room around it">Fit</button>
+          <button type="button" class="edit-btn preset-btn" data-crop="fill" title="Fill the frame edge-to-edge with the image">Fill</button>
         </div>
         <!-- Crop-edge feather presets — quick toggles that sync the
              Crop Edge X / Y sliders below. X and Y share a row here
@@ -564,24 +564,24 @@
         <div class="preset-row">
           <span class="preset-row-label">Crop Edge</span>
           <span class="preset-axis-label">X</span>
-          <button class="edit-btn preset-btn" data-crop-edge-x="hard" title="Sharp left/right edges (no feather)">Hard</button>
-          <button class="edit-btn preset-btn" data-crop-edge-x="soft" title="Soft feather on left and right edges">Soft</button>
+          <button type="button" class="edit-btn preset-btn" data-crop-edge-x="hard" title="Sharp left/right edges (no feather)">Hard</button>
+          <button type="button" class="edit-btn preset-btn" data-crop-edge-x="soft" title="Soft feather on left and right edges">Soft</button>
           <span class="preset-axis-label">Y</span>
-          <button class="edit-btn preset-btn" data-crop-edge-y="hard" title="Sharp top/bottom edges (no feather)">Hard</button>
-          <button class="edit-btn preset-btn" data-crop-edge-y="soft" title="Soft feather on top and bottom edges">Soft</button>
+          <button type="button" class="edit-btn preset-btn" data-crop-edge-y="hard" title="Sharp top/bottom edges (no feather)">Hard</button>
+          <button type="button" class="edit-btn preset-btn" data-crop-edge-y="soft" title="Soft feather on top and bottom edges">Soft</button>
         </div>
         <!-- Vignette presets — split: edge controls feather, radius controls size -->
         <div class="preset-row">
           <span class="preset-row-label">Vig. Edge</span>
-          <button class="edit-btn preset-btn" data-vignette-edge="soft"  title="Soft feathered vignette edge">Soft</button>
-          <button class="edit-btn preset-btn" data-vignette-edge="sharp" title="Hard-edge circular vignette">Sharp</button>
+          <button type="button" class="edit-btn preset-btn" data-vignette-edge="soft"  title="Soft feathered vignette edge">Soft</button>
+          <button type="button" class="edit-btn preset-btn" data-vignette-edge="sharp" title="Hard-edge circular vignette">Sharp</button>
         </div>
         <div class="preset-row">
           <span class="preset-row-label">Vig. Radius</span>
-          <button class="edit-btn preset-btn" data-vignette-radius="off"  title="No vignette">Off</button>
-          <button class="edit-btn preset-btn" data-vignette-radius="full" title="Vignette circle reaches the frame corners">Full</button>
-          <button class="edit-btn preset-btn" data-vignette-radius="fit"  title="Largest circle that fits inside the print area (touches the four edge midpoints on a square)">Fit</button>
-          <button class="edit-btn preset-btn" data-vignette-radius="disk" title="Vignette circle matches one solar radius (R☉)">Disk</button>
+          <button type="button" class="edit-btn preset-btn" data-vignette-radius="off"  title="No vignette">Off</button>
+          <button type="button" class="edit-btn preset-btn" data-vignette-radius="full" title="Vignette circle reaches the frame corners">Full</button>
+          <button type="button" class="edit-btn preset-btn" data-vignette-radius="fit"  title="Largest circle that fits inside the print area (touches the four edge midpoints on a square)">Fit</button>
+          <button type="button" class="edit-btn preset-btn" data-vignette-radius="disk" title="Vignette circle matches one solar radius (R☉)">Disk</button>
         </div>
         <!-- Background colour: technically a colour pick, but every
              other geometry knob (vignette, crop-edge feather) is tuned
@@ -601,11 +601,11 @@
           </label>
         </div>
         <div class="edit-toolbar-break"></div>
-        <button class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper" aria-hidden="true"></i> Pan</button>
-        <button class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo" aria-hidden="true"></i> Rotate</button>
-        <button class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h" aria-hidden="true"></i> Flip H</button>
-        <button class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v" aria-hidden="true"></i> Flip V</button>
-        <button class="edit-btn" data-tool="flipAspect" title="Swap canvas width and height"><i class="fas fa-expand-arrows-alt" aria-hidden="true"></i> Flip aspect</button>
+        <button type="button" class="edit-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper" aria-hidden="true"></i> Pan</button>
+        <button type="button" class="edit-btn" data-tool="rotate" title="Rotate 90°"><i class="fas fa-redo" aria-hidden="true"></i> Rotate</button>
+        <button type="button" class="edit-btn" data-tool="flipH" title="Flip horizontal"><i class="fas fa-arrows-alt-h" aria-hidden="true"></i> Flip H</button>
+        <button type="button" class="edit-btn" data-tool="flipV" title="Flip vertical"><i class="fas fa-arrows-alt-v" aria-hidden="true"></i> Flip V</button>
+        <button type="button" class="edit-btn" data-tool="flipAspect" title="Swap canvas width and height"><i class="fas fa-expand-arrows-alt" aria-hidden="true"></i> Flip aspect</button>
         <div class="edit-toolbar-break"></div>
         <div class="slider-row">
           <label>Crop</label>
@@ -645,7 +645,7 @@
 
       <!-- Adjust tab -->
       <div class="edit-tab-panel hidden" id="tabPanel_adjust" role="tabpanel" aria-labelledby="editTab_adjust" tabindex="0">
-        <button class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust" aria-hidden="true"></i> Invert</button>
+        <button type="button" class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust" aria-hidden="true"></i> Invert</button>
         <div class="edit-toolbar-break"></div>
         <div class="slider-row">
           <label>Brightness</label>
@@ -711,7 +711,7 @@
           <span class="slider-val" id="clockNumbersStrokeVal" style="min-width:20px;">2</span>
         </div>
         <div style="display:flex; gap:8px; margin-top:6px;">
-          <button class="edit-btn" id="cancelClockNumbers" style="flex:1;justify-content:center;">
+          <button type="button" class="edit-btn" id="cancelClockNumbers" style="flex:1;justify-content:center;">
             <i class="fas fa-eye-slash" aria-hidden="true"></i> Hide numerals
           </button>
         </div>
@@ -719,12 +719,12 @@
 
       <!-- Tools tab (last) -->
       <div class="edit-tab-panel hidden" id="tabPanel_tools" role="tabpanel" aria-labelledby="editTab_tools" tabindex="0">
-        <button class="edit-btn" data-tool="text" title="Add a text overlay"><i class="fas fa-font" aria-hidden="true"></i> Text</button>
+        <button type="button" class="edit-btn" data-tool="text" title="Add a text overlay"><i class="fas fa-font" aria-hidden="true"></i> Text</button>
         <!-- Timestamp toggle: a toggle, not a modal — flips a tiny art-style
              timestamp on or off on the image. The label is built from the
              active date + noon UTC + wavelength so it reads as a caption,
              not a debug string. -->
-        <button class="edit-btn" data-tool="timestamp" id="toolTimestampBtn"
+        <button type="button" class="edit-btn" data-tool="timestamp" id="toolTimestampBtn"
                 title="Add a small caption with the date, time, and wavelength">
           <i class="fas fa-clock" aria-hidden="true"></i> Timestamp
         </button>
@@ -798,10 +798,10 @@
         <label class="toggle-label"><input type="checkbox" id="textOutlineToggle"> Stroke only (no fill)</label>
       </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
-        <button class="edit-btn" id="applyText" style="flex:1;justify-content:center;">
+        <button type="button" class="edit-btn" id="applyText" style="flex:1;justify-content:center;">
           <i class="fas fa-check" aria-hidden="true"></i> Apply
         </button>
-        <button class="edit-btn" id="cancelText">
+        <button type="button" class="edit-btn" id="cancelText">
           <i class="fas fa-times" aria-hidden="true"></i> Cancel
         </button>
       </div>
