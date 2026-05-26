@@ -3231,10 +3231,18 @@ body.single-preview-mode .editor-with-preview .selected-product-preview .preview
 body.single-preview-mode .editor-with-preview .selected-product-preview canvas.live-preview-canvas {
   /* Display at full container width; backing-store resolution is
      bumped in updateSelectedProductPreview so this upscale doesn't
-     pixellate. */
+     pixellate. Grab cursor hints that the user can pan the source
+     image by dragging on the mockup — the _mobilePan* handlers
+     pick this gesture up and update state.panX/panY in REF space.
+     Switches to grabbing on :active for the standard direct-
+     manipulation feedback. */
   width: 100%;
   height: auto;
   max-width: 100%;
+  cursor: grab;
+}
+body.single-preview-mode .editor-with-preview .selected-product-preview canvas.live-preview-canvas:active {
+  cursor: grabbing;
 }
 
 /* Resize handle (bottom-right corner). Drag to shrink/grow the

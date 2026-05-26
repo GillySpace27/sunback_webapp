@@ -7250,28 +7250,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       _detachDocDragListeners();
     }
 
-    // ── Mobile: pan via dragging the preview pane ───────────────
-    // F15 hides #imageStage on mobile, so the existing pan
-    // listeners on solarCanvas have nothing visible to drag
-    // against — pan was effectively dead. Bind a parallel handler
-    // to the preview pane: drag → update state.panX/panY in REF
-    // space, then renderCanvas() (which redraws the hidden source
-    // canvas AND refreshes the live preview at the end).
-    // Pan engages either when the Pan tool is active OR — to make
-    // the gesture obvious on mobile where the Pan button is two
-    // tabs away — whenever no other interactive mode is in play
-    // (cropping / text). Resize handle + close-button taps are
-    // excluded so they keep working.
+    // ── Pan via dragging the preview pane ──────────────────────
+    // Originally added for mobile (F15) where #imageStage was
+    // hidden under a CSS media query, leaving the existing pan
+    // listeners on solarCanvas with no visible target. The same
+    // condition now applies to single-preview-mode on every
+    // viewport (#imageStage display:none via body class), so the
+    // engage-gate accepts EITHER mobile OR single-preview-mode.
+    //
+    // Behaviour: drag inside the preview pane → compute delta in
+    // REF (source-image) space → update state.panX/panY →
+    // renderCanvas() (which redraws the hidden source canvas AND
+    // refreshes the live preview at the end). Crop is determined
+    // by product aspect ratio (no free-crop tool any more), so
+    // pan is the only direct-on-canvas gesture the user needs.
+    //
+    // Excludes: resize handle, pop-out button, close button, and
+    // every other interactive child (buttons / selects / inputs /
+    // sliders) so their own pointer handlers stay reachable.
     var _mobilePanDragging = false;
     var _mobilePanStartX = 0, _mobilePanStartY = 0;
     var _mobilePanStartPanX = 0, _mobilePanStartPanY = 0;
     var _mobilePanCanvas = null;
     function _mobilePanShouldEngage(targetEl) {
-      if (!window.matchMedia || !window.matchMedia("(max-width: 749px)").matches) return false;
+      var isMobile = !!(window.matchMedia && window.matchMedia("(max-width: 749px)").matches);
+      var isSinglePreview = document.body.classList.contains("single-preview-mode");
+      if (!isMobile && !isSinglePreview) return false;
       if (state.cropping || state.textMode) return false;
       // Don't hijack drags on the handle, close button, or other interactive children
       if (targetEl && targetEl.closest &&
           (targetEl.closest(".preview-resize-handle") ||
+           targetEl.closest(".preview-pane-resize-handle") ||
+           targetEl.closest(".preview-popout-btn") ||
            targetEl.closest(".preview-close-btn") ||
            targetEl.closest("button, a, select, input, [role='slider']"))) {
         return false;
