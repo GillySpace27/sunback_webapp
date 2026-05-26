@@ -166,10 +166,18 @@ def _is_beta_mode() -> bool:
 
 
 def enforce_beta_mode_block(reason: str = "BETA_MODE is active") -> None:
-    """Refuse mutating calls (Printify checkout/upload/product/publish)
+    """Refuse user-visible monetary paths (Printify publish + checkout)
     while BETA_MODE is on. The frontend already hides the buttons; this
     backstops a direct-API caller (which is exactly what billing-abuse
-    looks like)."""
+    looks like).
+
+    Narrowed 2026-05-25: /upload and /product are no longer gated, so
+    the "Generate real mockup" flow (upload → create draft → read
+    mockup URL → delete draft) works for beta testers. No money or
+    shipping is involved in that pipeline. /publish (makes a draft a
+    real Shopify listing) and /checkout (initiates the actual sale)
+    remain blocked.
+    """
     if _is_beta_mode():
         raise HTTPException(
             status_code=403,

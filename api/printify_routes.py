@@ -174,7 +174,13 @@ async def upload_image(request: Request):
     """
     enforce_origin(request)
     enforce_rate_limit(request, "printify_upload", _PRINTIFY_WRITE_LIMIT, _PRINTIFY_WRITE_WINDOW)
-    enforce_beta_mode_block("Image uploads are paused while BETA_MODE is on.")
+    # Beta-mode policy (2026-05-25 change): /upload + /product are
+    # required for the "Generate real mockup" flow, which creates a
+    # throwaway draft product and deletes it after reading back the
+    # auto-generated mockup URLs. No money or shipping changes hands.
+    # The user-visible money paths (/publish + /checkout) keep their
+    # beta block. Without unblocking here, testers couldn't preview
+    # what their design actually looks like as a real product photo.
     try:
         body = await request.json()
         url = body.get("url")
@@ -366,7 +372,10 @@ async def create_product(request: Request):
     """Creates a product in the merchant's Printify shop."""
     enforce_origin(request)
     enforce_rate_limit(request, "printify_product", _PRINTIFY_WRITE_LIMIT, _PRINTIFY_WRITE_WINDOW)
-    enforce_beta_mode_block("Product creation is paused while BETA_MODE is on.")
+    # Beta-mode allowed (see /upload for rationale): /product is the
+    # second half of the mockup-retrieval pipeline. Drafts get created
+    # then deleted; no listing, no order, no money. /publish remains
+    # blocked so a draft never becomes a real Shopify listing in beta.
     try:
         body = await request.json()
         result = await run_in_threadpool(_create_product_sync, body)
