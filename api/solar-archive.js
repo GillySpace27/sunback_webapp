@@ -4061,30 +4061,64 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // users were already on "auto"; sighted users lose the gentle
       // glide but actually see the section they tapped into — net
       // win.
-      var configSection = wlGrid && wlGrid.closest(".section");
-      if (configSection) {
-        configSection.scrollIntoView({ behavior: "auto", block: "start" });
-      }
-      // Suppress the wavelength-click's default scroll-to-products so
-      // the user lands on section 1 (the HEK picker), not pushed past
-      // it to the editor / product grid below.
+      // Two paths from here, gated by whether the vibe card carried a
+      // preset wavelength:
+      //   • Has wl  → skip step 1 (config) entirely and land on the
+      //     product picker. The user already told us "this date,
+      //     this wavelength" via the card; rebrowsing the HEK time
+      //     options would be friction. Step 1 stays collapsed; the
+      //     "Customize time & wavelength" CTA in step 2's header is
+      //     the back-door for users who want to fine-tune.
+      //   • No wl (= birthday card) → expand step 1, scroll to it,
+      //     let the user pick a wavelength themselves. HEK auto-
+      //     fills the top-pick time but the wavelength is theirs
+      //     to choose.
+      var configSection = document.getElementById("configSection") ||
+                          (wlGrid && wlGrid.closest(".section"));
+      var productSection = document.getElementById("productSection");
       if (wl) {
+        // Vibe with preset wavelength: click the tile (this fires the
+        // image-load pipeline) and scroll directly to products.
         _userTouchedWavelength = true;
         var wlTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + wl + '"]');
-        if (wlTile) setTimeout(function () {
-          state.suppressNextProductScroll = true;
-          wlTile.click();
-        }, 50);
-      }
-      if (configSection) {
-        setTimeout(function () {
-          var target = hekTileGrid && hekTileGrid.querySelector('.hek-tile[role="radio"]') ||
-                       document.getElementById("solarTime") ||
-                       configSection;
-          if (target && typeof target.focus === "function") {
-            try { target.focus({ preventScroll: true }); } catch (_e) {}
-          }
-        }, _prefersReducedMotion() ? 50 : 400);
+        if (wlTile) {
+          // The wavelength click triggers its own scroll-to-products
+          // via state.scrollToProductsOnLoad, so we don't suppress it.
+          // We DO defer the click a tick so the date-change above has
+          // a chance to settle in state.
+          state.suppressNextProductScroll = true;  // we'll do our own scroll
+          setTimeout(function () { wlTile.click(); }, 50);
+        }
+        // Explicit scroll to products. Snap-scroll (auto) lands
+        // synchronously before downstream layout mutations (HEK
+        // un-hide, product grid reveal) cancel a smooth scroll.
+        if (productSection && !productSection.classList.contains("hidden")) {
+          productSection.scrollIntoView({ behavior: "auto", block: "start" });
+        } else {
+          // Product section may still be .hidden if no image has
+          // loaded yet — leave the auto-scroll-on-load latch and
+          // let _installPreviewImage handle it when the image lands.
+          state.scrollToProductsOnLoad = true;
+        }
+      } else {
+        // Birthday-card flow: expand step 1, scroll to it, let the
+        // user choose. HEK fills time, user picks wavelength.
+        if (configSection) {
+          configSection.classList.remove("section-collapsed");
+          var toggle = document.getElementById("configSectionToggle");
+          if (toggle) toggle.setAttribute("aria-expanded", "true");
+          configSection.scrollIntoView({ behavior: "auto", block: "start" });
+        }
+        if (configSection) {
+          setTimeout(function () {
+            var target = hekTileGrid && hekTileGrid.querySelector('.hek-tile[role="radio"]') ||
+                         document.getElementById("solarTime") ||
+                         configSection;
+            if (target && typeof target.focus === "function") {
+              try { target.focus({ preventScroll: true }); } catch (_e) {}
+            }
+          }, _prefersReducedMotion() ? 50 : 400);
+        }
       }
     }
 
@@ -7537,6 +7571,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
     // Attach to the preview pane (delegated; survives canvas re-creation
     // in selectProduct since the pane itself isn't replaced).
+    // ── Config-section collapse toggle + product-section CTA ─────
+    // Step 1 starts collapsed (.section-collapsed in the HTML) because
+    // most users get into the editor via a vibe-card preset that
+    // already fills time + wavelength. The toggle in step 1's header
+    // expands/collapses the body; the "Customize time & wavelength"
+    // CTA in step 2's header scrolls back up + expands step 1 for
+    // users who want to fine-tune.
+    (function _wireConfigSectionToggle() {
+      var section = document.getElementById("configSection");
+      var toggle = document.getElementById("configSectionToggle");
+      if (!section || !toggle) return;
+      toggle.addEventListener("click", function () {
+        var nowExpanded = section.classList.toggle("section-collapsed");
+        // toggle returns the NEW state of having the class — i.e.
+        // true if .section-collapsed was just ADDED. So "expanded" is
+        // the opposite.
+        var isExpanded = !nowExpanded;
+        toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+      });
+    })();
+    (function _wireCustomizeFromProducts() {
+      var btn = document.getElementById("customizeFromProducts");
+      var section = document.getElementById("configSection");
+      var toggle = document.getElementById("configSectionToggle");
+      if (!btn || !section) return;
+      btn.addEventListener("click", function () {
+        section.classList.remove("section-collapsed");
+        if (toggle) toggle.setAttribute("aria-expanded", "true");
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    })();
+
     (function _attachMobilePanListeners() {
       var pane = document.getElementById("selectedProductPreview");
       if (!pane) return;

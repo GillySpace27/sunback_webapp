@@ -335,11 +335,17 @@
        so the explicit date/time/mission inputs are hidden — they stay
        in the DOM as canonical state holders that the HEK picker and
        wavelength tiles write into, but the user never sees them. -->
-  <div class="section">
-    <div class="section-header">
-      <div class="step-badge">1</div>
-      <h2 class="section-title">Pick a moment that day</h2>
-    </div>
+  <div class="section section-collapsible section-collapsed" id="configSection">
+    <button type="button" class="section-collapse-toggle" id="configSectionToggle"
+            aria-expanded="false" aria-controls="configSectionBody"
+            title="Show/hide the time & wavelength controls">
+      <div class="section-header">
+        <div class="step-badge">1</div>
+        <h2 class="section-title">Customize time &amp; wavelength <span class="section-collapse-hint">(optional)</span></h2>
+        <span class="section-collapse-chevron" aria-hidden="true">&#9662;</span>
+      </div>
+    </button>
+    <div class="section-collapsible-body" id="configSectionBody">
 
     <!-- Canonical state-holder inputs. Hidden from sight; HEK tiles
          and wavelength tiles read/write them; legacy code paths that
@@ -433,7 +439,7 @@
         <div class="wl-label" aria-hidden="true">UV · 5000K<br>Photosphere</div>
       </button>
     </div>
-
+    </div><!-- /#configSectionBody -->
   </div>
 
   <!-- Step 3: View & Edit Image (reordered by JS — appears after product selection) -->
@@ -936,6 +942,14 @@
     <div class="section-header">
       <div class="step-badge">2</div>
       <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
+      <!-- Back-link to step 1's customization. Most vibe-card flows
+           skip step 1 entirely and land here; this lets the user
+           opt back into time / wavelength tweaking without forcing
+           it on the default path. JS scrolls to + expands #configSection. -->
+      <button type="button" class="section-secondary-cta" id="customizeFromProducts"
+              title="Pick a different time of day or wavelength for this date">
+        Customize time &amp; wavelength →
+      </button>
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
