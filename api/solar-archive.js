@@ -1252,9 +1252,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       // Popped-out floating mode owns its own positioning (bottom-
       // right anchor via CSS, optional drag-to-move via the move
-      // handler). Skip pinning so we don't fight inline left/top
-      // with the popout layout.
+      // handler). Same goes for the two-column left-rail mode —
+      // the pane is fixed to the left edge of the viewport by CSS
+      // and already follows scroll naturally. Skip pinning in
+      // either case to avoid stepping on those layouts.
       if (document.body.classList.contains("preview-popped-out")) {
+        return;
+      }
+      if (document.body.classList.contains("left-rail-preview")) {
+        // Clear any previously-set sticky-pinning so the pane is
+        // clean for the CSS-driven rail rule to take over.
+        preview.classList.remove("preview-pinned");
+        preview.style.left = "";
+        preview.style.top = "";
+        preview.style.width = "";
         return;
       }
       // Narrow screens stack vertically (see media query in CSS) — no
@@ -1425,6 +1436,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof _installPreviewPaneControls === "function") {
         _installPreviewPaneControls(previewPane);
       }
+      // Recompute two-column rail-mode now that the pane is visible.
+      if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
 
       // Variant selector: load variants and show dropdown so user can override in place
       updatePreviewVariantSelector(product);
@@ -1434,6 +1447,65 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       refreshLivePreview();
       updatePreviewPaneMockupState();
     }
+
+    // ── Two-column desktop layout (left rail + dashboard) ─────────
+    // Toggles body.left-rail-preview when single-preview-mode is on,
+    // a product is selected, popout is off, and the viewport is
+    // ≥1100 px. CSS does the rest (fixes pane to left edge as a
+    // viewport rail, shifts .app-container right with margin-left,
+    // collapses editor grid to single column). Called from every
+    // entry/exit point that could change those conditions.
+    var _LEFT_RAIL_BREAKPOINT = 1100;
+    // Remember the pane's original parent + next-sibling so we can
+    // put it back when rail mode disengages. The pane is normally a
+    // child of .editor-with-preview inside #editSection, but any
+    // ancestor with a CSS transform (e.g. .section's fadeInUp
+    // animation) breaks position:fixed — fixed becomes relative to
+    // that transformed ancestor instead of the viewport. To make
+    // the rail truly viewport-anchored we hoist the pane up to be
+    // a direct child of <body> while rail mode is active.
+    var _railOriginalParent = null;
+    var _railOriginalNextSibling = null;
+    function _updateLeftRailMode() {
+      var body = document.body;
+      var pane = document.getElementById("selectedProductPreview");
+      if (!pane) return;
+      var wide = window.innerWidth >= _LEFT_RAIL_BREAKPOINT;
+      var single = body.classList.contains("single-preview-mode");
+      var popped = body.classList.contains("preview-popped-out");
+      var visible = !pane.classList.contains("hidden");
+      var shouldRail = wide && single && !popped && visible;
+      var isRail = body.classList.contains("left-rail-preview");
+      if (shouldRail && !isRail) {
+        // Engage: remember original DOM slot, hoist to body.
+        _railOriginalParent = pane.parentElement;
+        _railOriginalNextSibling = pane.nextSibling;
+        body.appendChild(pane);
+        body.classList.add("left-rail-preview");
+      } else if (!shouldRail && isRail) {
+        // Disengage: put the pane back where it came from so the
+        // docked layout (sticky inside .editor-with-preview grid)
+        // works normally.
+        if (_railOriginalParent && _railOriginalParent.isConnected) {
+          if (_railOriginalNextSibling && _railOriginalNextSibling.isConnected) {
+            _railOriginalParent.insertBefore(pane, _railOriginalNextSibling);
+          } else {
+            _railOriginalParent.appendChild(pane);
+          }
+        }
+        body.classList.remove("left-rail-preview");
+      }
+    }
+    // Re-evaluate on viewport resize. Debounced via rAF so a drag-
+    // resize of the window doesn't spam class-toggles.
+    var _leftRailResizeRaf = 0;
+    window.addEventListener("resize", function () {
+      if (_leftRailResizeRaf) return;
+      _leftRailResizeRaf = requestAnimationFrame(function () {
+        _leftRailResizeRaf = 0;
+        _updateLeftRailMode();
+      });
+    });
 
     // ── Preview pane controls: resize handle + pop-out button ────────
     // Injected once per pane (idempotent). The pane already has a
@@ -1482,6 +1554,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             previewPane.style.setProperty("--popout-w", saved + "px");
           }
         } catch (_e) {}
+        // Rail mode shouldn't engage while popped out (popout owns
+        // positioning); re-evaluate so the body class flips off.
+        if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
       });
       previewPane.appendChild(popBtn);
 
@@ -1727,6 +1802,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             previewPanel.style.width = "";
             previewPanel.style.maxWidth = "";
           }
+          // Re-evaluate rail mode: popout is off now; if conditions
+          // hold (wide viewport + single-preview + product), the
+          // rail should re-engage so the preview docks back into
+          // the left rail rather than the editor grid.
+          if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
           return;
         }
         // Legacy non-single-preview path: hide pane + editor (the
@@ -1746,6 +1826,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         updateProductSectionHeader();
         var productSection = document.getElementById("productSection");
         if (productSection) _scrollToEl(productSection, "start");
+        // Pane hidden → rail mode no longer applies.
+        if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
       });
     }
 
