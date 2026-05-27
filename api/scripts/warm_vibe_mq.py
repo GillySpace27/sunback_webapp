@@ -109,32 +109,45 @@ def _percentile_normalize(data):
     return float(lo), float(hi)
 
 
-def _fetch_fits(date: str, time_utc: str, wavelength: int, max_attempts: int = 4):
+def _fetch_fits(date: str, time_utc: str, wavelength: int, max_attempts: int = 5):
     """Fetch ONE AIA FITS frame nearest the (date, time, wl) target.
     Reuses SunPy's on-disk cache so re-runs are fast.
 
-    Retries on VSO socket timeouts (the dominant failure mode in the
-    first overnight run — 158 of 297 combos failed with
-    "Timeout on reading data from socket" during Fido.search, mid-run
-    when Stanford's VSO endpoint was under load). Exponential backoff
-    between attempts. ±60s window (was ±30s) so even slower-cadence
-    UV bands (1600/1700 at 24 s) get at least one frame.
+    Retries on TWO transient failure modes observed in practice:
+      1. Socket timeouts (Fido.search raises) — Stanford VSO under load.
+      2. Empty result sets (Fido.search returns 0 rows) — VSO's silent
+         throttle when multiple queries arrive from the same IP
+         quickly. Direct sequential queries to the SAME tuple return
+         10+ frames; parallel workers got empty responses. Treating
+         empty as transient + backing off lets the throttle clear.
+
+    Real "no data" days (rare for AIA, which has been continuous since
+    2010) will exhaust the retry budget and return None — that's the
+    right outcome.
     """
     hh, mm = (int(x) for x in time_utc.split(":"))
     t = datetime.strptime(date, "%Y-%m-%d").replace(hour=hh, minute=mm)
+    # Widened to ±2 min so slower-cadence UV bands (1600/1700 at 24s)
+    # and slightly off-peak times still hit at least one frame.
+    window = timedelta(seconds=120)
     last_err = None
     for attempt in range(1, max_attempts + 1):
         try:
             res = Fido.search(
-                a.Time(t - timedelta(seconds=60), t + timedelta(seconds=60)),
+                a.Time(t - window, t + window),
                 a.Instrument("AIA"),
                 a.Wavelength(wavelength * u.angstrom),
             )
             if not len(res) or not len(res[0]):
-                # Empty result is NOT retried — it usually means there
-                # really wasn't an AIA frame in that window (vs a
-                # timeout, which would have raised an exception).
-                return None
+                # Empty result — treat as transient throttle. Sleep
+                # progressively longer before retrying.
+                if attempt >= max_attempts:
+                    return None
+                backoff = 3.0 + (attempt * 2.0)  # 5, 7, 9, 11 s
+                print(f"    [empty retry {attempt}/{max_attempts}] {date} {time_utc} {wavelength}Å → wait {backoff}s",
+                      flush=True)
+                time.sleep(backoff)
+                continue
             files = Fido.fetch(res[0, 0])
             if not files:
                 return None
@@ -146,13 +159,11 @@ def _fetch_fits(date: str, time_utc: str, wavelength: int, max_attempts: int = 4
                          "temporarily" in msg or "socket" in msg or
                          "read of closed" in msg)
             if not transient or attempt >= max_attempts:
-                # Re-raise so the outer try/except logs FAILED with the real reason.
                 raise
-            backoff = 2.0 ** (attempt - 1)  # 1, 2, 4, 8 sec
+            backoff = 2.0 ** (attempt - 1)  # 1, 2, 4, 8, 16 s
             print(f"    [retry {attempt}/{max_attempts}] {type(e).__name__}: {e} → wait {backoff}s",
                   flush=True)
             time.sleep(backoff)
-    # If we somehow exited the loop without returning or raising:
     if last_err:
         raise last_err
     return None
@@ -215,6 +226,54 @@ def _fetch_top_events(local_base: str, date: str) -> list[dict]:
     return events[:3]
 
 
+# ── Worker entry point (must be module-level for multiprocessing pickling) ──
+def _render_combo_worker(task: dict) -> dict:
+    """Render one (slug, rank, wl) combo. Returns a result dict the
+    coordinator uses to update the manifest. Each worker is its own
+    process with its own SunPy / matplotlib state; no shared mutable
+    state.
+
+    task keys: slug, date, rank, time_utc, wl, out_root_str, skip_existing
+    Returns:   slug, rank, wl, status (ok/skipped/no_fits/failed), msg,
+               wall_seconds, urls (when ok or skipped)
+    """
+    slug = task["slug"]
+    date = task["date"]
+    rank = task["rank"]
+    time_utc = task["time_utc"]
+    wl = task["wl"]
+    out_root = Path(task["out_root_str"])
+    skip_existing = task.get("skip_existing", False)
+    out_dir = out_root / "vibe" / slug / "events" / str(rank) / str(wl)
+    rel = f"vibe/{slug}/events/{rank}/{wl}"
+    urls = {
+        "raw_thumb_url":  f"/asset/default/{rel}/raw_thumb.png",
+        "raw_mq_url":     f"/asset/default/{rel}/raw_mq.png",
+        "rhef_thumb_url": f"/asset/default/{rel}/rhef_thumb.png",
+        "rhef_mq_url":    f"/asset/default/{rel}/rhef_mq.png",
+    }
+    expected = [out_dir / Path(u).name for u in
+                ("raw_thumb.png", "raw_mq.png", "rhef_thumb.png", "rhef_mq.png")]
+    if skip_existing and all(p.exists() and p.stat().st_size > 1000 for p in expected):
+        return {"slug": slug, "rank": rank, "wl": wl, "status": "skipped",
+                "msg": "", "wall_seconds": 0.0, "urls": urls}
+
+    t0 = time.time()
+    try:
+        smap = _fetch_fits(date, time_utc, wl)
+        if smap is None:
+            return {"slug": slug, "rank": rank, "wl": wl, "status": "no_fits",
+                    "msg": "no FITS in window", "wall_seconds": time.time() - t0,
+                    "urls": None}
+        _render_one(smap, wl, out_dir)
+        return {"slug": slug, "rank": rank, "wl": wl, "status": "ok",
+                "msg": "", "wall_seconds": time.time() - t0, "urls": urls}
+    except Exception as e:
+        return {"slug": slug, "rank": rank, "wl": wl, "status": "failed",
+                "msg": f"{type(e).__name__}: {e}",
+                "wall_seconds": time.time() - t0, "urls": None}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--local", default="http://localhost:8001")
@@ -222,7 +281,17 @@ def main():
     parser.add_argument("--skip-existing", action="store_true",
                         help="Skip combos where all 4 PNGs already exist.")
     parser.add_argument("--only", default="",
-                        help="Comma-separated subset of vibe slugs (default: all 5).")
+                        help="Comma-separated subset of vibe slugs (default: all).")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Parallel worker processes (default 1). Each holds "
+                             "~600 MB while rendering; 8 workers ≈ 5 GB resident. "
+                             "VSO tolerates ~8 parallel fetches comfortably; higher "
+                             "risks per-IP rate-limiting. The retry-on-timeout logic "
+                             "absorbs occasional throttling either way.")
+    parser.add_argument("--manifest-flush-every", type=int, default=4,
+                        help="Flush the manifest to disk every N completed tasks "
+                             "(default 4). Lower = more disk churn but smaller loss "
+                             "window on crash.")
     args = parser.parse_args()
 
     local = args.local.rstrip("/")
@@ -238,77 +307,112 @@ def main():
 
     only = set(s.strip() for s in args.only.split(",") if s.strip())
     selected_vibes = [v for v in _VIBE_GRID_TUPLES if not only or v["slug"] in only]
-    print(f"warming {len(selected_vibes)} vibe(s): {[v['slug'] for v in selected_vibes]}")
+    print(f"warming {len(selected_vibes)} vibe(s) with {args.workers} worker(s): "
+          f"{[v['slug'] for v in selected_vibes]}")
 
-    t0 = time.time()
-    rendered = 0
-    skipped = 0
-    failed = 0
-
+    # Build the full task list. Each task is one (slug, rank, wl) combo
+    # that the worker will check + maybe-render. Worker decides whether
+    # to skip based on existing files (so the orchestrator stays dumb).
+    tasks = []
     for vibe in selected_vibes:
         slug = vibe["slug"]
         date = vibe["date"]
         slug_entry = vibes.get(slug) or {}
         events = slug_entry.get("events") or _fetch_top_events(local, date)
-
+        slug_entry["events"] = events
+        vibes[slug] = slug_entry
         for ev_idx, ev in enumerate(events):
             rank = ev.get("rank") or (ev_idx + 1)
             time_utc = ev.get("time_utc") or "12:00"
-            wl_map = ev.setdefault("wavelengths", {})
-
             for wl in WAVELENGTHS:
-                out_dir = out_root / "vibe" / slug / "events" / str(rank) / str(wl)
-                expected = [
-                    out_dir / "raw_thumb.png", out_dir / "raw_mq.png",
-                    out_dir / "rhef_thumb.png", out_dir / "rhef_mq.png",
-                ]
-                if args.skip_existing and all(p.exists() and p.stat().st_size > 1000 for p in expected):
-                    skipped += 1
-                    print(f"  [skip cached] {slug} rank={rank} {time_utc} {wl}Å")
-                    # Still ensure the manifest fields are present.
-                    rel = f"vibe/{slug}/events/{rank}/{wl}"
-                    wl_entry = wl_map.setdefault(str(wl), {})
-                    wl_entry.setdefault("raw_thumb_url",  f"/asset/default/{rel}/raw_thumb.png")
-                    wl_entry.setdefault("raw_mq_url",     f"/asset/default/{rel}/raw_mq.png")
-                    wl_entry.setdefault("rhef_thumb_url", f"/asset/default/{rel}/rhef_thumb.png")
-                    wl_entry.setdefault("rhef_mq_url",    f"/asset/default/{rel}/rhef_mq.png")
-                    continue
+                tasks.append({
+                    "slug": slug, "date": date, "rank": rank,
+                    "time_utc": time_utc, "wl": wl,
+                    "out_root_str": str(out_root),
+                    "skip_existing": bool(args.skip_existing),
+                })
+    print(f"task queue: {len(tasks)} combos")
 
-                stamp = time.time()
-                print(f"  [render]  {slug} rank={rank} {time_utc} {wl}Å …", flush=True)
-                try:
-                    smap = _fetch_fits(date, time_utc, wl)
-                    if smap is None:
-                        print(f"    no FITS available — skipping", flush=True)
-                        failed += 1
-                        continue
-                    _render_one(smap, wl, out_dir)
-                    rel = f"vibe/{slug}/events/{rank}/{wl}"
-                    wl_entry = wl_map.setdefault(str(wl), {})
-                    wl_entry["raw_thumb_url"]  = f"/asset/default/{rel}/raw_thumb.png"
-                    wl_entry["raw_mq_url"]     = f"/asset/default/{rel}/raw_mq.png"
-                    wl_entry["rhef_thumb_url"] = f"/asset/default/{rel}/rhef_thumb.png"
-                    wl_entry["rhef_mq_url"]    = f"/asset/default/{rel}/rhef_mq.png"
-                    rendered += 1
-                    print(f"    done in {time.time()-stamp:.1f}s", flush=True)
-                except Exception as e:
-                    print(f"    FAILED: {type(e).__name__}: {e}", flush=True)
-                    failed += 1
-                # Incremental manifest write so a crash mid-warm
-                # preserves what we already rendered.
-                ev["wavelengths"] = wl_map
-                slug_entry["events"] = events
-                vibes[slug] = slug_entry
-                manifest["vibes"] = vibes
-                manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                tmp = manifest_path.with_suffix(".json.tmp")
-                tmp.write_text(json.dumps(manifest, indent=2))
-                os.replace(tmp, manifest_path)
+    t0 = time.time()
+    rendered = skipped = failed = no_fits = 0
+    pending_writes = 0
+
+    def _apply_result(r: dict):
+        nonlocal pending_writes
+        slug = r["slug"]
+        rank = r["rank"]
+        wl = r["wl"]
+        status = r["status"]
+        msg = r["msg"]
+        wall = r["wall_seconds"]
+        urls = r["urls"]
+        tag = f"{slug} rank={rank} {wl}Å"
+        if status == "ok":
+            print(f"  [ok    ] {tag:50s} {wall:5.1f}s")
+        elif status == "skipped":
+            print(f"  [cached] {tag}")
+        elif status == "no_fits":
+            print(f"  [empty ] {tag} — no FITS in window")
+        else:
+            print(f"  [FAIL  ] {tag} — {msg}")
+        # Update manifest in-memory.
+        if urls:
+            slug_entry = vibes.setdefault(slug, {})
+            events = slug_entry.setdefault("events", [])
+            ev = next((e for e in events if (e.get("rank") or 1) == rank), None)
+            if ev is not None:
+                wl_map = ev.setdefault("wavelengths", {})
+                wl_entry = wl_map.setdefault(str(wl), {})
+                wl_entry.update(urls)
+                pending_writes += 1
+
+    def _flush_manifest():
+        manifest["vibes"] = vibes
+        manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        tmp = manifest_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(manifest, indent=2))
+        os.replace(tmp, manifest_path)
+
+    if args.workers <= 1:
+        # Serial path — same behaviour as the original script, useful
+        # for debugging without the multiprocessing layer.
+        for task in tasks:
+            r = _render_combo_worker(task)
+            _apply_result(r)
+            if r["status"] == "ok": rendered += 1
+            elif r["status"] == "skipped": skipped += 1
+            elif r["status"] == "no_fits": no_fits += 1
+            else: failed += 1
+            if pending_writes >= args.manifest_flush_every:
+                _flush_manifest()
+                pending_writes = 0
+    else:
+        # Parallel path — multiprocessing.Pool, results come back as
+        # each task finishes (unordered). The coordinator (this process)
+        # owns the manifest and writes it every N completions so a kill
+        # mid-run loses at most N tasks of progress.
+        import multiprocessing as mp
+        # Use 'spawn' (Python 3.8+ default on macOS anyway): a fork()-
+        # safe re-import of sunpy/matplotlib in each worker.
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=args.workers) as pool:
+            for r in pool.imap_unordered(_render_combo_worker, tasks):
+                _apply_result(r)
+                if r["status"] == "ok": rendered += 1
+                elif r["status"] == "skipped": skipped += 1
+                elif r["status"] == "no_fits": no_fits += 1
+                else: failed += 1
+                if pending_writes >= args.manifest_flush_every:
+                    _flush_manifest()
+                    pending_writes = 0
+
+    _flush_manifest()  # final flush
 
     elapsed = time.time() - t0
     print(f"\n=== done in {elapsed/60:.1f} min ===")
     print(f"  rendered: {rendered}")
     print(f"  skipped:  {skipped}")
+    print(f"  no_fits:  {no_fits}")
     print(f"  failed:   {failed}")
     print(f"  manifest: {manifest_path}")
 
