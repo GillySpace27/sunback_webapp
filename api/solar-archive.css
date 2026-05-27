@@ -3341,28 +3341,41 @@ body.single-preview-mode:not(.preview-popped-out) .selected-product-preview .pre
    The popout button and X button update this state so toggling
    modes plays nice with the rail. */
 body.left-rail-preview {
-  --rail-w: clamp(360px, 42vw, 600px);
+  /* Centered two-column composition. Both rail + dashboard get
+     sized as a single block, then centered in the viewport via
+     `--left-edge`. Matches the pattern Gilly likes from the
+     Pixelated Enso layout: balanced columns with comfortable
+     margins on both sides, not edge-pinned. Below the breakpoint
+     (1100 px) this whole rule set is skipped and we fall back to
+     the single-column docked layout. */
+  --rail-w: clamp(340px, 40vw, 560px);
+  --dashboard-w: clamp(420px, 44vw, 680px);
   --rail-gap: 32px;
+  --total-w: calc(var(--rail-w) + var(--rail-gap) + var(--dashboard-w));
+  /* Half the empty space outside the total block — applied as the
+     left margin of the rail and the right margin of the dashboard
+     so the whole composition reads as one centered group. */
+  --left-edge: max(24px, calc((100vw - var(--total-w)) / 2));
 }
 body.left-rail-preview .app-container {
-  /* Push the dashboard right of the rail and let max-width pin it
-     to the right edge of the viewport. The padding-right preserves
-     a comfortable margin from the screen edge. */
-  margin-left: calc(var(--rail-w) + var(--rail-gap));
-  margin-right: 0;
-  max-width: calc(100vw - var(--rail-w) - var(--rail-gap) * 2);
-  padding-right: var(--rail-gap);
+  /* Dashboard sits in the right half of the centered block. */
+  margin-left: calc(var(--left-edge) + var(--rail-w) + var(--rail-gap));
+  margin-right: var(--left-edge);
+  max-width: var(--dashboard-w);
+  padding-left: 0;
+  padding-right: 0;
 }
 body.left-rail-preview .selected-product-preview {
-  /* Fixed-position left rail — follows scroll automatically because
-     it's anchored to viewport coords, not document flow. */
+  /* Fixed-position left rail, anchored to the same `--left-edge` so
+     it shares a centered axis with the dashboard. Follows scroll
+     automatically because position:fixed pins to viewport coords. */
   position: fixed !important;
   top: 24px;
-  left: 24px;
+  left: var(--left-edge);
   right: auto !important;
   bottom: auto !important;
-  width: calc(var(--rail-w) - 24px);
-  max-width: calc(var(--rail-w) - 24px);
+  width: var(--rail-w);
+  max-width: var(--rail-w);
   max-height: calc(100vh - 48px);
   overflow: auto;
   z-index: 20;
