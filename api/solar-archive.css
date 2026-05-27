@@ -3321,6 +3321,81 @@ body.single-preview-mode:not(.preview-popped-out) .selected-product-preview .pre
   display: none;
 }
 
+/* ── Two-column desktop layout: preview rail + dashboard ────────
+   On wide-enough viewports (≥1100 px), when single-preview-mode
+   is active and a product is selected, the preview pane leaves
+   the editor's internal grid and becomes a fixed-position left
+   rail that follows the user as they scroll. The rest of the page
+   (vibe cards, wavelength picker, product grid, editor controls)
+   shifts right and right-justifies inside its column. Gilly's
+   ask 2026-05-25: "two columns, preview floats and follows as
+   the user scrolls, dashboard right-justified."
+
+   The toggle gate is `body.left-rail-preview`, set by JS on
+   viewport-resize when:
+     - body.single-preview-mode is on, AND
+     - a product is selected (preview pane not .hidden), AND
+     - body is NOT .preview-popped-out (floating mode owns its
+       own positioning; rail layout would fight it), AND
+     - window.innerWidth >= 1100.
+   The popout button and X button update this state so toggling
+   modes plays nice with the rail. */
+body.left-rail-preview {
+  --rail-w: clamp(360px, 42vw, 600px);
+  --rail-gap: 32px;
+}
+body.left-rail-preview .app-container {
+  /* Push the dashboard right of the rail and let max-width pin it
+     to the right edge of the viewport. The padding-right preserves
+     a comfortable margin from the screen edge. */
+  margin-left: calc(var(--rail-w) + var(--rail-gap));
+  margin-right: 0;
+  max-width: calc(100vw - var(--rail-w) - var(--rail-gap) * 2);
+  padding-right: var(--rail-gap);
+}
+body.left-rail-preview .selected-product-preview {
+  /* Fixed-position left rail — follows scroll automatically because
+     it's anchored to viewport coords, not document flow. */
+  position: fixed !important;
+  top: 24px;
+  left: 24px;
+  right: auto !important;
+  bottom: auto !important;
+  width: calc(var(--rail-w) - 24px);
+  max-width: calc(var(--rail-w) - 24px);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  z-index: 20;
+}
+body.left-rail-preview .editor-with-preview {
+  /* Preview hoisted to the rail; editor grid collapses to a
+     single column (toolbar then actions). */
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "toolbar"
+    "actions";
+}
+body.left-rail-preview .editor-with-preview .selected-product-preview {
+  /* Override the grid-area from the docked layout — the pane is
+     no longer inside this grid visually, but it's still a DOM
+     descendant so we have to neutralize the grid-area assignment. */
+  grid-area: unset;
+}
+/* Override the rail mode's positioning when the user pops the
+   preview out into floating mode. The popped-out CSS already
+   pins to bottom-right; the .left-rail-preview rule above would
+   otherwise pin it top-left and override the float. */
+body.left-rail-preview.preview-popped-out .selected-product-preview {
+  position: fixed !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: 24px;
+  right: 24px;
+  width: var(--popout-w, 360px);
+  max-width: 90vw;
+  max-height: 80vh;
+}
+
 /* Sticky editor canvas — see header comment for rationale. The cap
    on max-height keeps room visible for the toolbar to scroll behind
    it on shorter viewports. */
