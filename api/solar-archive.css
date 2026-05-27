@@ -2375,6 +2375,17 @@ html.embedded .modal-box {
   display: flex; align-items: center; justify-content: center;
 }
 .vibe-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+/* JPG plate-scale match. Helioviewer takeScreenshot at 1024² covers
+   FOV = 3000 arcsec (image_scale = 3000/1024 ≈ 2.93 arcsec/px). SDO/AIA
+   L1 FITS rendered at 3000² with sunpy's native extent covers
+   FOV ≈ 2458 arcsec (4096 × 0.6). So the JPG shows the disk at 2458/3000
+   = 0.82× the relative size the science image shows. We scale the JPG up
+   by 3000/2458 ≈ 1.22× so its disk co-registers with the Raw/RHEF disk
+   when toggling. This crops ~11% off each edge of the JPG (off-limb
+   empty space — no info loss at the card thumb size). The alternative
+   — shrinking the science to match — would leave a transparent margin
+   since FITS data doesn't extend past 2458 arcsec. */
+.vibe-thumb img.is-jpg-tier { transform: scale(1.22); transform-origin: center; }
 .vibe-thumb.is-loading::after {
   content: "";
   position: absolute; inset: 0;

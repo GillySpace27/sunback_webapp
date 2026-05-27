@@ -3753,7 +3753,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     // Swap a card's thumb image. Uses the URL → Image() LRU cache so a
     // toggle from RHEF → Raw → RHEF doesn't re-fetch each time.
-    function _setVibeThumb(card, url) {
+    // Tag the JPG tier with a class so CSS can scale it 1.22× to match
+    // the science (Raw/RHEF) plate scale. See .vibe-thumb img.is-jpg-tier
+    // in solar-archive.css for the geometry justification.
+    function _applyTierClass(imgEl, tier) {
+      if (!imgEl) return;
+      imgEl.classList.toggle("is-jpg-tier", tier === "jpg");
+    }
+    function _setVibeThumb(card, url, tier) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;
       var cached = _thumbCacheGet(url);
@@ -3763,12 +3770,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Clone the cached node so each well has its own DOM element.
         var c = cached.cloneNode(false);
         c.alt = "";
+        _applyTierClass(c, tier);
         thumbWell.appendChild(c);
         return;
       }
       thumbWell.classList.add("is-loading");
       var img = new Image();
       img.alt = "";
+      _applyTierClass(img, tier);
       img.onload = function () {
         thumbWell.classList.remove("is-loading");
         thumbWell.innerHTML = "";
@@ -3805,6 +3814,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var overlay = new Image();
         overlay.alt = "";
         overlay.className = "vibe-thumb-overlay";
+        // Mirror _setVibeThumb: tag JPG tier so CSS scales it 1.22× to
+        // match the science plate scale. The class survives the
+        // overlay's class-strip below (only "is-wiping" and
+        // "vibe-thumb-overlay" are removed at completion).
+        _applyTierClass(overlay, toTier);
         overlay.onload = function () {
           thumbWell.appendChild(overlay);
           // Force a reflow so the starting clip-path value is committed
@@ -3880,8 +3894,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var wl = card.getAttribute("data-vibe-wl") || "171";
           var time = card.getAttribute("data-vibe-time") || "12:00";
           // Start in Raw. Fall back to Helioviewer JPG if manifest absent.
+          // When the manifest IS absent and we get the JPG fallback, we
+          // still pass tier="raw" — the JPG fallback is at 256² thumb
+          // scale (not the 1024² HQ JPG that needs co-registration), so
+          // the is-jpg-tier transform shouldn't apply.
           var url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time });
-          _setVibeThumb(card, url);
+          _setVibeThumb(card, url, "raw");
           card.setAttribute("data-vibe-active-tier", "raw");
         });
         // Reveal the master "Click here for the filtered view" CTA only
