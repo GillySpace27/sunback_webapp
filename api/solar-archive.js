@@ -1466,6 +1466,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // a direct child of <body> while rail mode is active.
     var _railOriginalParent = null;
     var _railOriginalNextSibling = null;
+    // Set to true by an IntersectionObserver on #editSection. The
+    // rail only engages when the editor (step 3) is actually in
+    // view — the earlier sections (vibe cards, wavelength picker,
+    // product grid) don't benefit from the preview rail and
+    // shouldn't have the dashboard squeezed into a narrow column
+    // while the user is still browsing the catalog. Initialised
+    // false so the rail starts off; set up by the observer below
+    // the moment editSection exists.
+    var _editorInView = false;
     function _updateLeftRailMode() {
       var body = document.body;
       var pane = document.getElementById("selectedProductPreview");
@@ -1474,7 +1483,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var single = body.classList.contains("single-preview-mode");
       var popped = body.classList.contains("preview-popped-out");
       var visible = !pane.classList.contains("hidden");
-      var shouldRail = wide && single && !popped && visible;
+      var shouldRail = wide && single && !popped && visible && _editorInView;
       var isRail = body.classList.contains("left-rail-preview");
       if (shouldRail && !isRail) {
         // Engage: remember original DOM slot, hoist to body.
@@ -1485,7 +1494,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       } else if (!shouldRail && isRail) {
         // Disengage: put the pane back where it came from so the
         // docked layout (sticky inside .editor-with-preview grid)
-        // works normally.
+        // works normally. Also clear any inline left/top set by
+        // the rail's CSS-vars resolver so the docked layout starts
+        // from a clean slate.
         if (_railOriginalParent && _railOriginalParent.isConnected) {
           if (_railOriginalNextSibling && _railOriginalNextSibling.isConnected) {
             _railOriginalParent.insertBefore(pane, _railOriginalNextSibling);
@@ -1495,6 +1506,50 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         body.classList.remove("left-rail-preview");
       }
+    }
+    // Compute _editorInView from scroll position. IntersectionObserver
+    // would be the ideal mechanism but it doesn't reliably tick in
+    // every embedding context (e.g. some preview iframes don't
+    // dispatch IO callbacks until the page is focused). A scroll-
+    // event listener with a getBoundingClientRect check works
+    // everywhere and is cheap (rAF-debounced). The check: editor
+    // section is "in view" if any part of it overlaps the visible
+    // viewport AND it isn't .hidden.
+    function _recomputeEditorInView() {
+      var ed = document.getElementById("editSection");
+      if (!ed) { _editorInView = false; return; }
+      if (ed.classList.contains("hidden")) { _editorInView = false; return; }
+      var rect = ed.getBoundingClientRect();
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      // 80-px buffer at the top so the rail engages just as the
+      // editor scrolls into view, not after the user is already
+      // half-way down it. Mirror buffer at the bottom so the rail
+      // releases just as the editor leaves the bottom of the
+      // viewport on a scroll-up rather than the moment the very
+      // last pixel disappears.
+      _editorInView = (rect.bottom > 80) && (rect.top < vh - 80);
+    }
+    // Synchronous on every scroll. The body of _recomputeEditorInView
+    // is one getBoundingClientRect + a couple of comparisons — cheap
+    // enough not to need rAF batching. (We tried rAF batching but
+    // some embedding contexts — preview iframes especially — throttle
+    // or pause rAF when not focused, so the rail never updated.)
+    function _onScrollOrResize() {
+      var prev = _editorInView;
+      _recomputeEditorInView();
+      if (prev !== _editorInView) _updateLeftRailMode();
+    }
+    window.addEventListener("scroll", _onScrollOrResize, { passive: true });
+    window.addEventListener("resize", _onScrollOrResize);
+    // Initial measurement — also called whenever the editor is
+    // revealed (commitProductSelection un-hides editSection then
+    // calls _scrollToEl, which triggers the scroll handler — but
+    // explicit invocation here covers the case where the editor
+    // becomes visible without a scroll, e.g. when the user is
+    // already at the bottom of the page).
+    function _onEditorVisibilityChanged() {
+      _recomputeEditorInView();
+      _updateLeftRailMode();
     }
     // Re-evaluate on viewport resize. Debounced via rAF so a drag-
     // resize of the window doesn't spam class-toggles.
@@ -1826,8 +1881,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         updateProductSectionHeader();
         var productSection = document.getElementById("productSection");
         if (productSection) _scrollToEl(productSection, "start");
-        // Pane hidden → rail mode no longer applies.
-        if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
+        // Editor hidden → recompute _editorInView (will be false)
+        // and rail mode → off.
+        if (typeof _onEditorVisibilityChanged === "function") _onEditorVisibilityChanged();
       });
     }
 
@@ -8469,8 +8525,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // hasMockup check only looked at state.mockups[pid] and not
         // at the manifest-served defaults; the spinner thus never
         // cleared on a fresh load.
-        var hasMockup = (state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0)
-          || (state.isDefaultActive && defaultMockupManifest && defaultMockupManifest[p.id] && defaultMockupManifest[p.id].url);
+        // Split the "has a real mockup" check by source so the
+        // slideshow path below can read `state.mockups[p.id].images`
+        // safely without nullchecking on every reference. The
+        // Phase B default-manifest variant carries a single URL,
+        // not an images[] array, so it gets a simpler render path.
+        var hasGeneratedMockup = state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0;
+        var hasDefaultMockup = state.isDefaultActive && defaultMockupManifest && defaultMockupManifest[p.id] && defaultMockupManifest[p.id].url;
+        var hasMockup = hasGeneratedMockup || hasDefaultMockup;
         var statusDot = hasMockup
           ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
           : (state.originalImage ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> ' : '');
@@ -8520,7 +8582,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
 
         // Show real Printify mockup if available, else draw canvas mockup
-        if (hasMockup) {
+        if (hasGeneratedMockup) {
+          // Multi-image slideshow path — Printify returns several
+          // per-variant photos when the user generates a real mockup
+          // for THIS product (or when 25-product warm pre-populated
+          // state.mockups via _autoGenerateMockups). Branches for
+          // counter, prev/next buttons, etc.
           var mockImages = state.mockups[p.id].images;
           var cardSlideIdx = state.mockupSlideIndex[p.id] || 0;
           if (cardSlideIdx >= mockImages.length) cardSlideIdx = 0;
@@ -8748,6 +8815,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (selectedCard) selectedCard.classList.add("selected");
       updateSelectedProductPreview(product);
       editSection.classList.remove("hidden");
+      // Editor just became reachable — recompute rail-mode gating
+      // (the rail only engages when the editor is in view).
+      if (typeof _onEditorVisibilityChanged === "function") _onEditorVisibilityChanged();
       syncCropRatioUI();
 
       // Push a history entry so the browser back button unwinds to the
