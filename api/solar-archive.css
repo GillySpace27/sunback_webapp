@@ -508,6 +508,79 @@ body.beta-mode-active .beta-banner {
   margin-bottom: 16px;
 }
 
+/* ── Collapsible sections ─────────────────────────────────────────
+   Step 1 (config — time + wavelength) is collapsed by default
+   because most users get into the editor via a vibe-card preset
+   that fills both fields automatically. The full controls only
+   need to come out for the "your day" birthday card or when the
+   user explicitly clicks the "Customize time & wavelength" CTA
+   in step 2.
+
+   .section-collapse-toggle is a real <button> wrapper around the
+   header so click + Space + Enter all work + a screen reader
+   announces it as a disclosure. .section-collapsible-body holds
+   everything beneath the header that should collapse away. */
+.section-collapse-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.section-collapse-toggle .section-header {
+  margin-bottom: 0;
+}
+.section-collapse-chevron {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--text-secondary, #a0a0bd);
+  transition: transform 0.15s ease;
+  transform: rotate(180deg);  /* up when expanded */
+}
+.section-collapsed .section-collapse-chevron {
+  transform: rotate(0deg);    /* down when collapsed (default) */
+}
+.section-collapse-hint {
+  color: var(--text-secondary, #a0a0bd);
+  font-weight: 400;
+  font-size: 0.85em;
+  margin-left: 6px;
+}
+.section-collapsible-body {
+  /* When expanded, add breathing room above the body so it doesn't
+     crash into the now-clickable header. Collapse via display:none
+     so hidden grids inside don't run their reveal animations on
+     every section toggle. */
+  margin-top: 16px;
+}
+.section-collapsed .section-collapsible-body {
+  display: none;
+}
+
+/* Small "secondary" CTA buttons in section headers — used for
+   things like "Customize time & wavelength →" inside step 2's
+   header. Sits at the right of the header (margin-left:auto). */
+.section-secondary-cta {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--text-secondary, #a0a0bd);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.section-secondary-cta:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #e9eaf5);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
 .step-badge {
   width: 32px; height: 32px;
   border-radius: 50%;
