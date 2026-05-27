@@ -3647,25 +3647,35 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Helioviewer JPG when the manifest doesn't have the slug yet
     // (i.e., warm hasn't been run).
     //
-    // Tier semantics:
-    //   "jpg"  — use a Helioviewer JPG (cached if available, else
-    //            the live proxy). Wavelength comes from the vibe's
-    //            primary event's wavelength so the card colorimetry
-    //            matches what the wavelength tile shows.
-    //   "raw"  — pre-rendered FITS-derived percentile-clipped PNG
-    //            (raw_thumb_url at the vibe level if present, else
-    //            falls through to JPG).
-    //   "rhef" — Radial Histogram Equalization Filter applied to the
-    //            Raw (rhef_thumb_url, or fallback to JPG).
+    // Tier semantics (all three render at HQ in the vibe card now that
+    // warm_vibe_jpg_hq.py + the HQ Raw/RHEF warm have populated the
+    // slug-level *_full / jpg_hq fields):
+    //   "jpg"  — 1024² Helioviewer JPG (jpg_hq_url). Falls back to the
+    //            primary event's 256² jpg_thumb_url, then to the live
+    //            Helioviewer proxy.
+    //   "raw"  — 4096² FITS-derived percentile-clipped PNG
+    //            (raw_full_url). Falls back to 256² raw_thumb_url.
+    //   "rhef" — 4096² Radial Histogram Equalization Filter applied to
+    //            the Raw (rhef_full_url). Falls back to 256²
+    //            rhef_thumb_url.
     function _vibeThumbUrl(slug, tier, fallbackArgs) {
       tier = tier || "raw";
       var entry = _vibeManifest && _vibeManifest[slug];
       if (entry) {
-        if (tier === "raw" && entry.raw_thumb_url) return entry.raw_thumb_url;
-        if (tier === "rhef" && entry.rhef_thumb_url) return entry.rhef_thumb_url;
+        // HQ tiers (full-resolution master-toggle preview). Each falls
+        // back to its 256² thumb if HQ isn't cached yet — this is what
+        // happens on a fresh deploy before the HQ warm bundle uploads.
+        if (tier === "raw") {
+          return entry.raw_full_url || entry.raw_thumb_url || null;
+        }
+        if (tier === "rhef") {
+          return entry.rhef_full_url || entry.rhef_thumb_url || null;
+        }
         if (tier === "jpg") {
-          // Use the primary event's primary-wavelength cached JPG when
-          // possible. Falls through to the live Helioviewer proxy.
+          // Prefer the 1024² HQ JPG cached by warm_vibe_jpg_hq.py.
+          // Falls back to the primary-event/primary-wavelength 256²
+          // jpg_thumb_url, then to the live Helioviewer proxy below.
+          if (entry.jpg_hq_url) return entry.jpg_hq_url;
           var ev1 = (entry.events || [])[0];
           if (ev1 && ev1.wavelengths) {
             var primaryWl = String(fallbackArgs && fallbackArgs.wl ? fallbackArgs.wl : "171");
