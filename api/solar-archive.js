@@ -9057,11 +9057,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Select button — that's where the real commit happens. So this
         // button is always enabled once we have an image + blueprint, with
         // no "choose a variant first" gate.
-        var canSelect = !!state.originalImage && p.blueprintId && p.printProviderId;
-        var selectLabel = !state.originalImage
-          ? '<i class="fas fa-lock"></i> Select wavelength first'
-          : (!p.blueprintId ? '<i class="fas fa-spinner fa-spin"></i> Resolving\u2026'
-              : '<i class="fas fa-arrow-right"></i> <span class="product-select-btn-label">Pick a variant</span>');
+        // Product-first refactor: the user picks a product BEFORE an
+        // image is loaded \u2014 state.originalImage is null at this step
+        // by design. So canSelect no longer requires an image; it just
+        // requires the product to have a Printify blueprint resolved.
+        // Variant pick \u2192 step "image" \u2192 image loads \u2192 step "editor"
+        // handles the rest of the pipeline.
+        var canSelect = !!p.blueprintId && !!p.printProviderId;
+        var selectLabel = !p.blueprintId
+          ? '<i class="fas fa-spinner fa-spin"></i> Resolving\u2026'
+          : '<i class="fas fa-arrow-right"></i> <span class="product-select-btn-label">Pick a variant</span>';
 
         card.className = "product-card";
         card.dataset.productId = p.id;
@@ -10425,7 +10430,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // variant" buttons are self-explanatory, so no redundant hint.
         sendHint.textContent = "";
       } else {
-        sendHint.textContent = "Select a date and click a wavelength to see product previews.";
+        // Cold-load on step "product": Phase B Printify mockups are the
+        // photoreal preview surface, no user image required. Clear the
+        // legacy "Select a date" hint so it doesn't read as a gate.
+        sendHint.textContent = "";
         sendHint.style.color = "var(--text-dim)";
       }
     }
