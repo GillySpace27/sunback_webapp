@@ -2293,6 +2293,19 @@ body.step-product #editSection,
 body.step-product #vibeRevealCta {
   display: none !important;
 }
+/* On step "image" the master tier toggle is the user's primary control
+   (cards visible, mockups updating). Friction agent observed it stayed
+   hidden because of the legacy two-state "Reveal button → toggle"
+   narrative — on the new product-first flow the narrative beat is gone,
+   the user has already committed to a product and just needs to choose
+   an image at their preferred tier. Force the toggle visible on step
+   "image", and hide the per-product "Reveal" pulsing button (it was a
+   nice intro but it now blocks the toggle from showing). */
+body.step-image #vibeRevealCta {
+  display: flex !important;
+}
+body.step-image .vibe-reveal-btn { display: none !important; }
+body.step-image .vibe-master-toggle { display: inline-flex !important; }
 body.step-image #productSection,
 body.step-image #editSection {
   display: none !important;
