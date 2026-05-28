@@ -811,7 +811,10 @@ select:focus-visible {
   content: "\f023 Locked";
   font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
   font-weight: 900;
-  letter-spacing: 0.4em;
+  /* Removed letter-spacing: 0.4em — the wide-tracked uppercase-feeling
+     "L O C K E D" alongside lowercase "Loading…" looked inconsistent
+     and the agent friction audit read it as an error state. */
+  letter-spacing: 0.02em;
   color: var(--text-dim);
 }
 .filter-step-status[data-status="loading"]::before {
