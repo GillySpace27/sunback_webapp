@@ -39,9 +39,15 @@
   --transition: 0.3s cubic-bezier(0.4,0,0.2,1);
 }
 
-html.dark {
-  color-scheme: dark;
-}
+/* Default color-scheme tells the browser to render its OWN chrome
+   (scrollbar, autofill, native form controls, mobile address-bar
+   hint) in the correct theme. Without this the frame "around" the
+   page rendered in OS-light while the page itself was dark, which
+   read as incongruous (friction audit). `light dark` lets the browser
+   pick based on what's actually rendered; html.dark forces dark even
+   if the OS is light. */
+html { color-scheme: light dark; background: var(--bg-deep); }
+html.dark { color-scheme: dark; }
 
 html:not(.dark) {
   --bg-deep: #f0eff5;
@@ -643,10 +649,22 @@ select {
   -webkit-appearance: none;
 }
 
-input[type="date"]:focus,
-input[type="time"]:focus,
-select:focus {
+/* Mouse-focus styling: subtle border + glow, no default outline.
+   :focus-visible (keyboard) still applies the global outline via the
+   top-of-file rule — the agent friction audit found those rings were
+   getting stripped because the old `:focus` block beat the global
+   `:focus-visible` on specificity. Splitting :focus from :focus-visible
+   keeps the mouse-clean look while preserving keyboard ring. */
+input[type="date"]:focus:not(:focus-visible),
+input[type="time"]:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
   outline: none;
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 3px var(--glow-corona);
+}
+input[type="date"]:focus-visible,
+input[type="time"]:focus-visible,
+select:focus-visible {
   border-color: var(--border-active);
   box-shadow: 0 0 0 3px var(--glow-corona);
 }
@@ -2181,6 +2199,20 @@ html.embedded .modal-box {
   letter-spacing: 0.01em;
 }
 .vibe-reveal-btn i { font-size: 1.05rem; }
+/* Subtitle next to the main CTA label — explains WHAT "filtered view"
+   means without making the user click to find out. Friction audit
+   flagged the unexplained CTA as competing with the vibe cards. */
+.vibe-reveal-sub {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  opacity: 0.85;
+  letter-spacing: 0;
+}
+@media (max-width: 520px) {
+  .vibe-reveal-sub { display: block; margin: 4px 0 0; }
+}
 .vibe-reveal-btn:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 3px;
@@ -3074,6 +3106,36 @@ html.embedded .modal-box {
 /* Defensive: hide any leftover Select buttons from older renders that
    haven't been re-rendered yet. */
 .variant-select-btn { display: none !important; }
+/* Variant-list expander: collapse long t-shirt/garment lists so the inline
+   pane doesn't become a wall of rows. Friction audit found the unfolded
+   list dwarfed every other section. */
+.variant-list-expander {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 6px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+.variant-list-expander:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+.variant-list-rest-count {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 0.7rem;
+}
+.variant-list-rest.hidden { display: none; }
 
 .variant-clock-note {
   font-size: 0.7rem;
@@ -4200,6 +4262,18 @@ html.embedded .editor-with-preview .selected-product-preview.preview-pinned {
 .feedback-fab:active { transform: translateY(0); }
 .feedback-fab i { font-size: 1rem; }
 
+/* When the editor is engaged (rail mode active), the editor's sticky
+   "Download your design" / "Create on Shopify" CTA bar sits in the
+   bottom-right too. Friction audit found the feedback pills crash on
+   top of it. Shrink the group to icon-only and shift it left of the
+   CTA bar so both remain reachable. */
+body.left-rail-preview .feedback-fab-group {
+  right: 18px;
+  bottom: 88px;  /* clear the ~64px CTA bar */
+}
+body.left-rail-preview .feedback-fab-label { display: none; }
+body.left-rail-preview .feedback-fab { padding: 11px; }
+
 @media (max-width: 600px) {
   /* On narrow screens, hide labels so the two pills stay icon-only and
      don't crowd each other — full label still appears in the title attr. */
@@ -4856,6 +4930,32 @@ html.embedded .feedback-modal textarea {
 .color-chooser-tile:hover,
 .color-chooser-tile:focus-visible { border-color: var(--border-active, #7b61ff); }
 .color-chooser-tile:active { transform: translateY(1px); }
+/* "You picked this" confirmation flash — ~220ms window between click
+   and modal-close so the user sees their selection register. */
+.color-chooser-tile.is-picking {
+  border-color: var(--accent-corona, #7b61ff);
+  box-shadow: 0 0 0 4px rgba(123, 97, 255, 0.35);
+  transform: scale(0.98);
+}
+.color-chooser-tile.is-picking::after {
+  content: "\f00c";  /* fa-check */
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+  font-weight: 900;
+  position: absolute;
+  top: 8px; right: 10px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--accent-corona, #7b61ff);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem;
+  animation: tilePickPop 0.22s ease-out;
+}
+.color-chooser-tile { position: relative; }
+@keyframes tilePickPop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
 .color-chooser-preview {
   width: 120px; height: 120px;
   display: flex; align-items: center; justify-content: center;
@@ -5452,8 +5552,21 @@ html.embedded .feedback-product-results {
   .wl-label {
     font-size: 0.78rem;
     line-height: 1.25;
+    /* Friction audit: at ~390 px the second word ("Chromosphere",
+       "Photosphere") was being hard-truncated mid-word ("Chromosphe")
+       because .wl-card has overflow:hidden and a fixed height. Allow
+       hyphenated soft-wraps + give the card room to breathe. */
+    overflow-wrap: anywhere;
+    hyphens: auto;
   }
   .wl-value { font-size: 1rem; }
+  .wl-card {
+    /* Let the wrapped label fit without clipping. The ::before tinted
+       bar at the top still clips since it's anchored to the card edge
+       (overflow:hidden on its own pseudo). */
+    overflow: visible;
+    min-height: 120px;
+  }
 
   /* ── F7 · Beta banner: collapse to a slim chip on phone ────────
      The full sentence eats 52 px above the picker. The H1 already

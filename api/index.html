@@ -4,6 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Mobile address bar / OS chrome theme — matches our dark page
+       background (var(--bg-deep) = #0a0a12) and light alternate (#f0eff5)
+       per prefers-color-scheme. Without these the iOS/Android status bar
+       and desktop frame defaulted to white while the page rendered dark. -->
+  <meta name="theme-color" content="#0a0a12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f0eff5" media="(prefers-color-scheme: light)">
   <title>Solar Archive — Your Sun, Your Day</title>
   <!-- Preconnect to the Font Awesome CDN + the Solar Archive API
        origin so the TCP+TLS handshake overlaps with HTML parsing
@@ -90,9 +96,11 @@
             users expect ONE control. -->
     <div class="vibe-reveal-cta hidden" id="vibeRevealCta">
       <button type="button" class="vibe-reveal-btn" id="vibeRevealBtn"
-              aria-label="Reveal the filtered view of all five suns">
+              title="Apply the Radial Histogram Equalization Filter (RHEF) to every card — reveals faint coronal structure invisible in the raw image."
+              aria-label="Apply the RHEF filter to all sun cards — reveals faint corona detail invisible in the raw image">
         <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-        Click here for the filtered view
+        Reveal the filtered view
+        <span class="vibe-reveal-sub">(brings out faint corona detail)</span>
       </button>
       <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
            role="radiogroup" aria-label="Image tier — JPG, Raw FITS, or filtered RHEF">
@@ -321,6 +329,9 @@
             <div class="vibe-sub">Birthday, anniversary, any date</div>
           </div>
           <label for="vibeBirthdayInput" class="vibe-birthday-label">Pick a date</label>
+          <!-- max is set dynamically to today in solar-archive.js init so the
+               user can't pick a future date (was: silently rendered "latest"
+               while the UI displayed e.g. 2030). min is SDO/AIA first light. -->
           <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
                  min="2010-05-15" aria-describedby="vibeBirthdayHint">
           <div class="vibe-birthday-hint" id="vibeBirthdayHint">Back to May 2010 — print the sun that was shining.</div>
