@@ -185,11 +185,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (idx <= 0) return;
       setStep(_STEP_ORDER[idx - 1]);
     }
-    // Bootstrap: read hash on cold load. For now (commit 1) we DO NOT
-    // honour the hash — we always start at "image" so behaviour matches
-    // today's app. Commit 3 will flip the cold default to "product"
-    // and honour hash-based deep links.
-    state.currentStep = state.currentStep || "image";
+    // Bootstrap: read hash on cold load. Commit 3 of the workflow
+    // refactor flips the cold default to "product" so the photoreal
+    // Printify mockups are the landing surface. Honour the hash so
+    // bookmarks / deep links to #image or #editor restore the right
+    // step — but downgrade to "product" if the required state isn't
+    // there (a deep-link to #editor without a picked product would
+    // strand the user on a black canvas).
+    var _initialStep = "product";
+    var _hashStep = (location.hash || "").replace(/^#/, "").trim();
+    if (_isValidStep(_hashStep)) _initialStep = _hashStep;
+    state.currentStep = state.currentStep || _initialStep;
+    // Sanity: if the hash promised editor or image but we have no
+    // selectedProduct (cold load, nothing committed yet), demote.
+    if (state.currentStep !== "product" && !state.selectedProduct) {
+      state.currentStep = "product";
+    }
     _applyStep(state.currentStep);
     // Expose for the breadcrumb component (commit 2) and debugging.
     try {
@@ -197,6 +208,77 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       window.SolarArchive.setStep = setStep;
       window.SolarArchive.popStep = popStep;
     } catch (_e) {}
+
+    // ── Workflow breadcrumb renderer ────────────────────────────
+    // Populates #workflowBreadcrumb with back-pills based on the
+    // current step + what's been locked in (state.selectedProduct,
+    // state.activeVibeSlug). Called whenever those state fields
+    // change (commitProductChoice, _activateVibe, setStep transitions).
+    // Each pill is a <button> that calls setStep(targetStep) so the
+    // browser-back history stays consistent.
+    //
+    // Shape per step:
+    //   product:  hidden — no completed steps to show
+    //   image:    [← Product · Variant]
+    //   editor:   [← Product · Variant] [← Image · Wavelength]
+    //   review:   [← Product · Variant] [← Image · Wavelength] [← Editor]
+    //
+    // The master toggle (#vibeRevealCta) keeps its own position; the
+    // breadcrumb sits visually beside it. On step "editor" both the
+    // breadcrumb and the master toggle hide (editor owns the screen).
+    function _renderBreadcrumb() {
+      var container = document.getElementById("workflowBreadcrumb");
+      var pillBox = document.getElementById("workflowBreadcrumbPills");
+      if (!container || !pillBox) return;
+      var step = state.currentStep;
+      // Hide on step "product" (nothing completed) and step "editor"
+      // (editor section runs the show now). The breadcrumb is THE
+      // sticky nav on step "image" only.
+      if (step !== "image") {
+        container.classList.add("hidden");
+        pillBox.innerHTML = "";
+        return;
+      }
+      var pills = [];
+      if (state.selectedProduct) {
+        var prod = _currentSelectedProductObj();
+        var name = (prod && prod.name) || state.selectedProduct;
+        var variantId = state.selectedVariantByProduct &&
+                        state.selectedVariantByProduct[state.selectedProduct];
+        var variantLbl = "";
+        if (variantId && prod && variantId !== prod.variantId) {
+          variantLbl = " · #" + variantId;
+        }
+        pills.push({
+          label: name + variantLbl,
+          target: "product",
+          aria: "Change product",
+        });
+      }
+      // (Future: image pill on step "editor" — but step editor hides
+      // the breadcrumb entirely per the above, so deferred.)
+      var html = pills.map(function (p) {
+        return '<button type="button" class="workflow-breadcrumb-pill" ' +
+               'data-target-step="' + p.target + '" ' +
+               'aria-label="' + p.aria + '">' +
+               '<span class="arrow" aria-hidden="true">←</span> ' +
+               escapeHtmlSimple(p.label) +
+               '</button>';
+      }).join('<span class="workflow-breadcrumb-sep" aria-hidden="true">›</span>');
+      pillBox.innerHTML = html;
+      container.classList.toggle("hidden", !pills.length);
+      // Wire click — delegate so re-renders don't accumulate listeners.
+      // We rebind here because innerHTML wipe discarded any prior wiring.
+      pillBox.onclick = function (e) {
+        var btn = e.target.closest(".workflow-breadcrumb-pill");
+        if (!btn) return;
+        var target = btn.getAttribute("data-target-step");
+        if (target) setStep(target);
+      };
+    }
+    // Re-render whenever the step changes.
+    document.body.addEventListener("solar-archive:step-change", _renderBreadcrumb);
+    try { window.SolarArchive._renderBreadcrumb = _renderBreadcrumb; } catch (_e) {}
 
     // ── Embedded-context detection ───────────────────────────────
     // The app is also served as an iframe on the Shopify storefront
@@ -2527,26 +2609,30 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — now choose a product below to start editing.');
       showToast(wl + " Å loaded!");
 
-      // Product-first workflow: show product grid, keep editor hidden until product selected
       imageStage.classList.remove("empty");
       productSection.classList.remove("hidden");
-      if (state.scrollToProductsOnLoad) {
-        state.scrollToProductsOnLoad = false;
-        _scrollToEl(productSection, "start");
-      }
       renderProducts();
       if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
 
-      // If a product was already selected (e.g. user switched wavelength), re-show editor
-      // and scroll back down to it so the user lands on the canvas.
+      // Step machine: image just landed, route the next step. If a
+      // product is already locked in (the new product-first flow:
+      // commitProductChoice ran earlier, so state.selectedProduct is
+      // set), advance to step "editor". Otherwise the user is on the
+      // legacy path (image first, product second) — stay on step
+      // "image" so they can pick a product without auto-jumping.
       if (state.selectedProduct) {
-        editSection.classList.remove("hidden");
-        if (btnBuyInEditor) btnBuyInEditor.classList.remove("hidden");
-        var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-        if (product) updateSelectedProductPreview(product);
-        setTimeout(function() {
-          _scrollToEl(editSection, "start");
-        }, 120);
+        commitImageChoice();
+      } else {
+        if (state.scrollToProductsOnLoad) {
+          state.scrollToProductsOnLoad = false;
+          _scrollToEl(productSection, "start");
+        }
+        // Surface the image as the active vibe so the master toggle
+        // (rendered in the breadcrumb on step "image") drives mockups.
+        if (typeof setStep === "function" && state.currentStep === "product") {
+          setStep("image");
+        }
+        if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
       }
       updateProductSectionHeader();
 
@@ -9173,10 +9259,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Called from the per-variant Select button in the variant pane (the
     // primary commit path). Primes state for the chosen product, then opens
     // the editor. Also kept general enough for legacy callers.
-    function commitProductSelection(product) {
+    // ── Split commit path (product-first refactor, commit 3) ────
+    // commitProductChoice: variant Continue → transition to step
+    // "image". Sets state.selectedProduct + crop ratio + card selected
+    // class. Does NOT unhide the editor; the editor opens in
+    // commitImageChoice once a source image has actually loaded.
+    function commitProductChoice(product) {
       var productId = product.id;
-      // Interest signal: the user committed this product into the editor
-      // ("Continue to editor"). Counts toward the "clicks" column.
+      // Interest signal: the user committed this product as their
+      // canvas. Counts toward the "clicks" column.
       recordStatEvent(productId, "click");
       // Selecting a different product means the canvas will render at a new
       // aspect ratio; any previously uploaded Printify image is now stale.
@@ -9201,24 +9292,71 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var selectedCard = productGrid.querySelector('.product-card[data-product-id="' + productId + '"]')
         || (userReqGrid && userReqGrid.querySelector('.product-card[data-product-id="' + productId + '"]'));
       if (selectedCard) selectedCard.classList.add("selected");
+      // Transition to "image" step — vibe grid + configure panel become
+      // the user's next surface. The breadcrumb bar surfaces "← {Product
+      // name}" so they can rewind.
+      if (typeof setStep === "function") setStep("image");
+      if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
+    }
+
+    // commitImageChoice: called by _installPreviewImage after a source
+    // image actually loads (vibe-card / wavelength tile pipeline). Opens
+    // the editor and transitions to step "editor". No-op if no product is
+    // selected yet (deep-link / dev-console scenarios) — image stays
+    // loaded, user picks a product first.
+    function commitImageChoice() {
+      if (!state.selectedProduct) return;
+      var product = _currentSelectedProductObj();
+      if (!product) return;
       updateSelectedProductPreview(product);
       editSection.classList.remove("hidden");
       // Editor just became reachable — recompute rail-mode gating
       // (the rail only engages when the editor is in view).
       if (typeof _onEditorVisibilityChanged === "function") _onEditorVisibilityChanged();
       syncCropRatioUI();
-
+      // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
+      // data-credits modal) live in _continueOpenEditor below.
+      _continueOpenEditor(product);
       // Push a history entry so the browser back button unwinds to the
-      // product picker instead of leaving the page (tester report:
-      // "Back button takes me out of shopify, not back in the web app").
-      // Skip if we're already on an 'editor' state — re-opens or
-      // variant changes shouldn't multiply history entries.
+      // image step instead of leaving the page. Skip if we're already
+      // on an 'editor' state — re-opens or variant changes shouldn't
+      // multiply history entries.
       try {
         if (window.history && window.history.pushState
             && (!window.history.state || window.history.state._sa !== "editor")) {
-          window.history.pushState({ _sa: "editor", productId: productId }, "");
+          window.history.pushState({ _sa: "editor", productId: state.selectedProduct, step: "editor" }, "");
         }
       } catch (_e) { /* iframe sandbox or hostile env — silently skip */ }
+      if (typeof setStep === "function") setStep("editor");
+      if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
+    }
+
+    // Look up the current product object by id from the PRODUCTS catalog.
+    // Used by commitImageChoice to call updateSelectedProductPreview
+    // without re-passing the product reference around.
+    function _currentSelectedProductObj() {
+      var pid = state.selectedProduct;
+      if (!pid) return null;
+      return (PRODUCTS && PRODUCTS.find) ? PRODUCTS.find(function (p) { return p.id === pid; }) : null;
+    }
+
+    // Backward-compat shim: existing callers that still call
+    // commitProductSelection(product) get the combined behaviour —
+    // commit the product choice, AND if an image is already loaded,
+    // advance straight to the editor. Most call sites should be
+    // migrated to call commitProductChoice + (when ready) the editor
+    // opens via _installPreviewImage → commitImageChoice.
+    function commitProductSelection(product) {
+      commitProductChoice(product);
+      if (state.originalImage) {
+        commitImageChoice();
+      }
+    }
+    // The remainder of the original commitProductSelection body — editor-
+    // open side effects — is now keyed off commitImageChoice via the
+    // _continueOpenEditor helper below. We extract it as a helper so
+    // commitImageChoice can call it AFTER the editor section is visible.
+    function _continueOpenEditor(product) {
 
       // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
       // vignette so the print area is covered completely the moment the
