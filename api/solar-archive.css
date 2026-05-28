@@ -2234,6 +2234,43 @@ html.embedded .modal-box {
   50%      { box-shadow: 0 4px 18px rgba(255,179,71,0.35), 0 0 0 14px rgba(255,179,71,0.00); }
 }
 
+/* ── Workflow step-machine section visibility (commit 3) ──────
+   Body classes drive which sections are visible per step. The
+   .hidden class was removed from #productSection's initial markup
+   so it's visible by default; CSS body.step-product hides everything
+   else.
+
+   Step "product" (cold landing): products only. Vibe-grid + configure
+   + editor hidden.
+   Step "image" (variant picked): vibe-grid + configure visible.
+   Product section + editor hidden — the breadcrumb pill is how the
+   user navigates back to product.
+   Step "editor" (image picked): editor visible. Product + vibe-grid
+   + configure hidden — the editor's own UI takes over.
+
+   Each rule uses !important to defeat any leftover JS-managed .hidden
+   class. JS no longer manages .hidden on these sections under the
+   new flow, but be defensive in case a legacy code path adds it back. */
+body.step-product .vibe-grid-section,
+body.step-product #configSection,
+body.step-product #editSection {
+  display: none !important;
+}
+body.step-image #productSection,
+body.step-image #editSection {
+  display: none !important;
+}
+body.step-editor #productSection,
+body.step-editor .vibe-grid-section,
+body.step-editor #configSection {
+  display: none !important;
+}
+/* When a product is selected (step image/editor), .product-card
+   stays in DOM but we override .hidden so the user can see their
+   pick rendered with the editor canvas in scroll-back view. NOT
+   implemented in commit 3 — defer to a future polish pass that
+   adds a "selected product mini preview" affordance. */
+
 /* ── Workflow breadcrumb (product-first refactor, commit 2) ──────
    Sticky-top compact bar. Hosts (a) back-pills for completed steps
    and (b) the master tier toggle on step "image". Hidden when on

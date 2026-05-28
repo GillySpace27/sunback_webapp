@@ -84,12 +84,13 @@
 
   <!-- Step 1 (product-first flow): Choose your canvas — surface the
        photo-real Printify mockups as the marketing/sell surface.
-       Note: the section is reordered here in the DOM (was below the
-       vibe grid + editor). The flow inversion that actually defers
-       editor open until an image lands arrives in commit 3. -->
-  <div class="section hidden" id="productSection">
+       NO .hidden on initial markup: cold-load defaults to step
+       "product" and CSS body.step-product hides the other sections.
+       Visibility on later steps is also driven by body.step-{name}
+       rules in solar-archive.css. -->
+  <div class="section" id="productSection">
     <div class="section-header">
-      <div class="step-badge">2</div>
+      <div class="step-badge">1</div>
       <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
       <!-- Back-link to step 1's customization. Most vibe-card flows
            skip step 1 entirely and land here; this lets the user
@@ -415,7 +416,7 @@
             aria-expanded="false" aria-controls="configSectionBody"
             title="Show/hide the time & wavelength controls">
       <div class="section-header">
-        <div class="step-badge">1</div>
+        <div class="step-badge">2</div>
         <h2 class="section-title">Customize time &amp; wavelength <span class="section-collapse-hint">(optional)</span></h2>
         <span class="section-collapse-chevron" aria-hidden="true">&#9662;</span>
       </div>
