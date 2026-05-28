@@ -2085,8 +2085,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     wlGrid.addEventListener("click", function(e) {
       var card = e.target.closest(".wl-card");
       if (!card) return;
-      wlGrid.querySelectorAll(".wl-card").forEach(function(c) { c.classList.remove("selected"); });
+      // Clear BOTH selection markers from every tile — the user is
+      // committing a choice, so the suggester's orange ring should also
+      // disappear (otherwise the clicked tile shows two stacked rings:
+      // the inset is-suggested orange + the outer .selected glow).
+      wlGrid.querySelectorAll(".wl-card").forEach(function(c) {
+        c.classList.remove("selected");
+        c.classList.remove("is-suggested");
+      });
       card.classList.add("selected");
+      // Latch so the suggester doesn't re-add an orange ring on the next
+      // HEK refresh (e.g. when the date is auto-loaded after this click).
+      _userTouchedWavelength = true;
       state.wavelength = parseInt(card.dataset.wl, 10);
       // User picked their own wavelength — landing default no longer
       // active, so product tiles stop using the pre-rendered Printify
@@ -3330,6 +3340,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     function _renderHekSkeleton() {
       if (!hekTileGrid) return;
+      // Clear JS state too, not just the DOM tiles. Without this, stale
+      // events from the previous date's payload could be observed by
+      // anything that read _hekCurrentEvents between skeleton render and
+      // new tiles landing (friction-audit agent saw 2014-10-22 events
+      // appear momentarily after switching to 2019-05-10).
+      _hekCurrentEvents = [];
+      _hekSelectedRank = null;
       hekTileGrid.innerHTML =
         '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
         '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
@@ -3516,9 +3533,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (hekPickerSection) hekPickerSection.classList.remove("hidden");
       var sub = document.getElementById("hekPickerSub");
       if (sub) sub.textContent = "Looking up the day’s top events…";
-      fetch("/api/hek/best_time?date=" + encodeURIComponent(dateStr), { cache: "no-store" })
+      // Hard 12s timeout. Without this the skeleton sits forever when
+      // HEK is slow or down (UX agent reproduced this — skeleton hung
+      // for 10+ s while the rest of the page advanced). The fallback
+      // path below renders a single "noon UTC" tile so the picker
+      // always reaches a usable state.
+      var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+      var timer = setTimeout(function () {
+        if (token !== _hekFetchToken) return;
+        if (ctrl) try { ctrl.abort(); } catch (_e) {}
+        _renderHekTiles({ events: [{
+          rank: 1, rank_label: "Noon UTC (HEK slow — using fallback)",
+          time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
+          event_type: "Noon UTC", event_code: null, family: null, tier: 4,
+          fallback: true,
+        }] }, dateStr);
+      }, 12000);
+      fetch("/api/hek/best_time?date=" + encodeURIComponent(dateStr),
+            { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
+          clearTimeout(timer);
           if (token !== _hekFetchToken) return;
           if (!data) {
             _renderHekTiles({ events: [{
@@ -3571,6 +3606,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           }
         })
         .catch(function () {
+          clearTimeout(timer);
           if (token !== _hekFetchToken) return;
           _renderHekTiles({ events: [{
             rank: 1, rank_label: "Noon UTC (couldn't reach HEK)",
@@ -4258,21 +4294,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
 
     if (dateInput) {
-      dateInput.addEventListener("change", function () {
-        if (dateInput.value !== "2014-10-24") state.isDefaultActive = false;
+      // Validate date before firing the HEK + wavelength pipeline. Partial
+      // typed input (e.g. "2020-01-") and out-of-range values (pre-2010 or
+      // future) used to fire HEK queries that silently returned stale or
+      // wrong data. Now we hold fire until the value is complete + in range.
+      var _isValidDate = function (val) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(val || "")) return false;
+        if (dateInput.min && val < dateInput.min) return false;
+        if (dateInput.max && val > dateInput.max) return false;
+        return true;
+      };
+      var _runDateChange = function () {
+        var v = dateInput.value;
+        if (!_isValidDate(v)) return;
+        if (v !== "2014-10-24") state.isDefaultActive = false;
         _resetTouchedLatchesForNewDate();
-        fetchHEKBestTime(dateInput.value);
+        fetchHEKBestTime(v);
         loadWavelengthThumbnails();
-      });
+      };
+      dateInput.addEventListener("change", _runDateChange);
       var _dateInputTimer = null;
       dateInput.addEventListener("input", function() {
         clearTimeout(_dateInputTimer);
-        _dateInputTimer = setTimeout(function () {
-          if (dateInput.value !== "2014-10-24") state.isDefaultActive = false;
-          _resetTouchedLatchesForNewDate();
-          fetchHEKBestTime(dateInput.value);
-          loadWavelengthThumbnails();
-        }, 250);
+        _dateInputTimer = setTimeout(_runDateChange, 250);
       });
     }
     // Time changes: same flow as date, since JPG previews and FITS queries
@@ -4860,20 +4904,42 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function showDataCredits(title, lead) {
       showInfo(title || "Behind the image", _dataCreditsHtml(lead), { html: true });
     }
-    // Auto-surface ONCE PER SESSION the first time the user enters the
-    // editor after picking a variant (see the confirm-modal Continue
-    // handler) — by then they've chosen their product, and the HQ
-    // render is finishing in the background, so it reads as "here's
-    // what's working while your image gets ready" rather than an
-    // interruption.
+    // Auto-surface ONCE PER USER (not per session) the first time the
+    // user enters the editor after picking a variant. Persists dismissal
+    // in localStorage so repeat visitors aren't gated by the wall of
+    // text every time. All three friction-audit agents flagged this as a
+    // forced gate — the footer "Data credits" link below stays as the
+    // discoverable surface for anyone who wants to read it later.
+    var _DATA_CREDITS_DISMISS_KEY = "sunback.dataCredits.dismissed";
     var _dataCreditsShownThisSession = false;
+    function _dataCreditsAlreadyDismissed() {
+      try { return localStorage.getItem(_DATA_CREDITS_DISMISS_KEY) === "1"; }
+      catch (_e) { return false; }
+    }
     function maybeShowDataCredits() {
       if (_dataCreditsShownThisSession) return;
+      if (_dataCreditsAlreadyDismissed()) return;
       _dataCreditsShownThisSession = true;
       showDataCredits(
         "Behind the scenes, while your image renders",
-        "Your high-resolution solar image is being prepared. While you wait, meet the institutes and infrastructure making it possible:"
+        "Your high-resolution solar image is being prepared. While you wait, meet the institutes and infrastructure making it possible:" +
+        ' <span style="display:block;margin-top:10px;font-size:0.85rem;">' +
+        '<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">' +
+        '<input type="checkbox" id="dataCreditsDismissForever" style="margin:0;"> ' +
+        "Don’t show this again</label></span>"
       );
+      // Wire the checkbox after the modal is in the DOM. showInfo renders
+      // synchronously, so a microtask is enough.
+      Promise.resolve().then(function () {
+        var cb = document.getElementById("dataCreditsDismissForever");
+        if (!cb) return;
+        cb.addEventListener("change", function () {
+          try {
+            if (cb.checked) localStorage.setItem(_DATA_CREDITS_DISMISS_KEY, "1");
+            else localStorage.removeItem(_DATA_CREDITS_DISMISS_KEY);
+          } catch (_e) {}
+        });
+      });
     }
     (function() {
       var link = document.getElementById("dataCreditsLink");
@@ -8534,8 +8600,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // and selection happens through the "Pick a variant" modal so users
       // always go through the same single-step picker. Each row is just
       // label + price, with a "✓ Selected" pill on the active row.
-      html += '<div class="variant-list variant-list-readonly">';
-      variants.forEach(function(v) {
+      //
+      // Collapse-by-default when the list is long (T-shirts have ~200+
+      // colour×size variants and the wall of rows was overwhelming per
+      // the friction audit). Show ~8 rows + a "Show all X" expander.
+      // Selected variant + its 2-3 neighbours are always visible.
+      var COLLAPSED_ROWS = 8;
+      var collapsedNeedsExpander = variants.length > COLLAPSED_ROWS + 2;
+      // Build the row HTML for ONE variant — used in the visible-by-default
+      // and "rest" buckets below.
+      var _row = function (v) {
         var isConfirmed = (selectedId === v.id);
         var rowClass = "variant-row" + (isConfirmed ? " confirmed" : "");
         var label = variantLabel(v);
@@ -8547,13 +8621,44 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // hatch for confirming exactly which variant this is.
         var tooltipText = label + (price ? " — " + price : "");
         var tooltipAttr = ' title="' + escapeHtmlSimple(tooltipText) + '"';
-        html +=
+        return (
           '<div class="' + rowClass + '" data-variant-id="' + v.id + '"' + tooltipAttr + '>' +
             '<span class="variant-row-label"' + tooltipAttr + '>' + label + '</span>' +
             (price ? '<span class="variant-price">' + price + '</span>' : '<span class="variant-price variant-price-empty"></span>') +
             (isConfirmed ? '<span class="variant-row-badge"><i class="fas fa-check"></i> Selected</span>' : '') +
-          '</div>';
-      });
+          '</div>'
+        );
+      };
+      // Visible-by-default slice: prefer to include the selected row even
+      // if it'd sort below the cut-off, so the "Selected:" header line is
+      // backed up by a visible row.
+      var selIdx = selectedVariant ? variants.indexOf(selectedVariant) : -1;
+      var visibleSet = {};
+      var visibleOrder = [];
+      var _addVisible = function (idx) {
+        if (idx < 0 || idx >= variants.length || visibleSet[idx]) return;
+        visibleSet[idx] = true; visibleOrder.push(idx);
+      };
+      for (var _vi = 0; _vi < Math.min(COLLAPSED_ROWS, variants.length); _vi++) _addVisible(_vi);
+      if (selIdx >= 0) {
+        // Selected row + immediate neighbours, so the active row never sits
+        // hidden behind the expander.
+        _addVisible(selIdx - 1); _addVisible(selIdx); _addVisible(selIdx + 1);
+      }
+      visibleOrder.sort(function (a, b) { return a - b; });
+      html += '<div class="variant-list variant-list-readonly">';
+      visibleOrder.forEach(function (idx) { html += _row(variants[idx]); });
+      if (collapsedNeedsExpander) {
+        var restCount = variants.length - visibleOrder.length;
+        html += '<div class="variant-list-rest hidden" data-variant-rest>';
+        variants.forEach(function (v, idx) {
+          if (!visibleSet[idx]) html += _row(v);
+        });
+        html += '</div>';
+        html += '<button type="button" class="variant-list-expander" data-variant-expander ' +
+                'aria-expanded="false">Show all ' + variants.length + ' variants ' +
+                '<span class="variant-list-rest-count">(+' + restCount + ')</span></button>';
+      }
       html += '</div>';
       if (product.id === "wall_clock") {
         html += '<p class="variant-clock-note">Some options differ by hand color (white vs black).</p>';
@@ -8563,8 +8668,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       panel.innerHTML = html;
 
       // Drop any prior click/keydown delegates — the read-only pane has no
-      // interactive controls, and we don't want stale listeners firing on
-      // accidental clicks once renderProducts() rebuilds the DOM.
+      // interactive controls EXCEPT the "Show all variants" expander
+      // (wired below), so we want to start clean each render.
       if (panel._variantClickDelegate) {
         panel.removeEventListener("click", panel._variantClickDelegate);
         panel._variantClickDelegate = null;
@@ -8572,6 +8677,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (panel._variantKeyDelegate) {
         panel.removeEventListener("keydown", panel._variantKeyDelegate);
         panel._variantKeyDelegate = null;
+      }
+      // Wire the expander button if present (variants > COLLAPSED_ROWS + 2).
+      var _expander = panel.querySelector("[data-variant-expander]");
+      var _rest = panel.querySelector("[data-variant-rest]");
+      if (_expander && _rest) {
+        panel._variantClickDelegate = function (e) {
+          if (!e.target.closest("[data-variant-expander]")) return;
+          var expanded = !_rest.classList.toggle("hidden");
+          _expander.setAttribute("aria-expanded", expanded ? "true" : "false");
+          _expander.firstChild.textContent = expanded
+            ? "Hide variants "
+            : "Show all " + variants.length + " variants ";
+        };
+        panel.addEventListener("click", panel._variantClickDelegate);
       }
     }
 
@@ -8968,7 +9087,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var clockTabBtn = document.querySelector('.edit-tab[data-tab="clock"]');
         if (clockTabBtn && !clockTabBtn.classList.contains("active")) clockTabBtn.click();
       }
-      _scrollToEl(editSection, "start");
+      // Land the user on the PREVIEW (canvas + image-stage), not the
+      // editor section's header. Before this fix, "scroll to editSection
+      // start" put the toolbar at the top of the viewport and the actual
+      // preview canvas — what the user came to see — sat below the fold
+      // until they scrolled. The friction-audit agents flagged this as
+      // the "preview created way at the top" complaint.
+      var _scrollTarget = document.getElementById("imageStage") ||
+                          editSection.querySelector(".editor-with-preview") ||
+                          editSection;
+      _scrollToEl(_scrollTarget, "start");
       // Surface the "behind the image" data-credits once per session, the
       // moment the user lands in the editor — every entry path (confirm
       // modal, mug colour chooser, etc.) routes through here. The delay
@@ -10320,12 +10448,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         tile.appendChild(prev);
         tile.appendChild(lbl);
         tile.addEventListener("click", function() {
-          close();
-          // Resolve to the real child product and run the standard flow.
-          if (state.selectedVariantByProduct[child.id] == null && child.variantId != null) {
-            state.selectedVariantByProduct[child.id] = child.variantId;
-          }
-          commitProductSelection(child);
+          // Flash a "you picked this" check + ring before closing, so the
+          // user sees feedback before the modal vanishes (friction audit
+          // found this felt like the click silently teleported them).
+          tile.classList.add("is-picking");
+          setTimeout(function () {
+            close();
+            // Resolve to the real child product and run the standard flow.
+            if (state.selectedVariantByProduct[child.id] == null && child.variantId != null) {
+              state.selectedVariantByProduct[child.id] = child.variantId;
+            }
+            commitProductSelection(child);
+          }, 220);
         });
         grid.appendChild(tile);
       });
