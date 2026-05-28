@@ -91,21 +91,11 @@
   <div class="section" id="productSection">
     <div class="section-header">
       <div class="step-badge">1</div>
-      <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
-      <!-- Back-link to step 1's customization. Most vibe-card flows
-           skip step 1 entirely and land here; this lets the user
-           opt back into time / wavelength tweaking without forcing
-           it on the default path. JS scrolls to + expands #configSection.
-           Removed in commit 4 once the customize panel is co-located
-           with the vibe grid in the new flow. -->
-      <button type="button" class="section-secondary-cta" id="customizeFromProducts"
-              title="Pick a different time of day or wavelength for this date">
-        Customize time &amp; wavelength →
-      </button>
+      <h2 class="section-title" id="productSectionTitle">Pick your canvas</h2>
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.
+      Every preview below is a real Printify mockup. Pick the canvas you want, then choose the solar image to print on it.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -140,7 +130,7 @@
        the main click target is the inner .vibe-open button. -->
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
-      <h2 class="section-title" id="vibeGridTitle">Famous moments — tap one to start</h2>
+      <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
     </div>
 
     <!-- Narrative reveal CTA + master tier toggle. Two states:

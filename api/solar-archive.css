@@ -1819,6 +1819,34 @@ input[type="range"]::-moz-range-thumb {
   max-height: 70%;
 }
 
+/* Cold-load mockup skeleton (product-first refactor, commit 4).
+   When the defaultMockupManifest hasn't resolved yet, the product
+   cards render with empty preview boxes. The skeleton animates a
+   subtle shimmer so the empty state reads as "loading" rather than
+   "broken". Removed by JS on the second renderProducts() call after
+   the manifest lands. */
+.product-grid.is-loading-mockups .product-preview {
+  background: linear-gradient(110deg,
+    var(--bg-deep) 30%,
+    var(--bg-elevated) 50%,
+    var(--bg-deep) 70%);
+  background-size: 200% 100%;
+  animation: productMockupShimmer 1.4s ease-in-out infinite;
+}
+.product-grid.is-loading-mockups .product-preview::after {
+  content: "Loading photoreal previews…";
+  position: absolute;
+  inset: auto 0 14px;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+@keyframes productMockupShimmer {
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
+}
+
 .product-preview .product-icon {
   font-size: 3rem;
   color: var(--text-dim);
