@@ -3916,6 +3916,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         bdayInput.max = maxD.toISOString().slice(0, 10);
       }
 
+      // Eager Helioviewer-JPG fallback for every card BEFORE the manifest
+      // lands. The manifest fetch can take a few hundred ms on a cold load
+      // and the friction audit found cards 4-11 showed empty placeholder
+      // circles until then. With this pass, every card gets SOMETHING
+      // immediately; the manifest-resolved path below upgrades to the
+      // higher-quality cached Raw thumb when it returns.
+      grid.querySelectorAll(".vibe-card[data-vibe-slug]").forEach(function (card) {
+        var slug = card.getAttribute("data-vibe-slug");
+        if (slug === "birthday") return;
+        // Skip if a thumb already exists in the well (e.g. the manifest
+        // loaded synchronously from cache).
+        if (card.querySelector(".vibe-thumb img")) return;
+        var date = card.getAttribute("data-vibe-date") || "";
+        var wl = card.getAttribute("data-vibe-wl") || "171";
+        var time = card.getAttribute("data-vibe-time") || "12:00";
+        // _vibeThumbUrl with no manifest returns the live Helioviewer URL —
+        // network-light, cached at the proxy after first hit.
+        var url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time });
+        if (url) _setVibeThumb(card, url, "raw");
+      });
+
       // Initial thumb load (manifest first, fall back to Helioviewer).
       // Cards START in Raw — the narrative reveal flips them to RHEF.
       _loadVibeManifest().then(function () {
