@@ -2281,7 +2281,8 @@ html.embedded .modal-box {
    new flow, but be defensive in case a legacy code path adds it back. */
 body.step-product .vibe-grid-section,
 body.step-product #configSection,
-body.step-product #editSection {
+body.step-product #editSection,
+body.step-product #vibeRevealCta {
   display: none !important;
 }
 body.step-image #productSection,

@@ -4013,18 +4013,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (!slug || slug === "birthday") return resolve();
         var thumbWell = card.querySelector(".vibe-thumb");
         if (!thumbWell) return resolve();
-        var url = _vibeThumbUrl(toTier, toTier === "raw" ? "raw" : "rhef", {
-          date: card.getAttribute("data-vibe-date") || "",
-          wl:   card.getAttribute("data-vibe-wl") || "171",
-          time: card.getAttribute("data-vibe-time") || "12:00",
-        });
-        // _vibeThumbUrl signature was (slug, tier, ...) — call properly:
-        url = _vibeThumbUrl(slug, toTier, {
+        var url = _vibeThumbUrl(slug, toTier, {
           date: card.getAttribute("data-vibe-date") || "",
           wl:   card.getAttribute("data-vibe-wl") || "171",
           time: card.getAttribute("data-vibe-time") || "12:00",
         });
         if (!url) return resolve();
+        // Race-guard: stamp this card's WIPE INTENT to the new target.
+        // If a newer wipe lands while this one is in flight, both the
+        // image-load handler and the `done` handler below check
+        // dataset.wipeTargetTier and bail out if it no longer matches
+        // ours. Without this guard, rapid toggle clicks let multiple
+        // wipes overlap on the same card — whichever animation finishes
+        // LAST wins the visual state, which may not be the user's most
+        // recent choice. Also prune any in-flight overlay from a prior
+        // wipe so we don't stack stale animations.
+        card.dataset.wipeTargetTier = toTier;
+        thumbWell.querySelectorAll(".vibe-thumb-overlay").forEach(function (el) {
+          el.remove();
+        });
         var overlay = new Image();
         overlay.alt = "";
         overlay.className = "vibe-thumb-overlay";
@@ -4034,6 +4041,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // "vibe-thumb-overlay" are removed at completion).
         _applyTierClass(overlay, toTier);
         overlay.onload = function () {
+          // Abort if a newer wipe took over this card while our image
+          // was loading.
+          if (card.dataset.wipeTargetTier !== toTier) return resolve();
           thumbWell.appendChild(overlay);
           // Force a reflow so the starting clip-path value is committed
           // before we add the animation class.
@@ -4051,6 +4061,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             if (didDone) return;
             didDone = true;
             overlay.removeEventListener("animationend", done);
+            // Race-guard: abort the promotion if a newer wipe is now
+            // the card's intent — let THAT wipe own the final state.
+            if (card.dataset.wipeTargetTier !== toTier) {
+              try { overlay.remove(); } catch (_e) {}
+              return resolve();
+            }
             // Promote overlay to the permanent thumb image.
             var prev = thumbWell.querySelector("img:not(.vibe-thumb-overlay)");
             if (prev) prev.remove();
@@ -4155,6 +4171,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var cards = grid.querySelectorAll(".vibe-card.has-tiers");
         if (!cards.length) return Promise.resolve();
         var staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
+        // Pre-stamp the wipe intent on every card BEFORE we start
+        // staggering. If a previous wipe-batch's animations are still
+        // mid-flight, their onload / done handlers will see the new
+        // intent and bail out (per the race-guard in _runTierWipe),
+        // so they won't promote stale overlays after our new wipe
+        // commits. Without this pre-stamp, the only thing updating
+        // wipeTargetTier is _runTierWipe itself — which is delayed
+        // by `i * staggerMs` for later cards.
+        cards.forEach(function (card) {
+          card.dataset.wipeTargetTier = toTier;
+        });
         var ps = [];
         cards.forEach(function (card, i) {
           if (card.getAttribute("data-vibe-active-tier") === toTier) return;
@@ -4671,7 +4698,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           probe.onerror = function () { /* not cached yet — fine */ };
           probe.src = defaultUrl;
         })();
-        if (typeof loadHelioviewerPreview === "function") {
+        // Product-first refactor: do NOT auto-load the default 193 Å
+        // image on cold load. The user is on step "product" and the
+        // Phase B Printify mockups render photoreal previews without a
+        // source image. Loading 193 Å here would (a) fire the "193 Å
+        // loaded!" toast and (b) advance the step machine to "image"
+        // before the user picked a product. The image now loads only
+        // when the user clicks a vibe card.
+        if (typeof loadHelioviewerPreview === "function" &&
+            state.currentStep !== "product") {
           loadHelioviewerPreview(193, dateInput.value);
         }
       }
