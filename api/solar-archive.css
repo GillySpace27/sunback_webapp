@@ -1792,15 +1792,23 @@ input[type="range"]::-moz-range-thumb {
   transition: all var(--transition);
 }
 
+/* Hover = subtle lift + soft neutral border tint. NOT the same color
+   as the .selected sun-orange ring (friction audit: agent reported
+   the hover glow read as a permanent "you selected this" state and
+   followed the cursor card to card, making the actual selection
+   ambiguous). Selected stays a thicker orange ring + glow. */
 .product-card:hover {
-  border-color: var(--accent-sun);
+  border-color: var(--text-dim);
   transform: translateY(-3px);
   box-shadow: 0 8px 25px rgba(0,0,0,0.2);
 }
 
 .product-card.selected {
   border-color: var(--accent-sun);
-  box-shadow: 0 0 20px var(--glow-sun);
+  box-shadow: 0 0 0 2px var(--accent-sun), 0 0 24px var(--glow-sun);
+}
+.product-card.selected:hover {
+  border-color: var(--accent-sun);
 }
 
 .product-preview {

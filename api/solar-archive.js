@@ -197,9 +197,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     if (_isValidStep(_hashStep)) _initialStep = _hashStep;
     state.currentStep = state.currentStep || _initialStep;
     // Sanity: if the hash promised editor or image but we have no
-    // selectedProduct (cold load, nothing committed yet), demote.
+    // selectedProduct (cold load, nothing committed yet), demote and
+    // CLEAR the dead hash from the address bar so reloads / shares
+    // don't keep propagating it (agent friction-audit P1).
     if (state.currentStep !== "product" && !state.selectedProduct) {
       state.currentStep = "product";
+      try { history.replaceState({ step: "product" }, "", location.pathname + location.search); }
+      catch (_e) {}
+    }
+    // Also clear any bogus #-hash that didn't validate as a step name.
+    if (location.hash && !_isValidStep((location.hash || "").replace(/^#/, ""))) {
+      try { history.replaceState({ step: state.currentStep }, "", location.pathname + location.search); }
+      catch (_e) {}
     }
     _applyStep(state.currentStep);
     // Expose for the breadcrumb component (commit 2) and debugging.
@@ -1366,7 +1375,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (!product) return;
         var btn = card.querySelector(".product-select-btn");
         if (btn && btn.disabled) return;
-        if (!state.originalImage || !product.blueprintId || !product.printProviderId) return;
+        // Product-first refactor: drop the !state.originalImage gate. The
+        // user picks a product BEFORE an image exists; the variant modal
+        // gracefully handles a null source image (canvas mockup is empty
+        // but the price + size + colour controls all work).
+        if (!product.blueprintId || !product.printProviderId) return;
         // Merged product (e.g. mug): pick a colour first, which resolves to
         // the real child product, then run the normal commit/editor flow.
         if (product.colorOptions && product.colorOptions.length > 1 &&
@@ -9254,7 +9267,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var productId = btn.dataset.productId;
           var product = PRODUCTS.find(function(p) { return p.id === productId; });
           if (!product) return;
-          if (!state.originalImage || !product.blueprintId || !product.printProviderId) return;
+          // Product-first refactor: drop the !state.originalImage gate.
+          // The user picks a product BEFORE the image is loaded; the
+          // variant modal handles null source images cleanly.
+          if (!product.blueprintId || !product.printProviderId) return;
           // Merged product (e.g. mug): the Pick-a-variant button must run
           // the colour chooser too, not just the card-body click — else
           // clicking the button skips straight to the single-variant
