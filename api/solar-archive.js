@@ -92,7 +92,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // or re-verify uploadedPrintifyId*/mockups on re-entry), tracked as
     // a deferred item in TODOS.md. This comment exists so the repro
     // isn't lost; the handler below only owns the navigation unwind.
-    window.addEventListener("popstate", function() {
+    window.addEventListener("popstate", function(e) {
+      // Step-machine path (added with the product-first workflow
+      // inversion — see /Users/gilly/.claude/plans/quirky-munching-orbit.md).
+      // If the popped history entry carries a step, drive the machine.
+      // Falls through to the legacy editor-close behaviour when the
+      // entry doesn't carry a step (e.g. early pushes from before this
+      // refactor are still on the back-stack).
+      if (e && e.state && typeof e.state.step === "string") {
+        _applyStep(e.state.step, { fromPopstate: true });
+        return;
+      }
       var ed = document.getElementById("editSection");
       // If the editor is visible, treat back as "close the editor."
       if (ed && !ed.classList.contains("hidden")) {
@@ -105,6 +115,88 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         return;
       }
     });
+
+    // ── Workflow step machine ────────────────────────────────────
+    // Four-step navigation primitive: "product" | "image" | "editor"
+    // | "review". Sources of truth:
+    //   state.currentStep — the canonical value
+    //   document.body.classList.step-{name} — drives CSS section
+    //     visibility (one class at a time)
+    //   location.hash — serializes the step so the browser back button
+    //     and bookmarkable links work (hash "" = product, "#image",
+    //     "#editor", "#review")
+    //
+    // setStep(name) is the public mutator. It calls _applyStep (which
+    // does the side-effect work without touching history) and then
+    // pushes a history entry so the browser back button can rewind.
+    // popstate listens for entries with state.step and calls _applyStep
+    // with {fromPopstate:true} so we don't re-push history during
+    // a back-button traversal.
+    //
+    // popStep() goes back one step in the workflow. It's the breadcrumb
+    // pill click handler.
+    //
+    // Commit 1 (this file): plumbing only. Default state.currentStep =
+    // "image" preserves today's behaviour. CSS section-hiding rules
+    // arrive in commit 3 (cold-default to "product").
+    var _STEP_ORDER = ["product", "image", "editor", "review"];
+    function _isValidStep(s) { return _STEP_ORDER.indexOf(s) >= 0; }
+    function _applyStep(name, opts) {
+      opts = opts || {};
+      if (!_isValidStep(name)) return;
+      var prev = state.currentStep;
+      state.currentStep = name;
+      // Body class — strip any prior step-{name} + add the new one.
+      var body = document.body;
+      if (body) {
+        _STEP_ORDER.forEach(function (s) {
+          body.classList.remove("step-" + s);
+        });
+        body.classList.add("step-" + name);
+      }
+      // Hash sync — skip when coming from popstate (the browser
+      // already updated location.hash before firing the event).
+      if (!opts.fromPopstate) {
+        var targetHash = (name === "product") ? "" : ("#" + name);
+        if (location.hash !== targetHash) {
+          // Use replaceState here when pushHistory is false (e.g.
+          // initial sync) to avoid an extra back-stack entry.
+          if (opts.pushHistory) {
+            try { history.pushState({ step: name }, "", targetHash || location.pathname + location.search); }
+            catch (_e) {}
+          } else {
+            try { history.replaceState({ step: name }, "", targetHash || location.pathname + location.search); }
+            catch (_e) {}
+          }
+        }
+      }
+      // Fire a custom event so other modules (mockup-display logic,
+      // editor lifecycle, etc.) can react without poking state directly.
+      try {
+        body.dispatchEvent(new CustomEvent("solar-archive:step-change",
+          { detail: { from: prev, to: name } }));
+      } catch (_e) {}
+    }
+    function setStep(name) { _applyStep(name, { pushHistory: true }); }
+    function popStep() {
+      // Go back one step in the workflow order (not necessarily one
+      // history entry). For breadcrumb-pill clicks.
+      var idx = _STEP_ORDER.indexOf(state.currentStep);
+      if (idx <= 0) return;
+      setStep(_STEP_ORDER[idx - 1]);
+    }
+    // Bootstrap: read hash on cold load. For now (commit 1) we DO NOT
+    // honour the hash — we always start at "image" so behaviour matches
+    // today's app. Commit 3 will flip the cold default to "product"
+    // and honour hash-based deep links.
+    state.currentStep = state.currentStep || "image";
+    _applyStep(state.currentStep);
+    // Expose for the breadcrumb component (commit 2) and debugging.
+    try {
+      window.SolarArchive = window.SolarArchive || {};
+      window.SolarArchive.setStep = setStep;
+      window.SolarArchive.popStep = popStep;
+    } catch (_e) {}
 
     // ── Embedded-context detection ───────────────────────────────
     // The app is also served as an iframe on the Shopify storefront
