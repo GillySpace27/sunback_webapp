@@ -2234,6 +2234,64 @@ html.embedded .modal-box {
   50%      { box-shadow: 0 4px 18px rgba(255,179,71,0.35), 0 0 0 14px rgba(255,179,71,0.00); }
 }
 
+/* ── Workflow breadcrumb (product-first refactor, commit 2) ──────
+   Sticky-top compact bar. Hosts (a) back-pills for completed steps
+   and (b) the master tier toggle on step "image". Hidden when on
+   step "product" (no completed steps to show) and step "editor"
+   (the editor's own breadcrumb + Quality timeline take over). The
+   container is empty/hidden in commit 2; rendering arrives in
+   commit 3 alongside the cold-default-to-product flip. */
+.workflow-breadcrumb {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 51;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  pointer-events: none;
+}
+.workflow-breadcrumb > * { pointer-events: auto; }
+.workflow-breadcrumb.hidden { display: none; }
+.workflow-breadcrumb-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workflow-breadcrumb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,179,71,0.30);
+  color: var(--text-primary, #eeeef6);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.workflow-breadcrumb-pill:hover,
+.workflow-breadcrumb-pill:focus-visible {
+  background: rgba(0,0,0,0.72);
+  border-color: var(--accent-corona, #ffb347);
+}
+.workflow-breadcrumb-pill .arrow {
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+.workflow-breadcrumb-sep {
+  color: var(--text-dim, #8e8eab);
+  font-size: 0.85rem;
+  opacity: 0.6;
+}
+
 /* Master Preview / Original / Filtered segmented toggle. Sticky-pinned
    to the top of the viewport so the user can flip tiers while scrolled
    into the product picker — the original placement at the vibe-grid

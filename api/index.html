@@ -72,6 +72,62 @@
     </div>
   </div>
 
+  <!-- Workflow breadcrumb (commit 2 of the product-first refactor).
+       Sticky-top container that hosts the back-pills + the master tier
+       toggle. Empty/hidden by default; populated by JS as the step
+       machine advances. See solar-archive.js setStep/popStep and
+       /Users/gilly/.claude/plans/quirky-munching-orbit.md. -->
+  <div class="workflow-breadcrumb hidden" id="workflowBreadcrumb" role="navigation"
+       aria-label="Workflow progress">
+    <div class="workflow-breadcrumb-pills" id="workflowBreadcrumbPills"></div>
+  </div>
+
+  <!-- Step 1 (product-first flow): Choose your canvas — surface the
+       photo-real Printify mockups as the marketing/sell surface.
+       Note: the section is reordered here in the DOM (was below the
+       vibe grid + editor). The flow inversion that actually defers
+       editor open until an image lands arrives in commit 3. -->
+  <div class="section hidden" id="productSection">
+    <div class="section-header">
+      <div class="step-badge">2</div>
+      <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
+      <!-- Back-link to step 1's customization. Most vibe-card flows
+           skip step 1 entirely and land here; this lets the user
+           opt back into time / wavelength tweaking without forcing
+           it on the default path. JS scrolls to + expands #configSection.
+           Removed in commit 4 once the customize panel is co-located
+           with the vibe grid in the new flow. -->
+      <button type="button" class="section-secondary-cta" id="customizeFromProducts"
+              title="Pick a different time of day or wavelength for this date">
+        Customize time &amp; wavelength →
+      </button>
+    </div>
+
+    <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
+      Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.
+    </p>
+
+    <div class="product-grid" id="productGrid"></div>
+
+    <!-- Your Requests: products the user added this session via "Request a product".
+         Hidden by default, shown once sessionCatalog has at least one entry. -->
+    <div class="user-requests-section hidden" id="userRequestsSection">
+      <div class="user-requests-header">
+        <span class="user-requests-title">Your Requests</span>
+      </div>
+      <p class="user-requests-sub">Products you asked for are available here for this session. We'll review and add approved ones to the permanent catalog.</p>
+      <div class="product-grid" id="userRequestsGrid"></div>
+    </div>
+
+    <div class="mockup-status" id="mockupStatus"></div>
+
+    <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
+      Select a date and wavelength to see products.
+    </div>
+
+    <div class="status-msg" id="orderStatus"></div>
+  </div>
+
   <!-- Vibe grid — curated "famous moments" above the fold.
        One-tap entry into the configurator. Five static-date cards plus
        a sixth "Your day" tile that takes a date input directly (no
@@ -954,46 +1010,6 @@
     <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
     <!-- Buttons 1/2/3 removed; Buy button is in the preview pane -->
-  </div>
-
-  <!-- Step 2: Choose Product (reordered by JS — appears before edit section) -->
-  <div class="section hidden" id="productSection">
-    <div class="section-header">
-      <div class="step-badge">2</div>
-      <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
-      <!-- Back-link to step 1's customization. Most vibe-card flows
-           skip step 1 entirely and land here; this lets the user
-           opt back into time / wavelength tweaking without forcing
-           it on the default path. JS scrolls to + expands #configSection. -->
-      <button type="button" class="section-secondary-cta" id="customizeFromProducts"
-              title="Pick a different time of day or wavelength for this date">
-        Customize time &amp; wavelength →
-      </button>
-    </div>
-
-    <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.
-    </p>
-
-    <div class="product-grid" id="productGrid"></div>
-
-    <!-- Your Requests: products the user added this session via "Request a product".
-         Hidden by default, shown once sessionCatalog has at least one entry. -->
-    <div class="user-requests-section hidden" id="userRequestsSection">
-      <div class="user-requests-header">
-        <span class="user-requests-title">Your Requests</span>
-      </div>
-      <p class="user-requests-sub">Products you asked for are available here for this session. We'll review and add approved ones to the permanent catalog.</p>
-      <div class="product-grid" id="userRequestsGrid"></div>
-    </div>
-
-    <div class="mockup-status" id="mockupStatus"></div>
-
-    <div class="send-hint" id="sendHint" style="font-size:12px;color:var(--text-dim);margin-top:6px;text-align:center;">
-      Select a date and wavelength to see products.
-    </div>
-
-    <div class="status-msg" id="orderStatus"></div>
   </div>
 
   </main>
