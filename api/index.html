@@ -146,11 +146,15 @@
          toggle is wired. -->
     <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
          role="radiogroup" aria-label="Image stretch — Helioviewer preview, sRGB-gamma original, or radial-equalized filtered">
+      <!-- Cards START at Raw (see _wireVibeGrid in solar-archive.js).
+           The indicator must match: keep "Original" (raw) is-active by
+           default. Friction-audit agent 3 found the prior "Filtered"
+           default-active lied about the actual rendered tier. -->
       <button type="button" class="vibe-master-btn" data-tier="jpg" aria-pressed="false"
               title="Helioviewer JPG preview — instant, lower resolution.">Preview</button>
-      <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
+      <button type="button" class="vibe-master-btn is-active" data-tier="raw" aria-pressed="true"
               title="sRGB-gamma (γ≈0.45) FITS data. The conventional AIA look.">Original</button>
-      <button type="button" class="vibe-master-btn is-active" data-tier="rhef" aria-pressed="true"
+      <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
               title="Radial Histogram Equalization Filter (Gilly et al. 2025) — brings out faint corona detail.">Filtered</button>
     </div>
   </div>

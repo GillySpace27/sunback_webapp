@@ -148,6 +148,34 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           body.classList.remove("step-" + s);
         });
         body.classList.add("step-" + name);
+        // Editor-only body classes leak into the product / image step
+        // when the user navigates back (friction-audit agent 4: rail
+        // preview canvas + title overlay showed through the product
+        // picker after browser-back from editor). Force-clear them
+        // here so the step machine owns the lifecycle.
+        if (name !== "editor") {
+          body.classList.remove("left-rail-preview");
+          body.classList.remove("preview-popped-out");
+          // Restore the selectedProductPreview pane to its original
+          // DOM slot if it was hoisted to <body> for rail mode.
+          var pane = document.getElementById("selectedProductPreview");
+          if (pane && pane.parentElement === body && typeof _railOriginalParent !== "undefined" && _railOriginalParent && _railOriginalParent.isConnected) {
+            try {
+              if (typeof _railOriginalNextSibling !== "undefined" && _railOriginalNextSibling && _railOriginalNextSibling.isConnected) {
+                _railOriginalParent.insertBefore(pane, _railOriginalNextSibling);
+              } else {
+                _railOriginalParent.appendChild(pane);
+              }
+            } catch (_e) {}
+          }
+        }
+        // Also re-evaluate editor-in-view so the rail-mode JS rule
+        // recomputes immediately rather than waiting for the next
+        // scroll event. _onEditorVisibilityChanged is wired during
+        // editor init; call it lazily once available.
+        if (typeof _onEditorVisibilityChanged === "function") {
+          try { _onEditorVisibilityChanged(); } catch (_e) {}
+        }
       }
       // Hash sync — skip when coming from popstate (the browser
       // already updated location.hash before firing the event).
@@ -9373,16 +9401,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
       // data-credits modal) live in _continueOpenEditor below.
       _continueOpenEditor(product);
-      // Push a history entry so the browser back button unwinds to the
-      // image step instead of leaving the page. Skip if we're already
-      // on an 'editor' state — re-opens or variant changes shouldn't
-      // multiply history entries.
-      try {
-        if (window.history && window.history.pushState
-            && (!window.history.state || window.history.state._sa !== "editor")) {
-          window.history.pushState({ _sa: "editor", productId: state.selectedProduct, step: "editor" }, "");
-        }
-      } catch (_e) { /* iframe sandbox or hostile env — silently skip */ }
+      // setStep handles the history.pushState for the step transition
+      // — the legacy {_sa:"editor"} push that used to live here was
+      // doubling up with setStep's push, so the FIRST browser-back from
+      // editor was a no-op (friction-audit agent 5 reproduced this).
+      // Removed the legacy push; setStep is the single source of truth.
       if (typeof setStep === "function") setStep("editor");
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
     }
@@ -10923,7 +10946,24 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         mockupEl.innerHTML = "";
         var canDraw = !!state.originalImage && typeof drawProductMockup === "function"
           && solarCanvas && solarCanvas.width > 0;
-        if (!canDraw) { mockupEl.classList.add("empty"); return; }
+        if (!canDraw) {
+          // Product-first refactor: user opens the variant modal BEFORE
+          // an image is loaded. Show a placeholder ("Pick your Sun image
+          // next") instead of collapsing the slot to 0px — friction
+          // agent 2 reported the modal looked broken without a preview.
+          mockupEl.classList.remove("empty");
+          var placeholder = document.createElement("div");
+          placeholder.className = "confirm-mockup-placeholder";
+          placeholder.innerHTML =
+            '<div class="confirm-mockup-placeholder-icon" aria-hidden="true">' +
+              '<i class="fas fa-sun"></i>' +
+            '</div>' +
+            '<div class="confirm-mockup-placeholder-text">' +
+              'Your Sun image goes here.<br><span>Pick a variant, continue, then choose a moment.</span>' +
+            '</div>';
+          mockupEl.appendChild(placeholder);
+          return;
+        }
         // Promote the editor filter to the highest available tier (HQ RHEF >
         // RHEF/Raw > JPG) before snapshotting, so the picker's mockup matches
         // the photorealistic showcase tile next to it instead of falling

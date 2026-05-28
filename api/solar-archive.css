@@ -2322,23 +2322,39 @@ body.step-editor #configSection {
    adds a "selected product mini preview" affordance. */
 
 /* ── Workflow breadcrumb (product-first refactor, commit 2) ──────
-   Sticky-top compact bar. Hosts (a) back-pills for completed steps
-   and (b) the master tier toggle on step "image". Hidden when on
-   step "product" (no completed steps to show) and step "editor"
-   (the editor's own breadcrumb + Quality timeline take over). The
-   container is empty/hidden in commit 2; rendering arrives in
-   commit 3 alongside the cold-default-to-product flip. */
+   Sticky-top compact bar. Hosts back-pills for completed steps.
+   Stacks ABOVE the master tier toggle (`#vibeRevealCta`) on step
+   "image" — friction-audit agent 2 reported both were fixed-top
+   centered and visually collided. The breadcrumb takes top:8px,
+   the master toggle below it takes top:52px (offset = pill height
+   + gap). */
 .workflow-breadcrumb {
   position: fixed;
   top: max(8px, env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
-  z-index: 51;
+  z-index: 52;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0;
   pointer-events: none;
+}
+/* On step "image" the master toggle sits below the breadcrumb. */
+body.step-image #vibeRevealCta {
+  top: max(52px, calc(env(safe-area-inset-top, 0px) + 44px));
+}
+/* Force-clear the rail-mode pane when leaving the editor. Friction
+   agent 4 reported the editor's left-rail preview canvas, title, and
+   aspect-ratio label leaked into the product picker after browser back —
+   the rail-mode JS toggle re-evaluates on scroll but not on step
+   transitions, so the leftover preview overlay sat there until the
+   user scrolled. Override visibility from CSS so the leak can't happen
+   regardless of JS class timing. The body class itself is cleared in
+   _applyStep (solar-archive.js). */
+body.step-product #selectedProductPreview,
+body.step-image #selectedProductPreview {
+  display: none !important;
 }
 .workflow-breadcrumb > * { pointer-events: auto; }
 .workflow-breadcrumb.hidden { display: none; }
@@ -2419,21 +2435,20 @@ body.step-editor #configSection {
    slot so the floating widget doesn't slide over the section header.
    Adds 64px of breathing room at the top of the vibe grid. */
 .vibe-grid-section { padding-top: 64px; }
-/* When the editor is engaged, drop sticky and hide the toggle —
-   the editor's own Quality timeline is the authoritative control once
-   a variant is picked. The pill stays in the DOM (just hidden) so the
-   user can scroll back up and re-engage it after closing the editor.
-   Uses :has() (well-supported since 2023) so we don't need to wire a
-   JS toggle on top of the existing editSection.hidden state. */
-body:has(#editSection:not(.hidden)) #vibeRevealCta,
-body.left-rail-preview #vibeRevealCta {
+/* Drop the toggle's float-pin on step "editor" — the editor's Quality
+   timeline owns the control surface there. Gating on body.step-editor
+   (NOT the prior :has(#editSection:not(.hidden)) selector) so the
+   selector doesn't keep matching after a popstate that leaves the
+   editSection element with .hidden class removed but the section
+   visually hidden by body-class CSS — friction-audit agent 3 found
+   this left the toggle "position: static" on step "image" after a
+   back-nav from editor, so it scrolled out of view. */
+body.step-editor #vibeRevealCta {
   position: static;
   pointer-events: none;
 }
-body:has(#editSection:not(.hidden)) .vibe-master-toggle,
-body:has(#editSection:not(.hidden)) .vibe-reveal-btn,
-body.left-rail-preview .vibe-master-toggle,
-body.left-rail-preview .vibe-reveal-btn {
+body.step-editor .vibe-master-toggle,
+body.step-editor .vibe-reveal-btn {
   display: none;
 }
 
@@ -5328,6 +5343,39 @@ html.embedded .feedback-product-results {
 }
 .confirm-mockup.empty {
   display: none;
+}
+/* Placeholder shown in the product-first flow when the user opens the
+   variant modal BEFORE picking an image. Keeps the 220×220 slot
+   visible (avoids the modal "collapsing to text only" look the
+   friction agent reported) and gives a hint about what happens next. */
+.confirm-mockup-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  text-align: center;
+}
+.confirm-mockup-placeholder-icon {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(255,179,71,0.20), rgba(255,179,71,0.04) 70%);
+  border: 1px dashed rgba(255,179,71,0.35);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+  color: var(--accent-sun, #f7a825);
+}
+.confirm-mockup-placeholder-text {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #9898b8);
+  line-height: 1.35;
+}
+.confirm-mockup-placeholder-text span {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--text-dim, #6a6a8a);
 }
 .confirm-mockup .confirm-mockup-canvas {
   width: 220px;
