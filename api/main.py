@@ -1896,10 +1896,20 @@ def _vibe_pick_cmap(wavelength: int, mission: str):
         return plt.get_cmap("gray")
 
 
-def _vibe_render_array_to_png(data, out_path: str, cmap):
+def _vibe_render_array_to_png(data, out_path: str, cmap, gamma: float = None):
     """Write a 2D array to a square borderless PNG at the same dpi/size
-    do_generate_sync uses (10in × 300dpi ≈ 3000²)."""
+    do_generate_sync uses (10in × 300dpi ≈ 3000²).
+
+    `gamma` (optional) applies a PowerNorm display stretch with the given
+    exponent: gamma=1/2.2 ≈ 0.4545 is the sRGB-display convention and the
+    near-equivalent of sqrt (gamma=0.5) commonly seen in AIA papers.
+    Without it, raw FITS data has linear percentile clipping — fine for
+    RHEF (which already shapes the histogram) but the corona looks too
+    contrasty for an "Original" preview. Default None preserves the
+    linear pre-2026-05 behavior for any caller not opting in.
+    """
     import numpy as _np
+    import matplotlib.colors as _mc
     arr = _np.asarray(data)
     finite = arr[_np.isfinite(arr)]
     if finite.size == 0:
@@ -1911,11 +1921,24 @@ def _vibe_render_array_to_png(data, out_path: str, cmap):
             vmin, vmax = float(finite.min()), float(finite.max() or finite.min() + 1.0)
     fig = plt.figure(figsize=(10, 10), dpi=300)
     plt.axis("off")
-    plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+    if gamma is not None and gamma > 0:
+        # PowerNorm maps (data - vmin) / (vmax - vmin) → x, then x ** gamma
+        # before colormap mapping. clip=True suppresses out-of-range values
+        # (some FITS frames have negative speckle below the 1st percentile
+        # that PowerNorm would otherwise warn about).
+        plt.imshow(arr, cmap=cmap, origin="lower",
+                   norm=_mc.PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax, clip=True))
+    else:
+        plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
     plt.tight_layout(pad=0)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
+
+
+# sRGB-display gamma. 1/2.2 ≈ 0.4545. Visually indistinguishable from
+# sqrt (0.5) and matches what AIA images look like in journal figures.
+_AIA_DISPLAY_GAMMA = 1.0 / 2.2
 
 
 def _vibe_write_thumb(full_path: str, thumb_path: str, size: int = 256):
@@ -2006,13 +2029,19 @@ def _render_vibe_pair(vibe: dict) -> dict:
 
     cmap = _vibe_pick_cmap(wl, mission)
 
-    # ── Raw tier (no RHEF, just gamma-stretched percentile scaling) ──
+    # ── Raw tier ("Original" in the frontend toggle): apply sRGB display
+    # gamma (1/2.2). This matches the AIA-paper convention: linear FITS
+    # data has too much dynamic range for direct percentile-clipped display
+    # (corona looks crushed, flare cores blow out). Gamma 0.45 lifts the
+    # mid-tones the way the human visual system expects. ──────────────
     if not (raw_full.exists() and raw_full.stat().st_size > 1000):
-        print(f"[warm_vibe_grid] {slug}: rendering RAW full → {raw_full}", flush=True)
-        _vibe_render_array_to_png(smap.data, str(raw_full), cmap)
+        print(f"[warm_vibe_grid] {slug}: rendering RAW full (gamma={_AIA_DISPLAY_GAMMA:.3f}) → {raw_full}", flush=True)
+        _vibe_render_array_to_png(smap.data, str(raw_full), cmap, gamma=_AIA_DISPLAY_GAMMA)
     _vibe_write_thumb(str(raw_full), str(raw_thumb))
 
-    # ── RHEF tier (same primitive as do_generate_sync) ──
+    # ── RHEF tier: NO gamma. RHEF already flattens the histogram via
+    # radial-percentile equalization; adding gamma on top would distort
+    # the equalized distribution. ─────────────────────────────────────
     if not (rhef_full.exists() and rhef_full.stat().st_size > 1000):
         print(f"[warm_vibe_grid] {slug}: applying RHEF + rendering → {rhef_full}", flush=True)
         try:

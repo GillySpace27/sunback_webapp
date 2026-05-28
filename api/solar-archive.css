@@ -2234,9 +2234,12 @@ html.embedded .modal-box {
   50%      { box-shadow: 0 4px 18px rgba(255,179,71,0.35), 0 0 0 14px rgba(255,179,71,0.00); }
 }
 
-/* Master Raw/RHEF segmented toggle — sits inside #vibeRevealCta,
-   shown after the first reveal click. Single source of truth at the
-   section top; clicking either pill swaps every card in sync. */
+/* Master Preview / Original / Filtered segmented toggle. Sticky-pinned
+   to the top of the viewport so the user can flip tiers while scrolled
+   into the product picker — the original placement at the vibe-grid
+   header was off-screen by the time the products were visible. Hidden
+   once the editor engages (body.left-rail-preview) since the editor
+   has its own Quality timeline. */
 .vibe-master-toggle {
   display: inline-flex;
   background: rgba(0,0,0,0.55);
@@ -2247,6 +2250,48 @@ html.embedded .modal-box {
   gap: 2px;
 }
 .vibe-master-toggle.hidden { display: none; }
+/* Floating placement. position:fixed escapes the .section parent and
+   pins to the viewport so the toggle stays visible while the user
+   scrolls from the vibe-card section down into the product picker.
+   Centered horizontally; top-padded clear of the address bar on mobile
+   (env(safe-area-inset-top) for notched devices). The first-reveal
+   pulsing button (.vibe-reveal-btn) also floats here during its brief
+   pre-reveal lifetime, then is hidden by JS once clicked. */
+#vibeRevealCta {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+#vibeRevealCta > * { pointer-events: auto; }
+/* The vibe-grid section reserves space for the toggle's original (in-flow)
+   slot so the floating widget doesn't slide over the section header.
+   Adds 64px of breathing room at the top of the vibe grid. */
+.vibe-grid-section { padding-top: 64px; }
+/* When the editor is engaged, drop sticky and hide the toggle —
+   the editor's own Quality timeline is the authoritative control once
+   a variant is picked. The pill stays in the DOM (just hidden) so the
+   user can scroll back up and re-engage it after closing the editor.
+   Uses :has() (well-supported since 2023) so we don't need to wire a
+   JS toggle on top of the existing editSection.hidden state. */
+body:has(#editSection:not(.hidden)) #vibeRevealCta,
+body.left-rail-preview #vibeRevealCta {
+  position: static;
+  pointer-events: none;
+}
+body:has(#editSection:not(.hidden)) .vibe-master-toggle,
+body:has(#editSection:not(.hidden)) .vibe-reveal-btn,
+body.left-rail-preview .vibe-master-toggle,
+body.left-rail-preview .vibe-reveal-btn {
+  display: none;
+}
+
 .vibe-master-btn {
   background: transparent;
   color: var(--text-secondary, #d0c8d8);
@@ -2264,6 +2309,28 @@ html.embedded .modal-box {
 .vibe-master-btn.is-active {
   background: var(--accent-corona, #ffb347);
   color: #1a1326;
+}
+/* Indicator-first: while a tier request is in flight, the toggle shows
+   a subtle pending state on the TARGET pill (where the indicator will
+   land if the wipe succeeds). The button doesn't take .is-active until
+   _wipeAllCards resolves, so the visible "you are here" indicator can't
+   de-sync from the actually-rendered tier. */
+.vibe-master-toggle.is-pending .vibe-master-btn { cursor: progress; }
+.vibe-master-btn.is-pending-target {
+  background: rgba(255,179,71,0.18);
+  color: var(--accent-corona, #ffb347);
+  position: relative;
+}
+.vibe-master-btn.is-pending-target::after {
+  content: "";
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-left: 8px;
+  border: 1.5px solid rgba(255,179,71,0.30);
+  border-top-color: var(--accent-corona, #ffb347);
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: spin 0.7s linear infinite;
 }
 .vibe-master-btn:focus-visible {
   outline: 2px solid var(--accent-corona, #ffb347);

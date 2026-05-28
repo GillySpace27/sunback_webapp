@@ -102,11 +102,19 @@
         Reveal the filtered view
         <span class="vibe-reveal-sub">(brings out faint corona detail)</span>
       </button>
+      <!-- Labels: user-facing copy is Preview / Original / Filtered.
+           Internal data-tier values stay jpg/raw/rhef so the URL keys,
+           state.vibeMasterTier, and the manifest schema don't churn.
+           Mapping is documented at the top of solar-archive.js where the
+           toggle is wired. -->
       <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
-           role="radiogroup" aria-label="Image tier — JPG, Raw FITS, or filtered RHEF">
-        <button type="button" class="vibe-master-btn" data-tier="jpg" aria-pressed="false">JPG</button>
-        <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false">Raw</button>
-        <button type="button" class="vibe-master-btn is-active" data-tier="rhef" aria-pressed="true">RHEF</button>
+           role="radiogroup" aria-label="Image stretch — Helioviewer preview, sRGB-gamma original, or radial-equalized filtered">
+        <button type="button" class="vibe-master-btn" data-tier="jpg" aria-pressed="false"
+                title="Helioviewer JPG preview — instant, lower resolution.">Preview</button>
+        <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
+                title="sRGB-gamma (γ≈0.45) FITS data. The conventional AIA look.">Original</button>
+        <button type="button" class="vibe-master-btn is-active" data-tier="rhef" aria-pressed="true"
+                title="Radial Histogram Equalization Filter (Gilly et al. 2025) — brings out faint corona detail.">Filtered</button>
       </div>
     </div>
 

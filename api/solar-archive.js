@@ -3968,15 +3968,55 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
 
       // Master "swap-all-cards" runner — used by both the initial
-      // reveal click and the subsequent Raw/RHEF master toggle.
+      // reveal click and the subsequent Preview/Original/Filtered toggle.
+      // Returns a Promise that resolves AFTER every card's wipe finishes,
+      // so the toggle can update its visual state only on success
+      // (indicator-first: button reflects the actual rendered tier, not
+      // an optimistic guess that may de-sync from a failed image load).
       function _wipeAllCards(toTier) {
         var cards = grid.querySelectorAll(".vibe-card.has-tiers");
-        if (!cards.length) return;
+        if (!cards.length) return Promise.resolve();
         var staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
+        var ps = [];
         cards.forEach(function (card, i) {
           if (card.getAttribute("data-vibe-active-tier") === toTier) return;
-          setTimeout(function () { _runTierWipe(card, toTier); }, i * staggerMs);
+          ps.push(new Promise(function (resolve) {
+            setTimeout(function () {
+              try { _runTierWipe(card, toTier).then(resolve, resolve); }
+              catch (_e) { resolve(); }
+            }, i * staggerMs);
+          }));
         });
+        return Promise.all(ps);
+      }
+
+      // Swap the product-picker source image to the active vibe's URL at
+      // the new tier. Uses the manifest's per-slug *_full / jpg_hq fields
+      // (populated by the warm scripts). Idempotent + safe to call when
+      // no vibe is active — bails out without side-effects.
+      function _swapProductSourceForTier(toTier) {
+        if (!state.activeVibeSlug || state.activeVibeSlug === "birthday") return;
+        var url = _vibeThumbUrl(state.activeVibeSlug, toTier, {
+          date: dateInput ? dateInput.value : "",
+          wl:   state.wavelength,
+          time: timeInput ? timeInput.value : "",
+        });
+        if (!url) return;
+        // Re-key the source image so consumers (renderCanvas → product
+        // mockups) read the new pixels. CrossOrigin to allow toDataURL.
+        var img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function () {
+          state.originalImage = img;
+          if (typeof renderCanvas === "function") renderCanvas();
+          if (typeof renderProducts === "function") renderProducts();
+        };
+        img.onerror = function () {
+          // Toggle stays where it was; the wipe promise still resolves
+          // for the vibe cards (visual state shouldn't lie about cards).
+          showToast && showToast("Couldn't load " + toTier + " image", "error");
+        };
+        img.src = url;
       }
 
       // Wire the master reveal — first click runs the cascade Raw → RHEF,
@@ -4005,31 +4045,48 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         });
       }
       if (masterToggle) {
+        // Indicator-first state machine. Per the design note in the
+        // index.html toggle markup: button click triggers a TIER REQUEST,
+        // and the button's visual state (.is-active / aria-pressed) only
+        // commits once the wipe + image-load completes. If the load
+        // fails, we revert. This prevents the toggle from lying about
+        // what the user is actually looking at.
         masterToggle.addEventListener("click", function (e) {
           var btn = e.target.closest(".vibe-master-btn");
           if (!btn) return;
           var tier = btn.getAttribute("data-tier");
-          // Update aria-pressed + active styling.
-          masterToggle.querySelectorAll(".vibe-master-btn").forEach(function (b) {
-            var on = b === btn;
-            b.classList.toggle("is-active", on);
-            b.setAttribute("aria-pressed", on ? "true" : "false");
-          });
-          // Stamp the current tier on global state so other consumers
-          // (wavelength tile loader, future editor-preview pipe) read
-          // a single source of truth instead of guessing from DOM.
+          var prevTier = state.vibeMasterTier;
+          if (tier === prevTier) return;
+          // Already a request in flight? Coalesce — newest target wins.
+          // (We don't queue; if the user clicks A then C while A is
+          // wiping, we abandon A and chase C.)
+          masterToggle.dataset.pendingTier = tier;
+          masterToggle.classList.add("is-pending");
+          btn.classList.add("is-pending-target");
+          // Stamp the new tier on state so URL-resolving consumers
+          // (_cachedWavelengthThumb, _vibeThumbUrl) read the in-flight
+          // target. The visual button state DOES NOT change yet.
           state.vibeMasterTier = tier;
-          _wipeAllCards(tier);
-          // Reload the wavelength tile thumbnails to pick up the new
-          // tier — they consult state.vibeMasterTier via
-          // _cachedWavelengthThumb. Without this the tiles still show
-          // whatever tier was loaded last (often JPG, since they're
-          // typically loaded once on date change).
+          var wipePromise = _wipeAllCards(tier);
+          _swapProductSourceForTier(tier);
           if (typeof loadWavelengthThumbnails === "function") {
-            // Force a reload by clearing the per-date load latch.
             try { lastThumbDate = ""; } catch (_e) {}
             loadWavelengthThumbnails();
           }
+          wipePromise.then(function () {
+            // Race-guard: if a newer click landed while we were waiting,
+            // let THAT one own the commit. We bail here so the toggle
+            // doesn't briefly settle on this tier before flipping again.
+            if (masterToggle.dataset.pendingTier !== tier) return;
+            masterToggle.classList.remove("is-pending");
+            delete masterToggle.dataset.pendingTier;
+            masterToggle.querySelectorAll(".vibe-master-btn").forEach(function (b) {
+              var on = b === btn;
+              b.classList.toggle("is-active", on);
+              b.classList.remove("is-pending-target");
+              b.setAttribute("aria-pressed", on ? "true" : "false");
+            });
+          });
         });
       }
       // Initial master tier — cards start in Raw (matches the
@@ -4102,6 +4159,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var time = card.getAttribute("data-vibe-time") || "";
       if (!date) return;
       state.isDefaultActive = false;
+      // Track which slug is active so the master toggle can swap the
+      // product-mockup source image between tiers (jpg/raw/rhef) using
+      // the manifest URL for that vibe. Birthday-card flow sets slug
+      // to "birthday" — no manifest, mockups stay on the JPG path.
+      state.activeVibeSlug = card.getAttribute("data-vibe-slug") || null;
       // Dispatch date change first (resets latches and triggers HEK fetch).
       if (dateInput) {
         dateInput.value = date;
