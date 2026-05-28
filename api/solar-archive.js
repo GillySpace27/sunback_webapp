@@ -96,24 +96,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Step-machine path (added with the product-first workflow
       // inversion — see /Users/gilly/.claude/plans/quirky-munching-orbit.md).
       // If the popped history entry carries a step, drive the machine.
-      // Falls through to the legacy editor-close behaviour when the
-      // entry doesn't carry a step (e.g. early pushes from before this
-      // refactor are still on the back-stack).
       if (e && e.state && typeof e.state.step === "string") {
         _applyStep(e.state.step, { fromPopstate: true });
         return;
       }
-      var ed = document.getElementById("editSection");
-      // If the editor is visible, treat back as "close the editor."
-      if (ed && !ed.classList.contains("hidden")) {
-        ed.classList.add("hidden");
-        var ps = document.getElementById("productSection");
-        if (ps) {
-          try { _scrollToEl(ps, "start"); }
-          catch (_e) { ps.scrollIntoView(); }
-        }
-        return;
-      }
+      // No step in the history state. Derive intent from the hash so
+      // mashing the back button always lands us on the right step
+      // instead of leaving the body class stale (friction-audit P0:
+      // back-to-root left body.step-image when the user expected
+      // body.step-product). Empty hash = product; #image = image;
+      // #editor = editor; bogus hash = product.
+      var hashStep = (location.hash || "").replace(/^#/, "").trim();
+      if (!_isValidStep(hashStep)) hashStep = "product";
+      _applyStep(hashStep, { fromPopstate: true });
     });
 
     // ── Workflow step machine ────────────────────────────────────
@@ -252,14 +247,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (state.selectedProduct) {
         var prod = _currentSelectedProductObj();
         var name = (prod && prod.name) || state.selectedProduct;
-        var variantId = state.selectedVariantByProduct &&
-                        state.selectedVariantByProduct[state.selectedProduct];
-        var variantLbl = "";
-        if (variantId && prod && variantId !== prod.variantId) {
-          variantLbl = " · #" + variantId;
-        }
+        // Do NOT include a raw variant ID suffix — friction agent
+        // reported "← Unisex T-Shirt · #18076" leaked Printify's
+        // internal id into the user-facing breadcrumb. The variant
+        // colour + size is visible inside the variant modal; the pill
+        // just identifies the product.
         pills.push({
-          label: name + variantLbl,
+          label: name,
           target: "product",
           aria: "Change product",
         });
