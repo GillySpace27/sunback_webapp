@@ -7936,17 +7936,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
       });
     })();
-    (function _wireCustomizeFromProducts() {
-      var btn = document.getElementById("customizeFromProducts");
-      var section = document.getElementById("configSection");
-      var toggle = document.getElementById("configSectionToggle");
-      if (!btn || !section) return;
-      btn.addEventListener("click", function () {
-        section.classList.remove("section-collapsed");
-        if (toggle) toggle.setAttribute("aria-expanded", "true");
-        section.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    })();
+    // _wireCustomizeFromProducts removed in commit 4 of the
+    // product-first refactor — the "Customize time & wavelength →"
+    // CTA in the product section header was wired here, but in the
+    // new flow the customize panel is co-located with the vibe grid
+    // (both live on step "image"), so the cross-section back-link no
+    // longer applies. See /Users/gilly/.claude/plans/quirky-munching-orbit.md.
 
     (function _attachMobilePanListeners() {
       var pane = document.getElementById("selectedProductPreview");
@@ -8976,6 +8971,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     function renderProducts() {
       productGrid.innerHTML = "";
+      // Loading skeleton: when this is the FIRST render after page load
+      // and the defaultMockupManifest hasn't resolved yet, the cards
+      // would otherwise show with empty preview boxes for ~300-800ms.
+      // Friction audit + product-first refactor: paint a "mockups
+      // loading…" hint on the grid container so cold-load feels
+      // intentional. The hint clears on the second render (when the
+      // manifest is in memory).
+      var _coldNoManifest = state.isDefaultActive &&
+                            (!defaultMockupManifest ||
+                             Object.keys(defaultMockupManifest || {}).length === 0);
+      productGrid.classList.toggle("is-loading-mockups", _coldNoManifest);
       // The user-requested grid lives below the main grid, hidden unless the
       // session has at least one requested product. Requested products render
       // with the same machinery but route to a different container so they're
