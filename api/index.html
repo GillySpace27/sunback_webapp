@@ -118,12 +118,11 @@
     <div class="status-msg" id="orderStatus"></div>
   </div>
 
-  <!-- Vibe grid — curated "famous moments" above the fold.
-       One-tap entry into the configurator. Five static-date cards plus
-       a sixth "Your day" tile that takes a date input directly (no
-       submit button — selecting the date triggers the flow). Each
-       static card has a Raw/RHEF tier toggle in the top-right and an
-       info button that opens an attribution popover.
+  <!-- Vibe grid — step 2 surface (revealed once a product is committed).
+       Eleven static-date cards covering each AIA wavelength plus a "Your
+       day" tile that takes a date input directly (no submit button —
+       selecting the date triggers the flow). Per-card filter swaps
+       happen through the master toggle at the top, not per-card.
        The card is a <div> (not <button type="button">) so it can legally contain
        child <button type="button">s (HTML disallows nested interactive content);
        the main click target is the inner .vibe-open button. -->
@@ -146,10 +145,10 @@
          toggle is wired. -->
     <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
          role="radiogroup" aria-label="Image stretch — Helioviewer preview, sRGB-gamma original, or radial-equalized filtered">
-      <!-- Cards START at Raw (see _wireVibeGrid in solar-archive.js).
-           The indicator must match: keep "Original" (raw) is-active by
-           default. Friction-audit agent 3 found the prior "Filtered"
-           default-active lied about the actual rendered tier. -->
+      <!-- Cards START at Original (internally data-tier="raw"). JS in
+           _wireVibeGrid overrides this to Filtered once the manifest
+           confirms every vibe has its RHEF cached — see commit 66e37c9.
+           Indicator must always match what's actually rendered. -->
       <button type="button" class="vibe-master-btn" data-tier="jpg" aria-pressed="false"
               title="Helioviewer JPG preview — instant, lower resolution.">Preview</button>
       <button type="button" class="vibe-master-btn is-active" data-tier="raw" aria-pressed="true"
@@ -161,6 +160,7 @@
 
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
+      <div class="step-badge">2</div>
       <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
     </div>
 
@@ -395,18 +395,17 @@
     </div>
   </div>
 
-  <!-- Step 1: Pick a moment that day + wavelength.
-       The date is already chosen upstream (vibe card or birthday tile),
-       so the explicit date/time/mission inputs are hidden — they stay
-       in the DOM as canonical state holders that the HEK picker and
-       wavelength tiles write into, but the user never sees them. -->
+  <!-- Step 2 (sub-panel): Customize time & wavelength.
+       Collapsed by default — the vibe grid above is the primary
+       image-picker. The explicit date/time/mission inputs are hidden
+       state holders that the HEK picker + wavelength tiles write into;
+       users see this panel only when they expand it manually. -->
   <div class="section section-collapsible section-collapsed" id="configSection">
     <button type="button" class="section-collapse-toggle" id="configSectionToggle"
             aria-expanded="false" aria-controls="configSectionBody"
             title="Show/hide the time & wavelength controls">
-      <div class="section-header">
-        <div class="step-badge">2</div>
-        <h2 class="section-title">Customize time &amp; wavelength <span class="section-collapse-hint">(optional)</span></h2>
+      <div class="section-header section-header-sub">
+        <h2 class="section-title section-title-sub">Customize time &amp; wavelength <span class="section-collapse-hint">(optional)</span></h2>
         <span class="section-collapse-chevron" aria-hidden="true">&#9662;</span>
       </div>
     </button>
@@ -507,7 +506,8 @@
     </div><!-- /#configSectionBody -->
   </div>
 
-  <!-- Step 3: View & Edit Image (reordered by JS — appears after product selection) -->
+  <!-- Step 3: View & Edit Image — revealed by step machine after both
+       a product and an image are committed. -->
   <div class="section hidden" id="editSection">
     <div class="section-header section-header-editor">
       <div class="step-badge">3</div>
@@ -587,8 +587,8 @@
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>
         <div class="edit-toolbar-nav-group">
-          <button type="button" class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change date or wavelength">
-            <i class="fas fa-sun" aria-hidden="true"></i> Change wavelength
+          <button type="button" class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change time &amp; wavelength">
+            <i class="fas fa-sun" aria-hidden="true"></i> Change time &amp; wavelength
           </button>
           <button type="button" class="edit-btn edit-btn-nav" id="btnChangeProduct" title="Scroll back up to pick a different product">
             <i class="fas fa-shapes" aria-hidden="true"></i> Change product
@@ -1004,7 +1004,7 @@
     <!-- Lives inside the editor section so it appears directly below the Create button. -->
     <div class="checkout-progress hidden" id="checkoutProgress"></div>
 
-    <!-- Buttons 1/2/3 removed; Buy button is in the preview pane -->
+    <!-- Buy button lives in the preview pane (see #selectedProductPreview); no inline editor CTAs here. -->
   </div>
 
   </main>
@@ -1034,8 +1034,8 @@
   <div class="confirm-modal-backdrop" id="confirmSelectBackdrop"></div>
   <div class="confirm-modal-panel">
     <button class="confirm-modal-close" id="confirmSelectClose" type="button" aria-label="Close">&#x2715;</button>
-    <h2 class="confirm-modal-title" id="confirmSelectTitle">Pick a variant</h2>
-    <p class="confirm-modal-sub" id="confirmSelectSub">Tap a variant to preview, then continue to the editor.</p>
+    <h2 class="confirm-modal-title" id="confirmSelectTitle">Choose your size &amp; options</h2>
+    <p class="confirm-modal-sub" id="confirmSelectSub">Tap a variant to preview, then pick your image.</p>
     <div class="confirm-mockup" id="confirmSelectMockup" aria-hidden="true"></div>
     <div class="confirm-variant-summary" id="confirmSelectSummary"></div>
     <!-- Colour-swatch row: rendered only when this product's variants
@@ -1053,9 +1053,9 @@
          one resolves to the unique color+size variant. -->
     <div class="confirm-size-chips hidden" id="confirmSelectSizeChips" role="listbox" aria-label="Size"></div>
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
-    <p class="confirm-modal-note">You'll customize your solar image on the next screen, then finish checkout on Shopify.</p>
+    <p class="confirm-modal-note">Pick your Sun image next, then fine-tune in the editor.</p>
     <div class="confirm-modal-actions">
-      <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to editor</button>
+      <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to image</button>
     </div>
   </div>
 </div>
