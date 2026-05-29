@@ -1350,7 +1350,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and scroll up to check out.";
       } else {
         title.textContent = "Choose your product";
-        intro.innerHTML = "Click a product to expand its variants, pick a size/color, then <strong>Select this product</strong> to open the editor. You'll finish checkout on Shopify.";
+        intro.innerHTML = "Click <strong>Pick a variant</strong>, choose your size/color, then pick the Sun image you want printed.";
       }
     }
 
@@ -2352,7 +2352,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (state.wavelength !== 193) state.isDefaultActive = false;
 
       if (!dateInput.value) {
-        showToast("Select a date first", "error");
+        showToast("Pick an image first.", "error");
         return;
       }
       // Date-range guard. The date picker advertises a min/max range
@@ -2603,7 +2603,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           state.jpgImage = cachedEntry.jpg || null;
           setTimeout(function() {
             applyFilterInstant("rhef");
-            showToast("Filtered version loaded from cache! Click Raw to switch back.", "info");
+            showToast("Filtered version loaded from cache! Click Original to switch back.", "info");
             // RHEF preview is ready — kick off HQ generation immediately (also checks hqCache)
             startHqFilterGeneration(dateVal, wl, "rhef");
           }, 100);
@@ -2679,7 +2679,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       renderCanvas();
       setProgress(100);
-      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — now choose a product below to start editing.');
+      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — opening the editor.');
       showToast(wl + " Å loaded!");
 
       imageStage.classList.remove("empty");
@@ -3317,7 +3317,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var msg = state.hqFetching
               ? "The high-resolution RHEF image is currently being generated in the background and will appear automatically when ready.\n\nAny edits you make now — crop, zoom, pan, adjustments — will be represented in the final product. It is recommended to wait for the high-resolution image to appear before sending to Shopify."
               : "This high-resolution image may take a couple of minutes to generate.\n\nAny edits you make now — crop, zoom, pan, adjustments — will be represented in the final product. It is recommended to wait for the high-resolution image to appear before sending to Shopify.";
-            showInfo("HQ RHEF", msg);
+            showInfo("HQ Filtered", msg);
             // Start generating if not already in flight (user stays on current filter)
             if (!state.hqFetching && dateForHQ && state.wavelength) {
               startHqFilterGeneration(dateForHQ, state.wavelength, "rhef");
@@ -5476,7 +5476,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           '<p style="margin-bottom:6px;"><strong>The Sun, observed</strong></p>' +
           '<p style="margin-bottom:14px;color:var(--text-secondary);">Your image comes from ' + NASA + "'s " + SDO + ', which carries the ' + AIA + ' — the instrument photographing the Sun around the clock.</p>' +
           '<p style="margin-bottom:6px;"><strong>From space to your screen</strong></p>' +
-          '<p style="margin-bottom:14px;color:var(--text-secondary);">Full-resolution frames (Raw / RHEF / HQ&nbsp;RHEF) are archived at the ' + JSOC + ' at Stanford and delivered through the ' + VSO + '. Instant previews are rendered by the ' + HV + '.</p>' +
+          '<p style="margin-bottom:14px;color:var(--text-secondary);">Full-resolution frames (Original / Filtered / HQ&nbsp;Filtered) are archived at the ' + JSOC + ' at Stanford and delivered through the ' + VSO + '. Instant previews are rendered by the ' + HV + '.</p>' +
           '<p style="margin-bottom:6px;"><strong>The science</strong></p>' +
           '<p style="margin-bottom:14px;color:var(--text-secondary);">Instrument: ' + LEMEN + ' (Sol. Phys. 275, 17). RHEF processing: ' + GILLY + ' (Sol. Phys. 300, 174).</p>' +
           '<p style="margin-bottom:0;font-size:0.8rem;color:var(--text-dim);">' + CITATIONS.SDO_ACK + ' Not affiliated; no endorsement implied.</p>' +
@@ -5770,7 +5770,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // activated <1500ms ago — the "X Å loaded!" toast is still
         // on screen and the agent reported the wording was confusing.
         if (!state._lastVibeActivatedAt || (Date.now() - state._lastVibeActivatedAt) > 1500) {
-          showToast("Full-resolution RHEF ready!", "success");
+          showToast("Full-resolution Filtered image ready!", "success");
         }
         return Promise.resolve(cached.imageObj);
       }
@@ -5780,8 +5780,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (_attempt === 1) setProgress(10);
       updateFilterStatusLine(
         _attempt > 1
-          ? "Full-res RHEF retrying\u2026 (previous attempt failed)"
-          : "Full-res RHEF generating in background (may take ~2 min)\u2026",
+          ? "Full-res Filtered retrying\u2026 (previous attempt failed)"
+          : "Full-res Filtered generating in background (may take ~2 min)\u2026",
         "loading"
       );
 
@@ -5804,7 +5804,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             // surfaces "Queued \u00b7 N ahead" via _recordQueueDepth above.
           } else if (data.status === "started" || data.status === "processing") {
             setProgress(50);
-            updateFilterStatusLine("Full-res RHEF rendering\u2026", "loading");
+            updateFilterStatusLine("Full-res Filtered rendering\u2026", "loading");
           }
         });
       }).then(function(result) {
@@ -5829,11 +5829,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             hqCache[cacheKey] = { url: hqUrl, imageObj: img };
             setProgress(100);
             hideProgress();
-            updateFilterStatusLine("Full-res RHEF ready!", "success");
+            updateFilterStatusLine("Full-res Filtered ready!", "success");
             _hqApplyUpgrade(format);
             if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
             if (!state._lastVibeActivatedAt || (Date.now() - state._lastVibeActivatedAt) > 1500) {
-              showToast("Full-resolution RHEF ready! \u2728", "success");
+              showToast("Full-resolution Filtered image ready! \u2728", "success");
             }
             return img;
           });
@@ -7727,7 +7727,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         state.timestampStamp = !state.timestampStamp;
         _syncTimestampBtn();
         if (state.timestampStamp && (!dateInput.value || !state.wavelength)) {
-          showToast("Pick a date and wavelength first so the timestamp can read both.");
+          showToast("Pick an image first so the caption can read its timestamp.");
         }
         renderCanvas();
         scheduleMockupRefresh();
@@ -10028,21 +10028,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var quality = _printQualityState();
       if (quality === "no_image") {
         showInfo("No Image Yet",
-          "Pick a date and a wavelength first — the editor will load once the preview comes through.");
+          "Pick an image first — tap a vibe tile or open Customize. The editor opens automatically once the preview lands.");
         return;
       }
       if (quality === "jpg_only") {
         showInfo("Waiting for Science Image",
           "The full-resolution FITS image is still downloading from the SDO archive. " +
-          "Prints need at least medium-quality (Raw / RHEF) data so they don't pixel-blow on a 12-inch canvas. " +
+          "Prints need at least medium-quality (Original / Filtered) data so they don't pixel-blow on a 12-inch canvas. " +
           "Hang tight — this usually finishes in 30–90 seconds, and the Quality timeline above the canvas shows progress.");
         return;
       }
       if (quality === "mq_ready") {
         showModal(
-          "HQ RHEF is still rendering",
+          "HQ Filtered render is still cooking",
           "You're about to submit at <strong>medium quality</strong> — the print will look good but " +
-          "the high-resolution RHEF render is still cooking in the background and produces the sharpest large-format prints " +
+          "the high-resolution Filtered render is still cooking in the background and produces the sharpest large-format prints " +
           "(1&ndash;3 minutes). " +
           "Wait for HQ, or proceed with MQ now?",
           function() {
@@ -10761,10 +10761,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Re-render product cards and Select this product buttons when HQ state changes
       renderProducts();
       if (state.hqReady) {
-        sendHint.textContent = "★ HQ print image ready — select a product, then Buy from the editor.";
+        sendHint.textContent = "★ HQ print pipeline ready — pick a product and an image to start.";
         sendHint.style.color = "var(--accent-cool)";
       } else if (state.hqTaskId) {
-        sendHint.textContent = "HQ image is rendering in the background — you can select a product and buy from the editor when ready.";
+        sendHint.textContent = "Pick a product to start — HQ rendering is warming up in the background.";
         sendHint.style.color = "var(--accent-sun)";
       } else if (state.originalImage) {
         // Image loaded, no HQ yet: the product cards + their "Pick a
@@ -10781,7 +10781,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     function startCheckout(product) {
       if (!state.originalImage) {
-        showInfo("No Image", "Select a wavelength tile to load the solar image first.");
+        showInfo("No Image", "Pick an image from the gallery (or use the date picker) first.");
         return;
       }
       if (!product.blueprintId || !product.printProviderId) {
@@ -10795,7 +10795,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         ? "The full NASA/SDO HQ image is ready and will be used for printing."
         : (state.hqTaskId
             ? "The HQ image is still rendering — checkout will wait for it automatically before uploading."
-            : "The preview image will be used. Switch the Filter to <strong>HQ RHEF</strong> first if you want the full-resolution print.");
+            : "The preview image will be used. Switch the Filter to <strong>HQ Filtered</strong> first if you want the full-resolution print.");
 
       showModal(
         "Create " + product.name + " on Shopify",
@@ -11223,8 +11223,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (titleEl) titleEl.textContent = product.name;
       if (subEl) {
         subEl.textContent = product._isUserRequested
-          ? "Your request (pending review). Tap a variant, then continue."
-          : "Tap a variant to preview, then continue to the editor.";
+          ? "Your request (pending review). Tap a variant, then continue to your image."
+          : "Tap a variant to preview, then pick your image.";
       }
 
       function _variantsList() {
