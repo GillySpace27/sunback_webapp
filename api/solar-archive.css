@@ -2418,12 +2418,17 @@ body.step-image #selectedProductPreview {
    (env(safe-area-inset-top) for notched devices). The first-reveal
    pulsing button (.vibe-reveal-btn) also floats here during its brief
    pre-reveal lifetime, then is hidden by JS once clicked. */
+/* !important on position guards against any later rule (or browser
+   quirk involving ancestor transforms) downgrading the float to
+   static. z-index sits above .workflow-breadcrumb (52) so when the
+   user scrolls and both stack at the top, the toggle is the upper
+   layer rather than the lower. */
 #vibeRevealCta {
-  position: fixed;
+  position: fixed !important;
   top: max(8px, env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 60;
   display: flex;
   flex-direction: column;
   align-items: center;

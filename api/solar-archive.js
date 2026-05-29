@@ -4241,6 +4241,50 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // show Raw (Helioviewer fallback) and no CTA appears.
         var cta = document.getElementById("vibeRevealCta");
         if (cta && anyHasTiers) cta.classList.remove("hidden");
+        // Hoist the floating toggle out of <main> and into <body> so
+        // position:fixed is guaranteed to anchor to the viewport
+        // regardless of any ancestor's transform/animation. Gilly saw
+        // the toggle scrolling out of view on prod — root cause was
+        // an animation transform on a .section ancestor that promoted
+        // it to a containing block, anchoring position:fixed children
+        // to the section instead of the viewport. Re-parenting to
+        // <body> removes the ambiguity for good. Idempotent: if the
+        // CTA is already a direct body child, do nothing.
+        if (cta && cta.parentElement !== document.body) {
+          document.body.appendChild(cta);
+        }
+        // Default active tier should reflect what the cards are
+        // actually loading. Gilly's request: "start the toggle in the
+        // filtered position if there are cached images to load,
+        // otherwise jpg preview is appropriate."
+        var initialMasterTier = anyHasTiers ? "rhef" : "jpg";
+        state.vibeMasterTier = initialMasterTier;
+        // Sync the HTML aria-pressed + is-active on the matching pill.
+        var masterToggleEl = document.getElementById("vibeMasterToggle");
+        if (masterToggleEl) {
+          masterToggleEl.querySelectorAll(".vibe-master-btn").forEach(function (b) {
+            var on = b.getAttribute("data-tier") === initialMasterTier;
+            b.classList.toggle("is-active", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+        }
+        // Re-paint each card's thumb in the chosen initial tier so the
+        // indicator's promise matches the rendered pixels from the
+        // very first frame.
+        if (anyHasTiers) {
+          grid.querySelectorAll(".vibe-card.has-tiers").forEach(function (card) {
+            var slug = card.getAttribute("data-vibe-slug");
+            if (!slug || slug === "birthday") return;
+            var date = card.getAttribute("data-vibe-date") || "";
+            var wl = card.getAttribute("data-vibe-wl") || "171";
+            var time = card.getAttribute("data-vibe-time") || "12:00";
+            var rhefUrl = _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
+            if (rhefUrl) {
+              _setVibeThumb(card, rhefUrl, "rhef");
+              card.setAttribute("data-vibe-active-tier", "rhef");
+            }
+          });
+        }
         // Gilly's "for the vibe cards they should all be ready a priori"
         // — kick off background preload of every vibe's Raw + RHEF
         // tier the moment the manifest lands. By the time the user
