@@ -3552,6 +3552,32 @@ body.step-editor .vibe-reveal-btn {
    while the toolbar scrolls; the action bar is sticky at the
    bottom so the Generate + Buy/Download buttons never scroll off
    the screen. */
+/* Selected-product hero in the editor section header. Gilly: "Let the
+   type of object to be printed be centered and at least h3 or h2 as
+   appropriate, so it is much more clear which object was selected."
+   Lives BELOW the small "3 · View & edit your image" badge row, sized
+   like a real page title (1.7rem desktop, scales down on mobile). */
+.editor-selected-product-name {
+  margin: 6px auto 18px;
+  text-align: center;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #eeeef6);
+  /* Subtle sun-glow underline so the title reads as a marquee. */
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent-sun, #f7a825);
+  max-width: max-content;
+}
+.editor-selected-product-name:empty { display: none; }
+@media (max-width: 600px) {
+  .editor-selected-product-name {
+    font-size: 1.25rem;
+    margin: 4px auto 12px;
+    padding-bottom: 6px;
+  }
+}
+
 .editor-with-preview {
   display: grid;
   grid-template-columns: 1.4fr minmax(260px, 1fr);
