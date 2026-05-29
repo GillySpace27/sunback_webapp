@@ -509,10 +509,15 @@
 
   <!-- Step 3: View & Edit Image (reordered by JS — appears after product selection) -->
   <div class="section hidden" id="editSection">
-    <div class="section-header">
+    <div class="section-header section-header-editor">
       <div class="step-badge">3</div>
       <h2 class="section-title">View &amp; edit your image</h2>
     </div>
+    <!-- Selected-product hero: prominently shows WHICH product the user
+         is editing (e.g. "Acrylic Wall Art"). Populated by JS in
+         commitProductChoice + commitImageChoice. Centered + h2-large
+         so the user has zero ambiguity about what they picked. -->
+    <h2 class="editor-selected-product-name" id="editorSelectedProductName" aria-live="polite"></h2>
 
     <!-- Editor layout — CSS grid with four regions:
            canvas (top-left) | preview (top-right, spans rows on desktop)
@@ -603,10 +608,10 @@
            four times, and keyboard users can move with arrow / Home
            / End keys (handled by the JS at the bottom of this file). -->
       <div class="edit-tab-bar" role="tablist" aria-label="Image editor sections">
-        <button class="edit-tab" data-tab="geometry" role="tab" id="editTab_geometry" aria-controls="tabPanel_geometry" aria-selected="false" type="button" tabindex="-1">Geometry</button>
-        <button class="edit-tab" data-tab="adjust" role="tab" id="editTab_adjust" aria-controls="tabPanel_adjust" aria-selected="false" type="button" tabindex="-1">Adjust</button>
+        <button class="edit-tab" data-tab="geometry" role="tab" id="editTab_geometry" aria-controls="tabPanel_geometry" aria-selected="false" type="button" tabindex="-1">Crop</button>
+        <button class="edit-tab" data-tab="adjust" role="tab" id="editTab_adjust" aria-controls="tabPanel_adjust" aria-selected="false" type="button" tabindex="-1">Color</button>
         <button class="edit-tab edit-tab-clock hidden" data-tab="clock" role="tab" id="editTab_clock" aria-controls="tabPanel_clock" aria-selected="false" type="button" tabindex="-1"><i class="fas fa-clock" aria-hidden="true"></i> Clock</button>
-        <button class="edit-tab" data-tab="tools" role="tab" id="editTab_tools" aria-controls="tabPanel_tools" aria-selected="false" type="button" tabindex="-1">Tools</button>
+        <button class="edit-tab" data-tab="tools" role="tab" id="editTab_tools" aria-controls="tabPanel_tools" aria-selected="false" type="button" tabindex="-1">Text</button>
         <button class="edit-btn edit-btn-reset" data-tool="reset" type="button" title="Reset all edits"><i class="fas fa-undo" aria-hidden="true"></i> Reset</button>
       </div>
 

@@ -4520,6 +4520,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var cachedRhef = _vibeTierImageCache[slug + ":rhef"];
       state.rawBackendImage = cachedRaw || null;
       state.rhefImage = cachedRhef || null;
+      // Hard-reset HQ state so a previous vibe's HQ image doesn't
+      // bleed into the new one. If the new vibe's RHEF is cached we
+      // immediately promote it to HQ (it's the same 3000² render).
+      state.hqFilterImage = null;
+      state.hqReady = false;
+      state.hqImageUrl = null;
+      state.hqFormat = null;
+      if (cachedRhef) {
+        state.hqFilterImage = cachedRhef;
+        state.hqFormat = "rhef";
+        state.hqReady = true;
+        state.hqImageUrl = entry.rhef_full_url || null;
+      }
       function _preload(url, tierKey, assign) {
         if (!url) return;
         if (_vibeTierImageCache[tierKey]) {
@@ -4552,7 +4565,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
       }
       _preload(entry.raw_full_url,  slug + ":raw",  function (img) { state.rawBackendImage = img; });
-      _preload(entry.rhef_full_url, slug + ":rhef", function (img) { state.rhefImage       = img; });
+      _preload(entry.rhef_full_url, slug + ":rhef", function (img) {
+        state.rhefImage = img;
+        // Gilly: the vibe cards have rhef pre-warmed at 3000² — that
+        // IS the HQ-tier image in our system. Re-use it as the HQ
+        // RHEF source instead of leaving the timeline's "HQ RHEF"
+        // step at "LOCKED" forever. Setting state.hqFilterImage +
+        // state.hqFormat="rhef" + state.hqReady=true matches what
+        // the live HQ pipeline produces; _filterIsReady("hq_rhef")
+        // becomes true so the editor's Quality timeline reaches the
+        // top tier instantly for any vibe-card flow. The manifest URL
+        // also doubles as state.hqImageUrl for download / Printify
+        // upload paths that read from it directly.
+        state.hqFilterImage = img;
+        state.hqFormat = "rhef";
+        state.hqReady = true;
+        state.hqImageUrl = entry.rhef_full_url;
+      });
       // First-paint UI update reflecting any cached tiers we just
       // restored (above) AND the "loading" state for in-flight ones.
       if (typeof updateFilterTimelineUI === "function") {
@@ -9628,6 +9657,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var selectedCard = productGrid.querySelector('.product-card[data-product-id="' + productId + '"]')
         || (userReqGrid && userReqGrid.querySelector('.product-card[data-product-id="' + productId + '"]'));
       if (selectedCard) selectedCard.classList.add("selected");
+      // Surface the product name in the editor section so when the user
+      // reaches step "editor" they can see at a glance what they picked.
+      // Gilly: "Let the type of object to be printed be centered and at
+      // least h3 or h2 as appropriate."
+      var nameEl = document.getElementById("editorSelectedProductName");
+      if (nameEl) nameEl.textContent = product.name || product.id || "";
       // Transition to "image" step — vibe grid + configure panel become
       // the user's next surface. The breadcrumb bar surfaces "← {Product
       // name}" so they can rewind.
