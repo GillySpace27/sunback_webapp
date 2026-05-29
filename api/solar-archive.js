@@ -4241,6 +4241,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // show Raw (Helioviewer fallback) and no CTA appears.
         var cta = document.getElementById("vibeRevealCta");
         if (cta && anyHasTiers) cta.classList.remove("hidden");
+        // Gilly's "for the vibe cards they should all be ready a priori"
+        // — kick off background preload of every vibe's Raw + RHEF
+        // tier the moment the manifest lands. By the time the user
+        // clicks any vibe card the tier images are already in the
+        // browser HTTP cache and state.rawBackendImage / state.rhefImage
+        // resolve from _vibeTierImageCache without a network hit. ~22 MB
+        // total, staggered + idle-deferred to avoid choking initial paint.
+        if (typeof _backgroundPreloadAllVibeTiers === "function") {
+          _backgroundPreloadAllVibeTiers();
+        }
       });
 
       // Master "swap-all-cards" runner — used by both the initial
@@ -4447,45 +4457,97 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     // STRESS-001: preload the vibe's pre-warmed Raw + RHEF manifest
     // URLs into state.rawBackendImage and state.rhefImage so the
-    // editor's Quality timeline can auto-advance past "Loading…".
-    // Called by _activateVibe; no-op when the slug is "birthday" (no
-    // manifest entry) or when the manifest hasn't been loaded yet.
-    // Each preload is non-blocking: the image fetches in the
-    // background, fires the timeline UI update on load, and falls back
-    // silently on error (the user can still operate at the JPG tier).
+    // editor's Quality timeline auto-advances past "Loading…".
+    //
+    // Two-level cache: _vibeTierImageCache (this module) holds the
+    // Image objects keyed by slug+tier so any back-to-the-same-vibe
+    // hop is instant. state.rawBackendImage / state.rhefImage are the
+    // single canonical refs the renderCanvas + timeline read from.
+    var _vibeTierImageCache = Object.create(null);
     function _preloadVibeTiersIntoState(slug) {
       if (!slug || slug === "birthday") return;
       var entry = _vibeManifest && _vibeManifest[slug];
       if (!entry) return;
-      function _preload(url, assign) {
+      // Reset to the cached versions immediately so the timeline UI
+      // flips to "ready" instantly when re-entering a previously-
+      // visited vibe. Falls through to the network preload if a
+      // tier isn't cached yet.
+      var cachedRaw  = _vibeTierImageCache[slug + ":raw"];
+      var cachedRhef = _vibeTierImageCache[slug + ":rhef"];
+      state.rawBackendImage = cachedRaw || null;
+      state.rhefImage = cachedRhef || null;
+      function _preload(url, tierKey, assign) {
         if (!url) return;
+        if (_vibeTierImageCache[tierKey]) {
+          // Already cached. Assign + announce ready, no network hit.
+          try { assign(_vibeTierImageCache[tierKey]); } catch (_e) {}
+          _onTierReady();
+          return;
+        }
         var img = new Image();
-        img.crossOrigin = "anonymous";
+        // No crossOrigin attribute: the asset is same-origin so CORS
+        // headers are irrelevant. Setting it to "anonymous" required
+        // explicit Access-Control-Allow-Origin headers from the
+        // server, which Render's static-file route doesn't always
+        // emit — that was the silent failure mode reported.
         img.onload = function () {
+          _vibeTierImageCache[tierKey] = img;
           try { assign(img); } catch (_e) {}
-          // Re-render the Quality timeline so the newly-ready tier
-          // updates from "Loading…" to "Ready" or auto-advance.
-          if (typeof maybeAutoAdvanceFilter === "function") {
-            try { maybeAutoAdvanceFilter(); } catch (_e) {}
-          } else if (typeof updateFilterTimelineUI === "function") {
-            try { updateFilterTimelineUI(); } catch (_e) {}
-          }
+          _onTierReady();
         };
-        // Silent on error — the user falls back to JPG quality.
+        // Silent on error — JPG path still works.
         img.src = url;
       }
-      // Reset any prior vibe's tier images so the timeline reads
-      // "Loading…" for the new vibe rather than carrying stale ready
-      // markers from the previous one.
-      state.rawBackendImage = null;
-      state.rhefImage = null;
-      _preload(entry.raw_full_url, function (img) { state.rawBackendImage = img; });
-      _preload(entry.rhef_full_url, function (img) { state.rhefImage = img; });
-      // Update the UI now so it switches from "Ready" → "Loading…"
-      // immediately on the new vibe selection.
+      function _onTierReady() {
+        // Re-render Quality timeline so the freshly-ready tier flips
+        // from locked/loading to ready (or auto-advance picks it up).
+        if (typeof maybeAutoAdvanceFilter === "function") {
+          try { maybeAutoAdvanceFilter(); } catch (_e) {}
+        } else if (typeof updateFilterTimelineUI === "function") {
+          try { updateFilterTimelineUI(); } catch (_e) {}
+        }
+      }
+      _preload(entry.raw_full_url,  slug + ":raw",  function (img) { state.rawBackendImage = img; });
+      _preload(entry.rhef_full_url, slug + ":rhef", function (img) { state.rhefImage       = img; });
+      // First-paint UI update reflecting any cached tiers we just
+      // restored (above) AND the "loading" state for in-flight ones.
       if (typeof updateFilterTimelineUI === "function") {
         try { updateFilterTimelineUI(); } catch (_e) {}
       }
+    }
+
+    // Background preload of ALL 11 vibes' Raw + RHEF tiers, kicked off
+    // once the manifest loads. By the time the user clicks ANY vibe
+    // card, that vibe's tiers are likely already in the browser cache
+    // → state.rawBackendImage / state.rhefImage resolve instantly.
+    // Bandwidth: ~22 MB total (11 vibes × ~2 MB avg per tier on
+    // gzipped PNGs from gamma-corrected warm output). Fires after a
+    // brief idle so it doesn't compete with the initial paint.
+    function _backgroundPreloadAllVibeTiers() {
+      if (!_vibeManifest) return;
+      var slugs = Object.keys(_vibeManifest).filter(function (s) {
+        return s !== "birthday";
+      });
+      var idx = 0;
+      function _tick() {
+        if (idx >= slugs.length) return;
+        var slug = slugs[idx++];
+        var entry = _vibeManifest[slug];
+        if (!entry) return setTimeout(_tick, 0);
+        ["raw_full_url", "rhef_full_url"].forEach(function (key) {
+          var url = entry[key];
+          var tierKey = slug + ":" + (key === "raw_full_url" ? "raw" : "rhef");
+          if (!url || _vibeTierImageCache[tierKey]) return;
+          var img = new Image();
+          img.onload = function () { _vibeTierImageCache[tierKey] = img; };
+          // No-op on error: it just means this tier won't be preloaded.
+          img.src = url;
+        });
+        // Stagger so we don't saturate the connection at once.
+        setTimeout(_tick, 200);
+      }
+      // Defer the start to next idle so initial paint isn't choked.
+      (window.requestIdleCallback || function (cb) { setTimeout(cb, 800); })(_tick);
     }
 
     function _activateVibe(card, opts) {
@@ -11114,21 +11176,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var canDraw = !!state.originalImage && typeof drawProductMockup === "function"
           && solarCanvas && solarCanvas.width > 0;
         if (!canDraw) {
-          // Product-first refactor: user opens the variant modal BEFORE
-          // an image is loaded. Show a placeholder ("Pick your Sun image
-          // next") instead of collapsing the slot to 0px — friction
-          // agent 2 reported the modal looked broken without a preview.
+          // Product-first refactor: the user opens the variant modal
+          // BEFORE picking an image, so state.originalImage is null at
+          // this point. Gilly's feedback on the sun-icon placeholder
+          // was: "I liked it better when I could see the aspect ratio
+          // and how it was going to crop." So instead of the cute
+          // placeholder, render the photoreal Printify default mockup
+          // for this product when the Phase B manifest carries one —
+          // user gets a real sense of how the chosen variant looks +
+          // its aspect ratio at the modal preview slot.
           mockupEl.classList.remove("empty");
-          var placeholder = document.createElement("div");
-          placeholder.className = "confirm-mockup-placeholder";
-          placeholder.innerHTML =
-            '<div class="confirm-mockup-placeholder-icon" aria-hidden="true">' +
-              '<i class="fas fa-sun"></i>' +
-            '</div>' +
-            '<div class="confirm-mockup-placeholder-text">' +
-              'Your Sun image goes here.<br><span>Pick a variant, continue, then choose a moment.</span>' +
-            '</div>';
-          mockupEl.appendChild(placeholder);
+          var dm = defaultMockupManifest && defaultMockupManifest[product.id];
+          if (dm && dm.url) {
+            var img = document.createElement("img");
+            img.src = dm.url;
+            img.alt = product.name + " default mockup";
+            img.className = "confirm-mockup-default";
+            img.loading = "eager";
+            mockupEl.appendChild(img);
+          } else {
+            // No default mockup on disk — fall back to the simple
+            // placeholder so the slot still has presence.
+            var placeholder = document.createElement("div");
+            placeholder.className = "confirm-mockup-placeholder";
+            placeholder.innerHTML =
+              '<div class="confirm-mockup-placeholder-icon" aria-hidden="true">' +
+                '<i class="fas fa-sun"></i>' +
+              '</div>' +
+              '<div class="confirm-mockup-placeholder-text">' +
+                'Your Sun image goes here.<br><span>Pick a variant, continue, then choose a moment.</span>' +
+              '</div>';
+            mockupEl.appendChild(placeholder);
+          }
           return;
         }
         // Promote the editor filter to the highest available tier (HQ RHEF >
