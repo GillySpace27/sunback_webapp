@@ -4445,6 +4445,49 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
     }
 
+    // STRESS-001: preload the vibe's pre-warmed Raw + RHEF manifest
+    // URLs into state.rawBackendImage and state.rhefImage so the
+    // editor's Quality timeline can auto-advance past "Loading…".
+    // Called by _activateVibe; no-op when the slug is "birthday" (no
+    // manifest entry) or when the manifest hasn't been loaded yet.
+    // Each preload is non-blocking: the image fetches in the
+    // background, fires the timeline UI update on load, and falls back
+    // silently on error (the user can still operate at the JPG tier).
+    function _preloadVibeTiersIntoState(slug) {
+      if (!slug || slug === "birthday") return;
+      var entry = _vibeManifest && _vibeManifest[slug];
+      if (!entry) return;
+      function _preload(url, assign) {
+        if (!url) return;
+        var img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function () {
+          try { assign(img); } catch (_e) {}
+          // Re-render the Quality timeline so the newly-ready tier
+          // updates from "Loading…" to "Ready" or auto-advance.
+          if (typeof maybeAutoAdvanceFilter === "function") {
+            try { maybeAutoAdvanceFilter(); } catch (_e) {}
+          } else if (typeof updateFilterTimelineUI === "function") {
+            try { updateFilterTimelineUI(); } catch (_e) {}
+          }
+        };
+        // Silent on error — the user falls back to JPG quality.
+        img.src = url;
+      }
+      // Reset any prior vibe's tier images so the timeline reads
+      // "Loading…" for the new vibe rather than carrying stale ready
+      // markers from the previous one.
+      state.rawBackendImage = null;
+      state.rhefImage = null;
+      _preload(entry.raw_full_url, function (img) { state.rawBackendImage = img; });
+      _preload(entry.rhef_full_url, function (img) { state.rhefImage = img; });
+      // Update the UI now so it switches from "Ready" → "Loading…"
+      // immediately on the new vibe selection.
+      if (typeof updateFilterTimelineUI === "function") {
+        try { updateFilterTimelineUI(); } catch (_e) {}
+      }
+    }
+
     function _activateVibe(card, opts) {
       opts = opts || {};
       var date = card.getAttribute("data-vibe-date") || "";
@@ -4458,6 +4501,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // the manifest URL for that vibe. Birthday-card flow sets slug
       // to "birthday" — no manifest, mockups stay on the JPG path.
       state.activeVibeSlug = card.getAttribute("data-vibe-slug") || null;
+      // STRESS-012: timestamp the vibe activation so the HQ-ready toast
+      // can suppress itself if it would fire within ~1500 ms (during
+      // which the user is still reading the "X Å loaded!" toast).
+      state._lastVibeActivatedAt = Date.now();
+      // STRESS-001: preload the vibe's pre-warmed Raw + RHEF manifest
+      // URLs into state.rawBackendImage + state.rhefImage so the
+      // editor's Quality timeline (jpg → raw → rhef → hq_rhef) can
+      // auto-advance instead of sitting on "Loading…" indefinitely.
+      // The Helioviewer JPG loads first (via loadHelioviewerPreview
+      // below) and becomes state.jpgImage / state.originalImage; the
+      // background pre-load of Raw + RHEF makes the timeline reflect
+      // their availability without a per-product render trip to the
+      // server. _filterIsReady reads these fields directly.
+      _preloadVibeTiersIntoState(state.activeVibeSlug);
       // Dispatch date change first (resets latches and triggers HEK fetch).
       if (dateInput) {
         dateInput.value = date;
@@ -5574,7 +5631,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         state.hqFilterImage = cached.imageObj;
         state.hqFormat = format;
         _hqApplyUpgrade(format);
-        showToast("Full-resolution RHEF ready!", "success");
+        // STRESS-012: suppress the HQ-ready toast if the vibe was
+        // activated <1500ms ago — the "X Å loaded!" toast is still
+        // on screen and the agent reported the wording was confusing.
+        if (!state._lastVibeActivatedAt || (Date.now() - state._lastVibeActivatedAt) > 1500) {
+          showToast("Full-resolution RHEF ready!", "success");
+        }
         return Promise.resolve(cached.imageObj);
       }
 
@@ -5635,7 +5697,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             updateFilterStatusLine("Full-res RHEF ready!", "success");
             _hqApplyUpgrade(format);
             if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
-            showToast("Full-resolution RHEF ready! \u2728", "success");
+            if (!state._lastVibeActivatedAt || (Date.now() - state._lastVibeActivatedAt) > 1500) {
+              showToast("Full-resolution RHEF ready! \u2728", "success");
+            }
             return img;
           });
         }
@@ -9578,7 +9642,28 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // the modal into the user's current view (embed) rather than at a
       // stale offset.
       if (typeof maybeShowDataCredits === "function") {
-        setTimeout(maybeShowDataCredits, 650);
+        // STRESS-010: friction agents flagged the auto-modal as covering
+        // the canvas + tools immediately on editor mount. Delay long
+        // enough that the user sees their image render + can start
+        // editing first; if they're already engaging with the tools
+        // (canvas click, slider drag, tab switch), skip the auto-pop
+        // entirely — they clearly don't want the wall of text.
+        setTimeout(function () {
+          var userEngaging = false;
+          var probe = function () { userEngaging = true; };
+          var stage = document.getElementById("imageStage");
+          var toolbar = document.querySelector(".edit-toolbar");
+          if (stage) stage.addEventListener("pointerdown", probe, { once: true });
+          if (toolbar) toolbar.addEventListener("pointerdown", probe, { once: true });
+          // Quick check on next frame; if no engagement, schedule a
+          // longer delay before the credits modal actually fires.
+          requestAnimationFrame(function () {
+            setTimeout(function () {
+              if (userEngaging) return;
+              if (typeof maybeShowDataCredits === "function") maybeShowDataCredits();
+            }, 4500);  // 5s total from editor open: enough for image + first interaction
+          });
+        }, 500);
       }
     }
 
