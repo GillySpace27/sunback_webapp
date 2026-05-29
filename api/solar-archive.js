@@ -156,6 +156,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (name !== "editor") {
           body.classList.remove("left-rail-preview");
           body.classList.remove("preview-popped-out");
+          // STRESS-011: single-preview-mode also belongs to the editor
+          // lifecycle; clearing it on non-editor steps keeps body classes
+          // honest (verify-agent flagged this lingering class as a
+          // hygiene smell even though it's not user-visible).
+          body.classList.remove("single-preview-mode");
           // Restore the selectedProductPreview pane to its original
           // DOM slot if it was hoisted to <body> for rail mode.
           var pane = document.getElementById("selectedProductPreview");
@@ -176,6 +181,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof _onEditorVisibilityChanged === "function") {
           try { _onEditorVisibilityChanged(); } catch (_e) {}
         }
+      }
+      // STRESS-009: scroll-position reset on step transitions. Before
+      // this, clicking "Pick a variant" while scrolled mid-page left
+      // the user stranded at the previous scrollY relative to the now-
+      // hidden product grid (or near the bottom of the new step's
+      // content if the doc shrank). Always scroll to top of the
+      // newly-visible step's content so the user starts where the
+      // step's primary affordance is. Skip on popstate (the browser
+      // restores its own scroll position) and on initial bootstrap
+      // (no transition yet).
+      if (!opts.fromPopstate && prev && prev !== name) {
+        try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); }
+        catch (_e) { try { window.scrollTo(0, 0); } catch (_e2) {} }
       }
       // Hash sync — skip when coming from popstate (the browser
       // already updated location.hash before firing the event).
@@ -219,21 +237,41 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var _hashStep = (location.hash || "").replace(/^#/, "").trim();
     if (_isValidStep(_hashStep)) _initialStep = _hashStep;
     state.currentStep = state.currentStep || _initialStep;
-    // Sanity: if the hash promised editor or image but we have no
-    // selectedProduct (cold load, nothing committed yet), demote and
-    // CLEAR the dead hash from the address bar so reloads / shares
-    // don't keep propagating it (agent friction-audit P1).
-    if (state.currentStep !== "product" && !state.selectedProduct) {
-      state.currentStep = "product";
-      try { history.replaceState({ step: "product" }, "", location.pathname + location.search); }
-      catch (_e) {}
+    // STRESS-003: extract the cold-init "is the requested step
+    // actually reachable" guard into a reusable helper so we can call
+    // it on BFCache restore (pageshow) too. Without that, a user who
+    // navigated away and back from a deep-link like #image landed on
+    // the wrong step.
+    function _normalizeStepWithState() {
+      // Demote when the requested step needs a product that's not set.
+      if (state.currentStep !== "product" && !state.selectedProduct) {
+        state.currentStep = "product";
+        try { history.replaceState({ step: "product" }, "", location.pathname + location.search); }
+        catch (_e) {}
+      }
+      // STRESS-014: re-clear any bogus #-hash. The earlier check ran
+      // BEFORE _applyStep wrote its own replaceState, so a bogus hash
+      // could race back in. Re-do the check post-bootstrap so the
+      // address bar always ends clean.
+      if (location.hash && !_isValidStep((location.hash || "").replace(/^#/, ""))) {
+        try { history.replaceState({ step: state.currentStep }, "", location.pathname + location.search); }
+        catch (_e) {}
+      }
     }
-    // Also clear any bogus #-hash that didn't validate as a step name.
-    if (location.hash && !_isValidStep((location.hash || "").replace(/^#/, ""))) {
-      try { history.replaceState({ step: state.currentStep }, "", location.pathname + location.search); }
-      catch (_e) {}
-    }
+    _normalizeStepWithState();
     _applyStep(state.currentStep);
+    _normalizeStepWithState();
+    // BFCache restore (Safari back/forward optimisation): the page is
+    // restored from memory without re-firing DOMContentLoaded, so the
+    // bootstrap normalisation never re-runs. pageshow fires with
+    // event.persisted=true on those restores; re-normalise so deep-
+    // link restorations don't strand on the wrong step.
+    window.addEventListener("pageshow", function (e) {
+      if (e && e.persisted) {
+        _normalizeStepWithState();
+        _applyStep(state.currentStep);
+      }
+    });
     // Expose for the breadcrumb component (commit 2) and debugging.
     try {
       window.SolarArchive = window.SolarArchive || {};
@@ -3099,7 +3137,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var statusEl = step.querySelector(".filter-step-status");
         if (statusEl) statusEl.dataset.status = status;
         var radio = step.querySelector('input[name="editorFilter"]');
-        if (radio) radio.checked = active;
+        if (radio) {
+          radio.checked = active;
+          // STRESS-013: locked-tier radios were click-able with no
+          // feedback (UI label said "LOCKED" but disabled=false). User
+          // clicked, nothing happened, silent. Reflect the locked
+          // state on the actual input so the click is intercepted and
+          // the step + its row both feel non-interactive.
+          radio.disabled = (!ready && !loading && !active);
+        }
+        step.setAttribute("aria-disabled", (!ready && !loading && !active) ? "true" : "false");
       });
       toggleEl.querySelectorAll(".filter-step-connector").forEach(function(c, i) {
         // connector at index i sits between step i and step i+1.
@@ -4300,6 +4347,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // Already a request in flight? Coalesce — newest target wins.
           // (We don't queue; if the user clicks A then C while A is
           // wiping, we abandon A and chase C.)
+          // STRESS-006: clear stale is-pending-target from OTHER buttons
+          // before tagging the new target — rapid clicking left multiple
+          // pills carrying the pending-glow simultaneously, which the
+          // friction agent called "muddled in-flight visual".
+          masterToggle.querySelectorAll(".vibe-master-btn.is-pending-target").forEach(function (b) {
+            if (b !== btn) b.classList.remove("is-pending-target");
+          });
           masterToggle.dataset.pendingTier = tier;
           masterToggle.classList.add("is-pending");
           btn.classList.add("is-pending-target");
@@ -4709,7 +4763,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             .catch(function () { /* not warmed yet — fine */ });
         })();
         (function _primeDefaultHQ() {
-          var defaultUrl = "/asset/hq_SDO_193_20141024.png";
+          // STRESS-015: the legacy /asset/hq_SDO_193_20141024.png path
+          // no longer exists on prod (the file moved to the per-vibe
+          // tree). Switch to the canonical AR 2192 RHEF full asset
+          // that the vibe-warm pipeline produces. Same content, no
+          // 404 spam in the network tab.
+          var defaultUrl = "/asset/default/vibe/ar2192/rhef_full.png";
           var probe = new Image();
           probe.crossOrigin = "anonymous";
           probe.onload = function () {
@@ -7998,12 +8057,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var toggle = document.getElementById("configSectionToggle");
       if (!section || !toggle) return;
       toggle.addEventListener("click", function () {
-        var nowExpanded = section.classList.toggle("section-collapsed");
-        // toggle returns the NEW state of having the class — i.e.
-        // true if .section-collapsed was just ADDED. So "expanded" is
-        // the opposite.
-        var isExpanded = !nowExpanded;
-        toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+        // STRESS-008: prior implementation read the post-toggle class
+        // state into a variable named `nowExpanded` (which actually
+        // meant "now COLLAPSED") and inverted it for aria-expanded.
+        // The naming was confusing and the friction agent reported
+        // the class state and the visible content getting out of sync.
+        // Rewrite as explicit "was-state → set new-state" so the
+        // intent is unambiguous and the order of mutations is fixed.
+        var wasCollapsed = section.classList.contains("section-collapsed");
+        section.classList.toggle("section-collapsed", !wasCollapsed);
+        // After the toggle: if it WAS collapsed, it's now expanded.
+        toggle.setAttribute("aria-expanded", wasCollapsed ? "true" : "false");
       });
     })();
     // _wireCustomizeFromProducts removed in commit 4 of the
@@ -8629,6 +8693,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var val = opts[k];
         if (val == null || val === "") return;
         var str = String(val).trim();
+        // STRESS-017: normalise unicode primes (″, ′, “, ”, ‘, ’) to
+        // straight ASCII quotes so the catalog labels are consistent.
+        // Printify's catalog mixes both within the same product's size
+        // list (8" x 11", 11″ x 14″, 18″ x 24″, 20" x 30") and the
+        // friction agent flagged the inconsistency as copy noise.
+        str = str
+          .replace(/[″”“]/g, '"')   // ″ ” “ → "
+          .replace(/[′’‘]/g, "'");  // ′ ’ ‘ → '
         // Wall clock variants split base color + hand color into two options.
         // The bare "Black" / "White" on the `hands` key is ambiguous next to
         // a "Black Base" / "White Base" / "Wooden Base" — beta tester asked
@@ -8638,7 +8710,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         parts.push(str);
       });
-      return parts.length ? parts.join(" / ") : "Variant #" + v.id;
+      // STRESS-019: square-aspect size variants (e.g. "8" x 8"") were
+      // missing the Horizontal/Vertical orientation chip the other
+      // sizes carry, making the tile look truncated. Inject "Square"
+      // when the size axis reveals an obviously-square spec and no
+      // orientation token is already present.
+      var assembled = parts.join(" / ");
+      if (/(\d+(?:\.\d+)?)\s*[x×]\s*\1(?!\d)/i.test(assembled)
+          && !/horizontal|vertical|landscape|portrait|square/i.test(assembled)) {
+        assembled = assembled + " / Square";
+      }
+      return parts.length ? assembled : "Variant #" + v.id;
     }
 
     function getVariantPrice(product, variant) {

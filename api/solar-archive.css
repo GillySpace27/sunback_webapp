@@ -4503,6 +4503,17 @@ body.left-rail-preview .feedback-fab-group {
 }
 body.left-rail-preview .feedback-fab-label { display: none; }
 body.left-rail-preview .feedback-fab { padding: 11px; }
+/* STRESS-004: same treatment on step "product" — agent 1 reported the
+   two pills covered the third-column product cards' title / price /
+   "Pick a variant" button on the top product row at desktop, and
+   overlapped card text on mobile. Shrink to icon-only + nudge up so
+   they clear the grid's bottom-right cell. */
+body.step-product .feedback-fab-group {
+  right: 18px;
+  bottom: 88px;
+}
+body.step-product .feedback-fab-label { display: none; }
+body.step-product .feedback-fab { padding: 11px; }
 
 @media (max-width: 600px) {
   /* On narrow screens, hide labels so the two pills stay icon-only and
