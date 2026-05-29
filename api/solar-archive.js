@@ -11520,11 +11520,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               return c && c.hex === activeHex;
             });
           }
+          // STRESS-016: show the price for this size next to the chip
+          // label so users can compare across sizes without clicking
+          // each chip. Prefer the variant matching the active colour;
+          // fall back to the first variant in the bucket.
+          var priceVariant = activeHex && bucket.variants.find(function(v) {
+            var c = variantColorOption(v); return c && c.hex === activeHex;
+          });
+          if (!priceVariant) priceVariant = bucket.variants[0];
+          var priceStr = priceVariant ? priceForVariantDisplay(product, priceVariant) : "";
+          var priceMarkup = priceStr
+            ? '<span class="confirm-size-chip-price">' + escapeHtmlSimple(priceStr) + '</span>'
+            : '';
           html += '<button type="button" role="option" class="confirm-size-chip' + isActive + '"' +
                   ' data-size="' + escapeHtmlSimple(sz) + '"' +
                   (unavailable ? ' data-unavailable="true"' : '') +
-                  ' title="' + escapeHtmlSimple(sz) + (unavailable ? " (not in this colour)" : "") + '">' +
-                  escapeHtmlSimple(sz) + '</button>';
+                  ' title="' + escapeHtmlSimple(sz) + (priceStr ? " — " + priceStr : "") + (unavailable ? " (not in this colour)" : "") + '">' +
+                  '<span class="confirm-size-chip-label">' + escapeHtmlSimple(sz) + '</span>' +
+                  priceMarkup +
+                  '</button>';
         });
         sizeChipsEl.innerHTML = html;
         sizeChipsEl.classList.remove("hidden");

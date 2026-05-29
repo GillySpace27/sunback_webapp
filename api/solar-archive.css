@@ -3557,6 +3557,22 @@ body.step-editor .vibe-reveal-btn {
   gap: 20px 20px;
   align-items: start;
 }
+/* STRESS-002: at tablet widths below the rail breakpoint (1100 px) the
+   two-column grid was squeezing the toolbar column down to ~150 px,
+   below the toolbar's intrinsic content width — friction agent 4
+   reported the entire toolbar disappeared with a phantom black gutter
+   on the right at 768 px. Force the single-column stack at narrow
+   widths so the toolbar always gets a full row of breathing room. */
+@media (max-width: 1099px) {
+  .editor-with-preview {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "canvas"
+      "preview"
+      "toolbar"
+      "actions";
+  }
+}
 
 .editor-with-preview .image-stage   { grid-area: canvas; }
 .editor-with-preview .editor-main   { grid-area: toolbar; min-width: 0; }
@@ -5571,8 +5587,9 @@ html.embedded .feedback-product-results {
 .confirm-size-chips.hidden { display: none; }
 .confirm-size-chip {
   min-width: 34px;
-  height: 28px;
-  padding: 0 10px;
+  height: auto;
+  min-height: 36px;
+  padding: 4px 10px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -5581,7 +5598,21 @@ html.embedded .feedback-product-results {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  /* STRESS-016: chip now hosts label + price stacked. */
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.05;
 }
+.confirm-size-chip-price {
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 0.78;
+  letter-spacing: 0.01em;
+}
+.confirm-size-chip.active .confirm-size-chip-price { opacity: 0.9; }
 .confirm-size-chip:hover {
   color: var(--text-primary, #e9eaf5);
   background: rgba(123, 97, 255, 0.12);
@@ -5860,6 +5891,25 @@ html.embedded .feedback-product-results {
      date input lands sooner. */
   .hero { padding-top: 14px; padding-bottom: 8px; }
   .hero-credit { font-size: 0.7rem; line-height: 1.3; }
+  /* STRESS-005: friction agent 1 measured firstCard.top = 380 px on
+     a 667 px-tall mobile viewport — hero alone consumed >55 % of
+     the vertical space, so only a sliver of the first product card
+     showed above the fold. Defeat the point of product-first.
+     Mobile-only treatment:
+       * Shrink H1 + tagline, drop the "Solar Archive" line height
+       * Move the SDO acknowledgement to a smaller second-line
+       * Hide the beta banner here (#betaBanner) — its content is
+         duplicated in the global backend banner and the H1's BETA
+         badge already, so the third repetition is pure occupy. */
+  .hero h1 { font-size: 1.4rem; line-height: 1.1; margin-bottom: 4px; }
+  .hero p { font-size: 0.78rem; line-height: 1.25; margin-bottom: 6px; }
+  .hero-credit { font-size: 0.62rem; opacity: 0.7; margin-top: 2px; }
+  .hero-icon { width: 36px; height: 36px; margin-bottom: 6px; }
+  body.step-product .beta-banner { display: none; }
+  /* Product section: trim header padding so the first card lands
+     above the fold on a 667 px-tall viewport. */
+  body.step-product #productSection .section-header { padding-bottom: 4px; }
+  body.step-product #productSectionIntro { font-size: 0.72rem; margin-bottom: 6px; }
 
   /* ── F9 · Confirm-modal & feedback area form fields ────────────
      iOS Safari auto-zooms any <input> with font-size < 16 px on
