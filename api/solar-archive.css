@@ -5371,10 +5371,19 @@ html.embedded .feedback-product-results {
 .confirm-mockup.empty {
   display: none;
 }
-/* Placeholder shown in the product-first flow when the user opens the
-   variant modal BEFORE picking an image. Keeps the 220×220 slot
-   visible (avoids the modal "collapsing to text only" look the
-   friction agent reported) and gives a hint about what happens next. */
+/* Photoreal Printify default mockup at the variant-modal preview slot
+   when no source image is loaded yet — replaces the cute sun-icon
+   placeholder per Gilly's "I liked it better when I could see the
+   aspect ratio and how it was going to crop" feedback. */
+.confirm-mockup-default {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+/* Fallback placeholder (no default mockup on disk for this product) —
+   kept so the slot doesn't collapse to zero when the manifest is
+   sparse. */
 .confirm-mockup-placeholder {
   display: flex;
   flex-direction: column;
