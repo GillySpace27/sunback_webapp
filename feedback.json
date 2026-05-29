@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-28",
+  "context": "5-panel adversarial stress test of the product-first workflow refactor on https://solar-archive.onrender.com. Five agents tested orthogonal slices (cold load + product picker, variant + transition, image picker + master toggle, editor + buy, cross-step nav). Findings consolidated here. Verified-fixed items live in git history (commits f7d6312 through 6b474de); only OPEN concerns appear below.",
+  "verified_fixed_in_6b474de": [
+    "Master toggle initial active state matches cards (Original=raw)",
+    "Master toggle stays position:fixed after back-from-editor",
+    "Browser back from editor is single-step (no longer a no-op)",
+    "left-rail-preview body class clears on non-editor transitions",
+    "Breadcrumb and master toggle stack vertically without overlap",
+    "Confirm-select modal shows placeholder when no source image"
+  ],
+  "open_items": [
+    {
+      "id": "STRESS-001",
+      "severity": "P0",
+      "area": "editor / filter timeline",
+      "title": "Quality timeline Raw + RHEF stuck on 'Loading…' indefinitely after a vibe selection",
+      "source": "agent 4 (editor + buy flow)",
+      "description": "When user picks a famous-moment vibe card (e.g. AR 2192), the editor opens with the Helioviewer JPG as state.originalImage. The Quality timeline's Raw and RHEF steps remain 'Loading…' for 30+ seconds and never auto-advance. Clicking the Raw radio fires a DOM-level state change but the canvas does not switch and JPG stays the active filter.",
+      "root_cause_hypothesis": "Vibe-card flow uses pre-warmed manifest URLs for Raw + RHEF (/asset/default/vibe/<slug>/raw_full.png etc.) but those URLs are not preloaded into state.rawImage / state.rhefImage. The filter timeline's _filterIsReady() check reads those state fields, so it sees nothing ready beyond JPG. Need a path that pulls the manifest URLs into state.{raw,rhef}Image when a vibe is activated.",
+      "repro": [
+        "Cold load → Pick a variant (any product) → Continue",
+        "Click AR 2192 vibe card",
+        "Wait in editor 30+ seconds",
+        "Observe Quality timeline Raw + RHEF stuck on 'Loading…'"
+      ],
+      "code_pointers": [
+        "api/solar-archive.js _activateVibe (~line 4154)",
+        "api/solar-archive.js _installPreviewImage (~line 2440)",
+        "api/solar-archive.js _filterIsReady + updateFilterTimelineUI (~line 2868)"
+      ],
+      "fix_sketch": "In _activateVibe (or commitImageChoice when state.activeVibeSlug is set), pre-load the manifest's raw_full_url and rhef_full_url into state.rawImage / state.rhefImage via Image() objects. Then call maybeAutoAdvanceFilter to let the timeline catch up.",
+      "estimated_effort": "medium (~2-3h: state plumbing + cache coordination + visual verify)"
+    },
+    {
+      "id": "STRESS-002",
+      "severity": "P0",
+      "area": "responsive / tablet",
+      "title": "Tablet ~768px viewport loses the entire editor toolbar",
+      "source": "agent 4 (editor + buy flow)",
+      "description": "At width=768, the right column with Quality timeline, Geometry/Adjust/Tools tabs, sliders, and Change-product/wavelength/variant buttons is completely missing. User sees only the preview canvas, 'Generate real mockup' and 'Download your design' buttons, then footer. Editing is impossible on tablet. A black ~150px band appears on the right edge of viewport (stale rail-mode gutter).",
+      "root_cause_hypothesis": "The rail-mode CSS engages above a breakpoint (_LEFT_RAIL_BREAKPOINT in solar-archive.js, possibly 720 or 768) and reserves a gutter for the rail preview. At 768 the gutter shows but the editor-main column doesn't fit, gets hidden / overflowed.",
+      "repro": [
+        "Resize browser to exactly 768x1024",
+        "Cold load → Pick a variant → Continue → click any vibe",
+        "Observe editor section: only canvas + bottom CTA buttons visible, no toolbar/tabs/sliders. Black gutter on right edge."
+      ],
+      "code_pointers": [
+        "api/solar-archive.js _updateLeftRailMode (~line 1660), _LEFT_RAIL_BREAKPOINT",
+        "api/solar-archive.css search for 'left-rail-preview' and 'single-preview-mode' media query rules"
+      ],
+      "fix_sketch": "Either (a) bump _LEFT_RAIL_BREAKPOINT to 1024 so rail engages only on desktop, OR (b) make the rail's CSS-vars resolver collapse the editor-main column gracefully at narrow widths.",
+      "estimated_effort": "medium (~2-3h: needs cross-viewport verification)"
+    },
+    {
+      "id": "STRESS-003",
+      "severity": "P1",
+      "area": "deep links / state machine",
+      "title": "Cold-load with `#image` hash strands user in step-image without a selected product",
+      "source": "agent 2 (variant + transition), agent 5 (cross-step nav)",
+      "description": "Cold-loading https://solar-archive.onrender.com/#image enters body.step-image, vibe grid is visible, no state.selectedProduct. User picks a vibe and downstream editor lacks a product. Similar issue after Chrome BFCache restore: the line-198 demote safety net runs on cold init but not on pageshow restore.",
+      "root_cause_hypothesis": "The init guard at solar-archive.js ~line 200 demotes when (currentStep != product && !selectedProduct), but only runs on first DOMContentLoaded. BFCache restore + the hash-route logic don't re-run that guard.",
+      "repro": [
+        "Open https://solar-archive.onrender.com/#image directly",
+        "Observe body.step-image, no selectedProduct, vibe grid visible",
+        "Pick AR 2192 → editor opens with no product context"
+      ],
+      "code_pointers": [
+        "api/solar-archive.js bootstrap region near _applyStep (~line 195-220)",
+        "Add a pageshow event listener that re-runs the demote check"
+      ],
+      "fix_sketch": "Wrap the demote check in a function (`_normalizeStepWithState()`) and call it from both the bootstrap path AND a pageshow event listener. Also call it before each setStep() call in commitProductChoice / commitImageChoice.",
+      "estimated_effort": "low (~30min)"
+    },
+    {
+      "id": "STRESS-004",
+      "severity": "P1",
+      "area": "layout / FAB",
+      "title": "Floating 'Request new item' + 'Leave a comment' pills occlude product card content",
+      "source": "agent 1 (cold load + product picker)",
+      "description": "On both desktop (1400) and mobile widths, the two feedback FAB pills sit fixed bottom-right and visually cover the third column's title / 'From $XX' / 'Pick a variant' button on the top product row at desktop, and overlap card text on mobile.",
+      "code_pointers": [
+        "api/solar-archive.css .feedback-fab-group / .feedback-fab",
+        "Current rule shifts FAB up only when body.left-rail-preview; need step-product shift too"
+      ],
+      "fix_sketch": "Add body.step-product .feedback-fab-group { bottom: 88px; right: 18px; } so the pills clear the bottom row of the product grid. Already have the body.left-rail-preview shift; mirror it for step-product.",
+      "estimated_effort": "low (~10min, CSS-only)"
+    },
+    {
+      "id": "STRESS-005",
+      "severity": "P1",
+      "area": "mobile / above-the-fold",
+      "title": "First product card is not above the fold on mobile (~390px)",
+      "source": "agent 1 (cold load + product picker)",
+      "description": "At rendered viewport 390x667, firstCard.top = 380px of 667px viewport. Hero + tagline + courtesy line + beta banner + section header consume the top ~360px. Only the product image is visible; no price/CTA. Defeats the point of product-first.",
+      "fix_sketch": "On mobile (max-width: 600px), shrink hero (collapse the courtesy line, smaller H1, smaller beta banner) or move the hero to a collapsed accordion. Net target: first product card visible at y < 120px.",
+      "estimated_effort": "medium (~1h: hero redesign, mobile spot-check)"
+    },
+    {
+      "id": "STRESS-006",
+      "severity": "P1",
+      "area": "master toggle / rapid clicks",
+      "title": "Rapid toggle clicks leave multiple is-pending-target pills (visual transient)",
+      "source": "agent 3 (image picker + master toggle)",
+      "description": "Spamming Preview → Original → Filtered → Preview → Original at ~200ms cadence produced a moment where both jpg and raw pills carried is-pending-target while rhef still held is-active. After ~5s state settled correctly on last-clicked tier with cards in sync. No long-term oscillation, but the in-flight visual is muddled.",
+      "fix_sketch": "In the master-toggle click handler, before adding is-pending-target to the new clicked button, REMOVE is-pending-target from all other buttons. Currently the race-guard handles the END state but not the in-flight chain.",
+      "estimated_effort": "low (~10min, JS one-liner)"
+    },
+    {
+      "id": "STRESS-007",
+      "severity": "P1",
+      "area": "variant modal / single-axis",
+      "title": "Acrylic Print's 'Pick a variant' button sometimes skips variant selection",
+      "source": "agent 5 (cross-step nav)",
+      "description": "Clicking 'Pick a variant' on the Acrylic Wall Art card jumps straight to step-image with no .variant-panel ever opening (the inner panel stays empty/hidden). Variant choice is silently bypassed. Could not reproduce in subsequent agent runs — possibly a race or a Chrome extension stealing the click.",
+      "status": "needs_repro",
+      "fix_sketch": "Add console logging in showConfirmSelectModal entry + bail paths so next agent run can pinpoint where the click is being lost. Also harden the click handler to guarantee the modal opens before any step transition fires.",
+      "estimated_effort": "low (~30min once reproduced)"
+    },
+    {
+      "id": "STRESS-008",
+      "severity": "P1",
+      "area": "image picker / customize panel",
+      "title": "Customize section section-collapsed class doesn't toggle correctly on click",
+      "source": "agent 3 (image picker + master toggle)",
+      "description": "After clicking the configSection header, #configSection carries class 'section-collapsed' but content (HEK tiles + 9-wavelength grid) is visible. Manually removing the class via DOM confirms the content renders correctly. So the click adds the wrong class state.",
+      "root_cause_hypothesis": "_wireConfigSectionToggle uses classList.toggle('section-collapsed') which returns true when class is NOW present. The handler then sets aria-expanded based on a misnamed variable. Possibly the initial HTML class state + the JS toggle interact incorrectly when the user lands on step-image (where the section is fresh and the HTML class is 'section-collapsed').",
+      "code_pointers": [
+        "api/solar-archive.js _wireConfigSectionToggle (~line 7658)",
+        "api/index.html #configSection initial class='section section-collapsible section-collapsed'"
+      ],
+      "fix_sketch": "Replace the misleading toggle pattern with explicit add/remove + a boolean derived from the CURRENT state BEFORE the toggle. e.g. `var wasCollapsed = section.classList.contains('section-collapsed'); section.classList.toggle('section-collapsed', !wasCollapsed); toggle.setAttribute('aria-expanded', wasCollapsed ? 'true' : 'false');`",
+      "estimated_effort": "low (~15min)"
+    },
+    {
+      "id": "STRESS-009",
+      "severity": "P1",
+      "area": "scroll behavior",
+      "title": "Scroll position not reset on step-product → step-image transition",
+      "source": "agent 2 (variant + transition)",
+      "description": "If the user scrolled before clicking 'Pick a variant', the post-transition scrollY is preserved (or clamped if doc shrinks). User lands mid-page or near the bottom of the vibe grid rather than at the 'Pick an image — a famous moment…' header.",
+      "fix_sketch": "In commitProductChoice, after setStep('image'), call window.scrollTo({top: 0, behavior: 'auto'}) or _scrollToEl(.vibe-grid-section, 'start') so the user always starts at the top of the new step's content.",
+      "estimated_effort": "low (~15min)"
+    },
+    {
+      "id": "STRESS-010",
+      "severity": "P1",
+      "area": "auto-modal",
+      "title": "'Behind the scenes while your image renders' modal pops on every editor entry",
+      "source": "agent 3, agent 4",
+      "description": "Until user checks 'Don't show again', the data-credits modal auto-pops on every cold vibe-card → editor flow. The dismiss-permanently checkbox works, but the friction is the FIRST instance: it covers the canvas + tools without warning.",
+      "fix_sketch": "Either (a) remove the auto-pop entirely and keep only the footer 'Data credits' link as the discoverable surface, OR (b) delay the pop to 5+ seconds AFTER editor mount so the user has seen their image first, AND make the modal smaller/sidebar-style instead of center-stage. User preference required.",
+      "estimated_effort": "low (~15min once decided)"
+    },
+    {
+      "id": "STRESS-011",
+      "severity": "P2",
+      "area": "state hygiene",
+      "title": "body.single-preview-mode lingers after back-from-editor",
+      "source": "verify agent 6b474de",
+      "description": "After leaving the editor, body class single-preview-mode is not cleared (left-rail-preview IS cleared by the new _applyStep logic). Not user-visible because #selectedProductPreview is display:none via step CSS, but the stale class smells and could affect any future rule that selects on single-preview-mode.",
+      "fix_sketch": "Add single-preview-mode to the body.classList.remove() list in _applyStep when name !== 'editor'.",
+      "estimated_effort": "trivial (~5min, 1 line)"
+    },
+    {
+      "id": "STRESS-012",
+      "severity": "P2",
+      "area": "toast copy",
+      "title": "Vibe-card click fires 'Full-resolution RHEF ready!' instead of '193 Å loaded!'",
+      "source": "agent 3 (image picker + master toggle)",
+      "description": "Wavelength-tile clicks correctly show '171 Å loaded!'. Vibe-card clicks fire 'Full-resolution RHEF ready!' because the manifest's HQ RHEF lands quickly and the HQ-ready toast pre-empts the per-wavelength one. Cosmetic ordering issue.",
+      "fix_sketch": "Suppress the HQ-ready toast for the first 1500ms after image load OR show '193 Å loaded!' synchronously before any tier-promotion toasts fire.",
+      "estimated_effort": "low (~20min)"
+    },
+    {
+      "id": "STRESS-013",
+      "severity": "P2",
+      "area": "Quality timeline",
+      "title": "Locked tier radios are click-able but no-op",
+      "source": "agent 4 (editor + buy flow)",
+      "description": "Quality-timeline radios have label 'LOCKED' but the underlying <input> has disabled=false. A user click silently no-ops with no tooltip or toast feedback.",
+      "fix_sketch": "Either (a) set disabled=true on the input when the step status is 'locked', OR (b) wire a click handler that shows a toast ('HQ RHEF rendering in background — try again in ~30s'). (b) is friendlier but more work.",
+      "estimated_effort": "low (~15min for option a)"
+    },
+    {
+      "id": "STRESS-014",
+      "severity": "P2",
+      "area": "hash hygiene",
+      "title": "Bogus hash like #abc123 occasionally not cleared on fallback",
+      "source": "agent 5 (cross-step nav)",
+      "description": "Cold-load #abc123 correctly falls back to body.step-product but location.hash is sometimes left as #abc123 rather than cleared. The history.replaceState path may race with a subsequent _applyStep call.",
+      "fix_sketch": "Re-check that the hash-clear replaceState happens AFTER any subsequent _applyStep that might write its own hash. Wrap in a single deferred microtask.",
+      "estimated_effort": "low (~15min)"
+    },
+    {
+      "id": "STRESS-015",
+      "severity": "P2",
+      "area": "asset 404",
+      "title": "/asset/hq_SDO_193_20141024.png returns 404",
+      "source": "agent 5 (cross-step nav)",
+      "description": "Network shows a 404 fetched during page load for the legacy default-HQ asset path. Cosmetic — the manifest-based path supersedes this — but a stale reference exists somewhere in the code.",
+      "code_pointers": [
+        "Search for 'hq_SDO_193_20141024' in api/ to find the fetcher",
+        "Likely the _primeDefaultHQ function (api/solar-archive.js ~line 4409)"
+      ],
+      "fix_sketch": "Update the URL to a valid asset path OR delete the fetcher if no longer needed.",
+      "estimated_effort": "trivial (~5min)"
+    },
+    {
+      "id": "STRESS-016",
+      "severity": "P2",
+      "area": "modal copy",
+      "title": "T-shirt 2-axis variant modal hides scrollable variant tile list",
+      "source": "agent 2 (variant + transition)",
+      "description": "On 2-axis products (color × size), the modal renders only color swatches + size chips. Per-variant tile list with prices is suppressed by _twoAxis mode. Users can't see per-variant price diffs at a glance.",
+      "fix_sketch": "In _twoAxis mode, optionally render a compact 'matrix' view (color rows × size columns) with prices in cells, OR show the full tile list below the chips. UX decision: do users WANT to compare prices per cell, or is the color+size chip selector enough?",
+      "estimated_effort": "medium (~1-2h)"
+    },
+    {
+      "id": "STRESS-017",
+      "severity": "P3",
+      "area": "copy consistency",
+      "title": "Mixed straight quotes and unicode primes in Framed Poster sizes",
+      "source": "agent 2 (variant + transition)",
+      "description": "Variants like 8\" x 11\", 11″ x 14″, 12″ x 18″ — mixed quote characters in the same list. Comes from Printify catalog.",
+      "fix_sketch": "Normalize at the API layer (/api/printify/variants) — replace all unicode primes with straight quotes in variant size labels.",
+      "estimated_effort": "low (~20min, backend)"
+    },
+    {
+      "id": "STRESS-018",
+      "severity": "P3",
+      "area": "missing feature",
+      "title": "No 'Buy' / 'Create on Shopify' button visible in the editor",
+      "source": "agent 4 (editor + buy flow)",
+      "description": "The task brief referenced a Buy button gated on HQ RHEF with a progress indicator. Neither exists in the live editor. Only 'Generate real mockup' (enabled) and 'Download your design' (disabled until mockup) are present. Either this is BETA_MODE gating (Buy hidden when BETA is on) or an unshipped feature.",
+      "status": "investigation_needed",
+      "fix_sketch": "Check BETA_MODE flag state on prod. If BETA is on, this is by design and the docs should reflect. If not, surface the Buy button.",
+      "estimated_effort": "low (~15min investigation)"
+    },
+    {
+      "id": "STRESS-019",
+      "severity": "P3",
+      "area": "variant label consistency",
+      "title": "Acrylic Wall Art 8x8 size tile missing Horizontal/Vertical orientation label",
+      "source": "agent 2 (variant + transition)",
+      "description": "Sizes 7x5, 5x7, 10x8, 8x10, 11x11 all carry an orientation label, but 8x8 (square) does not. Inconsistent layout makes the 8x8 tile look truncated.",
+      "fix_sketch": "Either always show the orientation label (use 'Square' for 8x8 / 11x11), or strip it from all tiles when the product has any square variant. Decide on copy.",
+      "estimated_effort": "trivial (~5min)"
+    }
+  ],
+  "out_of_scope_or_test_artifacts": [
+    {
+      "id": "NOTE-001",
+      "title": "Render cold-start 502",
+      "note": "Free-tier hibernation. Not fixable from the app."
+    },
+    {
+      "id": "NOTE-002",
+      "title": "?clean=1 / ?fresh=mobile / ?cb=q1 query param mutations during testing",
+      "note": "Confirmed NOT in our codebase (grep -r returned 0 matches). These come from the test agent's Playwright scaffolding (cache-bust query params) or from a Chrome extension. Disregard."
+    },
+    {
+      "id": "NOTE-003",
+      "title": "Multi-color chooser auto-commits vs confirm-select two-step",
+      "note": "Intentional UX: color chooser is single-axis (one tap = commit), confirm-select is multi-axis (color + size). Bifurcation is by design."
+    },
+    {
+      "id": "NOTE-004",
+      "title": "Confirm-modal backdrop element with display:block in DOM after modal close",
+      "note": "False alarm: parent .confirm-modal.hidden has display:none, so the child element's rect collapses to zero. Visually hidden. Agent misread the computed style."
+    },
+    {
+      "id": "NOTE-005",
+      "title": "Step badge reported as '2' on cold load by one agent",
+      "note": "False alarm: prod has step-badge=1 on productSection (verified via curl). Agent hit a stale cache."
+    }
+  ],
+  "priority_recommendation": [
+    "STRESS-001 (editor filter timeline stuck on Loading) — biggest UX gap",
+    "STRESS-002 (tablet 768px loses toolbar) — significant viewport blocked",
+    "STRESS-005 (mobile fold) — defeats product-first if user is on phone",
+    "STRESS-004 (FAB occludes product cards) — quick win, CSS-only",
+    "STRESS-011 (single-preview-mode lingers) — quick win, 1-line"
+  ]
+}
