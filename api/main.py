@@ -193,9 +193,14 @@ class PreviewRequest(BaseModel):
     annotate: bool | None = False
 
 
-# Global CORS headers for asset endpoints etc.
+# NEEDS-FIX (workflow wx5fi2brl, cors-wildcard):
+# Old value was Access-Control-Allow-Origin: * which contradicted the
+# CORSMiddleware allowlist below and let any origin pull asset endpoints.
+# Drop the wildcard. Browsers that GET our /asset/* paths cross-origin
+# now have to be on the CORSMiddleware allowlist (Shopify storefront +
+# our own origins). Server-to-server fetchers (Printify) work fine
+# without ACAO since they don't enforce CORS.
 CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 }
@@ -267,13 +272,35 @@ ensure_nasa_cert()
 NASA_CA_BUNDLE = _build_nasa_chain()
 os.environ["SSL_CERT_FILE"] = NASA_CA_BUNDLE
 os.environ["REQUESTS_CA_BUNDLE"] = NASA_CA_BUNDLE
-ssl._create_default_https_context = ssl._create_unverified_context
+# NEEDS-FIX (workflow wx5fi2brl, global-ssl-verify-off):
+# Previously ssl._create_default_https_context = ssl._create_unverified_context
+# left SSL verification OFF for every HTTPS call in the process — meaning
+# any compromised network path between us and JSOC / VSO / Helioviewer /
+# Printify / Shopify could MITM us silently. Re-enable verification by
+# default; the NASA bundle above already includes the JSOC + VSO chain.
+# Opt-out via env var SOLAR_ARCHIVE_INSECURE_SSL=1 for ops scripts that
+# still need to bypass (e.g., debugging a cert renewal).
+if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+    ssl._create_default_https_context = ssl._create_unverified_context
+    print("[startup][warn] SSL verification DISABLED (SOLAR_ARCHIVE_INSECURE_SSL=1)", flush=True)
+else:
+    # Re-bind the default factory to the verified path WITH our NASA bundle.
+    ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=NASA_CA_BUNDLE)
 print(f"[startup] Using standalone NASA_CA_BUNDLE: {NASA_CA_BUNDLE}", flush=True)
 
 
 
-# Use /tmp/output as the root for all temp/config/download dirs, regardless of environment
-base_tmp = "/tmp/output"
+# NEEDS-FIX (workflow wx5fi2brl, output-dir-tmp):
+# Prefer Render's persistent /var/data mount when available so generated
+# HQ images survive deploy + dyno-restart. Falls back to /tmp/output for
+# local dev where /var/data doesn't exist. SUNPY_CONFIGDIR + DOWNLOADDIR
+# stay under /tmp (transient, fine to lose; rebuilt from cache).
+_persistent_root = "/var/data"
+if os.path.isdir(_persistent_root) and os.access(_persistent_root, os.W_OK):
+    base_tmp = "/var/data/output"
+    print(f"[startup] OUTPUT_DIR → /var/data (persistent across deploys)", flush=True)
+else:
+    base_tmp = "/tmp/output"
 os.environ["SUNPY_CONFIGDIR"] = os.path.join(base_tmp, "config")
 os.environ["SUNPY_DOWNLOADDIR"] = os.path.join(base_tmp, "data")
 os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
@@ -815,8 +842,16 @@ async def helioviewer_thumb(
         )
         return Response(content=content, media_type=media_type, headers=CORS_HEADERS)
     except requests.RequestException as e:
+        # NEEDS-FIX (workflow wx5fi2brl, raw-exception-leak):
+        # log full trace server-side, but return a sanitised body to
+        # the client. The exception type often leaks the upstream URL +
+        # credentials when a request fails partway through redirect
+        # handling.
         print(f"[helioviewer_thumb] {url[:120]}... -> {e}", flush=True)
-        raise HTTPException(status_code=502, detail=f"Helioviewer proxy failed: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="Helioviewer preview is temporarily unavailable. Please try again in a moment.",
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -884,7 +919,10 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     from datetime import timedelta
 
     # Reassert SSL/NASA cert config inside thread (same as do_generate_sync + fido_fetch_map)
-    _ssl._create_default_https_context = _ssl._create_unverified_context
+    if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+        _ssl._create_default_https_context = _ssl._create_unverified_context
+    else:
+        _ssl._create_default_https_context = lambda: _ssl.create_default_context(cafile=NASA_CA_BUNDLE)
     os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
     os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
     # Force HTTPS for VSO (same as fido_fetch_map line 1125)
@@ -1307,8 +1345,32 @@ from fastapi import BackgroundTasks, HTTPException, APIRouter
 import uuid, asyncio
 
 import threading
-# Simple in-memory task registry
-tasks = {}
+from collections import OrderedDict
+
+# NEEDS-FIX (workflow wx5fi2brl, tasks-dict-leak):
+# `tasks` was a plain dict that grew unbounded over the lifetime of the
+# process — every /api/generate POST left a row even after the user
+# closed their browser. Replace with an LRU-capped OrderedDict and
+# evict oldest entries on insertion when over cap. Cap is 200 active
+# tasks → ~5 MB at most (small status strings per entry). Configurable
+# via TASKS_DICT_CAP env var.
+_TASKS_CAP = int(os.getenv("TASKS_DICT_CAP", "200"))
+
+class _LRUTasks(OrderedDict):
+    """Plain OrderedDict with a setitem hook that evicts the oldest
+    entry whenever the cap is exceeded. Reads do NOT promote (we want
+    eviction to be by insertion-order, not access-order, so a slow
+    user polling /generate_status doesn't pin the registry)."""
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        while len(self) > _TASKS_CAP:
+            try:
+                evicted_key, _ = self.popitem(last=False)
+                print(f"[tasks] evicted stale task {evicted_key} (cap={_TASKS_CAP})", flush=True)
+            except KeyError:
+                break
+
+tasks: dict = _LRUTasks()
 # Thread lock for status updates
 status_lock = threading.Lock()
 
@@ -1377,7 +1439,10 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     import ssl, certifi
     os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", certifi.where())
     os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", certifi.where())
-    ssl._create_default_https_context = ssl._create_unverified_context
+    if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+        ssl._create_default_https_context = ssl._create_unverified_context
+    else:
+        ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=NASA_CA_BUNDLE)
     # Compose output PNG path and URL
     date_str = date.strftime("%Y%m%d")
     out_name = f"hq_{mission}_{wavelength}_{date_str}.png"
@@ -2061,7 +2126,10 @@ def _render_vibe_pair(vibe: dict) -> dict:
     import ssl as _ssl, certifi as _certifi
     os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", _certifi.where())
     os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", _certifi.where())
-    _ssl._create_default_https_context = _ssl._create_unverified_context
+    if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+        _ssl._create_default_https_context = _ssl._create_unverified_context
+    else:
+        _ssl._create_default_https_context = lambda: _ssl.create_default_context(cafile=NASA_CA_BUNDLE)
 
     slug = vibe["slug"]
     date_str = vibe["date"]
