@@ -2766,6 +2766,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // "HQ ready" marker even though state.hqFilterImage was just
       // cleared above.
       try { if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI(); } catch (_e) {}
+      // Click-confirmation latch from _activateVibe — the source image
+      // landed, drop the dimmed/spinner state on every vibe card.
+      try {
+        document.querySelectorAll('.vibe-card.is-loading').forEach(function (c) {
+          c.classList.remove('is-loading');
+        });
+      } catch (_e) {}
 
       // Restore from cache if this wavelength was already fetched this session.
       // Otherwise fire off a background RHE prefetch so the science data has a
@@ -4869,6 +4876,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var wl = wlRaw ? parseInt(wlRaw, 10) : null;
       var time = card.getAttribute("data-vibe-time") || "";
       if (!date) return;
+      // Visual confirmation that the click was received — testers reported
+      // a multi-second pause with no feedback after tapping a vibe card.
+      // Add a loading class so CSS can show a spinner + dim the card; the
+      // class is cleared in _installPreviewImage once the source image
+      // resolves (or on the error/abort paths in the preview pipeline).
+      try {
+        document.querySelectorAll('.vibe-card.is-loading').forEach(function (c) {
+          c.classList.remove('is-loading');
+        });
+        card.classList.add('is-loading');
+        // Backstop: clear after 12s no matter what so a stuck card can't
+        // stay dimmed forever if the network image silently times out.
+        setTimeout(function () { card.classList.remove('is-loading'); }, 12000);
+      } catch (_e) {}
       state.isDefaultActive = false;
       // Track which slug is active so the master toggle can swap the
       // product-mockup source image between tiers (jpg/raw/rhef) using
@@ -9028,6 +9049,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           variantCache[key] = variants;
           delete variantFetchInFlight[key];
           // Do not auto-select a variant; user must choose one so "Select this product" stays disabled until then
+          // Per-card label sync: if the filtered variant list collapses
+          // to exactly one option, the variant picker is just noise —
+          // the card's button should read "Select this product" instead
+          // of "Pick a variant". (User: "Change the button on these
+          // products to say 'select this product' instead of 'select a
+          // variant'.") Defer one tick so the card DOM exists.
+          try {
+            setTimeout(function () {
+              var _filtered = filterVariantsForProduct(product, variants);
+              if (!Array.isArray(_filtered) || _filtered.length !== 1) return;
+              document.querySelectorAll('.product-card[data-product-id="' + product.id + '"] .product-select-btn').forEach(function (btn) {
+                var lbl = btn.querySelector('.product-select-btn-label');
+                if (lbl) lbl.textContent = "Select this product";
+                btn.title = "Select this product";
+              });
+            }, 0);
+          } catch (_e) {}
           return variants;
         })
         .catch(function(e) {
@@ -9991,16 +10029,28 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // (the rail only engages when the editor is in view).
       if (typeof _onEditorVisibilityChanged === "function") _onEditorVisibilityChanged();
       syncCropRatioUI();
-      // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
-      // data-credits modal) live in _continueOpenEditor below.
-      _continueOpenEditor(product);
-      // setStep handles the history.pushState for the step transition
-      // — the legacy {_sa:"editor"} push that used to live here was
-      // doubling up with setStep's push, so the FIRST browser-back from
-      // editor was a no-op (friction-audit agent 5 reproduced this).
-      // Removed the legacy push; setStep is the single source of truth.
+      // Transition the step machine FIRST so body.step-editor is
+      // applied before _continueOpenEditor scrolls. Without this, the
+      // body class is still step-image, #editSection is display:none
+      // !important, and the scroll target is offscreen → no scroll
+      // happens. Reorder for the new bug "moves to editor screen but
+      // doesn't scroll up to the top of that screen".
       if (typeof setStep === "function") setStep("editor");
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
+      // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
+      // data-credits modal) live in _continueOpenEditor below.
+      // requestAnimationFrame defers it one paint so the body-class swap
+      // can flush, the editor section becomes visible, and the scroll
+      // lands on real layout instead of an invisible target.
+      requestAnimationFrame(function () {
+        _continueOpenEditor(product);
+        // Belt-and-suspenders: force a quality-timeline repaint right
+        // when the editor opens, so the bar matches whatever tier the
+        // preview canvas is showing. _installPreviewImage already
+        // called it once but state.hqFilterImage may have landed
+        // between then and now (cache settle / RHEF promotion).
+        try { if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI(); } catch (_e) {}
+      });
     }
 
     // Look up the current product object by id from the PRODUCTS catalog.
@@ -11562,6 +11612,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
 
       var cacheKey = product.blueprintId + "_" + product.printProviderId;
+      // Single-variant short-circuit. If the catalog only exposes one
+      // variant for this product (e.g. a fixed-size mousepad, a sticker,
+      // or an art print with no size/colour permutations), opening the
+      // picker just to show one tile is friction. Auto-select the lone
+      // variant and run the continue handler immediately — no modal.
+      // Cached-variants-only check: if the variant list hasn't been
+      // fetched yet we fall through to the modal so the loading
+      // skeleton can render. (Gilly: "If there is only one variant,
+      // the variant selector doesn't need to be opened.")
+      try {
+        var _cachedList = variantCache[cacheKey];
+        if (Array.isArray(_cachedList)) {
+          var _filtered = filterVariantsForProduct(product, _cachedList);
+          if (_filtered && _filtered.length === 1) {
+            var _v = _filtered[0];
+            if (_v && _v.id != null) {
+              state.selectedVariantByProduct[product.id] = _v.id;
+              state.pendingVariantByProduct[product.id] = undefined;
+              if (_v.aspectRatio) {
+                state.variantAspectRatioByProduct[product.id] = _v.aspectRatio;
+              }
+            }
+            if (onContinue) onContinue();
+            return;
+          }
+        }
+      } catch (_e) { /* fall through to normal modal path */ }
       // Snapshot original state so a Cancel/Esc/backdrop click restores it —
       // the modal mutates state.selectedVariantByProduct + variantAspectRatio
       // + cropZoom live so the mockup re-renders correctly on each tile tap.
@@ -12213,6 +12290,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var _releaseFocusTrap = null;
       function _close(restoreState) {
         modal.classList.add("hidden");
+        // Release the page-scroll lock acquired when the modal opened.
+        try {
+          document.documentElement.style.overflow = document.documentElement.dataset._prevOverflow || "";
+          delete document.documentElement.dataset._prevOverflow;
+        } catch (_e) {}
         if (restoreState) {
           if (originalVariantId == null) delete state.selectedVariantByProduct[product.id];
           else state.selectedVariantByProduct[product.id] = originalVariantId;
@@ -12289,6 +12371,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       document.addEventListener("keydown", onKey);
 
       modal.classList.remove("hidden");
+      // Lock the page scroll while the modal is open so background
+      // content can't slide under the user. Stash the current overflow
+      // and restore it on close. (Closer is wired below as `onCancel`.)
+      try {
+        document.documentElement.dataset._prevOverflow = document.documentElement.style.overflow || "";
+        document.documentElement.style.overflow = "hidden";
+      } catch (_e) {}
       _bootstrap();
       // Focus trap: Tab cycles within the modal, Escape dismisses,
       // and the previously-focused element is restored on close.
