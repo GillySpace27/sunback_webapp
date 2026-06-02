@@ -18,6 +18,86 @@ import { setupFeedback } from "./feedback.js";
 import { recordStatEvent, addStatsBadge, productsByPopularity, initStats } from "./stats.js";
 import { saveDesignLocally, initBundler } from "./bundler.js";
 
+    // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
+    // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
+    // no-analytics). Both gated by user consent via the cookie banner
+    // (cookieBannerAccept localStorage flag); GA4 also gated by env-
+    // configured measurement-id placeholder. Sentry kicks in regardless
+    // of analytics consent because crash reports don't contain personal
+    // data and aid in basic operability (matches Sentry's PII-aware
+    // defaults). Both behind env vars so deploys without keys just
+    // skip silently.
+    var _GA_MEASUREMENT_ID = window.GA_MEASUREMENT_ID || "";  // set via inline script in index.html or window inject
+    var _SENTRY_DSN = window.SENTRY_DSN || "";
+    var _COOKIE_CONSENT_KEY = "sunback.cookieConsent";  // values: "accept" | "decline" | unset
+    function _cookieConsentState() {
+      try { return localStorage.getItem(_COOKIE_CONSENT_KEY) || ""; }
+      catch (_e) { return ""; }
+    }
+    function _initSentry() {
+      if (!_SENTRY_DSN || window._sentryInited) return;
+      var s = document.createElement("script");
+      s.src = "https://browser.sentry-cdn.com/7.119.0/bundle.min.js";
+      s.crossOrigin = "anonymous";
+      s.onload = function () {
+        try {
+          if (window.Sentry && window.Sentry.init) {
+            window.Sentry.init({
+              dsn: _SENTRY_DSN,
+              tracesSampleRate: 0.0,  // crash-only, no perf tracing on free tier
+              replaysSessionSampleRate: 0,
+              replaysOnErrorSampleRate: 0,
+              autoSessionTracking: false,
+            });
+            window._sentryInited = true;
+          }
+        } catch (_e) {}
+      };
+      document.head.appendChild(s);
+    }
+    function _initGA4() {
+      if (!_GA_MEASUREMENT_ID || window._ga4Inited) return;
+      if (_cookieConsentState() !== "accept") return;
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://www.googletagmanager.com/gtag/js?id=" + _GA_MEASUREMENT_ID;
+      document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { window.dataLayer.push(arguments); };
+      window.gtag("js", new Date());
+      window.gtag("config", _GA_MEASUREMENT_ID, { anonymize_ip: true });
+      window._ga4Inited = true;
+    }
+    // Sentry fires immediately so crashes during page bootstrap get
+    // captured. GA4 waits for consent.
+    _initSentry();
+
+    // Cookie banner wire-up. Shows on first visit when no consent
+    // recorded. Idempotent — DOMContentLoaded re-entry is harmless.
+    function _wireCookieBanner() {
+      var banner = document.getElementById("cookieBanner");
+      if (!banner) return;
+      if (_cookieConsentState()) {
+        if (_cookieConsentState() === "accept") _initGA4();
+        return;
+      }
+      banner.classList.remove("hidden");
+      var accept = document.getElementById("cookieBannerAccept");
+      var decline = document.getElementById("cookieBannerDecline");
+      function _stash(choice) {
+        try { localStorage.setItem(_COOKIE_CONSENT_KEY, choice); } catch (_e) {}
+        banner.classList.add("hidden");
+        if (choice === "accept") _initGA4();
+      }
+      if (accept) accept.addEventListener("click", function () { _stash("accept"); });
+      if (decline) decline.addEventListener("click", function () { _stash("decline"); });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", _wireCookieBanner);
+    } else {
+      _wireCookieBanner();
+    }
+
     // ── Config ───────────────────────────────────────────────────
     // Derive API base from current origin so the same page works in local dev,
     // staging, and production without CORS complexity.

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /debug/
+Disallow: /admin/
+
+Sitemap: https://solar-archive.onrender.com/sitemap.xml

@@ -11,6 +11,26 @@
   <meta name="theme-color" content="#0a0a12" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f0eff5" media="(prefers-color-scheme: light)">
   <title>Solar Archive — Your Sun, Your Day</title>
+  <meta name="description" content="Print the Sun on the exact day you want. Pick from famous solar events (X-flares, prominences, transits) or your own date — then customize and ship as a poster, mug, or canvas.">
+  <link rel="canonical" href="https://solar-archive.onrender.com/">
+  <!-- Open Graph + Twitter Card for share previews. -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Solar Archive — Your Sun, Your Day">
+  <meta property="og:description" content="Print the Sun on the exact day you want.">
+  <meta property="og:url" content="https://solar-archive.onrender.com/">
+  <meta property="og:image" content="https://solar-archive.onrender.com/asset/default/vibe/ar2192/rhef_full.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Solar Archive — Your Sun, Your Day">
+  <meta name="twitter:description" content="Print the Sun on the exact day you want.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg">
+  <!-- Telemetry config: ops populates GA_MEASUREMENT_ID + SENTRY_DSN
+       from environment-variable-controlled inline script in production.
+       Default values are empty strings → the wires skip silently. -->
+  <script>
+    window.GA_MEASUREMENT_ID = window.GA_MEASUREMENT_ID || "";  /* G-XXXXXXXX */
+    window.SENTRY_DSN = window.SENTRY_DSN || "";  /* https://abc@sentry.io/123 */
+  </script>
   <!-- Preconnect to the Font Awesome CDN + the Solar Archive API
        origin so the TCP+TLS handshake overlaps with HTML parsing
        (saves ~250ms on the first /store-config + /api/health round
@@ -1010,17 +1030,42 @@
   </main>
 
   <footer class="app-footer" role="contentinfo">
-    <!-- The NASA/SDO rules-of-the-road acknowledgement now lives at the
-         top under the hero subtitle (.hero-credit); the full citation
-         stack (instrument paper, RHEF method, Helioviewer) is in the
-         "Data credits" dialog, which also auto-surfaces while the HQ
-         render runs. -->
-    Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
-    &nbsp;·&nbsp;
-    <a href="#" id="dataCreditsLink" role="button">Data credits</a>
-    &nbsp;·&nbsp; <span id="buildVersion" style="font-family:monospace;opacity:0.5;font-size:0.7rem;">—</span>
-    &nbsp;·&nbsp; <span id="buildTime" style="font-family:monospace;opacity:0.5;font-size:0.7rem;" title="When index.html, solar-archive.js, solar-archive.css were last saved">—</span>
+    <nav class="footer-legal-nav" aria-label="Legal">
+      <a href="/privacy">Privacy</a>
+      <span aria-hidden="true">·</span>
+      <a href="/terms">Terms</a>
+      <span aria-hidden="true">·</span>
+      <a href="/refund">Refunds</a>
+      <span aria-hidden="true">·</span>
+      <a href="/shipping">Shipping</a>
+      <span aria-hidden="true">·</span>
+      <a href="#" id="dataCreditsLink" role="button">Data credits</a>
+    </nav>
+    <div class="footer-meta">
+      Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
+      &nbsp;·&nbsp; <span id="buildVersion" class="footer-build-tag">—</span>
+      &nbsp;·&nbsp; <span id="buildTime" class="footer-build-tag" title="When index.html, solar-archive.js, solar-archive.css were last saved">—</span>
+    </div>
   </footer>
+
+  <!-- LAUNCH-BLOCKER fix (workflow wx5fi2brl, cookie-consent-gdpr):
+       Minimal disclosure banner shown on first visit. We store UI prefs
+       in localStorage (strict-necessary) + use GA cookies (analytics).
+       The banner offers Accept / Decline; Decline halts GA loading.
+       Dismissal is persisted to localStorage (which is strict-necessary
+       and disclosed in the Privacy Policy). -->
+  <div id="cookieBanner" class="cookie-banner hidden" role="dialog" aria-modal="false" aria-labelledby="cookieBannerTitle">
+    <div class="cookie-banner-inner">
+      <div class="cookie-banner-body">
+        <strong id="cookieBannerTitle">We use cookies + browser storage.</strong>
+        <p>Solar Archive stores UI preferences in your browser (strict-necessary) and uses Google Analytics 4 for aggregated traffic stats. See our <a href="/privacy">Privacy Policy</a>.</p>
+      </div>
+      <div class="cookie-banner-actions">
+        <button type="button" class="cookie-banner-btn cookie-banner-btn-decline" id="cookieBannerDecline">Decline analytics</button>
+        <button type="button" class="cookie-banner-btn cookie-banner-btn-accept" id="cookieBannerAccept">Accept</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Catalog modal (rendered by JS) -->
