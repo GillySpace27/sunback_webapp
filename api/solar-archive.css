@@ -2362,6 +2362,17 @@ body.step-editor #configSection {
 body.step-image #vibeRevealCta {
   top: max(52px, calc(env(safe-area-inset-top, 0px) + 44px));
 }
+/* Mobile: the breadcrumb + master-toggle stack ate ~100px of the
+   viewport's top chrome on a 390x844 iPhone (persona-sweep finding).
+   Hide the breadcrumb on narrow screens — the product name is still
+   accessible via the editor's "Change product" button and the master
+   toggle is the only thing that needs constant access on step image. */
+@media (max-width: 749px) {
+  .workflow-breadcrumb { display: none !important; }
+  body.step-image #vibeRevealCta {
+    top: max(8px, env(safe-area-inset-top, 0px)) !important;
+  }
+}
 /* Force-clear the rail-mode pane when leaving the editor. Friction
    agent 4 reported the editor's left-rail preview canvas, title, and
    aspect-ratio label leaked into the product picker after browser back —
