@@ -549,6 +549,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# LAUNCH-READINESS fix (workflow wx5fi2brl, security-headers): emit a
+# CSP + HSTS + X-Frame-Options + nosniff + Referrer-Policy on every
+# response. Mitigates the ~25 innerHTML sites in solar-archive.js (each
+# of which is a latent XSS surface if a future feature accepts user
+# content) and prevents clickjacking-by-iframe outside the Shopify
+# storefront. frame-ancestors covers both modern + legacy browsers
+# (X-Frame-Options is still useful for old Edge).
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
+
+_CSP = (
+    "default-src 'self'; "
+    # Allow our own static + the Shopify storefront + Printify CDN images.
+    "img-src 'self' data: blob: https://images.printify.com https://cdn.shopify.com https://*.shopify.com; "
+    # Inline styles still in use for various dynamic colours.
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+    # Inline scripts are used at top of index.html for early bootstrap.
+    "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://browser.sentry-cdn.com https://js.sentry-cdn.com; "
+    # Allow XHR/fetch to our own origin + Sentry + GA.
+    "connect-src 'self' https://www.google-analytics.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io; "
+    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
+    # Embed only in our own Shopify storefront (clickjacking defence).
+    "frame-ancestors 'self' https://solar-archive.myshopify.com https://*.myshopify.com; "
+    "base-uri 'self'; "
+    "form-action 'self';"
+)
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # Skip /docs OpenAPI UI so it doesn't trip on its own inline JS.
+        if request.url.path.startswith("/docs") or request.url.path.startswith("/redoc"):
+            return response
+        h = response.headers
+        h.setdefault("Content-Security-Policy", _CSP)
+        h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        h.setdefault("X-Frame-Options", "SAMEORIGIN")
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/health — lightweight liveness check (no heavy imports); used by frontend for "Backend online"
@@ -2458,11 +2502,16 @@ async def api_root():
     """
 
 @app.get("/debug/vso")
-def debug_vso():
+def debug_vso(x_admin_key: Optional[str] = Header(None)):
     """
     Direct VSO connectivity test.
     Forces a fresh VSOClient connection and prints providers + results.
+
+    LAUNCH-READINESS fix (workflow wx5fi2brl, debug-routes-unauth):
+    every /debug/* route now requires X-Admin-Key so an outsider can't
+    enumerate the server's environment or filesystem.
     """
+    _check_warm_admin_key(x_admin_key)
     from sunpy.net.vso import VSOClient
     from astropy import units as u
     from sunpy.net import attrs as a
@@ -2536,11 +2585,14 @@ def debug_vso():
 
 # --- Inserted endpoint: /debug/vso_download_test ---
 @app.get("/debug/vso_download_test")
-def debug_vso_download_test():
+def debug_vso_download_test(x_admin_key: Optional[str] = Header(None)):
     """
     Attempts to download a small file from VSO (using the same query as /debug/vso).
     Returns success if a file is downloaded to the temp directory.
+
+    Admin-only (X-Admin-Key) — debug-routes-unauth fix.
     """
+    _check_warm_admin_key(x_admin_key)
     from sunpy.net.vso import VSOClient
     from sunpy.net import attrs as a
     from astropy import units as u
@@ -2575,7 +2627,9 @@ def debug_vso_download_test():
 
 
 @app.get("/debug/env")
-def debug_env():
+def debug_env(x_admin_key: Optional[str] = Header(None)):
+    """Admin-only (X-Admin-Key) — debug-routes-unauth fix."""
+    _check_warm_admin_key(x_admin_key)
     return {
         "sunpy_configdir": os.environ.get("SUNPY_CONFIGDIR"),
         "sunpy_downloaddir": os.environ.get("SUNPY_DOWNLOADDIR"),
@@ -2616,7 +2670,9 @@ def choose_mission(dt: datetime) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.get("/debug/list_output")
-async def list_output():
+async def list_output(x_admin_key: Optional[str] = Header(None)):
+    """Admin-only (X-Admin-Key) — debug-routes-unauth fix."""
+    _check_warm_admin_key(x_admin_key)
     from pathlib import Path
     root = Path(OUTPUT_DIR)
     files = sorted([str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()])
@@ -3511,21 +3567,38 @@ async def serve_asset(subpath: str):
 
 
 # -------------------------------------------------------------------
-# Local dev: serve frontend assets at exact paths so /docs and /api/* are not shadowed.
-# No-cache headers ensure iterative edits show up on reload without hitting
-# stale browser caches. In production this adds a negligible revalidation
-# round-trip per asset on each navigation, which is the right tradeoff for
-# an app that pushes small frontend fixes often.
+# LAUNCH-BLOCKER fix (workflow wx5fi2brl, static-assets-no-cache):
+# JS + CSS get a long-lived cache + content-hash query-string version
+# busting (the index.html ?v=... links). Cuts ~215 KB gzip of repeated
+# downloads per page load against the cold-start origin. index.html
+# still gets no-cache so deploys propagate immediately.
 # -------------------------------------------------------------------
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+_LONG_CACHE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+def _asset_cache_headers(request) -> dict:
+    """If the URL carries a ?v=<hash> query the file is content-versioned →
+    return long-cache headers. Without a version it's a direct fetch →
+    no-cache so dev edits don't get stuck."""
+    if request.query_params.get("v"):
+        return _LONG_CACHE_HEADERS
+    return _NO_CACHE_HEADERS
 
 @app.get("/solar-archive.js")
-async def serve_js():
-    return FileResponse(Path(__file__).parent / "solar-archive.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+async def serve_js(request: Request):
+    return FileResponse(
+        Path(__file__).parent / "solar-archive.js",
+        media_type="application/javascript",
+        headers=_asset_cache_headers(request),
+    )
 
 @app.get("/solar-archive.css")
-async def serve_css():
-    return FileResponse(Path(__file__).parent / "solar-archive.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
+async def serve_css(request: Request):
+    return FileResponse(
+        Path(__file__).parent / "solar-archive.css",
+        media_type="text/css",
+        headers=_asset_cache_headers(request),
+    )
 
 # ES-module siblings of solar-archive.js. The module's `import "./foo.js"`
 # resolves to `/foo.js`, so each extracted module needs its own route at
@@ -3542,11 +3615,11 @@ _FRONTEND_MODULES = {
 }
 
 @app.get("/{module_name}")
-async def serve_frontend_module(module_name: str):
+async def serve_frontend_module(module_name: str, request: Request):
     if module_name not in _FRONTEND_MODULES:
         raise HTTPException(status_code=404)
     return FileResponse(
         Path(__file__).parent / module_name,
         media_type="application/javascript",
-        headers=_NO_CACHE_HEADERS,
+        headers=_asset_cache_headers(request),
     )
