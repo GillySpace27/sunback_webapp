@@ -118,20 +118,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Embedded mode: drop our deep-navy body fill so whatever the
-   parent Shopify page is using shows through. Same for the
-   ambient gradient overlay below — it reads as decoration in the
-   standalone app but clashes with the storefront chrome inside
-   an iframe. The .section panels keep their own filled
-   backgrounds, so the actual UI surfaces are still legible. */
-html.embedded,
-html.embedded body {
-  background: transparent !important;
-}
-html.embedded body::before {
-  display: none;
-}
-
 /* Animated background */
 body::before {
   content: '';
@@ -2009,29 +1995,6 @@ input[type="range"]::-moz-range-thumb {
    / showColorChooser). Covers edge cases where stacking contexts
    conspire to keep FAB visible despite the z bump. */
 body.modal-open .feedback-fab-group { display: none !important; }
-/* Embedded mode (Shopify iframe): generic info / confirm modals
-   (showInfo, showModal — e.g. the "HQ RHEF" explainer) were being
-   rendered far up the iframe coordinate space, way above the user's
-   current outer-page scroll. Same fix as the feedback / variant
-   modals: drop the overlay, inline the box, scroll into view. JS
-   does the scrollIntoView when it appends the overlay. */
-html.embedded .modal-overlay {
-  position: static;
-  display: block;
-  inset: auto;
-  height: auto;
-  padding: 0;
-  margin: 24px auto;
-  max-width: 520px;
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  animation: none;
-}
-html.embedded .modal-box {
-  margin: 0 auto;
-  animation: none;
-}
 
 @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
 
@@ -4525,96 +4488,6 @@ body.left-rail-preview.preview-popped-out .selected-product-preview {
   }
 }
 
-/* ── Embedded-iframe overrides ────────────────────────────────
-   When the app loads inside an iframe (Shopify storefront), the
-   iframe is sized to its content height with no internal scroll,
-   so sticky positioning has nothing to anchor against. Reuse the
-   mobile column-stack shape instead — the canvas + preview sit
-   inline with the rest of the editor and the user scrolls the
-   outer page linearly. JS adds .embedded to <html> when it
-   detects window.self !== window.top. */
-/* Sticky-nav scroll offset (embed): the app's scrollIntoView calls would
-   otherwise land the target at the parent viewport's top — under the
-   storefront's fixed nav — and the cross-origin iframe can't move the
-   parent's scroll to correct it. scroll-margin-top reserves the nav's
-   height above each scroll target. --sa-scroll-offset defaults to a
-   typical nav height and is refined to the exact parent-reported value
-   (topCoverPx) by the message handler. Standalone is unaffected (scoped
-   to html.embedded). */
-html.embedded .section,
-html.embedded #wlGrid,
-html.embedded #productSection,
-html.embedded #editSection,
-html.embedded .image-stage {
-  scroll-margin-top: var(--sa-scroll-offset, 90px);
-}
-
-html.embedded .editor-with-preview {
-  /* Single-column grid in embedded mode (same shape as mobile),
-     and drop every sticky so the iframe scrolls linearly through
-     canvas → preview → toolbar → actions. Sticky has nothing to
-     anchor against inside a content-sized iframe. */
-  grid-template-columns: 1fr;
-  grid-template-areas:
-    "canvas"
-    "preview"
-    "toolbar"
-    "actions";
-  /* Positioning context for the JS-driven floating canvas — the
-     stage goes position:absolute relative to THIS box, and the JS
-     computes its `top` in this coordinate space. (Gilly-approved
-     embed refactor; only engages when the parent sends
-     visibleTopInIframe — see solar-archive.js.) */
-  position: relative;
-}
-/* Placeholder that holds the canvas grid slot while the stage floats,
-   so the toolbar/sliders below don't jump up. Lives in the canvas
-   grid cell; the JS sets its height to the stage height and toggles
-   display. */
-html.embedded .editor-with-preview .image-stage-placeholder {
-  grid-area: canvas;
-}
-/* When floating, cap the canvas height so it never dominates a short
-   embedded viewport, and lift it with a soft shadow so the sliders
-   scrolling underneath read as "behind" it. */
-html.embedded .editor-with-preview .image-stage.is-floating {
-  max-height: calc(42vh * var(--editor-scale, 1));
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  border-radius: var(--radius-md);
-}
-html.embedded .editor-with-preview .selected-product-preview {
-  width: 100%;
-  position: static;
-  top: auto;
-  max-width: none;
-  max-height: none;
-  overflow-y: visible;
-}
-html.embedded .editor-with-preview .image-stage {
-  position: static;
-  top: auto;
-  max-height: none;
-  z-index: auto;
-}
-html.embedded .editor-action-bar {
-  position: static;
-  bottom: auto;
-  box-shadow: none;
-  background: transparent;
-  border-top: 0;
-  padding: 14px 0;
-}
-/* The JS-driven "preview-pinned" fallback (position: fixed when the
-   user has scrolled past the sticky range) also fights the embedded
-   layout. Force the natural-flow rules regardless. */
-html.embedded .editor-with-preview .selected-product-preview.preview-pinned {
-  position: static;
-  top: auto;
-  left: auto;
-  width: 100%;
-  z-index: auto;
-}
-
 /* ── Touchscreen tap-target bumps ──────────────────────────────
    `(pointer: coarse)` matches touch-primary devices (phones,
    tablets, touch laptops) regardless of viewport width. WCAG and
@@ -4749,30 +4622,6 @@ body.step-product .feedback-fab { padding: 11px; }
   height: 100vh;
   height: 100dvh;
 }
-/* Embedded mode (Shopify iframe): inline the whole modal instead
-   of overlaying. position:fixed inside an iframe with no internal
-   scroll pins to the iframe's coordinate space (which equals the
-   content height), so a "fixed overlay" can end up far above or
-   below the user's actual visible scroll. Letting the modal flow
-   inline means the iframe resizes around it, the outer Shopify
-   page scrolls naturally through it, and there's only ever ONE
-   scroll container competing for the user's wheel/touch.
-
-   Backdrop, max-height, internal overflow — all neutralised. JS
-   adds a scrollIntoView on open so the user actually lands on the
-   modal when it appears. */
-html.embedded .feedback-modal {
-  position: static;
-  display: block;
-  height: auto;
-  padding: 0;
-  margin: 24px auto;
-  max-width: 580px;
-  z-index: auto;
-}
-html.embedded .feedback-modal-backdrop {
-  display: none;
-}
 .feedback-modal.hidden { display: none; }
 .feedback-modal-backdrop {
   position: absolute;
@@ -4806,21 +4655,6 @@ html.embedded .feedback-modal-backdrop {
   --text-dim:       #8e8eab;
   --accent-corona-text: #a48dff;
   color: var(--text-primary);
-}
-html.embedded .feedback-modal-panel {
-  /* Inline mode: no scroll cap, panel sizes to its content and the
-     outer Shopify page provides the scroll. */
-  max-height: none;
-  overflow-y: visible;
-}
-html.embedded .feedback-modal textarea {
-  /* JS auto-resizes textareas relative to `window.innerHeight` (60vh
-     cap). In embedded mode `innerHeight` is the iframe's content
-     height, which is bigger than the visible window, so the textarea
-     can grow huge before the JS cap kicks in. A static min-height +
-     auto growth caps the practical size to what the user actually
-     typed. */
-  min-height: 88px;
 }
 .feedback-close-btn {
   position: absolute;
@@ -5428,58 +5262,6 @@ html.embedded .feedback-modal textarea {
   border: 1px solid rgba(255,255,255,0.25);
   display: inline-block;
 }
-/* Embedded mode (Shopify iframe): inline the variant picker
-   instead of overlaying. Same reasoning as the feedback modal —
-   `position: fixed` inside a scroll-through iframe can pin the
-   modal far above/below the user's visible scroll, and an
-   internally-scrolling panel fights the outer Shopify page for
-   wheel input. Letting the picker flow inline (with the iframe
-   resizing around it) gives ONE scroll container — the outer
-   Shopify page — and the user reaches Continue by scrolling
-   linearly. JS scrolls the modal into view on open. */
-html.embedded .confirm-modal {
-  position: static;
-  display: block;
-  height: auto;
-  padding: 0;
-  margin: 24px auto;
-  max-width: 520px;
-  z-index: auto;
-}
-html.embedded .confirm-modal-backdrop {
-  display: none;
-}
-html.embedded .confirm-modal-panel {
-  max-height: none;
-  overflow-y: visible;
-}
-/* The variant grid had its own 240-px internal scroll on desktop;
-   in embedded mode that competes with the outer page scroll. Let
-   it grow to fit all variants. */
-html.embedded .confirm-variant-picker {
-  max-height: none;
-  overflow-y: visible;
-}
-/* Sticky Continue depends on a scrolling ancestor — without one
-   (inline panel, overflow:visible) sticky behaves like static
-   anyway, but make the intent explicit and drop the floating-row
-   shadow so it reads as a normal button row. */
-html.embedded .confirm-modal-actions {
-  position: static;
-  box-shadow: none;
-  background: transparent;
-  padding-top: 0;
-}
-/* Other small scroll regions in the app: inline variant panel
-   (product card expansion) and feedback-modal catalog-search
-   results. Both have their own max-height in standalone mode;
-   embedded mode lets them grow naturally so the outer Shopify
-   page is the only scroll surface. */
-html.embedded .variant-panel,
-html.embedded .feedback-product-results {
-  max-height: none;
-  overflow-y: visible;
-}
 .confirm-modal-backdrop {
   position: absolute;
   inset: 0;
@@ -5497,9 +5279,7 @@ html.embedded .feedback-product-results {
      bar, which sent the bottom of the panel below the fold with
      no way to scroll there — `100dvh` tracks the visual viewport.
      Fallback `100vh` keeps the previous behaviour on browsers
-     without dvh (Safari < 15.4). Embedded mode (Shopify iframe)
-     caps further so the panel can't size against the iframe's
-     full content height — see the html.embedded rule below. */
+     without dvh (Safari < 15.4). */
   max-height: calc(100vh - 32px);
   max-height: calc(100dvh - 32px);
   /* Plain block layout instead of flex — flex containers with

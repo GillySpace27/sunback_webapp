@@ -555,385 +555,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     document.body.addEventListener("solar-archive:step-change", _renderBreadcrumb);
     try { window.SolarArchive._renderBreadcrumb = _renderBreadcrumb; } catch (_e) {}
 
-    // ── Embedded-context detection ───────────────────────────────
-    // The app is also served as an iframe on the Shopify storefront
-    // (solar-archive.myshopify.com). That iframe is sized to its
-    // content height — meaning it has NO internal scroll, the
-    // outer Shopify page scrolls instead. Anything we built that
-    // depends on internal scroll behaviour stops working there:
-    //   - position: sticky has nothing to anchor against, so the
-    //     sticky editor canvas + preview pane drift off the visible
-    //     viewport as the user scrolls the outer page
-    //   - 100dvh inside the iframe = iframe content height, not the
-    //     visible window, so modals end up much taller than the
-    //     user's actual viewport
-    // The .embedded class on <html> lets CSS opt into a flat, no-
-    // sticky layout (same shape mobile already uses) and clamp modal
-    // heights so they fit the typical visible window.
-    try {
-      if (window.self !== window.top) {
-        document.documentElement.classList.add("embedded");
-      }
-    } catch (_e) {
-      // Cross-origin frame access threw → we ARE in a cross-origin
-      // iframe (the try is the detection). Same treatment.
-      document.documentElement.classList.add("embedded");
-    }
-
-    // ── Embedded-iframe height messaging ─────────────────────────
-    // The remaining scroll-fight a tester reported is at the iframe
-    // level: Shopify pins the iframe to a fixed height, so when our
-    // content extends past it the iframe gets its OWN scrollbar.
-    // We can't kill that scrollbar from inside the iframe alone —
-    // the iframe's height is set by the parent — so we continuously
-    // postMessage our content height. The Shopify theme reads the
-    // message and resizes the iframe to match, making the outer page
-    // the only scroll surface.
+    // ── Iframe-embed removed ─────────────────────────────────────
+    // Solar Archive was previously served as an iframe inside the
+    // Shopify storefront, which forced a pile of fragile workarounds:
+    // postMessage scroll-tracking, height-resync, FAB anchoring, a
+    // floating canvas implementation, and centred-overlay tracking
+    // for modals. That code lived here through commit b74ba45.
     //
-    // Parent-side snippet to add ONCE to the Shopify theme (e.g. in
-    // theme.liquid or whichever page hosts the iframe):
+    // Strategy: Shopify is now used purely as a checkout backend.
+    // The full creation experience lives at solar-archive.onrender.com
+    // (and gilly.space/shop, via Hover URL forward). No iframe → all
+    // sticky / fixed / scroll behaviour works natively without the
+    // scaffolding that used to live here.
     //
-    //   <script>
-    //     window.addEventListener("message", function (e) {
-    //       if (!e.data || e.data.source !== "solar-archive") return;
-    //       if (e.data.type !== "resize") return;
-    //       document.querySelectorAll(
-    //         'iframe[src*="solar-archive.onrender.com"]'
-    //       ).forEach(function (f) {
-    //         f.style.height = e.data.height + "px";
-    //         f.setAttribute("scrolling", "no");
-    //       });
-    //     });
-    //   </script>
-    //
-    // Without the parent-side listener the messages are silently
-    // ignored — same iframe behaviour as today, no regression.
-    function _postIframeHeight() {
-      if (window.parent === window) return;
-      var doc = document.documentElement;
-      var bod = document.body;
-      if (!doc || !bod) return;
-      var h = Math.max(
-        doc.scrollHeight || 0,
-        bod.scrollHeight || 0,
-        doc.offsetHeight || 0,
-        bod.offsetHeight || 0
-      );
-      if (h <= 0) return;
-      try {
-        window.parent.postMessage(
-          { source: "solar-archive", type: "resize", height: h },
-          "*"
-        );
-      } catch (_e) { /* sandboxed iframe, etc. — ignore */ }
-    }
-    if (document.documentElement.classList.contains("embedded")) {
-      // Fire after initial render, after the load event (when images
-      // and fonts settle), and on every body resize. The
-      // ResizeObserver catches modal opens, tab expansions, image-
-      // decode-after-layout, animated transitions, etc. — Priya
-      // (round-2 perf) flagged that the prior `setInterval(_, 800)`
-      // safety net was redundant with the observer for every realistic
-      // case and just kept the event loop awake for nothing. Dropped.
-      document.addEventListener("DOMContentLoaded", _postIframeHeight);
-      window.addEventListener("load", _postIframeHeight);
-      window.addEventListener("resize", _postIframeHeight);
-      if (typeof ResizeObserver !== "undefined") {
-        try {
-          var _saResizeObs = new ResizeObserver(_postIframeHeight);
-          _saResizeObs.observe(document.body);
-          _saResizeObs.observe(document.documentElement);
-        } catch (_e) {
-          // Old browser with no ResizeObserver — the 800ms safety net
-          // used to back this up. We trade off some rare animated-
-          // transition re-fires here; load + resize + DOMContentLoaded
-          // still fire, which is good enough for legacy.
-        }
-      }
-    }
+    // Stubs below are kept as no-ops so call sites that still mention
+    // _registerCenteredOverlay / _unregisterCenteredOverlay don't have
+    // to be hand-touched in this commit. They run unconditionally and
+    // do nothing.
+    function _registerCenteredOverlay(_overlay) { /* no-op */ }
+    function _unregisterCenteredOverlay(_overlay) { /* no-op */ }
 
-    // ── Embedded-iframe FAB anchoring ────────────────────────────
-    // The feedback FAB is `position: fixed; bottom: 18px; right: 18px`
-    // in standalone — but inside a content-sized iframe `fixed` pins
-    // to the iframe's coordinate space (which is the whole content
-    // area, not the visible window), so the FAB ends up at the
-    // bottom of the iframe's content rather than the bottom of the
-    // user's screen. To anchor it to the actual visible viewport we
-    // listen for messages from the parent telling us where the
-    // visible region falls inside the iframe, then position the FAB
-    // absolutely at that coordinate.
-    //
-    // Parent-side snippet (paste alongside the resize listener you
-    // already installed in the Shopify theme):
-    //
-    //   <script>
-    //     function _saSendViewport() {
-    //       document.querySelectorAll(
-    //         'iframe[src*="solar-archive.onrender.com"]'
-    //       ).forEach(function (f) {
-    //         var rect = f.getBoundingClientRect();
-    //         var visibleBottom = Math.min(window.innerHeight, rect.bottom);
-    //         var visibleBottomInIframe = visibleBottom - rect.top;
-    //         // visibleTopInIframe = how far the parent has scrolled
-    //         // past the iframe's top. Drives the floating editor canvas.
-    //         var visibleTopInIframe = Math.max(0, -rect.top);
-    //         // topCoverPx = sticky-nav height (_saTopCover()); drives the
-    //         // scroll-margin-top so auto-scroll lands below the nav.
-    //         f.contentWindow.postMessage({
-    //           source: "solar-archive-parent",
-    //           type: "viewport",
-    //           visibleBottomInIframe: visibleBottomInIframe,
-    //           visibleTopInIframe: visibleTopInIframe,
-    //           topCoverPx: _saTopCover()
-    //         }, "*");
-    //       });
-    //     }
-    //     window.addEventListener("scroll", _saSendViewport, { passive: true });
-    //     window.addEventListener("resize", _saSendViewport);
-    //     document.addEventListener("DOMContentLoaded", _saSendViewport);
-    //
-    //     // SCROLL HANDLER — the cross-origin iframe can't scroll the
-    //     // parent itself, so it asks; we scroll, offset below the nav.
-    //     window.addEventListener("message", function (e) {
-    //       if (e.origin !== SA_ORIGIN) return;
-    //       var d = e.data;
-    //       if (!d || d.source !== "solar-archive" || d.type !== "scrollTo") return;
-    //       var f = document.querySelector('iframe[src*="solar-archive.onrender.com"]');
-    //       if (!f || typeof d.topInIframe !== "number") return;
-    //       if (typeof d.docHeight === "number" && d.docHeight > 0) f.style.height = d.docHeight + "px";
-    //       var iframeTopAbs = f.getBoundingClientRect().top + window.scrollY;
-    //       var y = iframeTopAbs + d.topInIframe - _saTopCover() - 12;
-    //       if (d.block === "center") y = iframeTopAbs + d.topInIframe - (window.innerHeight - (d.height||0))/2;
-    //       window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
-    //     });
-    //   </script>
-    //
-    // Without the parent listener the FAB falls back to whatever its
-    // CSS rule provides, and the editor canvas stays static — same
-    // iframe behaviour as today. The floating canvas turns on only
-    // once the parent adds `visibleTopInIframe` to the payload above.
-    // Origins allowed to postMessage into this iframe. The parent
-    // Shopify storefront iframe-host is the only legitimate sender;
-    // localhost is here for dev. Round-2 audit (Mira Sokolov, P0 HIGH):
-    // the previous listener only checked e.data.source, never e.origin,
-    // so any framing page could mutate the FAB DOM and would prime an
-    // XSS the moment a handler started writing to innerHTML.
-    var PARENT_ORIGIN_ALLOWLIST = [
-      "https://solar-archive.myshopify.com",
-      "https://solar-archive.onrender.com",
-      "http://localhost:8000",
-      "http://127.0.0.1:8000",
-    ];
-    // ── Embedded floating canvas (Gilly-approved refactor) ──────────
-    // Inside the content-sized Shopify iframe, position:sticky never
-    // engages — it anchors to the iframe's content box, which IS the
-    // scroll surface, so the editor canvas scrolls off-screen the
-    // moment the user reaches the sliders. We re-implement sticky
-    // manually: the parent reports where the visible region falls
-    // inside the iframe (visibleTopInIframe), and we ride #imageStage
-    // along the top of that region — clamped to the editor's vertical
-    // bounds — with a placeholder holding the canvas's grid slot so
-    // the toolbar below doesn't jump up.
-    //
-    // GRACEFUL DEGRADATION: this only activates when the parent sends
-    // `visibleTopInIframe`. Until the Shopify theme snippet is updated
-    // (see the parent snippet documented above — add visibleTopInIframe
-    // alongside visibleBottomInIframe), the canvas keeps its current
-    // embedded static layout. No regression while the theme catches up.
-    var _canvasPlaceholder = null;
-    function _ensureCanvasPlaceholder(stage) {
-      if (_canvasPlaceholder && _canvasPlaceholder.isConnected) return _canvasPlaceholder;
-      var ph = document.createElement("div");
-      ph.className = "image-stage-placeholder";
-      ph.setAttribute("aria-hidden", "true");
-      ph.style.display = "none";
-      // Insert right after the stage so it occupies the same grid slot
-      // ordering; CSS assigns it grid-area: canvas in embedded mode.
-      stage.parentNode.insertBefore(ph, stage.nextSibling);
-      _canvasPlaceholder = ph;
-      return ph;
-    }
-    function _unfloatCanvas(stage) {
-      if (!stage) stage = document.getElementById("imageStage");
-      if (stage) {
-        stage.classList.remove("is-floating");
-        stage.style.position = "";
-        stage.style.top = "";
-        stage.style.left = "";
-        stage.style.right = "";
-        stage.style.width = "";
-        stage.style.zIndex = "";
-      }
-      if (_canvasPlaceholder) {
-        _canvasPlaceholder.style.display = "none";
-        _canvasPlaceholder.style.height = "";
-      }
-    }
-    var _floatRafPending = false;
-    var _lastVisibleTop = null;     // last reported viewport offset (for re-sync on resize)
-    var _lastVisibleBottom = null;  // last reported visible-bottom (for centred overlay tracking)
-    // Overlays (e.g. the data-credits modal in embedded mode) that want to
-    // float at the centre of the visible window and TRACK the user's scroll
-    // until closed. Each entry: { el, onClose? }. The viewport message
-    // handler re-positions them on every update.
-    var _centeredOverlays = [];
-    function _centerInVisible(overlay) {
-      if (!overlay) return;
-      if (typeof _lastVisibleTop !== "number") return;
-      var oh = overlay.offsetHeight || 200;
-      if (typeof _lastVisibleBottom === "number") {
-        // Vertically centre within the visible window; clamp 8px from the top
-        // so a tall overlay doesn't slip above the nav.
-        var visH = Math.max(0, _lastVisibleBottom - _lastVisibleTop);
-        overlay.style.top = (_lastVisibleTop + Math.max(8, (visH - oh) / 2)) + "px";
-      } else {
-        // No visible-bottom reported yet — fall back to top-pinning
-        // (24px below the nav) until the next viewport message lands.
-        overlay.style.top = (_lastVisibleTop + 24) + "px";
-      }
-    }
-    function _registerCenteredOverlay(overlay) {
-      _centeredOverlays.push(overlay);
-      _centerInVisible(overlay);
-    }
-    function _unregisterCenteredOverlay(overlay) {
-      var i = _centeredOverlays.indexOf(overlay);
-      if (i >= 0) _centeredOverlays.splice(i, 1);
-    }
-    function _updateFloatingCanvas(visibleTopInIframe) {
-      _lastVisibleTop = visibleTopInIframe;
-      // rAF-coalesce: the parent fires this on every scroll tick.
-      if (_floatRafPending) return;
-      _floatRafPending = true;
-      (window.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); })(function() {
-        _floatRafPending = false;
-        var stage = document.getElementById("imageStage");
-        var editor = document.querySelector(".editor-with-preview");
-        var editSection = document.getElementById("editSection");
-        if (!stage || !editor || !editSection) return;
-        // Don't float when the editor isn't on screen.
-        if (editSection.classList.contains("hidden")) { _unfloatCanvas(stage); return; }
-        var ph = _ensureCanvasPlaceholder(stage);
-        // Natural top of the editor region in iframe-document coords.
-        // Measure against the placeholder when floating (stable), else
-        // the stage itself.
-        var floating = stage.style.position === "absolute";
-        var editorRect = editor.getBoundingClientRect();
-        var editorDocTop = editorRect.top + window.pageYOffset;
-        var stageH = (floating && _canvasPlaceholder ? _canvasPlaceholder.offsetHeight : stage.offsetHeight) || 0;
-        var margin = 8;
-        // Desired top, relative to the editor (its CSS makes it the
-        // positioned ancestor in embedded mode).
-        var relDesired = (visibleTopInIframe + margin) - editorDocTop;
-        // Stop floating before the canvas would overlap the action bar
-        // (Generate / Download) that sits at the bottom of the editor —
-        // otherwise the floating canvas covers the CTA at the end of the
-        // scroll. Reserve its height in the max travel.
-        var actionBar = editor.querySelector(".editor-action-bar");
-        var actionH = (actionBar && actionBar.offsetParent !== null) ? actionBar.offsetHeight : 0;
-        var maxRel = editor.offsetHeight - stageH - actionH - margin * 2;
-        if (relDesired <= 0 || maxRel <= 0 || stageH <= 0) {
-          _unfloatCanvas(stage);
-          return;
-        }
-        var relTop = Math.min(relDesired, maxRel);
-        ph.style.height = stageH + "px";
-        ph.style.display = "block";
-        stage.classList.add("is-floating");
-        stage.style.position = "absolute";
-        stage.style.top = relTop + "px";
-        stage.style.left = "0";
-        stage.style.right = "0";
-        // Above the scrolling editor content (toolbar, sliders, product
-        // preview, action bar) but below the feedback FAB (9990).
-        stage.style.zIndex = "900";
-      });
-    }
-
-    if (document.documentElement.classList.contains("embedded")) {
-      window.addEventListener("message", function(e) {
-        if (PARENT_ORIGIN_ALLOWLIST.indexOf(e.origin) === -1) return;
-        if (!e.data || e.data.source !== "solar-archive-parent") return;
-        if (e.data.type !== "viewport") return;
-
-        // FAB anchoring (existing behaviour).
-        var fab = document.getElementById("feedbackFabGroup");
-        var vis = e.data.visibleBottomInIframe;
-        if (typeof vis === "number" && isFinite(vis)) _lastVisibleBottom = vis;
-        if (fab && typeof vis === "number" && isFinite(vis)) {
-          var fabH = fab.offsetHeight || 60;
-          // Pin FAB so its BOTTOM aligns with the visible viewport's
-          // bottom (with the same 18px margin standalone uses). Clamp
-          // to 0 so the FAB never sneaks above the iframe's top.
-          var topPx = Math.max(0, vis - fabH - 18);
-          fab.style.position = "absolute";
-          fab.style.top = topPx + "px";
-          fab.style.right = "18px";
-          fab.style.bottom = "auto";
-          fab.style.left = "auto";
-          fab.style.zIndex = "9990";
-        }
-
-        // Floating editor canvas (new — only when the parent reports
-        // visibleTopInIframe; otherwise the canvas stays static).
-        var top = e.data.visibleTopInIframe;
-        if (typeof top === "number" && isFinite(top)) {
-          _updateFloatingCanvas(top);
-        }
-
-        // Sticky-nav scroll offset: how much fixed chrome covers the top
-        // of the parent viewport. Drives --sa-scroll-offset so the app's
-        // scrollIntoView targets (sections, wavelength grid, editor) land
-        // BELOW the storefront's nav instead of tucked under it. +12px
-        // breathing room. Falls back to the CSS default until reported.
-        var cover = e.data.topCoverPx;
-        if (typeof cover === "number" && isFinite(cover)) {
-          document.documentElement.style.setProperty("--sa-scroll-offset", (Math.max(0, cover) + 12) + "px");
-        }
-
-        // Re-position any floating-centered overlays (data-credits modal,
-        // etc.) so they track the user's scroll while open.
-        if (_centeredOverlays.length) {
-          for (var _i = 0; _i < _centeredOverlays.length; _i++) {
-            _centerInVisible(_centeredOverlays[_i]);
-          }
-        }
-      });
-    }
-
-    // ── Auto-scroll that respects the parent's sticky nav ───────────
-    // In standalone, native scrollIntoView is fine. In the embed the
-    // iframe is content-sized and cross-origin, so it can neither scroll
-    // itself nor (directly) the parent, and scroll-margin-top isn't
-    // honored by the parent's reveal-scroll. So we hand the parent the
-    // target's position within the iframe and let IT scroll, offset by
-    // the sticky-nav height. Requires the parent's `scrollTo` handler
-    // (see the documented snippet); falls back to scrollIntoView if the
-    // parent doesn't act.
+    // ── Auto-scroll ─────────────────────────────────────────────
+    // Now that we're not iframe-embedded, native scrollIntoView is
+    // the right tool everywhere. The embedded-mode parent-postMessage
+    // dance was deleted alongside the rest of the iframe scaffolding.
     function _scrollToEl(el, block) {
       if (!el) return;
       block = block || "start";
-      if (document.documentElement.classList.contains("embedded")) {
-        try {
-          // getBoundingClientRect + scrollHeight force a synchronous
-          // reflow, so a just-un-hidden section (e.g. the editor on
-          // "Continue") is already laid out here. We send docHeight with
-          // the request so the parent sets the iframe height BEFORE
-          // scrolling — otherwise it scrolls against a stale (shorter)
-          // iframe box and lands on the wrong section.
-          var rect = el.getBoundingClientRect();
-          var sy = window.pageYOffset || document.documentElement.scrollTop || 0;
-          window.parent.postMessage({
-            source: "solar-archive",
-            type: "scrollTo",
-            topInIframe: rect.top + sy,   // element's offset within the iframe document
-            height: rect.height,
-            docHeight: document.documentElement.scrollHeight,
-            block: block
-          }, "*");
-          return;
-        } catch (_e) { /* fall through to native */ }
-      }
       try { el.scrollIntoView({ behavior: "smooth", block: block }); }
       catch (_e2) { try { el.scrollIntoView(); } catch (_e3) {} }
     }
@@ -957,9 +605,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       return (s > 0 && s <= 1) ? s : 1;
     }
     function _resyncFloatAfterResize() {
-      if (typeof _lastVisibleTop === "number" && isFinite(_lastVisibleTop)) {
-        _updateFloatingCanvas(_lastVisibleTop);
-      }
+      // No-op now that the iframe floating-canvas implementation is
+      // gone. Kept as a stub so any straggler caller doesn't throw.
     }
     function setupEditorResize() {
       var stage = document.getElementById("imageStage");
@@ -1695,16 +1342,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var preview = document.getElementById("selectedProductPreview");
       if (!preview) return;
       // Embedded mode (Shopify iframe): CSS drops the pane to position:
-      // static, so the pinning JS would just be writing stale inline
-      // left/width that the user never sees scroll-tracked. Reviewer M2
-      // flagged that the stale `width:Xpx` still clipped the pane.
-      // Clear inline styles and short-circuit.
-      if (document.documentElement.classList.contains("embedded")) {
-        preview.classList.remove("preview-pinned");
-        preview.style.cssText = "";
-        _previewPaneNaturalGeom = null;
-        return;
-      }
+      // (Embedded-mode short-circuit removed alongside the iframe
+      // scaffolding — no longer reachable.)
       // Hidden / not selected → reset and bail.
       if (preview.classList.contains("hidden")) {
         preview.classList.remove("preview-pinned");
@@ -5419,11 +5058,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           "</div>" +
         "</div>";
       document.body.appendChild(overlay);
-      // Embedded mode: overlay flows inline, so scroll to it.
-      if (document.documentElement.classList.contains("embedded")) {
-        try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
-        catch (_e) { overlay.scrollIntoView(); }
-      }
       var btnCancel = overlay.querySelector(".btn-cancel");
       var btnConfirm = overlay.querySelector(".btn-confirm");
       btnCancel.addEventListener("click", function() {
@@ -5554,26 +5188,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       document.addEventListener("keydown", _onEscKey);
       overlay.addEventListener("click", _onBackdropClick);
       btn.addEventListener("click", _closeOverlay);
-      // Embedded mode: a content-sized iframe can't use a fixed overlay
-      // (it wouldn't track the parent's scroll). Position absolutely
-      // centred in the parent's visible window (_lastVisibleTop /
-      // _lastVisibleBottom from the viewport postMessage), register it so
-      // the message handler re-centres on every scroll → the modal
-      // FLOATS at the visible centre until closed. Falls back to
-      // scrollIntoView when no viewport offset is known yet.
-      if (document.documentElement.classList.contains("embedded")) {
-        if (typeof _lastVisibleTop === "number" && isFinite(_lastVisibleTop)) {
-          overlay.style.position = "absolute";
-          overlay.style.left = "0";
-          overlay.style.right = "0";
-          overlay.style.margin = "0 auto";
-          overlay.style.zIndex = "9995";
-          _registerCenteredOverlay(overlay);
-        } else {
-          try { overlay.scrollIntoView({ behavior: "smooth", block: "center" }); }
-          catch (_e) { overlay.scrollIntoView(); }
-        }
-      }
     }
 
     // ── Progress helpers ─────────────────────────────────────────
@@ -12565,14 +12179,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // first-element focus, so we don't need the separate
       // continueBtn.focus() timeout below for the keyboard path.
       _releaseFocusTrap = installModalFocusTrap(modal, { onEscape: onCancel });
-      // Embedded mode (Shopify iframe): the modal renders inline in
-      // document flow rather than overlaying the viewport. Scroll
-      // the user to it so they land on the picker instead of being
-      // left where they were on the outer page.
-      if (document.documentElement.classList.contains("embedded")) {
-        try { modal.scrollIntoView({ behavior: "smooth", block: "start" }); }
-        catch (_e) { modal.scrollIntoView(); }
-      }
       // Continue button focus on desktop is the convenience landing
       // — the focus trap already focuses the first focusable
       // (typically the close-X), but for desktop UX we'd prefer the
