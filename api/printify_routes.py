@@ -12,6 +12,7 @@ Environment variables required:
     SHOPIFY_STORE_DOMAIN — your Shopify store domain (default: solar-archive.myshopify.com)
 """
 
+import hmac
 import os
 import re
 import time
@@ -174,13 +175,25 @@ async def upload_image(request: Request):
     """
     enforce_origin(request)
     enforce_rate_limit(request, "printify_upload", _PRINTIFY_WRITE_LIMIT, _PRINTIFY_WRITE_WINDOW)
-    # Beta-mode policy (2026-05-25 change): /upload + /product are
-    # required for the "Generate real mockup" flow, which creates a
-    # throwaway draft product and deletes it after reading back the
-    # auto-generated mockup URLs. No money or shipping changes hands.
-    # The user-visible money paths (/publish + /checkout) keep their
-    # beta block. Without unblocking here, testers couldn't preview
-    # what their design actually looks like as a real product photo.
+    # LAUNCH-BLOCKER fix (workflow wx5fi2brl):
+    # printify-upload-no-moderation + /upload-not-beta-gated.
+    # Two-layer defence against scripted abuse:
+    # 1. URL uploads MUST point at /asset/* on our own origin (so an
+    #    attacker can't redirect Printify at their own malicious URL).
+    #    Base64 (`contents`) is legit — the user's canvas snapshot
+    #    after they crop/colour/text — but we cap its size + log the
+    #    requester IP + per-IP rate-limit it (above). Per-session
+    #    signed upload tokens are TODO for post-launch tightening.
+    # 2. Admin caller (X-Admin-Key) bypasses these gates for ops /
+    #    warm-cycle scripts that upload arbitrary local paths.
+    is_admin = False
+    try:
+        admin_key = (request.headers.get("X-Admin-Key") or "").strip()
+        expected = (os.getenv("FEEDBACK_ADMIN_KEY") or "").strip()
+        if admin_key and expected and hmac.compare_digest(admin_key, expected):
+            is_admin = True
+    except Exception:
+        is_admin = False
     try:
         body = await request.json()
         url = body.get("url")
@@ -189,6 +202,48 @@ async def upload_image(request: Request):
 
         if not url and not contents:
             raise HTTPException(status_code=400, detail="Missing 'url' or 'contents' field.")
+
+        # base64 upload size cap (~25 MB raw → ~33 MB base64). Anything
+        # bigger than this isn't a legit canvas snapshot — it's someone
+        # trying to abuse the operator's storage quota.
+        _MAX_BASE64_BYTES = 33 * 1024 * 1024
+        if contents and not is_admin and len(contents) > _MAX_BASE64_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Base64 upload exceeds 33 MB cap.",
+            )
+
+        # URL allowlist: any URL pointing OUTSIDE our origin is rejected
+        # for non-admin callers — attackers can't redirect Printify at
+        # arbitrary content under the operator's account.
+        if url and not is_admin:
+            _ALLOWED_PREFIXES = (
+                "https://solar-archive.onrender.com/asset/",
+                "http://127.0.0.1:8000/asset/",
+                "http://127.0.0.1:8001/asset/",
+                "http://localhost:8000/asset/",
+                "http://localhost:8001/asset/",
+                "/asset/",
+            )
+            if not any(url.startswith(p) for p in _ALLOWED_PREFIXES):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Upload URL must reference a /asset/* path served by this origin.",
+                )
+
+        # Audit log: keep the IP + size + file_name so abuse trails are
+        # available for ops review. Logged to stdout (Render captures);
+        # an off-host log sink can subscribe to the same stream.
+        _client_ip_for_log = "unknown"
+        try:
+            from .security import _client_ip
+            _client_ip_for_log = _client_ip(request)
+        except Exception:
+            pass
+        _log(f"[printify][upload][audit] ip={_client_ip_for_log} file={file_name!r} "
+             f"src={'base64' if contents else 'url'} "
+             f"size={len(contents) if contents else (len(url) if url else 0)} "
+             f"admin={is_admin}")
 
         if contents:
             payload = {"file_name": file_name, "contents": contents}

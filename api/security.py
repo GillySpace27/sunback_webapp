@@ -106,11 +106,23 @@ _rate_lock = threading.Lock()
 
 
 def _client_ip(request: Request) -> str:
-    # Render terminates TLS upstream; the client IP is in
-    # X-Forwarded-For (first hop). Fall back to the direct peer.
+    # LAUNCH-BLOCKER fix (workflow wx5fi2brl, xff-rate-limit-bypass):
+    # Render APPENDS to X-Forwarded-For rather than replacing it, so the
+    # LEFTMOST hop in the header is whatever the CLIENT supplied — easily
+    # spoofed to evade rate limits. Read RIGHTMOST instead: Render's edge
+    # appends the true peer IP last, and any client-supplied earlier
+    # entries are now ignored.
+    #
+    # Prefer Render's CF-Connecting-IP / Fly-Client-IP equivalent header
+    # if present (more reliable than parsing XFF), then fall back to the
+    # rightmost XFF hop, then the direct peer.
+    cf = request.headers.get("cf-connecting-ip") or request.headers.get("fly-client-ip")
+    if cf:
+        return cf.strip()
     xff = request.headers.get("x-forwarded-for", "")
     if xff:
-        return xff.split(",")[0].strip()
+        # Rightmost entry = the last (most-trusted) proxy hop.
+        return xff.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 

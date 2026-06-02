@@ -10779,7 +10779,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
     }
 
+    // LAUNCH-BLOCKER fix (workflow wx5fi2brl, checkout-double-click-no-
+    // idempotency): module-level flag prevents Buy → doCheckout firing
+    // twice if the user double-taps the button or hits Enter on the
+    // confirm modal before the modal-close animation runs. Without
+    // this, two Printify products + two Shopify listings get created
+    // per "click" — possible double-charge in worst case.
+    var _checkoutInFlight = false;
     function startCheckout(product) {
+      if (_checkoutInFlight) {
+        showToast("Checkout already in progress — sit tight.", "info");
+        return;
+      }
       if (!state.originalImage) {
         showInfo("No Image", "Pick an image from the gallery (or use the date picker) first.");
         return;
@@ -10802,6 +10813,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         "This will publish your custom <strong>" + product.name + "</strong> to Shopify with your selected variant locked in. All you'll do on Shopify is complete payment — no need to re-pick the product, size, or color.<br><br>" +
           hqNote,
         function() {
+          // LAUNCH-BLOCKER fix: set _checkoutInFlight HERE (inside the
+          // confirm callback), not in startCheckout — so Cancel doesn't
+          // strand the latch in the "true" state.
+          _checkoutInFlight = true;
           // Kick off the checkout and keep the modal open with a spinner on
           // the Create button until the status list below has rendered and
           // scrolled into view. That way the user sees a continuous "I'm
@@ -10947,6 +10962,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         showToast("Checkout failed: " + msg, "error");
       })
       .finally(function() {
+        // Clear the idempotency latch so a follow-up attempt is allowed.
+        _checkoutInFlight = false;
         // Re-enable buy buttons
         productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) {
           var pid = btn.dataset.productId;
