@@ -323,6 +323,27 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
           ? _getEditedSharedSource()
           : state.originalImage;
       }
+      // opts.fallbackSrc: when neither sourceCanvas nor shareSrc has
+      // a usable image (cold-load pre-image-pick — variant picker
+      // opens BEFORE the user has chosen a vibe), let the caller pass
+      // an Image to use as the source. Used by the variant modal to
+      // render the AR 2192 default RHEF (the same image that bakes
+      // into the photoreal Printify default mockup) so the modal's
+      // canvas still shows a real Sun on every variant.
+      var hasSource = (sourceCanvas && sourceCanvas.width > 0)
+        || (shareSrc && (shareSrc.naturalWidth || shareSrc.width));
+      if (!hasSource && opts && opts.fallbackSrc) {
+        var fb = opts.fallbackSrc;
+        if (fb && (fb.naturalWidth || fb.width)) {
+          // Route through the share-src path so the per-product
+          // framing + crop logic below handles it like any non-edited
+          // gallery tile.
+          shareSrc = fb;
+          // If the caller passed both a canvas and a fallback, drop
+          // the empty canvas so the shareSrc path actually runs.
+          sourceCanvas = null;
+        }
+      }
 
       // Resolve the per-product preview framing (zoom + normalized center).
       // Falls back to a gentle default keyed off aspect so a new product

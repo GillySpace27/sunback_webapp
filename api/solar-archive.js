@@ -11586,6 +11586,50 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // and the summary line; Continue commits the highlighted variant and
     // opens the editor. Replaces the previous two-step flow (inline collapse
     // → per-row Select → confirm dialog) that beta testers found cluttered.
+
+    // Lazy-loaded default RHEF image used as the variant picker's
+    // mockup-canvas source BEFORE the user has picked a vibe. URL
+    // points at the same AR 2192 HQ RHEF render that bakes into the
+    // photoreal Printify default mockups, so the picker preview
+    // matches what the photoreal default would have shown — reshaped
+    // per-variant.
+    var _defaultRhefImage = null;
+    var _defaultRhefLoadKicked = false;
+    function _ensureDefaultRhefImage() {
+      // Already loaded? Return the Image so drawProductMockup uses it.
+      if (_defaultRhefImage && _defaultRhefImage.complete && _defaultRhefImage.naturalWidth) {
+        return _defaultRhefImage;
+      }
+      if (!_defaultRhefLoadKicked) {
+        _defaultRhefLoadKicked = true;
+        var img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function () {
+          _defaultRhefImage = img;
+          // Re-render the modal mockup canvas if the variant modal is
+          // currently open — the first paint fired before the Image
+          // resolved and would have shown the silhouette without a Sun.
+          try {
+            var modalEl = document.getElementById("confirmSelectModal");
+            if (modalEl && !modalEl.classList.contains("hidden")) {
+              if (typeof window.SolarArchive._rerenderConfirmMockup === "function") {
+                window.SolarArchive._rerenderConfirmMockup();
+              }
+            }
+          } catch (_e) {}
+        };
+        img.onerror = function () { _defaultRhefLoadKicked = false; };
+        // ar2192 = the DEFAULT_LANDING_DATE vibe slug; manifest path
+        // is /asset/default/vibe/<slug>/rhef_full.png. Hard-coded here
+        // rather than read from _vibeManifest because the manifest may
+        // not have loaded yet when the variant modal first opens.
+        img.src = "/asset/default/vibe/ar2192/rhef_full.png";
+      }
+      // Image still loading or load failed — return null so
+      // drawProductMockup falls through to its silhouette path.
+      return _defaultRhefImage;
+    }
+
     function showConfirmSelectModal(product, onContinue) {
       var modal = document.getElementById("confirmSelectModal");
       var listEl = document.getElementById("confirmSelectVariantList");
@@ -11753,8 +11797,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             ? solarCanvas.width : canvasW;
           var srcH = (solarCanvas && solarCanvas.height > 0)
             ? solarCanvas.height : canvasH;
+          // Pass the AR 2192 RHEF default as a fallback source so the
+          // mockup canvas shows a real Sun image on every variant
+          // EVEN BEFORE the user has picked a vibe. This is the same
+          // image baked into the photoreal Printify default mockup,
+          // so the variant picker preview matches what the photoreal
+          // default would have shown — but reshaped per-variant.
+          // (Gilly's request.) _ensureDefaultRhefImage() lazily kicks
+          // off a single Image() load on the first variant-modal open.
           drawProductMockup(mctx, product.id, srcW, srcH, variant,
-                            { useSelectedSource: true });
+                            { useSelectedSource: true,
+                              fallbackSrc: _ensureDefaultRhefImage() });
           mockupEl.appendChild(c);
         } catch (e) {
           mockupEl.classList.add("empty");
@@ -11812,6 +11865,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         _renderSummary(v);
         _renderMockup(v);
       }
+      // Expose a "re-paint with the current pending variant" hook so
+      // the lazy default-RHEF image loader can refresh the canvas
+      // when its onload fires AFTER the first _renderMockup paint.
+      try {
+        window.SolarArchive = window.SolarArchive || {};
+        window.SolarArchive._rerenderConfirmMockup = function () {
+          try {
+            var vlist = _variantsList();
+            var pv = vlist.find(function (x) { return x.id === pendingVariantId; }) || vlist[0];
+            if (pv) _renderMockup(pv);
+          } catch (_e) {}
+        };
+      } catch (_e) {}
       // Human term for what the colour axis actually changes on THIS
       // product, so the swatches aren't unlabelled squares. Frames /
       // garments are the common cases; default to a plain "Color".
