@@ -11836,56 +11836,76 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (!mockupEl) return;
         mockupEl.innerHTML = "";
         mockupEl.classList.remove("empty");
-        // Reverted (per Gilly): always show the photoreal Printify
-        // default mockup (or placeholder), never the real-image
-        // render. The user wants the modal to feel like a product
-        // picker — what does this thing look like in real life —
-        // and have the FRAME ASPECT RATIO tied to the chosen variant
-        // (a tall poster shows tall; a coffee mug shows landscape).
-        // The canvas render with their image composited belongs in
-        // the editor, not the picker.
+        // Canvas mockup via drawProductMockup is the picker render
+        // — the photoreal Printify default exists for at most one
+        // variant per product (the default tuple) so it's useless
+        // for picking between sizes. drawProductMockup composites
+        // the editor source onto the product silhouette, so the user
+        // sees their image (or a clean product silhouette if no
+        // image is loaded yet) at the SHAPE of the selected variant.
         //
-        // Aspect-ratio drive: read getEffectiveAspectRatio(product)
-        // which respects state.variantAspectRatioByProduct[product.id]
-        // — _selectInModal updates that on every variant tap, so the
-        // mockup frame reshapes live as the user picks a size.
+        // Canvas dimensions follow getEffectiveAspectRatio(product),
+        // which reads state.variantAspectRatioByProduct[product.id]
+        // — _selectInModal updates that on every variant tap, so
+        // the canvas reshapes live as the user clicks through sizes.
+        var ar = null;
         try {
-          var ar = (typeof getEffectiveAspectRatio === "function")
+          ar = (typeof getEffectiveAspectRatio === "function")
             ? getEffectiveAspectRatio(product) : null;
-          if (ar && ar.w > 0 && ar.h > 0) {
-            mockupEl.style.aspectRatio = ar.w + " / " + ar.h;
-            // Width auto / height auto with aspect-ratio + the CSS
-            // max-width:220px max-height:220px caps means the
-            // container reshapes within the 220² envelope.
-            mockupEl.style.width = "auto";
-            mockupEl.style.height = "auto";
-          } else {
-            mockupEl.style.aspectRatio = "";
-            mockupEl.style.width = "";
-            mockupEl.style.height = "";
-          }
         } catch (_e) {}
-        var dm = defaultMockupManifest && defaultMockupManifest[product.id];
-        if (dm && dm.url) {
-          var img = document.createElement("img");
-          img.src = dm.url;
-          img.alt = product.name + " default mockup";
-          img.className = "confirm-mockup-default";
-          img.loading = "eager";
-          mockupEl.appendChild(img);
+        var MAX = 240;  // matches the modal's max-width/height envelope
+        var canvasW, canvasH;
+        if (ar && ar.w > 0 && ar.h > 0) {
+          if (ar.w >= ar.h) {
+            canvasW = MAX;
+            canvasH = Math.max(40, Math.round(MAX * ar.h / ar.w));
+          } else {
+            canvasH = MAX;
+            canvasW = Math.max(40, Math.round(MAX * ar.w / ar.h));
+          }
         } else {
-          // No default mockup on disk — fall back to the simple
-          // placeholder so the slot still has presence.
-          var placeholder = document.createElement("div");
-          placeholder.className = "confirm-mockup-placeholder";
-          placeholder.innerHTML =
-            '<div class="confirm-mockup-placeholder-icon" aria-hidden="true">' +
-              '<i class="fas fa-sun"></i>' +
-            '</div>' +
-            '<div class="confirm-mockup-placeholder-text">' +
-              'Your Sun image goes here.<br><span>Pick a variant, continue, then choose a moment.</span>' +
-            '</div>';
-          mockupEl.appendChild(placeholder);
+          canvasW = MAX;
+          canvasH = MAX;
+        }
+        // Container reshapes with the canvas — clear the aspect-ratio
+        // inline style from the prior (default-mockup) path and let
+        // the canvas dictate the box dimensions instead.
+        mockupEl.style.aspectRatio = "";
+        mockupEl.style.width = "auto";
+        mockupEl.style.height = "auto";
+        // Promote the editor filter to the highest available tier
+        // (HQ RHEF > RHEF/Raw > JPG) before snapshotting, so the
+        // picker uses the best version of the source image when one
+        // exists. No-op when state.editorFilter is already at the
+        // best tier or when no image has been loaded yet.
+        if (typeof _promoteFilterToBest === "function") {
+          try { _promoteFilterToBest(); } catch (_e) {}
+        }
+        try {
+          var c = document.createElement("canvas");
+          // 2x backing store for crisp rendering on retina displays
+          c.width = canvasW * 2;
+          c.height = canvasH * 2;
+          c.className = "confirm-mockup-canvas";
+          c.style.width = canvasW + "px";
+          c.style.height = canvasH + "px";
+          var mctx = c.getContext("2d");
+          mctx.scale(2, 2);
+          // Source dimensions for drawProductMockup. solarCanvas is
+          // the editor DOM canvas; when an image is loaded its
+          // width/height reflect the current source. If empty
+          // (product-first cold load before image pick) fall back to
+          // the canvas dimensions so drawProductMockup at least
+          // renders the product silhouette with the background fill.
+          var srcW = (solarCanvas && solarCanvas.width > 0)
+            ? solarCanvas.width : canvasW;
+          var srcH = (solarCanvas && solarCanvas.height > 0)
+            ? solarCanvas.height : canvasH;
+          drawProductMockup(mctx, product.id, srcW, srcH, variant,
+                            { useSelectedSource: true });
+          mockupEl.appendChild(c);
+        } catch (e) {
+          mockupEl.classList.add("empty");
         }
       }
       function _selectInModal(vid) {
