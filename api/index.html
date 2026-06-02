@@ -57,7 +57,7 @@
          derived imagery. Restore the longer "AIA, EVE, and HMI science
          teams" form here AND in solar-archive.js CITATIONS.SDO_ACK if we
          ever surface EVE/HMI channels. -->
-    <p class="hero-credit">Courtesy of NASA/SDO and the AIA science team. Not affiliated; no endorsement implied.</p>
+    <p class="hero-credit">Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams. Not affiliated; no endorsement implied.</p>
     <!-- Beta banner — shown only when BETA_MODE is on (the /store-config
          fetch sets the .beta-mode-active class on <body>, which un-hides
          this block via CSS). Orange so it reads as an advisory, not an
@@ -115,7 +115,7 @@
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Every preview is a real Printify mockup. The orange sun is a sample &mdash; pick a product and you'll choose your own Sun image next.
+      Every preview is a real Printify mockup. The orange Sun is a sample &mdash; pick a product and you'll choose your own Sun image next.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -165,13 +165,14 @@
          toggle is wired. -->
     <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
          role="radiogroup" aria-label="Image stretch — Helioviewer preview, sRGB-gamma original, or radial-equalized filtered">
-      <!-- Cards START at Original (internally data-tier="raw"). JS in
-           _wireVibeGrid overrides this to Filtered once the manifest
-           confirms every vibe has its RHEF cached — see commit 66e37c9.
-           Indicator must always match what's actually rendered. -->
+      <!-- No is-active on initial markup: JS (_wireVibeGrid) picks the
+           tier when the manifest resolves (rhef if cached, jpg
+           otherwise) and applies is-active to the matching pill.
+           Hardcoding is-active on `raw` caused a visible "Original"
+           flash on first paint before the JS override (reviewer M8). -->
       <button type="button" class="vibe-master-btn" data-tier="jpg" aria-pressed="false"
               title="Helioviewer JPG preview — instant, lower resolution.">Preview</button>
-      <button type="button" class="vibe-master-btn is-active" data-tier="raw" aria-pressed="true"
+      <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
               title="sRGB-gamma (γ≈0.45) FITS data. The conventional AIA look.">Original</button>
       <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
               title="Radial Histogram Equalization Filter (Gilly et al. 2025) — brings out faint corona detail.">Filtered</button>
@@ -408,7 +409,7 @@
                while the UI displayed e.g. 2030). min is SDO/AIA first light. -->
           <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
                  min="2010-05-15" aria-describedby="vibeBirthdayHint">
-          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Back to May 2010 — print the sun that was shining.</div>
+          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Back to May 2010 — print the Sun that was shining that day.</div>
         </div>
       </div>
 
@@ -1059,7 +1060,7 @@
   <div id="cookieBanner" class="cookie-banner hidden" role="dialog" aria-modal="false" aria-labelledby="cookieBannerTitle">
     <div class="cookie-banner-inner">
       <div class="cookie-banner-body">
-        <strong id="cookieBannerTitle">We use cookies + browser storage.</strong>
+        <strong id="cookieBannerTitle">We use cookies and browser storage.</strong>
         <p>Solar Archive stores UI preferences in your browser (strict-necessary) and uses Google Analytics 4 for aggregated traffic stats. See our <a href="/privacy">Privacy Policy</a>.</p>
       </div>
       <div class="cookie-banner-actions">
