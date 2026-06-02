@@ -68,9 +68,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       window.gtag("config", _GA_MEASUREMENT_ID, { anonymize_ip: true });
       window._ga4Inited = true;
     }
-    // Sentry fires immediately so crashes during page bootstrap get
-    // captured. GA4 waits for consent.
-    _initSentry();
+    // Sentry now ALSO waits for consent (reviewer M7). Pre-consent
+    // crashes are lost in the gap, but the privacy / cookie banner copy
+    // promises we don't load third-party telemetry until accept and
+    // shipping Sentry by default broke that promise.
+    if (_cookieConsentState() === "accept") _initSentry();
 
     // Even without Sentry, capture client-side errors locally so they
     // surface in the browser console as a single tagged line — much
@@ -101,7 +103,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var banner = document.getElementById("cookieBanner");
       if (!banner) return;
       if (_cookieConsentState()) {
-        if (_cookieConsentState() === "accept") _initGA4();
+        if (_cookieConsentState() === "accept") {
+          _initGA4();
+          try { _initSentry(); } catch (_e) {}
+        }
         return;
       }
       banner.classList.remove("hidden");
@@ -110,7 +115,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       function _stash(choice) {
         try { localStorage.setItem(_COOKIE_CONSENT_KEY, choice); } catch (_e) {}
         banner.classList.add("hidden");
-        if (choice === "accept") _initGA4();
+        if (choice === "accept") {
+          _initGA4();
+          // Sentry init was also deferred until consent (reviewer M7).
+          try { _initSentry(); } catch (_e) {}
+        }
       }
       if (accept) accept.addEventListener("click", function () { _stash("accept"); });
       if (decline) decline.addEventListener("click", function () { _stash("decline"); });
@@ -282,6 +291,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               }
             } catch (_e) {}
           }
+          // Reviewer M12: also clear .preview-pinned + inline left/top/
+          // width so a re-entry to the editor doesn't briefly apply the
+          // stale pinned geometry to the natural-grid pane before the
+          // next scroll event recomputes.
+          if (pane) {
+            pane.classList.remove("preview-pinned");
+            pane.style.left = "";
+            pane.style.top = "";
+            pane.style.width = "";
+          }
         }
         // Also re-evaluate editor-in-view so the rail-mode JS rule
         // recomputes immediately rather than waiting for the next
@@ -300,7 +319,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // step's primary affordance is. Skip on popstate (the browser
       // restores its own scroll position) and on initial bootstrap
       // (no transition yet).
-      if (!opts.fromPopstate && prev && prev !== name) {
+      if (!opts.fromPopstate && prev && prev !== name && name !== "editor") {
+        // Skip the unconditional reset when transitioning INTO editor —
+        // commitImageChoice runs its own smooth scrollIntoView to
+        // #imageStage on the next rAF. The double-scroll caused a
+        // visible flash to top then scroll back down (reviewer M4).
         try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); }
         catch (_e) { try { window.scrollTo(0, 0); } catch (_e2) {} }
       }
@@ -1477,7 +1500,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var editorOpen = editSection && !editSection.classList.contains("hidden");
       if (editorOpen && state.selectedProduct) {
         title.textContent = "Product examples";
-        intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and scroll up to check out.";
+        intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and head to checkout.";
       } else {
         title.textContent = "Choose your product";
         intro.innerHTML = "Click <strong>Pick a variant</strong>, choose your size/color, then pick the Sun image you want printed.";
@@ -1618,6 +1641,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _updatePreviewPanePinning() {
       var preview = document.getElementById("selectedProductPreview");
       if (!preview) return;
+      // Embedded mode (Shopify iframe): CSS drops the pane to position:
+      // static, so the pinning JS would just be writing stale inline
+      // left/width that the user never sees scroll-tracked. Reviewer M2
+      // flagged that the stale `width:Xpx` still clipped the pane.
+      // Clear inline styles and short-circuit.
+      if (document.documentElement.classList.contains("embedded")) {
+        preview.classList.remove("preview-pinned");
+        preview.style.cssText = "";
+        _previewPaneNaturalGeom = null;
+        return;
+      }
       // Hidden / not selected → reset and bail.
       if (preview.classList.contains("hidden")) {
         preview.classList.remove("preview-pinned");
@@ -1702,7 +1736,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
     }
     window.addEventListener("scroll", _schedulePreviewPanePin, { passive: true });
-    window.addEventListener("resize", _schedulePreviewPanePin);
+    // On resize, force a geom recapture before re-pinning — otherwise a
+    // pane that's already in `.preview-pinned` mode keeps stale left/
+    // width from the pre-resize layout, clipping or overlapping the
+    // dashboard when the user drags the divider narrower. (Reviewer M3)
+    window.addEventListener("resize", function () {
+      _previewPaneNaturalGeom = null;
+      _schedulePreviewPanePin();
+    });
     // Layout-changing events that affect the natural slot's geometry:
     // wait one frame so flex has reflowed, then resync.
     function _resyncPreviewPaneSoon() {
@@ -2196,7 +2237,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // preview pane IS the canvas, so the toggle is the back-out
         // affordance Gilly described in the audit.
         var _isMobileLbl = window.matchMedia && window.matchMedia("(max-width: 749px)").matches;
-        if (labelEl) labelEl.textContent = _isMobileLbl ? "Back to live edit" : "Reset to mock mockup";
+        if (labelEl) labelEl.textContent = _isMobileLbl ? "Back to live edit" : "Reset to canvas preview";
         btn.title = "Switch back to the live canvas preview.";
       } else {
         var slideshowEl = mockupContainer.querySelector(".mockup-slideshow");
@@ -2400,7 +2441,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           updatePreviewPaneMockupState();
           refreshLivePreview();
           if (typeof updateBuyButtonState === "function") updateBuyButtonState();
-          showToast("Reset to mock mockup — preview matches canvas again.");
+          showToast("Reset to canvas preview — mockup cleared.");
           _unbusy();
         } else {
           // FITS-quality gate: don't burn a Printify mockup on a JPG-
@@ -5417,10 +5458,48 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       box.appendChild(actions);
       overlay.appendChild(box);
       document.body.appendChild(overlay);
+      // Lock the document scroll while the dialog is open so the page
+      // can't slide out from under it on trackpad-flick or pull-to-
+      // refresh. Released in _closeOverlay below. Also mark
+      // body.modal-open so CSS can hide the feedback FAB cluster (z
+      // 9990) which otherwise bleeds on top of the .modal-overlay (z
+      // 100). Reviewer flagged both as blockers.
+      var _prevHtmlOverflow;
+      try {
+        _prevHtmlOverflow = document.documentElement.style.overflow || "";
+        document.documentElement.style.overflow = "hidden";
+        document.body.classList.add("modal-open");
+      } catch (_e) {}
       function _closeOverlay() {
         _unregisterCenteredOverlay(overlay);
         overlay.remove();
+        try {
+          document.documentElement.style.overflow = _prevHtmlOverflow || "";
+          // Only release modal-open if nothing else is still open. We
+          // count a .modal-overlay or .confirm-modal (without .hidden)
+          // or .color-chooser-modal as "still open".
+          var stillOpen = document.querySelector(".modal-overlay") ||
+                          document.querySelector(".color-chooser-modal") ||
+                          document.querySelector(".confirm-modal:not(.hidden)");
+          if (!stillOpen) document.body.classList.remove("modal-open");
+        } catch (_e) {}
+        document.removeEventListener("keydown", _onEscKey);
+        overlay.removeEventListener("click", _onBackdropClick);
       }
+      function _onEscKey(e) {
+        if (e.key === "Escape" || e.key === "Esc") {
+          e.preventDefault();
+          _closeOverlay();
+        }
+      }
+      function _onBackdropClick(e) {
+        // Backdrop = clicks on the overlay itself, NOT on the box
+        // inside it. (Clicks inside .modal-box bubble up here but
+        // their target is the inner element.)
+        if (e.target === overlay) _closeOverlay();
+      }
+      document.addEventListener("keydown", _onEscKey);
+      overlay.addEventListener("click", _onBackdropClick);
       btn.addEventListener("click", _closeOverlay);
       // Embedded mode: a content-sized iframe can't use a fixed overlay
       // (it wouldn't track the parent's scroll). Position absolutely
@@ -10443,7 +10522,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         btnBuyInEditor.title = "Create this product on Shopify and complete your purchase.";
         btnBuyInEditor.classList.remove("buy-locked");
       } else {
-        btnBuyInEditor.title = "Generate a real mockup first (Reset to mock mockup → Generate real mockup) so you can preview before publishing.";
+        btnBuyInEditor.title = "Generate a real mockup first (Reset to canvas preview → Generate real mockup) so you can preview before publishing.";
         btnBuyInEditor.classList.add("buy-locked");
       }
     }
@@ -11572,16 +11651,35 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         grid.appendChild(tile);
       });
 
+      // Lock page scroll while the chooser is open. Reviewer M1
+      // flagged trackpad-flick scrolling products under the modal.
+      var _ccPrevOverflow;
+      try {
+        _ccPrevOverflow = document.documentElement.style.overflow || "";
+        document.documentElement.style.overflow = "hidden";
+        document.body.classList.add("modal-open");
+      } catch (_e) {}
       function close() {
         document.removeEventListener("keydown", onKey);
         if (release) { release(); release = null; }
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        try {
+          document.documentElement.style.overflow = _ccPrevOverflow || "";
+          var stillOpen = document.querySelector(".modal-overlay") ||
+                          document.querySelector(".color-chooser-modal") ||
+                          document.querySelector(".confirm-modal:not(.hidden)");
+          if (!stillOpen) document.body.classList.remove("modal-open");
+        } catch (_e) {}
+        try { window.removeEventListener("popstate", close); } catch (_e) {}
         try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (_e) {}
       }
       function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
       backdrop.addEventListener("click", close);
       panel.querySelector(".color-chooser-close").addEventListener("click", close);
       document.addEventListener("keydown", onKey);
+      // Browser-back closes the chooser cleanly (mirrors M5 fix for
+      // the variant modal).
+      window.addEventListener("popstate", close);
       var release = (typeof installModalFocusTrap === "function")
         ? installModalFocusTrap(overlay, { onEscape: close }) : null;
     }
@@ -12294,7 +12392,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         try {
           document.documentElement.style.overflow = document.documentElement.dataset._prevOverflow || "";
           delete document.documentElement.dataset._prevOverflow;
+          // Only drop modal-open if nothing else is open (a stacked
+          // showInfo or color chooser still wants the FAB hidden).
+          var stillOpen = document.querySelector(".modal-overlay") ||
+                          document.querySelector(".color-chooser-modal");
+          if (!stillOpen) document.body.classList.remove("modal-open");
         } catch (_e) {}
+        // Release popstate listener wired below (browser-back from an
+        // open variant modal should close the modal AND release the
+        // scroll lock — reviewer M5).
+        try { window.removeEventListener("popstate", onCancel); } catch (_e) {}
         if (restoreState) {
           if (originalVariantId == null) delete state.selectedVariantByProduct[product.id];
           else state.selectedVariantByProduct[product.id] = originalVariantId;
@@ -12369,14 +12476,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       closeBtn.addEventListener("click", onCancel);
       backdrop.addEventListener("click", onCancel);
       document.addEventListener("keydown", onKey);
+      // Browser back while the variant modal is open should close the
+      // modal AND release the scroll lock (reviewer M5: without this,
+      // popstate would leave `html { overflow: hidden }` applied on a
+      // step where the modal element is hidden, leaving the page
+      // unscrollable). Listener is removed in _close above.
+      window.addEventListener("popstate", onCancel);
 
       modal.classList.remove("hidden");
       // Lock the page scroll while the modal is open so background
       // content can't slide under the user. Stash the current overflow
       // and restore it on close. (Closer is wired below as `onCancel`.)
+      // Also mark body.modal-open so the feedback-fab CSS can hide
+      // itself (it sits at z 9990 and otherwise bleeds over modals).
       try {
         document.documentElement.dataset._prevOverflow = document.documentElement.style.overflow || "";
         document.documentElement.style.overflow = "hidden";
+        document.body.classList.add("modal-open");
       } catch (_e) {}
       _bootstrap();
       // Focus trap: Tab cycles within the modal, Escape dismisses,

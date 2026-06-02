@@ -1997,10 +1997,18 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  /* z-index bumped above the feedback FAB cluster (9990) so the
+     orange/purple Request + Comment pills don't bleed on top of every
+     showInfo dialog. Scroll/popup reviewer flagged this as BLOCKER. */
+  z-index: 9996;
   padding: 20px;
   animation: fadeIn 0.2s ease;
 }
+/* Belt-and-suspenders: also hide the FAB cluster while ANY modal is
+   open (body.modal-open is toggled by showInfo / showConfirmSelectModal
+   / showColorChooser). Covers edge cases where stacking contexts
+   conspire to keep FAB visible despite the z bump. */
+body.modal-open .feedback-fab-group { display: none !important; }
 /* Embedded mode (Shopify iframe): generic info / confirm modals
    (showInfo, showModal — e.g. the "HQ RHEF" explainer) were being
    rendered far up the iframe coordinate space, way above the user's
@@ -6256,14 +6264,15 @@ html.embedded .feedback-product-results {
     z-index: 6;
     background: var(--bg-elevated, #1a1a2e);
     /* Hard cap on the pane's height so the toolbar isn't pushed
-       offscreen even when the user maxes the canvas. Pane scrolls
-       internally if its content exceeds. */
+       offscreen even when the user maxes the canvas. */
     max-height: 70vh;
-    overflow-y: auto;
+    /* Reviewer M6: dropped overflow-y:auto here — a sticky child with
+       its own scroll container intercepted touch deltas when users
+       thumb-dragged the toolbar below, leaving the page unable to
+       scroll. Let the page scroll; the pane caps height via max-height
+       and the canvas scales via --preview-scale instead. */
+    overflow: visible;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-    /* Establish positioning context for the absolutely-placed close
-       button (already there) AND the new resize handle. */
-    position: sticky; /* re-asserted; keeps the cascade obvious */
   }
   /* Canvas + real-mockup img both ride on --preview-scale. Default
      1 = the 340px cap from F15. */

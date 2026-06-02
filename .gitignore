@@ -14,3 +14,4 @@ approved_catalog.json
 product_stats.json
 product_stats.json.tmp
 default_cache/
+api/certs/auto_appended.pem
