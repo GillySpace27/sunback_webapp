@@ -16,6 +16,7 @@ import hmac
 import os
 import re
 import time
+from typing import Optional
 import requests
 import certifi
 from fastapi import APIRouter, Request, HTTPException
@@ -24,6 +25,11 @@ from starlette.concurrency import run_in_threadpool
 import sys
 import logging
 
+from api.shopify_storefront import (
+    cart_permalink,
+    lookup_variant_id_by_sku,
+    storefront_configured,
+)
 from api.security import (
     enforce_origin,
     enforce_rate_limit,
@@ -965,4 +971,128 @@ async def get_shopify_url(product_id: str):
         return JSONResponse(content=result)
     except Exception as e:
         _log(f"[shopify-url] Error checking product {product_id}: {e}")
+        return JSONResponse(content={"status": "pending"})
+
+
+# ────────────────────────────────────────────────────────────────
+# 10. Shopify cart-permalink (Storefront API)
+# ────────────────────────────────────────────────────────────────
+# Once the Printify product is published to Shopify, the frontend
+# polls /shopify-url to get the product page URL. That URL lands the
+# user on the product page where they still have to click
+# "Add to cart" → "Checkout" — two extra taps.
+#
+# This endpoint short-circuits that. It uses the Storefront API to
+# look up the Shopify variant ID matching the Printify variant the
+# user picked, then returns a Shopify cart-permalink that adds the
+# variant to cart and goes straight to checkout in one navigation.
+#
+# Requires SHOPIFY_STOREFRONT_ACCESS_TOKEN env var. If unset, the
+# endpoint returns the product-page URL as a safe fallback so the
+# checkout flow keeps working — the operator can add the token
+# later without code changes.
+
+
+def _fetch_printify_product_sync(product_id: str) -> Optional[dict]:
+    """Get the full Printify product JSON. Returns None on any error."""
+    try:
+        shop_id = _shop_id()
+        resp = _printify_request(
+            "GET",
+            f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+            headers=_headers(),
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return None
+        return resp.json()
+    except Exception:
+        return None
+
+
+def _printify_variant_sku(product: dict, variant_id: int) -> Optional[str]:
+    """Pull the SKU for `variant_id` out of the Printify product
+    response. Used to bridge Printify → Shopify variants via the
+    SKU (which Printify mirrors verbatim onto Shopify on publish).
+    """
+    variants = (product or {}).get("variants") or []
+    for v in variants:
+        if int(v.get("id") or 0) == int(variant_id):
+            return v.get("sku") or None
+    return None
+
+
+def _shopify_handle_from_printify(product: dict) -> Optional[str]:
+    """Extract the Shopify product handle (URL slug) from the Printify
+    product's `external` block. Mirrors the matcher in
+    _fetch_shopify_url_sync above."""
+    external = (product or {}).get("external") or {}
+    raw = external.get("handle") or external.get("id") or ""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    s = raw.strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        if "/products/" in s:
+            s = s.split("/products/", 1)[-1].split("/")[0].split("?")[0]
+        else:
+            s = s.rstrip("/").split("/")[-1].split("?")[0]
+    return s or None
+
+
+def _build_cart_url_sync(printify_product_id: str, variant_id: int) -> dict:
+    """Look up the Shopify cart-permalink for a Printify variant.
+
+    Returns a dict the route handler can return verbatim:
+      { "cart_url": str, "source": "storefront-api"|"fallback-product-page" }
+
+    Failure modes — all return a graceful fallback to the product page:
+    - Storefront token not configured
+    - Printify product hasn't published to Shopify yet (no handle)
+    - Variant SKU not found
+    - Storefront API didn't return a matching variant
+    """
+    product = _fetch_printify_product_sync(printify_product_id)
+    if not product:
+        return {"status": "pending"}
+    handle = _shopify_handle_from_printify(product)
+    if not handle:
+        return {"status": "pending"}
+    product_page_url = f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"
+    fallback = {
+        "status": "ready",
+        "cart_url": product_page_url,
+        "source": "fallback-product-page",
+    }
+    if not storefront_configured():
+        return fallback
+    sku = _printify_variant_sku(product, variant_id)
+    if not sku:
+        return fallback
+    shopify_vid = lookup_variant_id_by_sku(handle, sku)
+    if not shopify_vid:
+        return fallback
+    return {
+        "status": "ready",
+        "cart_url": cart_permalink(shopify_vid, quantity=1),
+        "source": "storefront-api",
+    }
+
+
+@router.get("/product/{product_id}/cart_url")
+async def get_cart_url(product_id: str, variant_id: int):
+    """One-shot lookup: given a Printify product + variant, return
+    the Shopify cart-permalink the frontend should redirect to.
+
+    Query: variant_id (Printify variant ID — int).
+    Response: { status: "ready"|"pending", cart_url, source }
+    """
+    if not _PRINTIFY_ID_RE.match(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product_id format")
+    try:
+        result = await run_in_threadpool(
+            _build_cart_url_sync, product_id, int(variant_id)
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        _log(f"[cart_url] Error for product {product_id} variant {variant_id}: {e}")
         return JSONResponse(content={"status": "pending"})
