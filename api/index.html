@@ -1014,7 +1014,12 @@
           <span class="btn-preview-mockup-label">Generate real mockup</span>
         </button>
         <button class="btn-buy-in-editor" id="btnBuyInEditor" type="button" title="Create this product on Shopify and complete your purchase.">
-          <i class="fas fa-shopping-cart" aria-hidden="true"></i> <span id="btnBuyLabel">Create on Shopify</span>
+          <!-- Neutral initial label so beta-mode users don't see a
+               "Create on Shopify" → "Download your design" flicker
+               (persona-sweep finding). _applyBetaModeUI /
+               updateBuyButtonState rewrite as soon as /store-config
+               resolves. -->
+          <i class="fas fa-shopping-cart" aria-hidden="true"></i> <span id="btnBuyLabel">Ready to print</span>
         </button>
       </div>
     </div><!-- /.editor-with-preview -->
