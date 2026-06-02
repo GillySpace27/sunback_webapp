@@ -494,7 +494,15 @@ body.beta-mode-active .beta-banner {
   border-radius: var(--radius-lg);
   padding: 24px;
   margin-bottom: 20px;
-  animation: fadeInUp 0.6s ease-out both;
+  /* Opacity-only fade. The previous `animation: fadeInUp` keyframes
+     used transform: translateY(...) which, even at the "to" state of 0,
+     promoted .section to a containing block for position:fixed
+     descendants AND broke position:sticky behaviour for the editor
+     preview pane in some browsers. The result Gilly hit on prod was
+     the master tier toggle scrolling with the section instead of
+     pinning, and the editor preview pane not floating. Opacity-only
+     has no side effects on positioning. */
+  animation: sectionFadeIn 0.45s ease-out both;
 }
 
 .section:nth-child(2) { animation-delay: 0.1s; }
@@ -502,9 +510,16 @@ body.beta-mode-active .beta-banner {
 .section:nth-child(4) { animation-delay: 0.3s; }
 .section:nth-child(5) { animation-delay: 0.4s; }
 
+@keyframes sectionFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Legacy keyframes preserved for any external rule still referencing
+   fadeInUp (search confirms only `.section` used it, but leave for
+   safety). */
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .section-header {
