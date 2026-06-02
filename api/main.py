@@ -110,12 +110,54 @@ import threading
 # which means we can fit one comfortably and two if we're careful — three
 # OOMs the box. A semaphore around the heavy paths queues incoming jobs
 # instead of fanning out and blowing the instance over.
-_HEAVY_RENDER_SEMAPHORE = asyncio.Semaphore(1)
+#
+# Concurrency is env-configurable so we can dial it up when on a bigger
+# instance (Pro 4GB → 2, etc.) without a code change. Sticky default of
+# 1 keeps the existing Standard-2GB behaviour.
+try:
+    _HEAVY_RENDER_CONCURRENCY = max(1, int(os.environ.get("SOLAR_ARCHIVE_HEAVY_CONCURRENCY", "1")))
+except (TypeError, ValueError):
+    _HEAVY_RENDER_CONCURRENCY = 1
+print(f"[startup] Heavy-render semaphore size: {_HEAVY_RENDER_CONCURRENCY} "
+      f"(override with SOLAR_ARCHIVE_HEAVY_CONCURRENCY)", flush=True)
+_HEAVY_RENDER_SEMAPHORE = asyncio.Semaphore(_HEAVY_RENDER_CONCURRENCY)
 # Number of jobs currently waiting OR running (waiting + 1 if anything is
 # active). Reported back to clients so the UI can show "Queued · N ahead"
 # instead of an unmoving spinner.
 _heavy_render_waiting = 0
 _heavy_render_lock = threading.Lock()
+
+
+def _finalize_render() -> None:
+    """Drain every matplotlib figure + force a gc.collect.
+
+    Call at the END of any function that ran a heavy render path
+    (FITS download, sunpy Map, matplotlib figure + savefig). This is
+    a leak audit follow-up:
+
+    - ``plt.close()`` (no args) only closes the *current* figure, so a
+      function that creates two figures and only calls ``plt.close()``
+      after each leaks them via matplotlib's internal Figure registry.
+      ``plt.close('all')`` is the only sweep that drains that registry.
+    - ``gc.collect()`` after the close releases the upstream numpy
+      buffers (smap.data, RHEF intermediate arrays — each can be
+      hundreds of MB for a 4096² float32) immediately, instead of
+      waiting for the next allocation to trip Python's generational
+      gc. Without this, a queue of three back-to-back renders had the
+      first two still pinned in memory when the third started.
+
+    Idempotent and exception-safe — safe to call in a ``finally`` block.
+    """
+    try:
+        import matplotlib.pyplot as _plt
+        _plt.close('all')
+    except Exception:
+        pass
+    try:
+        import gc as _gc
+        _gc.collect()
+    except Exception:
+        pass
 
 def _heavy_queue_depth() -> int:
     with _heavy_render_lock:
@@ -1144,57 +1186,80 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     except Exception as _coreg_err:
         log_to_queue(f"[generate_preview] JPG co-registration skipped: {_coreg_err}")
 
-    data = np.array(smap.data, dtype=np.float32)
-    data[data <= 0] = np.nan
-    h, w = data.shape
-    PREVIEW_TARGET = 384  # smaller = faster RHEF so preview is ready sooner for image creation
-    block_size = max(1, int(np.ceil(h / PREVIEW_TARGET)))
-    reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
-    from sunpy.map.sources.sdo import AIAMap
-    from sunpy.util.metadata import MetaDict
-    meta = MetaDict(smap.meta.copy())
-    if "cdelt1" in meta and "cdelt2" in meta:
-        meta["cdelt1"] = meta["cdelt1"] * block_size
-        meta["cdelt2"] = meta["cdelt2"] * block_size
-        meta["crpix1"] = meta["crpix1"] / block_size
-        meta["crpix2"] = meta["crpix2"] / block_size
-    meta["naxis1"] = reduced.shape[1]
-    meta["naxis2"] = reduced.shape[0]
-    smap_reduced = AIAMap(reduced, meta)
-    cmap = plt.get_cmap(f"sdoaia{wl}")
-    os.makedirs(os.path.dirname(out_path_raw), exist_ok=True)
-    fig_dpi = 100
-    fig_inches = PREVIEW_SIZE / fig_dpi
-    # Raw preview (no RHEF) — same stretch so toggling is comparable
-    vmin_raw = np.nanpercentile(reduced, 1)
-    vmax_raw = np.nanpercentile(reduced, 99.7)
-    plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
-    plt.axis("off")
-    plt.imshow(reduced, cmap=cmap, vmin=vmin_raw, vmax=vmax_raw, origin="lower")
-    plt.tight_layout(pad=0)
-    plt.savefig(out_path_raw, bbox_inches="tight", pad_inches=0)
-    plt.close()
-    # Filtered preview (RHEF)
-    from sunkit_image import radial
+    # Heavy block — guard with try/finally so figures + arrays release
+    # even if RHEF / matplotlib raises mid-render. Without this, an
+    # exception between plt.figure and plt.close leaked the figure into
+    # matplotlib's registry and the ndarrays into Python's ref graph
+    # until the next gc cycle.
+    data = None
+    reduced = None
+    rhef_data = None
+    smap_reduced = None
     try:
-        rhef_data = radial.rhef(smap_reduced, progress=True).data
-    except Exception:
-        log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
-        rhef_data = radial.rhef(smap_reduced.data, progress=True).data
-    vmin = np.nanpercentile(rhef_data, 1)
-    vmax = np.nanpercentile(rhef_data, 99.7)
-    plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
-    plt.axis("off")
-    plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
-    plt.tight_layout(pad=0)
-    plt.savefig(out_path_filtered, bbox_inches="tight", pad_inches=0)
-    plt.close()
-    import time
-    for _ in range(50):
-        if os.path.exists(out_path_filtered) and os.path.getsize(out_path_filtered) > 1000:
-            break
-        time.sleep(0.05)
-    return (url_path_raw, url_path_filtered, url_path_jpg)
+        data = np.array(smap.data, dtype=np.float32)
+        data[data <= 0] = np.nan
+        h, w = data.shape
+        PREVIEW_TARGET = 384  # smaller = faster RHEF so preview is ready sooner for image creation
+        block_size = max(1, int(np.ceil(h / PREVIEW_TARGET)))
+        reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
+        from sunpy.map.sources.sdo import AIAMap
+        from sunpy.util.metadata import MetaDict
+        meta = MetaDict(smap.meta.copy())
+        if "cdelt1" in meta and "cdelt2" in meta:
+            meta["cdelt1"] = meta["cdelt1"] * block_size
+            meta["cdelt2"] = meta["cdelt2"] * block_size
+            meta["crpix1"] = meta["crpix1"] / block_size
+            meta["crpix2"] = meta["crpix2"] / block_size
+        meta["naxis1"] = reduced.shape[1]
+        meta["naxis2"] = reduced.shape[0]
+        smap_reduced = AIAMap(reduced, meta)
+        cmap = plt.get_cmap(f"sdoaia{wl}")
+        os.makedirs(os.path.dirname(out_path_raw), exist_ok=True)
+        fig_dpi = 100
+        fig_inches = PREVIEW_SIZE / fig_dpi
+        # Raw preview (no RHEF) — same stretch so toggling is comparable
+        vmin_raw = np.nanpercentile(reduced, 1)
+        vmax_raw = np.nanpercentile(reduced, 99.7)
+        plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
+        plt.axis("off")
+        plt.imshow(reduced, cmap=cmap, vmin=vmin_raw, vmax=vmax_raw, origin="lower")
+        plt.tight_layout(pad=0)
+        plt.savefig(out_path_raw, bbox_inches="tight", pad_inches=0)
+        plt.close('all')
+        # Filtered preview (RHEF)
+        from sunkit_image import radial
+        try:
+            rhef_data = radial.rhef(smap_reduced, progress=True).data
+        except Exception:
+            log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
+            rhef_data = radial.rhef(smap_reduced.data, progress=True).data
+        vmin = np.nanpercentile(rhef_data, 1)
+        vmax = np.nanpercentile(rhef_data, 99.7)
+        plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
+        plt.axis("off")
+        plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        plt.tight_layout(pad=0)
+        plt.savefig(out_path_filtered, bbox_inches="tight", pad_inches=0)
+        plt.close('all')
+        import time
+        for _ in range(50):
+            if os.path.exists(out_path_filtered) and os.path.getsize(out_path_filtered) > 1000:
+                break
+            time.sleep(0.05)
+        return (url_path_raw, url_path_filtered, url_path_jpg)
+    finally:
+        # Drop explicit refs so gc.collect inside _finalize_render can
+        # reclaim the buffers immediately. del is best-effort — names
+        # may be None if the try threw before they were bound.
+        try: del data
+        except UnboundLocalError: pass
+        try: del reduced
+        except UnboundLocalError: pass
+        try: del rhef_data
+        except UnboundLocalError: pass
+        try: del smap_reduced
+        except UnboundLocalError: pass
+        _finalize_render()
 
 
 # Cache of (date_str, wl) for which preview generation already failed (e.g. no VSO data)
@@ -1471,38 +1536,56 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
                 log_to_queue(f"[do_generate_sync][warn] Persistent default restore failed: {e}")
     # Fetch and process HQ map
     log_to_queue(f"[do_generate_sync] Generating HQ PNG: {out_path}")
-    smap = fido_fetch_map(date, mission, wavelength, detector)
-    # Apply RHEF filter at full resolution
+    smap = None
+    rhef_map = None
+    data = None
     try:
-        rhef_map = rhef(smap, progress=True)
-        data = rhef_map.data
-    except Exception as e:
-        log_to_queue(f"[do_generate_sync][warn] RHEF failed on Map, falling back to array: {e}")
-        data = rhef(smap.data, progress=True).data
-    # Colorize and save PNG
-    import matplotlib.pyplot as plt
-    import numpy as np
-    cmap_name = f"sdoaia{wavelength}"
-    try:
-        cmap = plt.get_cmap(cmap_name)
-    except Exception:
-        cmap = plt.get_cmap("gray")
-    vmin = np.nanpercentile(data, 1)
-    vmax = np.nanpercentile(data, 99.7)
-    plt.figure(figsize=(10, 10), dpi=300)
-    plt.axis("off")
-    plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
-    plt.tight_layout(pad=0)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
-    plt.close()
-    # Ensure PNG is written and visible
-    import time
-    for _ in range(50):
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
-            break
-        time.sleep(0.05)
-    log_to_queue(f"[do_generate_sync] HQ PNG written: {out_path}")
+        smap = fido_fetch_map(date, mission, wavelength, detector)
+        # Apply RHEF filter at full resolution
+        try:
+            rhef_map = rhef(smap, progress=True)
+            data = rhef_map.data
+        except Exception as e:
+            log_to_queue(f"[do_generate_sync][warn] RHEF failed on Map, falling back to array: {e}")
+            data = rhef(smap.data, progress=True).data
+        # Colorize and save PNG
+        import matplotlib.pyplot as plt
+        import numpy as np
+        cmap_name = f"sdoaia{wavelength}"
+        try:
+            cmap = plt.get_cmap(cmap_name)
+        except Exception:
+            cmap = plt.get_cmap("gray")
+        vmin = np.nanpercentile(data, 1)
+        vmax = np.nanpercentile(data, 99.7)
+        plt.figure(figsize=(10, 10), dpi=300)
+        plt.axis("off")
+        plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        plt.tight_layout(pad=0)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+        plt.close('all')
+        # Ensure PNG is written and visible
+        import time
+        for _ in range(50):
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+                break
+            time.sleep(0.05)
+        log_to_queue(f"[do_generate_sync] HQ PNG written: {out_path}")
+    finally:
+        # Drop the big buffers + sweep matplotlib figures so the next
+        # queued render starts on a clean heap. A 4096² float32 ndarray
+        # is ~67MB; the smap holds it twice (raw + reduced) and RHEF
+        # produces another. Without these dels the gc was waiting for
+        # the next allocation to fire, so two queued renders were both
+        # resident at peak.
+        try: del data
+        except UnboundLocalError: pass
+        try: del rhef_map
+        except UnboundLocalError: pass
+        try: del smap
+        except UnboundLocalError: pass
+        _finalize_render()
     # Write-through to the persistent default cache so the next deploy
     # (after /tmp wipes) self-restores instead of regenerating. Only the
     # FIXED default tuple — user-picked dates stay ephemeral.
@@ -1957,12 +2040,18 @@ async def warm_default(request: Request):
     if phase_a_result is None:
         try:
             dt = datetime.strptime(DEFAULT_LANDING_DATE, "%Y-%m-%d").replace(hour=12, minute=0)
-            png_url = await asyncio.to_thread(
-                do_generate_sync, dt,
-                DEFAULT_LANDING_WAVELENGTH,
-                DEFAULT_LANDING_MISSION,
-                DEFAULT_LANDING_DETECTOR,
-            )
+            # Funnel the cold render through the global heavy-render
+            # semaphore so a deploy-time warm doesn't fight a concurrent
+            # user-triggered /api/generate for the 2GB RAM ceiling.
+            # Reviewer/leak-audit follow-up: this was the one heavy
+            # path missing the slot.
+            async with _HeavyRenderSlot():
+                png_url = await asyncio.to_thread(
+                    do_generate_sync, dt,
+                    DEFAULT_LANDING_WAVELENGTH,
+                    DEFAULT_LANDING_MISSION,
+                    DEFAULT_LANDING_DETECTOR,
+                )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Warm-default generation failed: {e}")
         # Re-check the persistent disk after generation — write-through should
@@ -2078,21 +2167,29 @@ def _vibe_render_array_to_png(data, out_path: str, cmap, gamma: float = None):
         vmax = _np.nanpercentile(arr, 99.7)
         if not _np.isfinite(vmin) or not _np.isfinite(vmax) or vmax <= vmin:
             vmin, vmax = float(finite.min()), float(finite.max() or finite.min() + 1.0)
-    fig = plt.figure(figsize=(10, 10), dpi=300)
-    plt.axis("off")
-    if gamma is not None and gamma > 0:
-        # PowerNorm maps (data - vmin) / (vmax - vmin) → x, then x ** gamma
-        # before colormap mapping. clip=True suppresses out-of-range values
-        # (some FITS frames have negative speckle below the 1st percentile
-        # that PowerNorm would otherwise warn about).
-        plt.imshow(arr, cmap=cmap, origin="lower",
-                   norm=_mc.PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax, clip=True))
-    else:
-        plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
-    plt.tight_layout(pad=0)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
-    plt.close(fig)
+    try:
+        fig = plt.figure(figsize=(10, 10), dpi=300)
+        plt.axis("off")
+        if gamma is not None and gamma > 0:
+            # PowerNorm maps (data - vmin) / (vmax - vmin) → x, then x ** gamma
+            # before colormap mapping. clip=True suppresses out-of-range values
+            # (some FITS frames have negative speckle below the 1st percentile
+            # that PowerNorm would otherwise warn about).
+            plt.imshow(arr, cmap=cmap, origin="lower",
+                       norm=_mc.PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax, clip=True))
+        else:
+            plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+        plt.tight_layout(pad=0)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+    finally:
+        # plt.close(fig) would skip if fig wasn't bound (early exception
+        # before plt.figure). plt.close('all') is the safe drain.
+        try: del arr
+        except UnboundLocalError: pass
+        try: del finite
+        except UnboundLocalError: pass
+        _finalize_render()
 
 
 # sRGB-display gamma. 1/2.2 ≈ 0.4545. Visually indistinguishable from
@@ -3571,10 +3668,11 @@ def map_to_png(
         # )
     log_to_queue(f"[render] Saving postfilter image to {out_png}")
     fig.savefig(out_png, bbox_inches="tight", pad_inches=0)
-    plt.close(fig)
-    del data, fig
-    import gc
-    gc.collect()
+    try: del data
+    except UnboundLocalError: pass
+    try: del fig
+    except UnboundLocalError: pass
+    _finalize_render()
     end_time = time.time()
     log_to_queue(f"[render] Finished in {end_time - start_time:.2f}s")
     log_to_queue(f"[render] Image saved to directory: {os.path.dirname(out_png)}")
