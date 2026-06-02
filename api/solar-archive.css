@@ -3001,6 +3001,104 @@ body.step-editor .vibe-reveal-btn {
 
 .app-footer a { color: var(--accent-cool); text-decoration: none; }
 
+/* Footer-legal nav (Privacy / Terms / Refunds / Shipping / Data credits)
+   sits above the build-info row so legal links are the prominent footer
+   element required for Shopify Payments / Stripe operation. */
+.footer-legal-nav {
+  margin-bottom: 8px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 10px;
+}
+.footer-legal-nav a {
+  color: var(--text-secondary, #9898b8);
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+.footer-legal-nav a:hover {
+  color: var(--text-primary, #eeeef6);
+  text-decoration: underline;
+}
+.footer-meta {
+  font-size: 0.74rem;
+  color: var(--text-dim, #8e8eab);
+}
+/* Bumped to 0.72rem + opacity .82 — fix for footer-build-low-contrast
+   WCAG finding (was 0.5 opacity). */
+.footer-build-tag {
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.82;
+  font-size: 0.72rem;
+}
+
+/* ── Cookie consent banner (GDPR/ePrivacy minimum) ────────────────
+   Shown on first visit OR after the user clears their localStorage.
+   Sticky-bottom, two buttons (Accept / Decline), persists choice. */
+.cookie-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9990;
+  background: rgba(15, 17, 30, 0.96);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border, #2a2a44);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  color: var(--text-secondary, #9898b8);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.cookie-banner.hidden { display: none; }
+.cookie-banner-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+@media (min-width: 720px) {
+  .cookie-banner-inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+}
+.cookie-banner-body strong { color: var(--text-primary, #eeeef6); display: block; margin-bottom: 4px; font-size: 0.92rem; }
+.cookie-banner-body p { margin: 0; }
+.cookie-banner-body a { color: var(--accent-corona-text, #a48dff); }
+.cookie-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+.cookie-banner-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2a2a44);
+  background: transparent;
+  color: var(--text-secondary, #9898b8);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.cookie-banner-btn:hover { background: rgba(123, 97, 255, 0.10); color: var(--text-primary, #eeeef6); border-color: var(--accent-corona, #7b61ff); }
+.cookie-banner-btn-accept {
+  background: var(--accent-corona, #7b61ff);
+  color: #fff;
+  border-color: var(--accent-corona, #7b61ff);
+}
+.cookie-banner-btn-accept:hover {
+  background: #6a4eff;
+  color: #fff;
+}
+
 /* Notification toast */
 .toast {
   position: fixed;

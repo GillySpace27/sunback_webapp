@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITLE}} · Solar Archive</title>
+  <link rel="stylesheet" href="/solar-archive.css">
+  <style>
+    body { background: var(--bg-deep, #0a0a12); color: var(--text-primary, #eeeef6); }
+    .legal { max-width: 720px; margin: 40px auto; padding: 0 24px 80px; }
+    .legal h1 { font-size: 1.6rem; margin: 0 0 6px; }
+    .legal .updated { color: var(--text-dim, #8e8eab); font-size: 0.78rem; margin: 0 0 24px; }
+    .legal h2 { font-size: 1.1rem; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border, #2a2a44); }
+    .legal h3 { font-size: 0.96rem; margin: 18px 0 6px; }
+    .legal p, .legal li { font-size: 0.92rem; line-height: 1.55; color: var(--text-secondary, #9898b8); }
+    .legal ul { padding-left: 1.25rem; }
+    .legal a { color: var(--accent-corona, #7b61ff); }
+    .legal .back { display: inline-flex; align-items: center; gap: 6px; margin-top: 36px; color: var(--text-dim, #8e8eab); text-decoration: none; }
+    .legal .back:hover { color: var(--text-primary, #eeeef6); }
+    .legal .draft-banner {
+      margin: 0 0 24px;
+      padding: 12px 14px;
+      background: rgba(255, 152, 0, 0.10);
+      border: 1px solid rgba(255, 152, 0, 0.40);
+      border-radius: 8px;
+      font-size: 0.82rem;
+      color: var(--beta-orange, #ffb74d);
+    }
+  </style>
+</head>
+<body>
+  <main class="legal">
+    <p class="draft-banner">
+      <strong>NOT LEGAL ADVICE.</strong> This is operator-drafted boilerplate auto-generated as a launch-readiness scaffolding. Review with counsel before relying on it.
+    </p>
+    {{BODY}}
+    <a class="back" href="/">← Back to Solar Archive</a>
+  </main>
+</body>
+</html>

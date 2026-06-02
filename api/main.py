@@ -2534,6 +2534,50 @@ async def root():
     return FileResponse(Path(__file__).parent / "index.html")
 
 
+# LAUNCH-BLOCKER fix (workflow wx5fi2brl, missing-legal-policies):
+# Four static policy pages (Privacy / Terms / Refund / Shipping) so
+# Shopify Payments + Stripe will operate without dispute freeze. Drafted
+# as boilerplate marked "NOT LEGAL ADVICE — review before launch".
+# Explicit routes per slug so /privacy / /terms / /refund / /shipping
+# don't conflict with the /{module_name} JS-module dispatcher below.
+# Static SEO + discoverability assets — robots.txt, sitemap.xml, favicon.
+@app.get("/robots.txt")
+async def robots_txt():
+    return FileResponse(Path(__file__).parent / "robots.txt", media_type="text/plain")
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    return FileResponse(Path(__file__).parent / "sitemap.xml", media_type="application/xml")
+
+@app.get("/favicon.svg")
+async def favicon_svg():
+    return FileResponse(Path(__file__).parent / "favicon.svg", media_type="image/svg+xml")
+
+@app.get("/favicon.ico")
+async def favicon_ico():
+    # Browsers expect /favicon.ico — serve the SVG and let the browser
+    # decide (modern browsers prefer the linked SVG; older ones tolerate
+    # the SVG response under .ico mime).
+    return FileResponse(Path(__file__).parent / "favicon.svg", media_type="image/svg+xml")
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def legal_privacy():
+    return FileResponse(Path(__file__).parent / "legal" / "privacy.html")
+
+@app.get("/terms", response_class=HTMLResponse)
+async def legal_terms():
+    return FileResponse(Path(__file__).parent / "legal" / "terms.html")
+
+@app.get("/refund", response_class=HTMLResponse)
+async def legal_refund():
+    return FileResponse(Path(__file__).parent / "legal" / "refund.html")
+
+@app.get("/shipping", response_class=HTMLResponse)
+async def legal_shipping():
+    return FileResponse(Path(__file__).parent / "legal" / "shipping.html")
+
+
 # Serve the original cute Solar Archive landing page at /api
 @app.get("/api", response_class=HTMLResponse)
 async def api_root():
