@@ -5558,6 +5558,15 @@ html.embedded .feedback-product-results {
    variant pick commits with visual context, not just a text summary. */
 .confirm-mockup {
   margin: 0 auto 14px;
+  /* The container's aspect-ratio is written inline by _renderMockup
+     to match the currently-selected variant's frame (poster portrait,
+     mug landscape, tapestry tall, etc.). Width auto + max-width caps
+     the envelope so the box stays inside the modal panel. */
+  max-width: 240px;
+  max-height: 240px;
+  /* Defaults used when no variant aspect is known yet (e.g. modal
+     opens before the first variant tap on a multi-variant product).
+     Inline styles set in JS override these. */
   width: 220px;
   height: 220px;
   display: flex;

@@ -11835,67 +11835,58 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       function _renderMockup(variant) {
         if (!mockupEl) return;
         mockupEl.innerHTML = "";
-        var canDraw = !!state.originalImage && typeof drawProductMockup === "function"
-          && solarCanvas && solarCanvas.width > 0;
-        if (!canDraw) {
-          // Product-first refactor: the user opens the variant modal
-          // BEFORE picking an image, so state.originalImage is null at
-          // this point. Gilly's feedback on the sun-icon placeholder
-          // was: "I liked it better when I could see the aspect ratio
-          // and how it was going to crop." So instead of the cute
-          // placeholder, render the photoreal Printify default mockup
-          // for this product when the Phase B manifest carries one —
-          // user gets a real sense of how the chosen variant looks +
-          // its aspect ratio at the modal preview slot.
-          mockupEl.classList.remove("empty");
-          var dm = defaultMockupManifest && defaultMockupManifest[product.id];
-          if (dm && dm.url) {
-            var img = document.createElement("img");
-            img.src = dm.url;
-            img.alt = product.name + " default mockup";
-            img.className = "confirm-mockup-default";
-            img.loading = "eager";
-            mockupEl.appendChild(img);
-          } else {
-            // No default mockup on disk — fall back to the simple
-            // placeholder so the slot still has presence.
-            var placeholder = document.createElement("div");
-            placeholder.className = "confirm-mockup-placeholder";
-            placeholder.innerHTML =
-              '<div class="confirm-mockup-placeholder-icon" aria-hidden="true">' +
-                '<i class="fas fa-sun"></i>' +
-              '</div>' +
-              '<div class="confirm-mockup-placeholder-text">' +
-                'Your Sun image goes here.<br><span>Pick a variant, continue, then choose a moment.</span>' +
-              '</div>';
-            mockupEl.appendChild(placeholder);
-          }
-          return;
-        }
-        // Promote the editor filter to the highest available tier (HQ RHEF >
-        // RHEF/Raw > JPG) before snapshotting, so the picker's mockup matches
-        // the photorealistic showcase tile next to it instead of falling
-        // back to the Helioviewer JPG preview. No-op when state.editorFilter
-        // is already at the best tier.
-        if (typeof _promoteFilterToBest === "function") {
-          try { _promoteFilterToBest(); } catch (_e) {}
-        }
+        mockupEl.classList.remove("empty");
+        // Reverted (per Gilly): always show the photoreal Printify
+        // default mockup (or placeholder), never the real-image
+        // render. The user wants the modal to feel like a product
+        // picker — what does this thing look like in real life —
+        // and have the FRAME ASPECT RATIO tied to the chosen variant
+        // (a tall poster shows tall; a coffee mug shows landscape).
+        // The canvas render with their image composited belongs in
+        // the editor, not the picker.
+        //
+        // Aspect-ratio drive: read getEffectiveAspectRatio(product)
+        // which respects state.variantAspectRatioByProduct[product.id]
+        // — _selectInModal updates that on every variant tap, so the
+        // mockup frame reshapes live as the user picks a size.
         try {
-          var c = document.createElement("canvas");
-          c.width = 320; c.height = 320;
-          c.className = "confirm-mockup-canvas";
-          var mctx = c.getContext("2d");
-          mctx.scale(2, 2);
-          // useSelectedSource: the picker opens BEFORE commitProductSelection
-          // runs, so productId !== state.selectedProduct (the previous
-          // selection or null). Force the solarCanvas path anyway — we just
-          // promoted to the best tier, and the alternative (JPG-backed
-          // shareSrc) would visibly soften the preview.
-          drawProductMockup(mctx, product.id, solarCanvas.width, solarCanvas.height, variant,
-                            { useSelectedSource: true });
-          mockupEl.appendChild(c);
-          mockupEl.classList.remove("empty");
-        } catch (e) { mockupEl.classList.add("empty"); }
+          var ar = (typeof getEffectiveAspectRatio === "function")
+            ? getEffectiveAspectRatio(product) : null;
+          if (ar && ar.w > 0 && ar.h > 0) {
+            mockupEl.style.aspectRatio = ar.w + " / " + ar.h;
+            // Width auto / height auto with aspect-ratio + the CSS
+            // max-width:220px max-height:220px caps means the
+            // container reshapes within the 220² envelope.
+            mockupEl.style.width = "auto";
+            mockupEl.style.height = "auto";
+          } else {
+            mockupEl.style.aspectRatio = "";
+            mockupEl.style.width = "";
+            mockupEl.style.height = "";
+          }
+        } catch (_e) {}
+        var dm = defaultMockupManifest && defaultMockupManifest[product.id];
+        if (dm && dm.url) {
+          var img = document.createElement("img");
+          img.src = dm.url;
+          img.alt = product.name + " default mockup";
+          img.className = "confirm-mockup-default";
+          img.loading = "eager";
+          mockupEl.appendChild(img);
+        } else {
+          // No default mockup on disk — fall back to the simple
+          // placeholder so the slot still has presence.
+          var placeholder = document.createElement("div");
+          placeholder.className = "confirm-mockup-placeholder";
+          placeholder.innerHTML =
+            '<div class="confirm-mockup-placeholder-icon" aria-hidden="true">' +
+              '<i class="fas fa-sun"></i>' +
+            '</div>' +
+            '<div class="confirm-mockup-placeholder-text">' +
+              'Your Sun image goes here.<br><span>Pick a variant, continue, then choose a moment.</span>' +
+            '</div>';
+          mockupEl.appendChild(placeholder);
+        }
       }
       function _selectInModal(vid) {
         pendingVariantId = vid;
