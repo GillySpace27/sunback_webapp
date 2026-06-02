@@ -77,7 +77,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Literal, Dict, Any
 import numpy as np
 import requests
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse, Response
 from sse_starlette.sse import EventSourceResponse
 import asyncio
