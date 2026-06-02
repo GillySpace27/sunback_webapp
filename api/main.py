@@ -520,6 +520,9 @@ async def serve_index_direct():
 # checks on POSTs, so CORS and the per-route check stay in sync.
 from fastapi.middleware.cors import CORSMiddleware
 
+# Origin + rate-limit helpers shared with the printify routes.
+from api.security import enforce_origin, enforce_rate_limit
+
 _DEFAULT_ALLOWED = [
     "https://solar-archive.myshopify.com",
     "https://solar-archive.onrender.com",
@@ -767,12 +770,19 @@ def _validate_solar_date(date_str: str, time_str: str | None = None) -> None:
 
 @app.get("/api/helioviewer_thumb")
 async def helioviewer_thumb(
+    request: Request,
     date: str = Query(..., description="ISO date-time e.g. 2026-02-10T12:00:00Z"),
     wavelength: int = Query(..., description="AIA wavelength in Å e.g. 171"),
     image_scale: float = Query(12, description="Helioviewer imageScale (arcsec/pixel)"),
     size: int = Query(256, description="Width and height in pixels"),
 ):
     """Proxy Helioviewer screenshot API so the frontend can load tiles/canvas without CORS."""
+    # NEEDS-FIX (workflow wx5fi2brl, helioviewer-proxy-unrate-limited):
+    # gate the proxy with a per-IP rate limit so a bad actor can't
+    # DoS the Helioviewer upstream through us, and add the same Origin
+    # allowlist we apply to the printify routes.
+    enforce_origin(request)
+    enforce_rate_limit(request, "helioviewer_thumb", 60, 60.0)  # 60/min per IP
     # `date` here is an ISO timestamp like 2026-02-10T12:00:00Z; pluck
     # the time portion if present so the future-time check covers
     # users in time zones ahead of UTC requesting a frame that hasn't
