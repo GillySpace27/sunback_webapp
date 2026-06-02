@@ -370,6 +370,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     _normalizeStepWithState();
     _applyStep(state.currentStep);
     _normalizeStepWithState();
+    // Hoist the floating master-tier toggle out of <main> and into
+    // <body> at INIT — not gated on _loadVibeManifest because (a) the
+    // manifest only resolves successfully when warm tiers exist and
+    // (b) on a cold reload at step "image" the toggle was rendering
+    // inside <main>, and any later ancestor transform (the .section
+    // fadeInUp animation leaves transform: translateY(0) applied) was
+    // promoting <main> to a containing block for position:fixed, so
+    // the toggle scrolled with the page instead of pinning. Re-parent
+    // unconditionally so position:fixed always anchors to the viewport.
+    // Idempotent — _loadVibeManifest does the same call later and
+    // appendChild on an already-direct-body child is a no-op.
+    try {
+      var _ctaInit = document.getElementById("vibeRevealCta");
+      if (_ctaInit && _ctaInit.parentElement !== document.body) {
+        document.body.appendChild(_ctaInit);
+      }
+      var _bcInit = document.getElementById("workflowBreadcrumb");
+      if (_bcInit && _bcInit.parentElement !== document.body) {
+        document.body.appendChild(_bcInit);
+      }
+    } catch (_e) {}
     // BFCache restore (Safari back/forward optimisation): the page is
     // restored from memory without re-firing DOMContentLoaded, so the
     // bootstrap normalisation never re-runs. pageshow fires with
@@ -2247,10 +2268,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var btnChangeWavelength = document.getElementById("btnChangeWavelength");
     if (btnChangeWavelength) {
       btnChangeWavelength.addEventListener("click", function() {
-        var wlGrid = document.getElementById("wlGrid");
-        var target = wlGrid || document.querySelector(".section");
-        if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-        else window.scrollTo({ top: 0, behavior: "smooth" });
+        // The vibe-grid + configSection live on step "image"; they're
+        // display:none on step "editor". Hop back to the image step first
+        // (otherwise the scroll target is invisible and the button looks
+        // dead).
+        if (typeof setStep === "function" && state.currentStep !== "image") {
+          setStep("image");
+        }
+        // Wait one frame so the body-class swap can repaint the now-
+        // visible section before we scroll into it.
+        requestAnimationFrame(function() {
+          var wlGrid = document.getElementById("wlGrid")
+                    || document.getElementById("configSection")
+                    || document.querySelector(".vibe-grid-section");
+          if (wlGrid) wlGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+          else window.scrollTo({ top: 0, behavior: "smooth" });
+        });
       });
     }
 
@@ -2275,6 +2308,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var _mergedParent = (typeof PRODUCTS !== "undefined") ? PRODUCTS.find(function(pp) {
           return pp.colorOptions && pp.colorOptions.some(function(c) { return c.productId === state.selectedProduct; });
         }) : null;
+        // If state.selectedProduct already IS a merged parent (i.e. the
+        // product object itself has colorOptions), open the chooser on
+        // it directly.
+        if (!_mergedParent && product && product.colorOptions && product.colorOptions.length) {
+          _mergedParent = product;
+        }
         if (_mergedParent && typeof showColorChooser === "function") {
           showColorChooser(_mergedParent);
           return;
@@ -2285,23 +2324,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           showConfirmSelectModal(product, function() { /* committed inside modal */ });
           return;
         }
-        // Fallback: synth-click the product card's Pick-a-variant
-        // button. Works for any layout the modal-direct path doesn't.
-        var card = document.querySelector('.product-card[data-product-id="' + state.selectedProduct + '"]');
-        var pick = card && card.querySelector(".product-select-btn");
-        if (pick) pick.click();
-        else showToast("Variant picker isn't ready yet — try again in a moment.");
+        // No fallback to card-click — on step "editor" the product
+        // card is hidden, so clicking it just scrolled the page (the
+        // bug Gilly hit). Toast instead.
+        showToast("Variant picker isn't ready yet — try again in a moment.");
       });
     }
 
     var btnChangeProduct = document.getElementById("btnChangeProduct");
     if (btnChangeProduct) {
       btnChangeProduct.addEventListener("click", function() {
-        // Scroll the top of the product picker into view. productSection is
-        // re-ordered to appear below the editor, so we need to target its
-        // header explicitly rather than relying on document order.
-        var productSec = document.getElementById("productSection");
-        if (productSec) _scrollToEl(productSec, "start");
+        // productSection is hidden on step "editor" (body-class CSS).
+        // Hop back to step "product" so the section becomes visible,
+        // then scroll to its header on the next frame.
+        if (typeof setStep === "function" && state.currentStep !== "product") {
+          setStep("product");
+        }
+        requestAnimationFrame(function() {
+          var productSec = document.getElementById("productSection");
+          if (productSec) _scrollToEl(productSec, "start");
+        });
       });
     }
 
@@ -2718,6 +2760,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       // Reset filter toggle UI to JPG
       _syncFilterToggleUI("jpg");
+      // Repaint the editor's quality timeline so the previous image's
+      // LOCKED/HQ-READY state can't leak into the freshly-installed
+      // preview. Without this the timeline kept the previous vibe's
+      // "HQ ready" marker even though state.hqFilterImage was just
+      // cleared above.
+      try { if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI(); } catch (_e) {}
 
       // Restore from cache if this wavelength was already fetched this session.
       // Otherwise fire off a background RHE prefetch so the science data has a
@@ -4396,23 +4444,37 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             b.setAttribute("aria-pressed", on ? "true" : "false");
           });
         }
-        // Re-paint each card's thumb in the chosen initial tier so the
-        // indicator's promise matches the rendered pixels from the
-        // very first frame.
-        if (anyHasTiers) {
-          grid.querySelectorAll(".vibe-card.has-tiers").forEach(function (card) {
-            var slug = card.getAttribute("data-vibe-slug");
-            if (!slug || slug === "birthday") return;
-            var date = card.getAttribute("data-vibe-date") || "";
-            var wl = card.getAttribute("data-vibe-wl") || "171";
-            var time = card.getAttribute("data-vibe-time") || "12:00";
-            var rhefUrl = _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
-            if (rhefUrl) {
-              _setVibeThumb(card, rhefUrl, "rhef");
-              card.setAttribute("data-vibe-active-tier", "rhef");
+        // Re-paint EVERY card's thumb in the chosen initial tier so
+        // the master indicator's promise matches the rendered pixels
+        // from the very first frame. Friction: cards previously
+        // rendered an assortment (raw / jpg / rhef) on first load
+        // because only `.has-tiers` cards got repainted to rhef while
+        // the rest stayed at their cold-render tier. Cover the whole
+        // grid here — a card without the requested tier falls back to
+        // the next-best available tier (rhef → raw → jpg).
+        grid.querySelectorAll(".vibe-card").forEach(function (card) {
+          var slug = card.getAttribute("data-vibe-slug");
+          if (!slug || slug === "birthday") return;
+          var date = card.getAttribute("data-vibe-date") || "";
+          var wl = card.getAttribute("data-vibe-wl") || "171";
+          var time = card.getAttribute("data-vibe-time") || "12:00";
+          var hasTiers = card.classList.contains("has-tiers");
+          // Try the master tier first; fall back if this card doesn't
+          // have that tier cached.
+          var order;
+          if (initialMasterTier === "rhef") order = hasTiers ? ["rhef", "raw", "jpg"] : ["jpg", "raw"];
+          else if (initialMasterTier === "raw") order = hasTiers ? ["raw", "rhef", "jpg"] : ["jpg", "raw"];
+          else order = ["jpg", "raw", "rhef"];
+          for (var i = 0; i < order.length; i++) {
+            var tt = order[i];
+            var u = _vibeThumbUrl(slug, tt, { date: date, wl: wl, time: time });
+            if (u) {
+              _setVibeThumb(card, u, tt);
+              card.setAttribute("data-vibe-active-tier", tt);
+              break;
             }
-          });
-        }
+          }
+        });
         // Gilly's "for the vibe cards they should all be ready a priori"
         // — kick off background preload of every vibe's Raw + RHEF
         // tier the moment the manifest lands. By the time the user
