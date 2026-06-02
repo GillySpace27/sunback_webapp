@@ -4013,18 +4013,20 @@ body.left-rail-preview.preview-popped-out .selected-product-preview {
   flex: 1 1 0;
   min-width: 0;
 }
-/* Inline locked-state hint pointing at the mockup button. Spans full
-   width on its own row beneath the buttons. */
+/* Inline locked-state hint pointing at the mockup button. Lives in
+   its own row directly beneath the action bar (NOT inside it — the
+   previous flex-child layout collapsed the Generate/Download buttons
+   to ~30% width). */
 .editor-buy-lock-hint {
-  flex: 1 0 100%;
-  margin-top: 6px;
-  padding: 6px 10px;
+  margin: 8px 0 0;
+  padding: 8px 12px;
   border-radius: 8px;
   background: rgba(255, 179, 71, 0.08);
   border: 1px solid rgba(255, 179, 71, 0.28);
   color: var(--accent-corona, #ffb347);
   font-size: 0.82rem;
   text-align: center;
+  display: block;
 }
 .editor-buy-lock-hint i { margin-right: 4px; }
 @media (max-width: 740px) {

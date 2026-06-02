@@ -552,7 +552,15 @@ _PRICING_TTL = 30 * 60         # seconds
 
 def _build_pricing_index_sync() -> None:
     """Scan all shop products, populate _pricing_cache. Idempotent — replaces
-    the whole cache on each rebuild so deleted/edited products are reflected."""
+    the whole cache on each rebuild so deleted/edited products are reflected.
+
+    Robustness (Gilly's screenshot showed a Printify 502 on page 5 turning
+    into a 500 from us): if Printify returns a transient 5xx mid-pagination
+    we COMMIT the partial cache we've already built, log the failure, and
+    bail. Better to serve N-1 pages of fresh pricing than to throw the
+    whole rebuild away. The next call retries the build from page 1 once
+    the TTL expires.
+    """
     global _pricing_cache, _pricing_index_built_at
     shop_id = _shop_id()
     new_cache: dict = {}
@@ -562,13 +570,21 @@ def _build_pricing_index_sync() -> None:
     pages_walked = 0
     total_products = 0
     while True:
-        resp = _printify_request(
-            "GET",
-            f"{PRINTIFY_BASE}/shops/{shop_id}/products.json?limit={limit}&page={page}",
-            headers=_headers(),
-            timeout=60,
-        )
-        resp.raise_for_status()
+        try:
+            resp = _printify_request(
+                "GET",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products.json?limit={limit}&page={page}",
+                headers=_headers(),
+                timeout=60,
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            # Partial-fail tolerance: stop pagination, keep whatever
+            # pages we already walked. The catch covers both connection
+            # errors and 5xx from Printify.
+            _log(f"[printify][pricing] page {page} fetch failed ({e}); committing partial cache "
+                 f"({pages_walked} pages walked, {len(new_cache)} (bp, pp) combos cached)")
+            break
         body = resp.json()
         items = body.get("data") or []
         total_products = body.get("total", total_products)
