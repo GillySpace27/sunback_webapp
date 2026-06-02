@@ -1,0 +1,399 @@
+{
+  "raw_counts": {
+    "security": 12,
+    "commerce": 12,
+    "reliability": 14,
+    "legal": 12,
+    "performance": 12,
+    "total": 62
+  },
+  "launch_blockers": [
+    {
+      "id": "xff-rate-limit-bypass",
+      "title": "X-Forwarded-For rate-limit bypass on all enforce_rate_limit endpoints",
+      "category": "security",
+      "evidence": "api/security.py:108-114 reads leftmost XFF hop with no trust check. Live probe: 8 POSTs to /api/feedback rotating XFF returned 200, never tripped 5/min cap. Same bypass applies to printify_upload/product/publish/checkout. Render appends to XFF rather than replacing, so client-supplied values appear first.",
+      "recommendation": "Read rightmost trusted hop (Render's CF-Connecting-IP or last XFF entry after stripping known proxies). Without this, the operator gets billed by the first attacker who scripts curl against /api/printify/checkout once BETA_MODE lifts.",
+      "effort_hours": 2
+    },
+    {
+      "id": "printify-upload-no-moderation",
+      "title": "Printify upload accepts arbitrary client-supplied images under operator's account",
+      "category": "security",
+      "evidence": "api/printify_routes.py:166-217 /upload accepts arbitrary base64 PNGs and forwards to Printify with operator's PRINTIFY_API_KEY. Only Origin allowlist (trivially satisfied) and bypassable rate limit. Once BETA_MODE lifts, anyone can upload CSAM/copyrighted/hate content under operator's Printify account; ToS makes merchant liable.",
+      "recommendation": "Restrict /upload to backend-generated solar imagery only \u2014 refuse client-supplied `contents`, accept only `image_id` keys mapping server-side to /asset/* paths we generated. Every legitimate print starts from a Sun image we already rendered.",
+      "effort_hours": 8
+    },
+    {
+      "id": "checkout-double-click-no-idempotency",
+      "title": "Buy \u2192 doCheckout has no idempotency guard, double-click creates two products",
+      "category": "commerce",
+      "evidence": "api/solar-archive.js:10165-10188 btnBuyInEditor \u2192 startCheckout \u2192 confirm modal \u2192 doCheckout. Buttons only disabled inside doCheckout at 10847, after confirm fires. No checkoutInFlight flag on click handler or doCheckout. Double-tap/Enter-twice fires /api/printify/checkout twice \u2192 two Printify products, two Shopify listings, possible double-charge. Server rate limit (3 per 5 min) doesn't prevent the second call.",
+      "recommendation": "Add module-level _checkoutInFlight flag set in startCheckout, cleared in doCheckout.finally. Also disable confirm-modal button on click to lock against double-confirm before Promise resolves. Pass idempotency key to server and dedupe before calling Printify.",
+      "effort_hours": 1
+    },
+    {
+      "id": "missing-legal-policies",
+      "title": "No Privacy / Terms / Refund / Shipping policies and no support email",
+      "category": "legal",
+      "evidence": "api/index.html:1012-1023 footer has only build version. /privacy /terms /refund /shipping all 404. No mailto:/support@/contact anywhere. Shopify Payments and Stripe require published Privacy + Terms + Refund + Shipping policies and a public support contact. Without them merchant agreement is violated and processors will freeze on first dispute.",
+      "recommendation": "Add four static pages (Privacy, Terms with copyright-indemnity clause for text overlays, Refund/Return covering Printify POD standard, Shipping). Add mailto:support footer link surfaced in checkout error toasts. Link policy URLs in Shopify storefront before lifting BETA_MODE.",
+      "effort_hours": 6
+    },
+    {
+      "id": "cookie-consent-gdpr",
+      "title": "No cookie/storage consent banner \u2014 GDPR/ePrivacy non-compliant for EU traffic",
+      "category": "legal",
+      "evidence": "api/solar-archive.js writes to localStorage at lines 763, 791, 857, 886, 1854, 1897, 5498, 5520, 10132 with no consent UI. ICO/CNPD treat localStorage as cookie-equivalent under ePrivacy Art. 5(3). EAA also in force since 2025-06-28.",
+      "recommendation": "Add a minimal strict-necessary disclosure banner ('We store preferences in your browser\u2026') with Dismiss, link it to Privacy Policy. Since storage is functional-only no opt-in is required, but disclosure is mandatory.",
+      "effort_hours": 3
+    },
+    {
+      "id": "rhef-oom-512mb",
+      "title": "RHEF render OOMs on Render's 512 MB free tier",
+      "category": "reliability",
+      "evidence": "api/main.py:2162 comment explicitly states RHEF (4096\u00b2 float64 + matplotlib at 300dpi) routinely OOMs even on Render's 2 GB Standard plan. Production is on 512 MB free tier \u2014 strictly worse. A single RHEF render is over budget for the published instance size.",
+      "recommendation": "Move to Render Standard \u22652 GB AND downcast arrays to float32 (halves memory). At launch, refuse non-cached date/wavelength tuples \u2014 only serve pre-warmed vibe grid + cached defaults. Add a RAM-headroom guard returning 503 + 'Choose one of these dates' when < 400 MB free.",
+      "effort_hours": 4
+    },
+    {
+      "id": "render-free-tier-cold-start",
+      "title": "Render free tier hibernates \u2192 30 s blank page for first visitor",
+      "category": "reliability",
+      "evidence": "Render free tier hibernates after 15 min idle with ~30 s cold start; index.html itself is served by FastAPI (api/main.py:496) so even the landing page is gated by cold start. cf-cache-status: DYNAMIC \u2014 no CDN cache. solar-archive.js:32 HEALTH_TIMEOUT_MS=12000 is shorter than worst cold start. A paid TikTok/HN burst would land most visitors on a 30 s blank page.",
+      "recommendation": "Upgrade to Render Starter ($7/mo, no hibernation) before lifting BETA_MODE OR put Cloudflare HTML/JS cache in front OR add UptimeRobot ping every 10 min. Bump HEALTH_TIMEOUT_MS to 35000.",
+      "effort_hours": 2
+    },
+    {
+      "id": "static-assets-no-cache",
+      "title": "JS/CSS served with no-cache/no-store on every request",
+      "category": "performance",
+      "evidence": "curl -D - shows /solar-archive.js (593 KB / 165 KB gzip) and /solar-archive.css (190 KB / 49 KB gzip) returned with Cache-Control: no-cache, no-store, must-revalidate. api/main.py:3520 _NO_CACHE_HEADERS applied to both. Every page load re-downloads ~215 KB compressed from the free-tier origin. Compounds the cold-start blocker.",
+      "recommendation": "Version the bundle (?v=<build-hash> in index.html) and serve JS/CSS with Cache-Control: public, max-age=31536000, immutable. Keep no-cache only on index.html so deploys propagate.",
+      "effort_hours": 1.5
+    },
+    {
+      "id": "vibe-grid-12mb-preload",
+      "title": "Vibe grid preloads 11\u00d7 12 MB PNGs (~130 MB) on entry",
+      "category": "performance",
+      "evidence": "/asset/default/vibe/ar2192/rhef_full.png is 12.4 MB. solar-archive.js:4592 background-preloads ALL 11 vibes' raw_full + rhef_full tiers. On 3G/slow-4G that's minutes of bandwidth and risks chewing daily data caps; jpg_hq is only 838 KB so cost is in the PNG variants.",
+      "recommendation": "Preload only *_thumb URLs; defer full tier to hover/click. Re-encode 12 MB RHEF PNGs as quantized 8-bit PNG or WebP/AVIF (likely 80-90% smaller). Gate any preload on navigator.connection.saveData / effectiveType.",
+      "effort_hours": 4
+    }
+  ],
+  "needs_fix": [
+    {
+      "id": "debug-routes-unauth",
+      "title": "/debug/* routes expose filesystem layout unauthenticated",
+      "category": "security",
+      "recommendation": "Gate every /debug/* route behind X-Admin-Key (same _check_admin_key) or remove before public launch. Covers /debug/env, /debug/vso, /debug/vso_download_test, /debug/list_output.",
+      "effort_hours": 1
+    },
+    {
+      "id": "security-headers",
+      "title": "Missing CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy",
+      "category": "security",
+      "recommendation": "Add a small SecurityHeadersMiddleware (~30 LOC) setting CSP (self + Shopify CDN), frame-ancestors self + Shopify, HSTS max-age=31536000 includeSubDomains preload, nosniff, strict-origin-when-cross-origin. Mitigates innerHTML XSS surface in solar-archive.js (~25 sites).",
+      "effort_hours": 3
+    },
+    {
+      "id": "admin-key-in-url",
+      "title": "FEEDBACK_ADMIN_KEY leaks via query string in Slack/email approve-reject links",
+      "category": "security",
+      "recommendation": "Replace ?key=<admin_key> with per-action HMAC(idx, action, exp) tokens. Switch admin endpoints to X-Admin-Key header only; remove query-param fallback. Rotate FEEDBACK_ADMIN_KEY after fix.",
+      "effort_hours": 3
+    },
+    {
+      "id": "helioviewer-proxy-unrate-limited",
+      "title": "/api/helioviewer_thumb has no rate limit, no origin check, no caching",
+      "category": "security",
+      "recommendation": "Add enforce_rate_limit + enforce_origin; cap size \u2264 1024; cache responses on disk by (date, wavelength, scale, size) \u2014 deterministic. Prevents bandwidth tap / Helioviewer IP-block.",
+      "effort_hours": 4
+    },
+    {
+      "id": "cors-wildcard",
+      "title": "CORS_HEADERS wildcard ACAO:* contradicts CORSMiddleware allowlist",
+      "category": "security",
+      "recommendation": "Delete CORS_HEADERS dict and rely on CORSMiddleware echo. If specific routes need cross-origin image use, set only Cross-Origin-Resource-Policy: cross-origin, not blanket ACAO:*.",
+      "effort_hours": 2
+    },
+    {
+      "id": "origin-check-not-auth",
+      "title": "Origin allowlist is bypassable from in-browser abuse (XSS, extensions, clickjacking)",
+      "category": "security",
+      "recommendation": "Issue short-lived signed session token on first page load and require it on mutating POSTs. Pair with frame-ancestors header to close clickjacking path.",
+      "effort_hours": 4
+    },
+    {
+      "id": "global-ssl-verify-off",
+      "title": "ssl._create_default_https_context set to unverified globally",
+      "category": "security",
+      "recommendation": "Remove the global at api/main.py:270. Build a scoped ssl.create_default_context for the NASA fetch only and pass it explicitly to parfive/sunpy. Leave default verifying context for Resend/Printify/etc.",
+      "effort_hours": 2
+    },
+    {
+      "id": "feedback-ip-no-disclosure",
+      "title": "Client IP persisted to feedback.jsonl with no privacy disclosure",
+      "category": "legal",
+      "recommendation": "Hash IP with daily-rotating salt before storage (\u224810 LOC) so it remains useful for rate-limit forensics but is no longer PII; cover in Privacy Policy with a retention period (\u226490 d).",
+      "effort_hours": 2
+    },
+    {
+      "id": "printify-upload-not-beta-gated",
+      "title": "/upload + /product not BETA-gated \u2014 quota abuse possible today",
+      "category": "security",
+      "recommendation": "Add HMAC-of-server-nonce on /upload + /product, tighten rate to 2/60s per IP plus a global ceiling (50/hour). Server-side janitor cron-deletes draft products > 1h not in whitelist.",
+      "effort_hours": 4
+    },
+    {
+      "id": "beta-mode-default",
+      "title": "BETA_MODE defaults false on /store-config failure; binary switch with no cohort",
+      "category": "beta_gating",
+      "recommendation": "Flip client default to BETA_MODE=true (fail-safe). Have /store-config return {beta_mode, cohort_required} and gate Buy on a server-side email-allowlist check for soft launch.",
+      "effort_hours": 3
+    },
+    {
+      "id": "shipping-region-validation",
+      "title": "No shipping-region validation pre-checkout",
+      "category": "commerce",
+      "recommendation": "Configure Shopify checkout to restrict shipping countries per Printify provider coverage, OR query Printify shipping endpoint at warm time and render 'Ships to: \u2026' on product cards. At minimum add a 'US-only during launch' banner.",
+      "effort_hours": 3
+    },
+    {
+      "id": "checkout-failure-observability",
+      "title": "No telemetry for checkout success/failure / abandoned cart",
+      "category": "observability",
+      "recommendation": "Fire recordStatEvent('checkout-published') after pollShopifyUrl resolves, and ('checkout-failed', {productId, error}) in .catch. Add Shopify webhook /api/webhooks/shopify/order-paid + checkouts/create + orders/cancelled. Persist failures to JSON log.",
+      "effort_hours": 5
+    },
+    {
+      "id": "checkout-timeout-mismatch",
+      "title": "Client 180 s checkout timeout shorter than worst-case server chain",
+      "category": "reliability",
+      "recommendation": "Make /api/printify/checkout async (return task_id, poll) \u2014 matches /api/generate pattern. Pass idempotency key client\u2192server and dedupe before calling Printify.",
+      "effort_hours": 6
+    },
+    {
+      "id": "poll-shopify-no-cap",
+      "title": "pollShopifyUrl has no max-attempts \u2192 infinite spinner during Printify outage",
+      "category": "reliability",
+      "recommendation": "Cap at ~30 attempts \u00d7 2 s. On timeout surface 'We'll email you the link' and offer a 'Check status' retry button. Send a Resend confirmation when the URL eventually resolves.",
+      "effort_hours": 2
+    },
+    {
+      "id": "tasks-dict-leak",
+      "title": "Async tasks/preview registry dicts grow unbounded",
+      "category": "reliability",
+      "recommendation": "Add TTL eviction or LRU cap on tasks/_preview_in_progress/_preview_failed. Delete tasks[id] after client poll reaches terminal state.",
+      "effort_hours": 2
+    },
+    {
+      "id": "vibe-manifest-non-atomic",
+      "title": "Vibe + mockups manifest writes are non-atomic, racy",
+      "category": "reliability",
+      "recommendation": "Write to sibling tmp file then os.replace onto target. Add fcntl/flock for the warm job. Apply to both DEFAULT_VIBE_MANIFEST and DEFAULT_MOCKUPS_MANIFEST.",
+      "effort_hours": 1
+    },
+    {
+      "id": "output-dir-tmp",
+      "title": "OUTPUT_DIR on /tmp lost every deploy/recycle",
+      "category": "reliability",
+      "recommendation": "Set SOLAR_ARCHIVE_OUTPUT_DIR=/var/data/output on Render (1-line config) OR mirror per-date HQ renders into DEFAULT_CACHE_DIR keyed by date+wavelength hash.",
+      "effort_hours": 1
+    },
+    {
+      "id": "render-queue-feedback",
+      "title": "Single-slot heavy semaphore with no user-visible queue position",
+      "category": "reliability",
+      "recommendation": "Surface queue_depth in spinner copy ('You're #3 in line') and add hard 3-min render timeout so the queue advances on stalls. Long-term: widen semaphore on a larger Render plan.",
+      "effort_hours": 3
+    },
+    {
+      "id": "editor-state-persistence",
+      "title": "Reload during editor/checkout drops all state",
+      "category": "reliability",
+      "recommendation": "Snapshot vibe slug, product id, date/time, tier, overlays to sessionStorage on every mutation; rehydrate on load. Mirror active step into URL hash (#step=editor) so reload resumes. Add beforeunload warning during in-flight checkout.",
+      "effort_hours": 5
+    },
+    {
+      "id": "vibe-preload-no-abort",
+      "title": "Vibe preload has no AbortController / connection check",
+      "category": "reliability",
+      "recommendation": "Skip bulk preload when navigator.connection.effectiveType in {'2g','3g'} or saveData=true. Wire AbortController so step changes cancel in-flight fetches.",
+      "effort_hours": 2
+    },
+    {
+      "id": "helioviewer-client-timeout",
+      "title": "Helioviewer preview Image() has no client-side timeout",
+      "category": "reliability",
+      "recommendation": "Race the image load against a 20 s timeout; on timeout surface the existing 502-style retry CTA.",
+      "effort_hours": 1
+    },
+    {
+      "id": "date-input-no-max",
+      "title": "Date input has no max \u2014 future dates dead-end",
+      "category": "reliability",
+      "recommendation": "Set max to (today - 3 d) via JS at page load. Show inline 'SDO data for that date isn't archived yet' with aria-describedby.",
+      "effort_hours": 1
+    },
+    {
+      "id": "copyright-indemnity",
+      "title": "Text overlay path has no user IP/copyright warranty",
+      "category": "legal",
+      "recommendation": "Add checkbox above Buy: 'I confirm I have rights to any text I added.' Mirror in Terms (license to print + indemnity). Server-side blocklist for the top brand names + slurs.",
+      "effort_hours": 2
+    },
+    {
+      "id": "sdo-rules-of-the-road",
+      "title": "SDO/AIA acknowledgement missing canonical JSOC + EVE/HMI phrasing",
+      "category": "legal",
+      "recommendation": "Update Data Credits modal with canonical: 'Data courtesy of NASA/SDO and the AIA, EVE, and HMI science teams. Lemen et al. 2012, Sol. Phys., 275, 17. Helioviewer Project. JSOC at Stanford; delivered via VSO.' Bake the same line into the printed product's hidden metadata watermark.",
+      "effort_hours": 1
+    },
+    {
+      "id": "accessibility-statement",
+      "title": "No accessibility statement (EAA in force since 2025-06-28)",
+      "category": "accessibility",
+      "recommendation": "Add /accessibility.html stating WCAG 2.1 AA conformance, known gaps, support contact. Link from footer.",
+      "effort_hours": 2
+    },
+    {
+      "id": "form-labels",
+      "title": "Form controls lack programmatic <label>s",
+      "category": "accessibility",
+      "recommendation": "Wrap every form control in <label> or use <label for=id>. Add aria-labelledby on button-as-label patterns. Add axe-core check in CI.",
+      "effort_hours": 3
+    },
+    {
+      "id": "contrast-footer-meta",
+      "title": "Footer build meta uses opacity:0.5 at 0.7rem \u2014 fails WCAG 1.4.3",
+      "category": "accessibility",
+      "recommendation": "Replace opacity:0.5 with a contrast-tested token (\u22654.5:1), bump font-size \u22650.75rem. Audit other --text-secondary uses with Axe/Pa11y.",
+      "effort_hours": 1
+    },
+    {
+      "id": "modal-escape-trap",
+      "title": "Modal focus trap / Escape-close not consistently wired",
+      "category": "accessibility",
+      "recommendation": "Audit every .hidden modal in index.html, ensure installModalFocusTrap is called on open with onEscape and released on close. Add a regression test that Escape closes each.",
+      "effort_hours": 2
+    },
+    {
+      "id": "client-error-reporting",
+      "title": "No window.onerror / unhandledrejection / Sentry",
+      "category": "observability",
+      "recommendation": "Drop in Sentry loader script wired to a free project OR add window.error + unhandledrejection listeners that POST to /api/client_error with step + selected vibe.",
+      "effort_hours": 2
+    },
+    {
+      "id": "basic-analytics",
+      "title": "No analytics \u2014 funnel + conversion invisible",
+      "category": "observability",
+      "recommendation": "Add Plausible or PostHog. Instrument page view, vibe click, product click, master-toggle, Buy click, mockup success, checkout redirect, error events.",
+      "effort_hours": 3
+    },
+    {
+      "id": "seo-meta-favicon",
+      "title": "No robots.txt, sitemap.xml, OG/Twitter cards, JSON-LD, canonical, favicon",
+      "category": "content",
+      "recommendation": "Add favicon set, robots.txt + sitemap.xml, <meta description>, og:title/description/image, twitter:card=summary_large_image, <link rel=canonical>, Product/WebSite JSON-LD.",
+      "effort_hours": 3
+    },
+    {
+      "id": "raw-exception-leak",
+      "title": "Raw exception text leaked in 502 response bodies",
+      "category": "reliability",
+      "recommendation": "Log full traceback server-side; return user-safe string with a correlation id. Fix at main.py:765, 1006, 1310, 1360, 2172.",
+      "effort_hours": 1
+    },
+    {
+      "id": "currency-tax-disclosure",
+      "title": "Prices shown without currency / tax disclosure",
+      "category": "commerce",
+      "recommendation": "Render with Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}). Add 'Shipping + taxes calculated at checkout' under Buy.",
+      "effort_hours": 1
+    },
+    {
+      "id": "has-selector-fallback",
+      "title": "CSS :has() drives toggle state with no fallback on older Safari/Firefox",
+      "category": "browser_compat",
+      "recommendation": "Add JS to toggle .is-checked on parent on input change, OR duplicate styling with input:checked + sibling selectors. Spot-check Safari 15 / Firefox 120.",
+      "effort_hours": 2
+    }
+  ],
+  "nice_to_haves": [
+    {
+      "id": "rate-limit-state-redis",
+      "title": "Move rate-limit state off process-local dict (survives restart, caps memory)",
+      "effort_hours": 4
+    },
+    {
+      "id": "feedback-canvas-image-cap",
+      "title": "Cap feedback canvas_image to ~200 KB and strip from email if larger",
+      "effort_hours": 3
+    },
+    {
+      "id": "printify-ssl-verify-default",
+      "title": "Invert PRINTIFY_SSL_VERIFY to verify-by-default",
+      "effort_hours": 0.5
+    },
+    {
+      "id": "checkout-thank-you-page",
+      "title": "Thank-you page + localStorage order history + Resend confirmation",
+      "effort_hours": 6
+    },
+    {
+      "id": "tab-id-broadcast",
+      "title": "BroadcastChannel tab guard / localStorage checkout-in-progress flag",
+      "effort_hours": 3
+    },
+    {
+      "id": "client-disconnect-abort",
+      "title": "AbortController on /api/generate + server is_disconnected polling",
+      "effort_hours": 3
+    },
+    {
+      "id": "footer-semantic-nav",
+      "title": "Restructure footer with <nav aria-label=Legal>",
+      "effort_hours": 1
+    },
+    {
+      "id": "service-worker-pwa",
+      "title": "Workbox service worker + manifest.json for PWA installability",
+      "effort_hours": 4
+    },
+    {
+      "id": "font-awesome-subset",
+      "title": "Replace render-blocking Font Awesome with SVG subset",
+      "effort_hours": 2
+    },
+    {
+      "id": "health-payload-extend",
+      "title": "Extend /api/health with build_iso, git_sha, uptime, beta_mode",
+      "effort_hours": 0.5
+    },
+    {
+      "id": "build-info-surfaced",
+      "title": "Surface /api/build-info ISO + git SHA in footer for support diagnosis",
+      "effort_hours": 0.5
+    }
+  ],
+  "go_no_go": {
+    "recommendation": "NO_GO",
+    "rationale": "Cannot lift BETA_MODE today. Three categories of blockers must close first: (1) Print-pipeline abuse \u2014 XFF-bypassable rate limit + an unmoderated /upload that forwards arbitrary client images to Printify under the operator's key means the first scripted attacker post-BETA can upload illegal content, exhaust quota, and leave the operator liable under Printify ToS. (2) Commerce integrity \u2014 no idempotency on Buy can double-charge users, and Shopify Payments/Stripe will refuse to operate (or freeze on first dispute) without published Privacy/Terms/Refund/Shipping policies, a support email, and GDPR-grade storage disclosure for EU traffic. (3) Production fitness \u2014 Render free tier's 30 s cold start serves index.html itself, the RHEF render is documented to OOM on instances larger than the one in production, and uncached 215 KB JS/CSS plus 12 MB-per-vibe PNG preloads compound the cold-start pain into a near-unusable first impression on any modest traffic burst. All nine blockers are scoped fixes (~32 hr); a CONDITIONAL_GO is reasonable once they land, with the NEEDS_FIX legal + accessibility items finished in parallel. Analytics, Sentry, and PWA-style polish are not launch gates for a small-stakes printable-image site.",
+    "estimated_total_effort_hours": 31.5
+  },
+  "_meta": {
+    "generated_at": "2026-05-28",
+    "source": "workflow wx5fi2brl \u2014 5-auditor launch-readiness panel",
+    "site": "https://solar-archive.onrender.com",
+    "schema_version": 1,
+    "auditors": [
+      "security",
+      "commerce",
+      "reliability",
+      "legal-a11y",
+      "perf-compat-obs"
+    ]
+  }
+}
