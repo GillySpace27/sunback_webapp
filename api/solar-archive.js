@@ -11031,7 +11031,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           markCheckoutStep("ckStep2", "done", "Product created" + vcMsg);
           markCheckoutStep("ckStep3", "done", "Published to Shopify");
           markCheckoutStep("ckStep4", "active", "Waiting for Shopify product link…");
-          return pollShopifyUrl(data.printify_product_id);
+          return pollShopifyUrl(data.printify_product_id, ckSelectedId);
         })
         .then(function(shopifyUrl) {
           markCheckoutStep("ckStep4", "done", "Shopify product ready!");
@@ -11190,7 +11190,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (span && text) span.textContent = text;
     }
 
-    function pollShopifyUrl(printifyProductId) {
+    function pollShopifyUrl(printifyProductId, variantIdForCheckout) {
       var maxAttempts = 30;  // 30 × 3s = 90s max wait
       var attempt = 0;
 
@@ -11203,15 +11203,34 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             return;
           }
 
+          // Prefer the Storefront-API cart-permalink (one-tap from
+          // here to checkout) over the product page (two extra taps).
+          // The cart_url endpoint falls back to the product-page URL
+          // when SHOPIFY_STOREFRONT_ACCESS_TOKEN isn't configured or
+          // the variant lookup misses, so the flow keeps working
+          // either way. variantIdForCheckout was captured by
+          // buyClicked alongside printifyProductId.
+          var _vid = (typeof variantIdForCheckout !== "undefined")
+            ? variantIdForCheckout
+            : (state && state.selectedVariantByProduct && state.selectedProduct
+                ? state.selectedVariantByProduct[state.selectedProduct]
+                : null);
+          var _cartEndpoint = _vid
+            ? (API_BASE + "/api/printify/product/" + printifyProductId
+               + "/cart_url?variant_id=" + encodeURIComponent(_vid))
+            : (API_BASE + "/api/printify/product/" + printifyProductId + "/shopify-url");
           fetchWithTimeout(
-            API_BASE + "/api/printify/product/" + printifyProductId + "/shopify-url",
+            _cartEndpoint,
             { method: "GET" },
             15000
           )
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            if (data.status === "ready" && data.shopify_url) {
-              resolve(data.shopify_url);
+            // cart_url endpoint returns { status, cart_url, source }
+            // shopify-url endpoint returns { status, shopify_url }
+            var url = data.cart_url || data.shopify_url;
+            if (data.status === "ready" && url) {
+              resolve(url);
             } else {
               var step4 = document.getElementById("ckStep4");
               if (step4) {
