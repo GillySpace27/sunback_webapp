@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accessibility Statement · Solar Archive</title>
+  <link rel="stylesheet" href="/solar-archive.css">
+  <style>
+    body { background: var(--bg-deep, #0a0a12); color: var(--text-primary, #eeeef6); }
+    .legal { max-width: 720px; margin: 40px auto; padding: 0 24px 80px; }
+    .legal h1 { font-size: 1.6rem; margin: 0 0 6px; }
+    .legal .updated { color: var(--text-dim, #8e8eab); font-size: 0.78rem; margin: 0 0 24px; }
+    .legal h2 { font-size: 1.1rem; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border, #2a2a44); }
+    .legal h3 { font-size: 0.96rem; margin: 18px 0 6px; }
+    .legal p, .legal li { font-size: 0.92rem; line-height: 1.55; color: var(--text-secondary, #9898b8); }
+    .legal ul { padding-left: 1.25rem; }
+    .legal a { color: var(--accent-corona, #7b61ff); }
+    .legal .back { display: inline-flex; align-items: center; gap: 6px; margin-top: 36px; color: var(--text-dim, #8e8eab); text-decoration: none; }
+    .legal .draft-banner { margin: 0 0 24px; padding: 12px 14px; background: rgba(255, 152, 0, 0.10); border: 1px solid rgba(255, 152, 0, 0.40); border-radius: 8px; font-size: 0.82rem; color: var(--beta-orange, #ffb74d); }
+  </style>
+</head>
+<body>
+  <main class="legal">
+    <p class="draft-banner"><strong>DRAFT — review before launch.</strong> Replace bracketed fields and confirm conformance level after a fresh audit.</p>
+    <h1>Accessibility Statement</h1>
+    <p class="updated">Last updated: 2026-05-28</p>
+
+    <h2>Our commitment</h2>
+    <p><strong>[Entity Name]</strong> is committed to ensuring Solar Archive is accessible to as many people as possible, including people who use assistive technologies. We aim for conformance with <strong>WCAG 2.1 Level AA</strong>.</p>
+    <p>This statement is published in connection with our obligations under the <strong>European Accessibility Act (Directive (EU) 2019/882)</strong>, which came into force on 28 June 2025.</p>
+
+    <h2>Conformance status</h2>
+    <p>The site is <strong>partially conformant</strong> with WCAG 2.1 Level AA. The known non-conformances are listed below; we are actively closing them.</p>
+
+    <h3>What works</h3>
+    <ul>
+      <li>Keyboard navigation through all primary workflows (product picker → image picker → editor) without a mouse</li>
+      <li>Visible focus indicators on interactive elements (commit 0a98244 introduced a global focus-visible ring)</li>
+      <li>Color contrast ≥ 4.5:1 for body text and ≥ 3:1 for non-text UI in the default dark theme</li>
+      <li>Proper landmark structure (<code>&lt;main&gt;</code>, <code>&lt;nav&gt;</code>, <code>&lt;footer&gt;</code>)</li>
+      <li>Step badges and section headings convey the user's position in the workflow</li>
+      <li>Modals trap focus and close on Escape</li>
+      <li><code>prefers-reduced-motion</code> respected: radial wipes, fades, and scroll animations short-circuit when the OS preference is set</li>
+      <li>Solar-image content carries descriptive <code>alt</code> attributes</li>
+      <li>Cookie banner does not block content and can be operated by keyboard</li>
+    </ul>
+
+    <h3>Known gaps</h3>
+    <ul>
+      <li>Some form controls (<code>&lt;input type="date"&gt;</code>, master toggle radio buttons inside the variant modal) rely on visible-text labels rather than programmatic <code>&lt;label&gt;</code> association — being addressed in the current sprint.</li>
+      <li>The radial-wipe animation on the master toggle can be visually intense; it is short-circuited under <code>prefers-reduced-motion</code> but a hard-stop &ldquo;disable all motion&rdquo; toggle is on the roadmap.</li>
+      <li>The product-mockup canvas does not currently announce its content to screen readers. We surface the product name in a centred heading above the canvas as a workaround.</li>
+      <li>The custom HEK event-picker tiles have basic ARIA labelling but the keyboard focus order across the 4-tile grid is left-to-right + top-to-bottom only (no arrow-key navigation).</li>
+    </ul>
+
+    <h2>Preparation of this statement</h2>
+    <p>This statement was prepared on 2026-05-28. The audit was self-assessment using automated tooling (Lighthouse, axe-core) and manual keyboard + screen-reader walk-throughs (VoiceOver on macOS, NVDA on Windows). A third-party audit is planned for <strong>[Audit Quarter]</strong>.</p>
+
+    <h2>Feedback</h2>
+    <p>If you encounter an accessibility barrier on Solar Archive, please contact us at <a href="mailto:[Support Email]">[Support Email]</a>. We aim to respond within <strong>5 business days</strong> and to remediate identified issues within <strong>30 days</strong> where feasible.</p>
+    <p>If you are not satisfied with our response, EU residents may escalate to their national supervisory body for the European Accessibility Act. UK residents may contact the <a href="https://www.equalityhumanrights.com/" target="_blank" rel="noopener">Equality and Human Rights Commission</a>. US residents may contact the <a href="https://www.ada.gov/" target="_blank" rel="noopener">Department of Justice ADA Information Line</a>.</p>
+
+    <h2>Enforcement procedure</h2>
+    <p>If we cannot resolve your concern, you can lodge a complaint with the appropriate enforcement body in your jurisdiction. We will assist you with the contact details on request.</p>
+
+    <a class="back" href="/">&larr; Back to Solar Archive</a>
+  </main>
+</body>
+</html>

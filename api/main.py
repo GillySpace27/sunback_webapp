@@ -2655,6 +2655,10 @@ async def legal_refund():
 async def legal_shipping():
     return FileResponse(Path(__file__).parent / "legal" / "shipping.html")
 
+@app.get("/accessibility", response_class=HTMLResponse)
+async def legal_accessibility():
+    return FileResponse(Path(__file__).parent / "legal" / "accessibility.html")
+
 
 # Serve the original cute Solar Archive landing page at /api
 @app.get("/api", response_class=HTMLResponse)
