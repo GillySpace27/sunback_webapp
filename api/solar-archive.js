@@ -72,6 +72,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // captured. GA4 waits for consent.
     _initSentry();
 
+    // Even without Sentry, capture client-side errors locally so they
+    // surface in the browser console as a single tagged line — much
+    // easier to share in a screenshot when a user reports a bug.
+    window.addEventListener("error", function (e) {
+      try {
+        console.warn("[solar-archive:error]", (e && e.message) || String(e),
+                     "at", (e && e.filename) || "?", ":", (e && e.lineno) || "?");
+        if (window.Sentry && window.Sentry.captureException && e && e.error) {
+          window.Sentry.captureException(e.error);
+        }
+      } catch (_e) {}
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      try {
+        var reason = e && e.reason;
+        console.warn("[solar-archive:unhandled-rejection]",
+                     reason && (reason.message || String(reason)));
+        if (window.Sentry && window.Sentry.captureException && reason) {
+          window.Sentry.captureException(reason);
+        }
+      } catch (_e) {}
+    });
+
     // Cookie banner wire-up. Shows on first visit when no consent
     // recorded. Idempotent — DOMContentLoaded re-entry is harmless.
     function _wireCookieBanner() {
