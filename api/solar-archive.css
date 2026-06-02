@@ -2186,6 +2186,38 @@ html.embedded .modal-box {
   border: 1px solid rgba(255,255,255,0.10);
 }
 .vibe-card.has-tiers .vibe-tier-toggle { display: inline-flex; }
+
+/* Click feedback — testers reported a multi-second pause with no visual
+   confirmation that tapping a vibe card had been received. Dim the card
+   and overlay a soft spinner ring until _installPreviewImage clears the
+   class (or the 12s backstop in _activateVibe fires). */
+.vibe-card.is-loading {
+  pointer-events: none;
+  opacity: 0.85;
+}
+.vibe-card.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 38px;
+  height: 38px;
+  margin: -19px 0 0 -19px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 179, 71, 0.25);
+  border-top-color: var(--accent-corona, #ffb347);
+  animation: spin 0.9s linear infinite;
+  z-index: 5;
+  pointer-events: none;
+}
+.vibe-card.is-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 20, 0.32);
+  border-radius: inherit;
+  pointer-events: none;
+}
 .vibe-tier-btn {
   background: transparent;
   color: var(--text-secondary, #d0c8d8);
@@ -5263,9 +5295,17 @@ html.embedded .feedback-modal textarea {
   inset: 0;
   z-index: 9994;
   display: flex;
-  align-items: center;
+  /* flex-start instead of center: when the modal panel is taller than
+     the viewport the centered layout pushed the panel header above the
+     fold, making it look like the page "scrolled down to the variant
+     picker" rather than overlaying. Anchoring to the top keeps the
+     title + close button always visible. */
+  align-items: flex-start;
   justify-content: center;
-  padding: 20px;
+  padding: 24px 20px;
+  /* Internal scroll: the panel + its own overflow handles tall content
+     without pushing the page itself. */
+  overflow-y: auto;
 }
 .confirm-modal.hidden { display: none; }
 
