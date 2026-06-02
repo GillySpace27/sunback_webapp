@@ -572,40 +572,45 @@
              Underlying radio inputs are kept for accessibility/keyboard nav. -->
         <div class="filter-timeline editor-filter" id="editorFilterToggle" role="radiogroup" aria-label="Image quality">
           <span class="filter-timeline-label">Quality</span>
+          <!-- User-facing labels match the master toggle convention
+               (Preview / Original / Filtered). data-filter keys and
+               radio values STAY jpg/raw/rhef/hq_rhef so all the
+               state.editorFilter / _filterIsReady / quality-pipeline
+               wiring continues to work unchanged. -->
           <div class="filter-step" data-filter="jpg" title="Colorized JPG from the Helioviewer takeScreenshot service. Loads instantly. Great for screens and quick previews; print fidelity is limited compared with the FITS-derived tiers below.">
             <span class="filter-step-num"><i class="fas fa-bolt" aria-hidden="true"></i></span>
             <span class="filter-step-info">
-              <span class="filter-step-name">JPG</span>
+              <span class="filter-step-name">Preview</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="jpg" checked aria-label="JPG quality" tabindex="-1">
+            <input type="radio" name="editorFilter" value="jpg" checked aria-label="Preview quality" tabindex="-1">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="raw" title="Raw AIA FITS data via VSO/JSOC, grayscale. Scientific view with no color mapping. Instrument: Lemen et al. 2012 (Sol. Phys. 275, 17).">
+          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC.">
             <span class="filter-step-num"><i class="fas fa-satellite" aria-hidden="true"></i></span>
             <span class="filter-step-info">
-              <span class="filter-step-name">Raw</span>
+              <span class="filter-step-name">Original</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="raw" aria-label="Raw quality" tabindex="-1">
+            <input type="radio" name="editorFilter" value="raw" aria-label="Original quality" tabindex="-1">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalization Filter — boosts faint features across the Sun's surface and corona. Method: Gilly et al. 2025 (Sol. Phys. 300, 174).">
+          <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalization Filter — brings out faint corona detail invisible in the original. Method: Gilly et al. 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
-              <span class="filter-step-name">RHEF</span>
+              <span class="filter-step-name">Filtered</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="rhef" aria-label="RHEF quality" tabindex="-1">
+            <input type="radio" name="editorFilter" value="rhef" aria-label="Filtered quality" tabindex="-1">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution RHEF render — best for large prints. Takes 1–3 minutes. Method: Gilly et al. 2025 (Sol. Phys. 300, 174).">
+          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution Filtered render — best for large prints. Takes 1–3 minutes.">
             <span class="filter-step-num"><i class="fas fa-star" aria-hidden="true"></i></span>
             <span class="filter-step-info">
-              <span class="filter-step-name">HQ RHEF</span>
+              <span class="filter-step-name">HQ Filtered</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="hq_rhef" aria-label="HQ RHEF quality" tabindex="-1">
+            <input type="radio" name="editorFilter" value="hq_rhef" aria-label="HQ Filtered quality" tabindex="-1">
           </div>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>

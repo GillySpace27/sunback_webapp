@@ -8811,7 +8811,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // instantly; then we kick off the freshness check in the background
     // and overwrite if the upstream Printify pricing changed.
     var _PRICING_CACHE_LS_KEY = "sunback.variantPricing.v1";
-    var _PRICING_CACHE_TTL_MS = 24 * 3600 * 1000;  // 24h
+    var _PRICING_CACHE_TTL_MS = 24 * 3600 * 1000;  // 24h hard expiry
+    // Skip the background freshness re-fetch if the cached entry is
+    // newer than this. Without the throttle, every variant-modal open
+    // fired a Printify pricing call — the persona-sweep deploy hit
+    // this hard enough to OOM the 2 GB Render box during heavy
+    // renders. 1 hour is short enough that real Printify price changes
+    // propagate quickly, long enough that the box doesn't get hammered
+    // by users repeatedly opening the picker.
+    var _PRICING_FRESHNESS_THROTTLE_MS = 3600 * 1000;
     function _readPricingCacheLS() {
       try {
         var raw = localStorage.getItem(_PRICING_CACHE_LS_KEY);
@@ -8855,9 +8863,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var hydrated = _hydratePricingFromLS(key);
       if (hydrated) {
         // Background freshness check — don't await; just overwrite on
-        // success. Failures are silently ignored.
+        // success. Failures are silently ignored. Throttled to once
+        // per hour per (blueprint, provider) so re-opening the modal
+        // 10 times doesn't fire 10 Printify pricing calls.
         (function _bgFreshness() {
           if (variantPricingFetchInFlight[key]) return;
+          try {
+            var allLS = _readPricingCacheLS();
+            var entryLS = allLS && allLS[key];
+            if (entryLS && entryLS._savedAt &&
+                (Date.now() - entryLS._savedAt) < _PRICING_FRESHNESS_THROTTLE_MS) {
+              return;
+            }
+          } catch (_e) {}
           var freshP = fetchWithTimeout(
             API_BASE + "/api/printify/blueprints/" + product.blueprintId + "/providers/" + product.printProviderId + "/pricing",
             {}, 90000
@@ -10411,15 +10429,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       // Inline locked-state hint — tooltip alone is invisible on touch
       // devices, so render a visible one-liner pointing the user at the
-      // mockup button (persona-sweep finding).
+      // mockup button (persona-sweep finding). Placed AFTER the action
+      // bar (not inside it) so it doesn't clobber the Generate /
+      // Download buttons' flex row.
       try {
         var hint = document.getElementById("editorBuyLockHint");
         var bar = document.getElementById("editorActionBar");
-        if (!hint && bar) {
+        if (!hint && bar && bar.parentNode) {
           hint = document.createElement("div");
           hint.id = "editorBuyLockHint";
           hint.className = "editor-buy-lock-hint";
-          bar.appendChild(hint);
+          bar.parentNode.insertBefore(hint, bar.nextSibling);
+        } else if (hint && bar && bar.parentNode && hint.parentNode === bar) {
+          // Migrate any old in-bar hint left over from the previous
+          // build to the new external slot.
+          bar.parentNode.insertBefore(hint, bar.nextSibling);
         }
         if (hint) {
           if (ready) {
