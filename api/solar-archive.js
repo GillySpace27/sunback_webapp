@@ -10860,10 +10860,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var sendHint = $("#sendHint");
     var SHOPIFY_STORE = "solar-archive.myshopify.com"; // updated at runtime from store-config
     // Beta-mode flag: when true, "Create on Shopify" becomes "Download
-    // Your Design" so testers don't trigger real Printify orders. The
-    // operator sets BETA_MODE=1 on the backend and the flag rides in
-    // on /store-config below.
-    var BETA_MODE = false;
+    // Your Design" so testers don't trigger real Printify orders.
+    // NEEDS-FIX (workflow wx5fi2brl, beta-mode-default): default to
+    // TRUE (fail-secure) instead of false — if /store-config 404s,
+    // times out, or returns garbage at any point during the page
+    // lifecycle, we now fail TOWARD the safe state (purchases blocked)
+    // rather than away from it. Operator flips this off only after the
+    // server explicitly tells us so.
+    var BETA_MODE = true;
 
     // Fetch store config on load
     fetchWithTimeout(API_BASE + "/api/printify/store-config", {}, 10000)
@@ -10881,8 +10885,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // now that BETA_MODE is known.
           if (typeof renderProducts === "function") renderProducts();
         }
+        // No beta_mode in response → keep fail-secure default (true).
       })
-      .catch(function() { /* keep default */ });
+      .catch(function() {
+        // Network / parse failure → keep fail-secure default (true).
+        // Re-paint so the locked-buy UI reflects the safe state.
+        if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+        if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+      });
 
     function updateSendToPrintifyButton() {
       // Re-render product cards and Select this product buttons when HQ state changes
