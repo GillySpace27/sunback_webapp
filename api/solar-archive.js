@@ -8803,9 +8803,89 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * backend caches for 30 minutes and the frontend caches for the session.
      * Resolves to {} on failure so callers can degrade gracefully.
      */
+    // localStorage TTL cache for variant pricing — keyed by the same
+    // blueprintId_printProviderId key as variantPricingCache. Stops the
+    // "From $X.XX placeholder for a minute, then real prices" friction
+    // (persona-sweep finding). On modal open we read from localStorage
+    // first, hydrate variantPricingCache and render with real prices
+    // instantly; then we kick off the freshness check in the background
+    // and overwrite if the upstream Printify pricing changed.
+    var _PRICING_CACHE_LS_KEY = "sunback.variantPricing.v1";
+    var _PRICING_CACHE_TTL_MS = 24 * 3600 * 1000;  // 24h
+    function _readPricingCacheLS() {
+      try {
+        var raw = localStorage.getItem(_PRICING_CACHE_LS_KEY);
+        if (!raw) return {};
+        var obj = JSON.parse(raw);
+        if (!obj || typeof obj !== "object") return {};
+        return obj;
+      } catch (_e) { return {}; }
+    }
+    function _writePricingCacheLS(all) {
+      try { localStorage.setItem(_PRICING_CACHE_LS_KEY, JSON.stringify(all)); }
+      catch (_e) { /* quota — drop silently, in-memory cache still works */ }
+    }
+    function _hydratePricingFromLS(key) {
+      // Read once, hydrate the in-memory cache if the entry is fresh.
+      // Returns true when an entry was found.
+      var all = _readPricingCacheLS();
+      var entry = all && all[key];
+      if (!entry || !entry._savedAt) return false;
+      if ((Date.now() - entry._savedAt) > _PRICING_CACHE_TTL_MS) return false;
+      if (entry.variants && typeof entry.variants === "object") {
+        variantPricingCache[key] = entry.variants;
+        return true;
+      }
+      return false;
+    }
+    function _persistPricingToLS(key, variants) {
+      var all = _readPricingCacheLS();
+      all[key] = { _savedAt: Date.now(), variants: variants };
+      _writePricingCacheLS(all);
+    }
+
     function loadVariantPricing(product) {
       var key = product.blueprintId + "_" + product.printProviderId;
+      // Hot in-memory hit.
       if (variantPricingCache[key]) return Promise.resolve(variantPricingCache[key]);
+      // Cold-start session: try the persistent cache before firing the
+      // network call. Hydrating returns to the caller immediately AND
+      // kicks off a background freshness re-fetch so we overwrite if
+      // upstream prices changed (no user-visible wait either way).
+      var hydrated = _hydratePricingFromLS(key);
+      if (hydrated) {
+        // Background freshness check — don't await; just overwrite on
+        // success. Failures are silently ignored.
+        (function _bgFreshness() {
+          if (variantPricingFetchInFlight[key]) return;
+          var freshP = fetchWithTimeout(
+            API_BASE + "/api/printify/blueprints/" + product.blueprintId + "/providers/" + product.printProviderId + "/pricing",
+            {}, 90000
+          )
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+              var fresh = data && data.variants ? data.variants : null;
+              if (!fresh) return;
+              variantPricingCache[key] = fresh;
+              _persistPricingToLS(key, fresh);
+              // If the variant modal is currently open and showing this
+              // product's prices, repaint so cached → fresh deltas
+              // become visible without a re-open.
+              try {
+                var modalEl = document.getElementById("confirmSelectModal");
+                if (modalEl && !modalEl.classList.contains("hidden")) {
+                  if (typeof window.SolarArchive._refreshConfirmPricing === "function") {
+                    window.SolarArchive._refreshConfirmPricing();
+                  }
+                }
+              } catch (_e) {}
+            })
+            .catch(function () { /* swallow */ })
+            .finally(function () { delete variantPricingFetchInFlight[key]; });
+          variantPricingFetchInFlight[key] = freshP;
+        })();
+        return Promise.resolve(variantPricingCache[key]);
+      }
       if (variantPricingFetchInFlight[key]) return variantPricingFetchInFlight[key];
       var p = fetchWithTimeout(
         API_BASE + "/api/printify/blueprints/" + product.blueprintId + "/providers/" + product.printProviderId + "/pricing",
@@ -8814,6 +8894,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         .then(function(r) { return r.ok ? r.json() : { variants: {} }; })
         .then(function(data) {
           variantPricingCache[key] = data && data.variants ? data.variants : {};
+          _persistPricingToLS(key, variantPricingCache[key]);
           delete variantPricingFetchInFlight[key];
           return variantPricingCache[key];
         })
@@ -11619,11 +11700,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           } catch (_e) {}
         };
         img.onerror = function () { _defaultRhefLoadKicked = false; };
-        // ar2192 = the DEFAULT_LANDING_DATE vibe slug; manifest path
-        // is /asset/default/vibe/<slug>/rhef_full.png. Hard-coded here
-        // rather than read from _vibeManifest because the manifest may
-        // not have loaded yet when the variant modal first opens.
-        img.src = "/asset/default/vibe/ar2192/rhef_full.png";
+        // ar2192 = the DEFAULT_LANDING_DATE vibe slug. The full RHEF
+        // is 13 MB and would still be downloading when the modal
+        // closes — the 256² rhef_thumb is 108 KB (loads in <100 ms)
+        // and the picker canvas is only 240² anyway, so the visible
+        // resolution is identical. Hard-coded path rather than reading
+        // from _vibeManifest because the manifest may not have resolved
+        // by the time the variant modal first opens.
+        img.src = "/asset/default/vibe/ar2192/rhef_thumb.png";
       }
       // Image still loading or load failed — return null so
       // drawProductMockup falls through to its silhouette path.
@@ -12331,6 +12415,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var v = variants.find(function(x) { return x.id === pendingVariantId; });
         _renderSummary(v || null);
       }
+      // Expose for the background-freshness path in loadVariantPricing
+      // so a cached-render → fresh-fetch delta repaints the live modal.
+      try {
+        window.SolarArchive = window.SolarArchive || {};
+        window.SolarArchive._refreshConfirmPricing = _refreshAfterPricing;
+      } catch (_e) {}
       function _bootstrap() {
         // Variants AND per-variant pricing are needed for the full picker.
         // Variants are fast (catalog API), pricing is slower (must scan shop
