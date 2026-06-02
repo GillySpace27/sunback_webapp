@@ -635,7 +635,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         scale = Math.max(_EDITOR_SCALE_MIN, Math.min(1, scale));
         stage.style.setProperty("--editor-scale", scale.toFixed(3));
         handle.setAttribute("aria-valuenow", String(Math.round(scale * 100)));
-        _resyncFloatAfterResize();
         return scale;
       }
       function persist(scale) {
@@ -2234,6 +2233,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // mockups (which were rendered against the default image) and
       // fall back to live canvas mockups of the user's actual image.
       if (state.wavelength !== 193) state.isDefaultActive = false;
+      // Persona-sweep finding: when the user picks a vibe card with a
+      // preset wavelength (e.g. AR 2192 at 193 Å) and then picks a
+      // DIFFERENT wavelength tile, state.activeVibeSlug stayed pointed
+      // at the original vibe. The product-mockup tier swap and the
+      // manifest preload then kept feeding the WRONG wavelength's
+      // pre-rendered images. Clear the slug whenever the user moves
+      // off the vibe's intended wavelength so the live pipeline takes
+      // over cleanly.
+      if (state.activeVibeSlug && _vibeManifest && _vibeManifest[state.activeVibeSlug]) {
+        var _vibeWl = parseInt(_vibeManifest[state.activeVibeSlug].wl, 10);
+        if (_vibeWl && _vibeWl !== state.wavelength) {
+          state.activeVibeSlug = null;
+        }
+      }
 
       if (!dateInput.value) {
         showToast("Pick an image first.", "error");
@@ -4416,12 +4429,60 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       // Birthday-card date input — change-event-triggered, no submit button.
       if (bdayInput) {
+        // Inline range-validation message lives in the same card; lazily
+        // created so it doesn't clutter the markup until needed.
+        function _bdayShowRangeError(picked) {
+          var card = bdayInput.closest(".vibe-card");
+          if (!card) return;
+          var msg = card.querySelector(".vibe-birthday-range-error");
+          if (!msg) {
+            msg = document.createElement("div");
+            msg.className = "vibe-birthday-range-error";
+            msg.setAttribute("role", "alert");
+            msg.style.cssText = "margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(255,179,71,0.10);border:1px solid rgba(255,179,71,0.35);color:var(--accent-corona,#ffb347);font-size:0.82rem;line-height:1.35;";
+            bdayInput.parentNode.appendChild(msg);
+          }
+          msg.innerHTML =
+            'SDO/AIA launched May 15, 2010 — earlier dates have no imagery. ' +
+            'Try a date between <strong>' + bdayInput.min + '</strong> and ' +
+            '<strong>' + bdayInput.max + '</strong>. ' +
+            '<button type="button" class="vibe-birthday-range-fallback" ' +
+            'style="margin-left:6px;background:transparent;border:0;color:var(--accent-corona,#ffb347);text-decoration:underline;cursor:pointer;font:inherit;">' +
+            'Use earliest available (' + bdayInput.min + ')</button>';
+          var fb = msg.querySelector(".vibe-birthday-range-fallback");
+          if (fb) {
+            fb.addEventListener("click", function () {
+              bdayInput.value = bdayInput.min;
+              bdayInput.dispatchEvent(new Event("change", { bubbles: true }));
+            });
+          }
+        }
+        function _bdayClearRangeError() {
+          var card = bdayInput.closest(".vibe-card");
+          if (!card) return;
+          var msg = card.querySelector(".vibe-birthday-range-error");
+          if (msg && msg.parentNode) msg.parentNode.removeChild(msg);
+        }
         bdayInput.addEventListener("change", function () {
           if (!bdayInput.value) return;
+          // Range guard (BLOCKER fix): the native <input type=date> min/max
+          // attributes don't prevent the user from TYPING an out-of-range
+          // date — the value sets and the change handler used to flow
+          // straight into _activateVibe → HEK → wavelength tile → server
+          // error several screens later. Validate up front so the user
+          // sees a friendly inline message and can one-click jump to the
+          // earliest available date.
+          var picked = bdayInput.value;
+          if ((bdayInput.min && picked < bdayInput.min) ||
+              (bdayInput.max && picked > bdayInput.max)) {
+            _bdayShowRangeError(picked);
+            return;
+          }
+          _bdayClearRangeError();
           // Build a synthetic vibe payload and run _activateVibe to share
           // the same flow (HEK fetch, scroll, focus, etc.).
           var card = bdayInput.closest(".vibe-card");
-          card.setAttribute("data-vibe-date", bdayInput.value);
+          card.setAttribute("data-vibe-date", picked);
           card.setAttribute("data-vibe-time", "");  // let HEK auto-fill
           card.setAttribute("data-vibe-wl", "");    // let HEK suggest
           _activateVibe(card, { fromBirthday: true });
@@ -4912,6 +4973,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // NOT set scrollToProductsOnLoad, so the page doesn't yank the
         // user down; the mockups just populate in place below.
         state.wavelength = 193;
+        // Clear any stale .selected from the static markup (171 is
+        // pre-marked) so we don't end up with TWO selected tiles
+        // (persona-sweep finding).
+        if (wlGrid) {
+          wlGrid.querySelectorAll(".wl-card.selected").forEach(function (c) {
+            c.classList.remove("selected");
+          });
+        }
         var _defTile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="193"]');
         if (_defTile) _defTile.classList.add("selected");
         // Probe for the pre-rendered HQ-RHEF of the default tuple on the
@@ -5374,10 +5443,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
     }
 
-    // Show CSP notice only when served from a different origin than API_BASE
-    if (API_BASE !== window.location.origin) {
-      cspNotice.classList.remove("hidden");
-    }
+    // CSP notice is now gated on an ACTUAL securitypolicyviolation
+    // event firing — persona-sweep finding flagged the old origin-
+    // heuristic version as a malware-style banner above the fold for
+    // every visitor regardless of whether anything was actually being
+    // blocked. Listener stays in the IIFE scope so it can show the
+    // notice on the first violation (rare in practice).
+    try {
+      document.addEventListener("securitypolicyviolation", function _cspOnce() {
+        if (cspNotice) cspNotice.classList.remove("hidden");
+        document.removeEventListener("securitypolicyviolation", _cspOnce);
+      });
+    } catch (_e) {}
 
     function checkBackendHealth() {
       setBannerState("checking", "Checking backend status...", "Connecting to " + API_BASE, false);
@@ -9760,6 +9837,36 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           window.SolarArchive._persistEditorState = _persistEditorState;
           window.SolarArchive._restoreEditorState = _restoreEditorState; } catch (_e) {}
 
+    // BLOCKER fix (persona sweep): _restoreEditorState was wired as
+    // dead code — defined but never called. A user 90 seconds into
+    // an edit who refreshes the page would land cold back at step
+    // product even though the snapshot was sitting in localStorage.
+    // Restore on bootstrap: apply non-image state (selectedProduct,
+    // vibe slug, wavelength, slider values, crop/vignette/timestamp)
+    // and let the rest of the pipeline rehydrate naturally when the
+    // user clicks back into the same vibe.
+    try {
+      var _snap = _restoreEditorState();
+      if (_snap) {
+        // Stash the snapshot for downstream code paths that need it
+        // (commitProductChoice, _activateVibe re-pickup, etc.). The
+        // image-state restore is deferred — clicking the same vibe
+        // card or wavelength tile naturally regenerates the image.
+        if (_snap.selectedProduct) {
+          state.selectedProduct = _snap.selectedProduct;
+        }
+        if (_snap.activeVibeSlug) state.activeVibeSlug = _snap.activeVibeSlug;
+        if (typeof _snap.wavelength === "number") state.wavelength = _snap.wavelength;
+        ["cropZoom","brightness","contrast","saturation","hue",
+         "vignette","vignetteWidth","rotation","inverted","cropRatio",
+         "vibeMasterTier","timestampStamp","timestampPos","timestampVOffset"
+        ].forEach(function (k) {
+          if (_snap[k] !== undefined && _snap[k] !== null) state[k] = _snap[k];
+        });
+        try { window.SolarArchive._lastRestoredSnap = _snap; } catch (_e) {}
+      }
+    } catch (_e) {}
+
     // commitImageChoice: called by _installPreviewImage after a source
     // image actually loads (vibe-card / wavelength tile pipeline). Opens
     // the editor and transitions to step "editor". No-op if no product is
@@ -10192,6 +10299,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         btnBuyInEditor.title = "Generate a real mockup first (Reset to canvas preview → Generate real mockup) so you can preview before publishing.";
         btnBuyInEditor.classList.add("buy-locked");
       }
+      // Inline locked-state hint — tooltip alone is invisible on touch
+      // devices, so render a visible one-liner pointing the user at the
+      // mockup button (persona-sweep finding).
+      try {
+        var hint = document.getElementById("editorBuyLockHint");
+        var bar = document.getElementById("editorActionBar");
+        if (!hint && bar) {
+          hint = document.createElement("div");
+          hint.id = "editorBuyLockHint";
+          hint.className = "editor-buy-lock-hint";
+          bar.appendChild(hint);
+        }
+        if (hint) {
+          if (ready) {
+            hint.style.display = "none";
+            hint.textContent = "";
+          } else {
+            hint.style.display = "";
+            hint.innerHTML = '<i class="fas fa-arrow-up" aria-hidden="true"></i> ' +
+                             'Click <strong>Generate real mockup</strong> first to unlock checkout.';
+          }
+        }
+      } catch (_e) {}
     }
     // Beta-mode: the same button does a local PNG download instead of
     // triggering real Printify checkout. Keeps testers' credit cards
@@ -10268,6 +10398,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       btnBuyInEditor.addEventListener("click", function() {
         if (btnBuyInEditor.disabled) return;
         if (!state.selectedProduct) return;
+        // Double-click guard (persona-sweep finding): a rapid double-
+        // tap was firing _gatePrintQuality twice — in beta that meant
+        // two downloads + the "buy" analytics event firing twice; in
+        // real-money mode it could fire two Printify product-create
+        // jobs ($$). dataset.busy is the same pattern used on the
+        // mockup-generate button (line ~2347).
+        if (btnBuyInEditor.dataset.busy === "1") return;
+        btnBuyInEditor.dataset.busy = "1";
+        function _unbusy() { btnBuyInEditor.dataset.busy = ""; }
 
         // Beta path: save a local PNG instead of triggering Shopify.
         // Still apply the FITS-quality gate so testers don't walk
@@ -10276,16 +10415,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // someone for a one-off print outside this app.
         if (BETA_MODE) {
           _gatePrintQuality(function(ok) {
-            if (ok) saveDesignLocally();
+            try { if (ok) saveDesignLocally(); } finally { _unbusy(); }
           });
           return;
         }
 
-        if (!_hasRealMockup()) return;
+        if (!_hasRealMockup()) { _unbusy(); return; }
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-        if (!product) return;
+        if (!product) { _unbusy(); return; }
         _gatePrintQuality(function(ok) {
-          if (ok) startCheckout(product);
+          try { if (ok) startCheckout(product); } finally { _unbusy(); }
         });
       });
       updateBuyButtonState();
@@ -11387,6 +11526,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var titleEl = document.getElementById("confirmSelectTitle");
       var subEl = document.getElementById("confirmSelectSub");
       var continueBtn = document.getElementById("confirmSelectContinue");
+      // Adapt the Continue label to the entry context (persona-sweep
+      // finding): "Continue to image" is right on first product pick,
+      // but reads as a step-back when the user re-opens the picker
+      // from the editor to swap a variant.
+      if (continueBtn) {
+        var _step = (state && state.currentStep) || "";
+        if (_step === "editor") continueBtn.textContent = "Apply variant";
+        else continueBtn.textContent = "Continue to image";
+      }
       var closeBtn = document.getElementById("confirmSelectClose");
       var backdrop = document.getElementById("confirmSelectBackdrop");
 
@@ -12179,6 +12327,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // step where the modal element is hidden, leaving the page
       // unscrollable). Listener is removed in _close above.
       window.addEventListener("popstate", onCancel);
+      // Push a history entry for the modal so browser-back closes IT
+      // first instead of navigating away from the page entirely
+      // (persona-sweep finding). _close pops via popstate, which would
+      // navigate further back — we don't want that, so only push when
+      // the current state isn't already a modal entry.
+      try {
+        if (!history.state || history.state._modal !== "variant") {
+          history.pushState({ _modal: "variant" }, "", location.href);
+        }
+      } catch (_e) {}
 
       modal.classList.remove("hidden");
       // Lock the page scroll while the modal is open so background

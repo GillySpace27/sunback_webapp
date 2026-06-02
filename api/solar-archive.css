@@ -3066,8 +3066,12 @@ body.step-editor .vibe-reveal-btn {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: 16px;
-  z-index: 9990;
+  /* Lift above the feedback FAB cluster (which sits at bottom: 18px,
+     height ~52px). 90px clears it on mobile so the banner doesn't
+     cover the Request / Comment pills (persona-sweep finding). */
+  bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+  /* Below FAB (9990) so a modal-open scroll-lock can still grey it. */
+  z-index: 9989;
   background: rgba(15, 17, 30, 0.96);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border, #2a2a44);
@@ -3076,6 +3080,9 @@ body.step-editor .vibe-reveal-btn {
   color: var(--text-secondary, #9898b8);
   font-size: 0.85rem;
   line-height: 1.45;
+}
+@media (min-width: 720px) {
+  .cookie-banner { bottom: 16px; }
 }
 .cookie-banner.hidden { display: none; }
 .cookie-banner-inner {
@@ -3995,6 +4002,20 @@ body.left-rail-preview.preview-popped-out .selected-product-preview {
   flex: 1 1 0;
   min-width: 0;
 }
+/* Inline locked-state hint pointing at the mockup button. Spans full
+   width on its own row beneath the buttons. */
+.editor-buy-lock-hint {
+  flex: 1 0 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 179, 71, 0.08);
+  border: 1px solid rgba(255, 179, 71, 0.28);
+  color: var(--accent-corona, #ffb347);
+  font-size: 0.82rem;
+  text-align: center;
+}
+.editor-buy-lock-hint i { margin-right: 4px; }
 @media (max-width: 740px) {
   .editor-action-bar {
     flex-direction: column;

@@ -51,7 +51,7 @@
   <header class="hero" role="banner">
     <div class="hero-icon"></div>
     <h1 id="appTitle">Solar Archive</h1>
-    <p>See the Sun on any date. Print it on anything.</p>
+    <p>See the Sun on any date since 2010. Print it on anything.</p>
     <!-- NASA SDO rules-of-the-road acknowledgement, surfaced prominently
          at the top (moved up from the footer). Required on any SDO-
          derived imagery. Restore the longer "AIA, EVE, and HMI science
@@ -74,12 +74,14 @@
        via the skip-link, and screen-readers expose region navigation. -->
   <main id="mainContent">
 
-  <!-- CSP Notice (shown only when served from a different origin) -->
+  <!-- CSP Notice — only revealed when a real securitypolicyviolation
+       fires. Persona-sweep finding: the prior copy read like a malware
+       warning above the fold; softened to user-language. -->
   <div class="backend-banner waking hidden" id="cspNotice">
     <span class="banner-icon"><i class="fas fa-shield-alt" aria-hidden="true"></i></span>
     <div class="banner-text">
-      <strong>External resource access required</strong>
-      <small>If you see a popup asking to "Allow untrusted external resources," please click <strong>Allow All</strong> — the page will reload and the app will work normally.</small>
+      <strong>One more permission needed</strong>
+      <small>If your browser asks to allow external resources, click <strong>Allow All</strong> so Solar Archive can load NASA imagery.</small>
     </div>
   </div>
 
@@ -409,7 +411,7 @@
                while the UI displayed e.g. 2030). min is SDO/AIA first light. -->
           <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
                  min="2010-05-15" aria-describedby="vibeBirthdayHint">
-          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Back to May 2010 — print the Sun that was shining that day.</div>
+          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Any date from May 15, 2010 through yesterday — print the Sun that was shining that day.</div>
         </div>
       </div>
 
@@ -426,7 +428,7 @@
             aria-expanded="false" aria-controls="configSectionBody"
             title="Show/hide the time & wavelength controls">
       <div class="section-header section-header-sub">
-        <h2 class="section-title section-title-sub">Customize time &amp; wavelength <span class="section-collapse-hint">(optional)</span></h2>
+        <h2 class="section-title section-title-sub">Fine-tune time &amp; wavelength <span class="section-collapse-hint">(optional)</span></h2>
         <span class="section-collapse-chevron" aria-hidden="true">&#9662;</span>
       </div>
     </button>
