@@ -9847,6 +9847,73 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
     }
 
+    // NEEDS-FIX (workflow wx5fi2brl, editor-state-persistence):
+    // Save key editor state to localStorage after each significant
+    // change so a reload mid-edit restores the user's work. Stores:
+    // selectedProduct + activeVibeSlug + cropZoom + brightness/contrast
+    // /saturation/hue + vignette + currentStep. Excludes images
+    // (regenerated from manifest URLs on restore) + transient HQ
+    // pipeline state. Restored on next bootstrap when the same
+    // selectedProduct is present in the catalog. Throws are swallowed
+    // so a full localStorage quota doesn't block the editor.
+    var _STATE_PERSIST_KEY = "sunback.editorState.v1";
+    function _persistEditorState() {
+      try {
+        var snap = {
+          selectedProduct: state.selectedProduct,
+          activeVibeSlug: state.activeVibeSlug,
+          wavelength: state.wavelength,
+          cropZoom: state.cropZoom,
+          brightness: state.brightness,
+          contrast: state.contrast,
+          saturation: state.saturation,
+          hue: state.hue,
+          vignette: state.vignette,
+          vignetteWidth: state.vignetteWidth,
+          rotation: state.rotation,
+          inverted: state.inverted,
+          cropRatio: state.cropRatio,
+          currentStep: state.currentStep,
+          vibeMasterTier: state.vibeMasterTier,
+          timestampStamp: state.timestampStamp,
+          timestampPos: state.timestampPos,
+          timestampVOffset: state.timestampVOffset,
+          _savedAt: Date.now(),
+        };
+        localStorage.setItem(_STATE_PERSIST_KEY, JSON.stringify(snap));
+      } catch (_e) {}
+    }
+    function _restoreEditorState() {
+      try {
+        var raw = localStorage.getItem(_STATE_PERSIST_KEY);
+        if (!raw) return null;
+        var snap = JSON.parse(raw);
+        if (!snap || typeof snap !== "object") return null;
+        // Stale guard: drop persisted state older than 24h.
+        if (snap._savedAt && (Date.now() - snap._savedAt) > 24 * 3600 * 1000) {
+          localStorage.removeItem(_STATE_PERSIST_KEY);
+          return null;
+        }
+        // Drop if the persisted product no longer exists in the catalog.
+        if (snap.selectedProduct && !PRODUCTS.some(function (p) { return p.id === snap.selectedProduct; })) {
+          return null;
+        }
+        return snap;
+      } catch (_e) {
+        return null;
+      }
+    }
+    // Wire periodic persistence — fires every 5s while step ≥ editor
+    // and on every storage-worthy event the editor emits.
+    setInterval(function () {
+      if (state.currentStep === "editor" || state.currentStep === "image") _persistEditorState();
+    }, 5000);
+    window.addEventListener("beforeunload", _persistEditorState);
+    // Expose for testing.
+    try { window.SolarArchive = window.SolarArchive || {};
+          window.SolarArchive._persistEditorState = _persistEditorState;
+          window.SolarArchive._restoreEditorState = _restoreEditorState; } catch (_e) {}
+
     // commitImageChoice: called by _installPreviewImage after a source
     // image actually loads (vibe-card / wavelength tile pipeline). Opens
     // the editor and transitions to step "editor". No-op if no product is
