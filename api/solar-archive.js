@@ -3387,10 +3387,39 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             "We picked <strong>" + s.wl + " Å</strong>" + toneFrag + " — " +
             escapeHtml(s.why) + ". Want a different look? Tap any tile.";
         } else {
-          // Suggestion conflicts with user's explicit pick — stay quiet.
-          _lastSuggestionKey = "";
-          wlSuggestCaption.classList.add("hidden");
-          wlSuggestCaption.innerHTML = "";
+          // Suggestion conflicts with user's explicit pick — instead
+          // of going silent, surface a short note that respects the
+          // user's choice but offers the HEK pick as a one-click swap
+          // (persona-sweep finding: silently hiding the suggestion
+          // left users wondering whether their wavelength matched the
+          // catalogued event).
+          var swapTone = "";
+          if (wlGrid) {
+            var swapTile = wlGrid.querySelector('.wl-card[data-wl="' + s.wl + '"] .wl-label');
+            if (swapTile) {
+              var swapFirst = (swapTile.textContent || "").split("·")[0].trim();
+              if (swapFirst) swapTone = swapFirst.toLowerCase();
+            }
+          }
+          var swapKey = "conflict|" + currentWl + "|" + s.wl;
+          if (swapKey === _lastSuggestionKey) return;
+          _lastSuggestionKey = swapKey;
+          wlSuggestCaption.classList.remove("hidden");
+          wlSuggestCaption.innerHTML =
+            "Sticking with your <strong>" + currentWl + " Å</strong> — " +
+            "the catalogued event peaks at " +
+            '<button type="button" class="wl-suggest-swap" data-wl="' + s.wl + '" ' +
+            'style="background:transparent;border:0;color:var(--accent-corona,#ffb347);' +
+            'text-decoration:underline;cursor:pointer;font:inherit;padding:0;">' +
+            s.wl + " Å" + (swapTone ? " (" + escapeHtml(swapTone) + ")" : "") +
+            "</button> if you want to swap.";
+          var swapBtn = wlSuggestCaption.querySelector(".wl-suggest-swap");
+          if (swapBtn) {
+            swapBtn.addEventListener("click", function () {
+              var tile = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + s.wl + '"]');
+              if (tile) tile.click();
+            });
+          }
         }
       }
       // Visual ring on the suggested tile, only if the user hasn't picked
@@ -11068,6 +11097,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // confirm callback), not in startCheckout — so Cancel doesn't
           // strand the latch in the "true" state.
           _checkoutInFlight = true;
+          // beforeunload warning so closing the tab mid-checkout (which
+          // would orphan the Printify product create) prompts a
+          // confirm (persona-sweep finding). The "" return value asks
+          // the browser to use its standard "Leave site?" prompt —
+          // browsers refuse to display custom strings these days.
+          window._saCheckoutBeforeUnload = function (e) {
+            e.preventDefault();
+            e.returnValue = "";
+            return "";
+          };
+          window.addEventListener("beforeunload", window._saCheckoutBeforeUnload);
           // Kick off the checkout and keep the modal open with a spinner on
           // the Create button until the status list below has rendered and
           // scrolled into view. That way the user sees a continuous "I'm
@@ -11237,6 +11277,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       .finally(function() {
         // Clear the idempotency latch so a follow-up attempt is allowed.
         _checkoutInFlight = false;
+        // Release the beforeunload guard (counterpart to the addListener
+        // inside the confirm callback above).
+        try {
+          if (window._saCheckoutBeforeUnload) {
+            window.removeEventListener("beforeunload", window._saCheckoutBeforeUnload);
+            window._saCheckoutBeforeUnload = null;
+          }
+        } catch (_e) {}
         // Re-enable buy buttons
         productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) {
           var pid = btn.dataset.productId;
@@ -11424,10 +11472,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       panel.innerHTML =
         '<button class="color-chooser-close" type="button" aria-label="Close">&#x2715;</button>' +
         '<h2 class="color-chooser-title">' + escapeHtmlSimple(product.name) + '</h2>' +
-        '<p class="color-chooser-sub">Choose a colour — then customize on the next screen.</p>' +
-        '<div class="color-chooser-grid"></div>';
+        '<p class="color-chooser-sub">Choose a colour — or pick one later in the editor.</p>' +
+        '<div class="color-chooser-grid"></div>' +
+        '<button class="color-chooser-skip" type="button" ' +
+        'style="margin-top:14px;display:block;width:100%;padding:10px 14px;border:1px solid rgba(255,255,255,0.10);background:transparent;color:var(--text-secondary,#9898b8);border-radius:10px;cursor:pointer;font:inherit;font-size:0.86rem;">' +
+        'Skip — pick colour later</button>';
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
+
+      // "Skip — pick later" defaults to the first listed colour so the
+      // user can keep moving; the swatch row inside the editor (and
+      // the variant picker) lets them change it at any point.
+      var skipBtn = panel.querySelector(".color-chooser-skip");
+      if (skipBtn) {
+        skipBtn.addEventListener("click", function () {
+          var firstOpt = opts[0];
+          var firstChild = firstOpt && PRODUCTS.find(function (p) { return p.id === firstOpt.productId; });
+          if (firstChild) {
+            if (state.selectedVariantByProduct[firstChild.id] == null && firstChild.variantId != null) {
+              state.selectedVariantByProduct[firstChild.id] = firstChild.variantId;
+            }
+            close();
+            commitProductSelection(firstChild);
+          } else {
+            close();
+          }
+        });
+      }
 
       var grid = panel.querySelector(".color-chooser-grid");
       opts.forEach(function(opt) {
@@ -12210,6 +12281,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           _renderSummary(null);
           _renderMockup(null);
           loadVariants(product).then(function() {
+            // Single-variant cold-path skip (persona-sweep finding):
+            // when the catalog turns out to expose exactly one variant
+            // after the fetch resolves, auto-commit and close the
+            // modal — the cached-path short-circuit at the top of
+            // showConfirmSelectModal handles the warm case; this
+            // handles the cold one. Avoids spinning the user up to
+            // pick the only option.
+            var _filtered = _variantsList();
+            if (_filtered && _filtered.length === 1 && typeof onContinue === "function") {
+              var _v = _filtered[0];
+              if (_v && _v.id != null) {
+                state.selectedVariantByProduct[product.id] = _v.id;
+                state.pendingVariantByProduct[product.id] = undefined;
+                if (_v.aspectRatio) state.variantAspectRatioByProduct[product.id] = _v.aspectRatio;
+                pendingVariantId = _v.id;
+              }
+              _close(false);
+              onContinue();
+              return;
+            }
             _renderSelectors();
             var variants = _variantsList();
             var first = variants.find(function(v) { return v.id === pendingVariantId; }) || variants[0];
