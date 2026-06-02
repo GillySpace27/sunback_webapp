@@ -1441,12 +1441,45 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
             log_to_queue(f"[do_generate_sync][warn] Persistent write-through failed: {e}")
     return url_path
 
+def _check_ram_headroom(min_free_mb: int = 400) -> None:
+    """LAUNCH-BLOCKER fix (workflow wx5fi2brl, rhef-oom-512mb):
+    refuse a fresh RHEF render when free RAM is below `min_free_mb`,
+    rather than crashing the process and taking the whole server with
+    it. Caller catches HTTPException and surfaces a friendly retry
+    message. Silent on import failure (psutil not installed → skip
+    guard). Tuneable via RAM_HEADROOM_MB env var; default 400 MB
+    matches the worst-case RHEF + matplotlib working set on a 2 GB
+    instance."""
+    try:
+        import psutil as _psutil
+    except Exception:
+        return
+    try:
+        mem = _psutil.virtual_memory()
+        env_min = int(os.getenv("RAM_HEADROOM_MB", str(min_free_mb)))
+        free_mb = mem.available / (1024 * 1024)
+        if free_mb < env_min:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Server is busy ({free_mb:.0f} MB free; need ≥{env_min} MB). "
+                    f"Try one of the pre-rendered famous moments above, or try again in a minute."
+                ),
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        # Don't let a guard failure block the path — just log + continue.
+        print(f"[ram_headroom] guard check failed (continuing): {sys.exc_info()[1]}")
+
+
 @app.post("/api/generate")
 async def start_generate(background_tasks: BackgroundTasks, payload: dict):
     """Start the HQ generation task asynchronously and return a task_id.
     Optional 'format': 'jpg' | 'raw' | 'rhef' (default rhef). Currently only rhef is implemented.
     Optional 'time' (HH:MM UTC) gets folded into `date` so the HQ render
     targets the same instant as the preview pipeline."""
+    _check_ram_headroom()
     date = payload.get("date")
     time_raw = (payload.get("time") or "12:00").strip()
     wavelength = payload.get("wavelength")
@@ -1756,7 +1789,7 @@ def _phase_b_warm(image_id_cache):
                 # Render edge-cut on a long-running warm doesn't lose
                 # everything. Re-runs read this manifest + skip cached.
                 try:
-                    DEFAULT_MOCKUPS_MANIFEST.write_text(json.dumps(manifest, indent=2))
+                    _tmp_mockup = DEFAULT_MOCKUPS_MANIFEST.with_suffix(".json.tmp"); _tmp_mockup.write_text(json.dumps(manifest, indent=2)); os.replace(_tmp_mockup, DEFAULT_MOCKUPS_MANIFEST)
                 except Exception as _e:
                     print(f"[warm_default][phase_b] manifest incremental-write failed: {_e}", flush=True)
                 created += 1
@@ -1784,7 +1817,7 @@ def _phase_b_warm(image_id_cache):
     # Persist the manifest. Always rewrite (with any new entries merged in
     # via the existing dict).
     try:
-        DEFAULT_MOCKUPS_MANIFEST.write_text(json.dumps(manifest, indent=2))
+        _tmp_mockup = DEFAULT_MOCKUPS_MANIFEST.with_suffix(".json.tmp"); _tmp_mockup.write_text(json.dumps(manifest, indent=2)); os.replace(_tmp_mockup, DEFAULT_MOCKUPS_MANIFEST)
     except Exception as e:
         print(f"[warm_default][phase_b] manifest write failed: {e}", flush=True)
 
@@ -1954,7 +1987,14 @@ def _vibe_render_array_to_png(data, out_path: str, cmap, gamma: float = None):
     """
     import numpy as _np
     import matplotlib.colors as _mc
+    # LAUNCH-BLOCKER fix (workflow wx5fi2brl, rhef-oom-512mb):
+    # downcast to float32 if not already — halves memory vs float64
+    # (4096² float64 = 128 MB; float32 = 64 MB). matplotlib's colormap
+    # path doesn't care which dtype it gets. The free-tier OOM trigger
+    # was holding 2× float64 copies during PowerNorm; this cuts it.
     arr = _np.asarray(data)
+    if arr.dtype != _np.float32 and arr.dtype.kind == "f":
+        arr = arr.astype(_np.float32, copy=False)
     finite = arr[_np.isfinite(arr)]
     if finite.size == 0:
         vmin, vmax = 0.0, 1.0
@@ -2168,11 +2208,18 @@ def _warm_vibe_grid(force: bool = False) -> dict:
             per_vibe.append({"slug": slug, "status": "failed", "ok": False, "error": err})
 
         # Incremental manifest write — survives mid-run process death.
+        # NEEDS-FIX (workflow wx5fi2brl, manifest-non-atomic-writes):
+        # write to .tmp then os.replace so a concurrent reader can never
+        # observe a partial JSON file. os.replace is atomic on POSIX +
+        # Windows; same primitive used by the bundle-upload path.
         try:
-            DEFAULT_VIBE_MANIFEST.write_text(json.dumps({
+            payload = json.dumps({
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "vibes": manifest_vibes,
-            }, indent=2))
+            }, indent=2)
+            tmp = DEFAULT_VIBE_MANIFEST.with_suffix(".json.tmp")
+            tmp.write_text(payload)
+            os.replace(tmp, DEFAULT_VIBE_MANIFEST)
         except Exception as e:
             print(f"[warm_vibe_grid] manifest incremental-write failed: {e}", flush=True)
 

@@ -4596,8 +4596,31 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Bandwidth: ~22 MB total (11 vibes × ~2 MB avg per tier on
     // gzipped PNGs from gamma-corrected warm output). Fires after a
     // brief idle so it doesn't compete with the initial paint.
+    // LAUNCH-BLOCKER fix (workflow wx5fi2brl, vibe-grid-12mb-preload):
+    // Before this change, every cold load fired 22 fetches × ~6 MB avg
+    // (11 vibes × raw_full + rhef_full) = ~130 MB of egress before the
+    // user clicked anything. Catastrophic on 3G/Save-Data.
+    //
+    // Now the background preload:
+    //  - Skips entirely on Save-Data / slow-2g / 2g effective types
+    //  - Skips entirely if the user is currently scrolling (likely
+    //    moving on; don't waste their data)
+    //  - Preloads ONLY the JPG-HQ + 256² thumbs by default (~1 MB total)
+    //  - The full-tier preload is deferred to vibe-card hover/click via
+    //    _preloadVibeTiersIntoState in _activateVibe — the user has
+    //    expressed intent at that point.
     function _backgroundPreloadAllVibeTiers() {
       if (!_vibeManifest) return;
+      // Save-Data / slow-connection skip — respect the Network Information
+      // API where the browser supports it.
+      try {
+        var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (conn) {
+          if (conn.saveData) return;
+          var et = conn.effectiveType || "";
+          if (et === "slow-2g" || et === "2g") return;
+        }
+      } catch (_e) {}
       var slugs = Object.keys(_vibeManifest).filter(function (s) {
         return s !== "birthday";
       });
@@ -4607,17 +4630,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var slug = slugs[idx++];
         var entry = _vibeManifest[slug];
         if (!entry) return setTimeout(_tick, 0);
-        ["raw_full_url", "rhef_full_url"].forEach(function (key) {
+        // Only preload the light-weight bits: jpg_hq_url (~800 KB) and
+        // the 256² thumbs are dwarfed by the 12 MB rhef_full. Total
+        // bandwidth dropped from ~130 MB to ~10 MB.
+        ["jpg_hq_url", "raw_thumb_url", "rhef_thumb_url"].forEach(function (key) {
           var url = entry[key];
-          var tierKey = slug + ":" + (key === "raw_full_url" ? "raw" : "rhef");
-          if (!url || _vibeTierImageCache[tierKey]) return;
+          if (!url) return;
           var img = new Image();
-          img.onload = function () { _vibeTierImageCache[tierKey] = img; };
-          // No-op on error: it just means this tier won't be preloaded.
+          // No-op on error: just means this tier won't be preloaded.
           img.src = url;
         });
         // Stagger so we don't saturate the connection at once.
-        setTimeout(_tick, 200);
+        setTimeout(_tick, 300);
       }
       // Defer the start to next idle so initial paint isn't choked.
       (window.requestIdleCallback || function (cb) { setTimeout(cb, 800); })(_tick);
