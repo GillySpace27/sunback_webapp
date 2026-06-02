@@ -14,7 +14,9 @@
       "category": "security",
       "evidence": "api/security.py:108-114 reads leftmost XFF hop with no trust check. Live probe: 8 POSTs to /api/feedback rotating XFF returned 200, never tripped 5/min cap. Same bypass applies to printify_upload/product/publish/checkout. Render appends to XFF rather than replacing, so client-supplied values appear first.",
       "recommendation": "Read rightmost trusted hop (Render's CF-Connecting-IP or last XFF entry after stripping known proxies). Without this, the operator gets billed by the first attacker who scripts curl against /api/printify/checkout once BETA_MODE lifts.",
-      "effort_hours": 2
+      "effort_hours": 2,
+      "status": "SHIPPED",
+      "shipped_commit": "393a58c"
     },
     {
       "id": "printify-upload-no-moderation",
@@ -22,7 +24,9 @@
       "category": "security",
       "evidence": "api/printify_routes.py:166-217 /upload accepts arbitrary base64 PNGs and forwards to Printify with operator's PRINTIFY_API_KEY. Only Origin allowlist (trivially satisfied) and bypassable rate limit. Once BETA_MODE lifts, anyone can upload CSAM/copyrighted/hate content under operator's Printify account; ToS makes merchant liable.",
       "recommendation": "Restrict /upload to backend-generated solar imagery only \u2014 refuse client-supplied `contents`, accept only `image_id` keys mapping server-side to /asset/* paths we generated. Every legitimate print starts from a Sun image we already rendered.",
-      "effort_hours": 8
+      "effort_hours": 8,
+      "status": "SHIPPED",
+      "shipped_commit": "393a58c (URL allowlist + 33MB cap + IP audit log; per-session signed tokens deferred)"
     },
     {
       "id": "checkout-double-click-no-idempotency",
@@ -30,7 +34,9 @@
       "category": "commerce",
       "evidence": "api/solar-archive.js:10165-10188 btnBuyInEditor \u2192 startCheckout \u2192 confirm modal \u2192 doCheckout. Buttons only disabled inside doCheckout at 10847, after confirm fires. No checkoutInFlight flag on click handler or doCheckout. Double-tap/Enter-twice fires /api/printify/checkout twice \u2192 two Printify products, two Shopify listings, possible double-charge. Server rate limit (3 per 5 min) doesn't prevent the second call.",
       "recommendation": "Add module-level _checkoutInFlight flag set in startCheckout, cleared in doCheckout.finally. Also disable confirm-modal button on click to lock against double-confirm before Promise resolves. Pass idempotency key to server and dedupe before calling Printify.",
-      "effort_hours": 1
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "393a58c"
     },
     {
       "id": "missing-legal-policies",
@@ -38,7 +44,9 @@
       "category": "legal",
       "evidence": "api/index.html:1012-1023 footer has only build version. /privacy /terms /refund /shipping all 404. No mailto:/support@/contact anywhere. Shopify Payments and Stripe require published Privacy + Terms + Refund + Shipping policies and a public support contact. Without them merchant agreement is violated and processors will freeze on first dispute.",
       "recommendation": "Add four static pages (Privacy, Terms with copyright-indemnity clause for text overlays, Refund/Return covering Printify POD standard, Shipping). Add mailto:support footer link surfaced in checkout error toasts. Link policy URLs in Shopify storefront before lifting BETA_MODE.",
-      "effort_hours": 6
+      "effort_hours": 6,
+      "status": "SHIPPED",
+      "shipped_commit": "25a9309 (boilerplate NOT LEGAL ADVICE; user must fill bracketed placeholders before launch)"
     },
     {
       "id": "cookie-consent-gdpr",
@@ -46,7 +54,9 @@
       "category": "legal",
       "evidence": "api/solar-archive.js writes to localStorage at lines 763, 791, 857, 886, 1854, 1897, 5498, 5520, 10132 with no consent UI. ICO/CNPD treat localStorage as cookie-equivalent under ePrivacy Art. 5(3). EAA also in force since 2025-06-28.",
       "recommendation": "Add a minimal strict-necessary disclosure banner ('We store preferences in your browser\u2026') with Dismiss, link it to Privacy Policy. Since storage is functional-only no opt-in is required, but disclosure is mandatory.",
-      "effort_hours": 3
+      "effort_hours": 3,
+      "status": "SHIPPED",
+      "shipped_commit": "25a9309"
     },
     {
       "id": "rhef-oom-512mb",
@@ -54,7 +64,9 @@
       "category": "reliability",
       "evidence": "api/main.py:2162 comment explicitly states RHEF (4096\u00b2 float64 + matplotlib at 300dpi) routinely OOMs even on Render's 2 GB Standard plan. Production is on 512 MB free tier \u2014 strictly worse. A single RHEF render is over budget for the published instance size.",
       "recommendation": "Move to Render Standard \u22652 GB AND downcast arrays to float32 (halves memory). At launch, refuse non-cached date/wavelength tuples \u2014 only serve pre-warmed vibe grid + cached defaults. Add a RAM-headroom guard returning 503 + 'Choose one of these dates' when < 400 MB free.",
-      "effort_hours": 4
+      "effort_hours": 4,
+      "status": "SHIPPED",
+      "shipped_commit": "f48b18c (float32 downcast + RAM headroom guard) + user upgraded Render to Pro/Standard 2GB"
     },
     {
       "id": "render-free-tier-cold-start",
@@ -62,7 +74,9 @@
       "category": "reliability",
       "evidence": "Render free tier hibernates after 15 min idle with ~30 s cold start; index.html itself is served by FastAPI (api/main.py:496) so even the landing page is gated by cold start. cf-cache-status: DYNAMIC \u2014 no CDN cache. solar-archive.js:32 HEALTH_TIMEOUT_MS=12000 is shorter than worst cold start. A paid TikTok/HN burst would land most visitors on a 30 s blank page.",
       "recommendation": "Upgrade to Render Starter ($7/mo, no hibernation) before lifting BETA_MODE OR put Cloudflare HTML/JS cache in front OR add UptimeRobot ping every 10 min. Bump HEALTH_TIMEOUT_MS to 35000.",
-      "effort_hours": 2
+      "effort_hours": 2,
+      "status": "SHIPPED",
+      "shipped_commit": "user upgraded Render plan + 393a58c added long-cache headers for ?v=hashed assets"
     },
     {
       "id": "static-assets-no-cache",
@@ -70,7 +84,9 @@
       "category": "performance",
       "evidence": "curl -D - shows /solar-archive.js (593 KB / 165 KB gzip) and /solar-archive.css (190 KB / 49 KB gzip) returned with Cache-Control: no-cache, no-store, must-revalidate. api/main.py:3520 _NO_CACHE_HEADERS applied to both. Every page load re-downloads ~215 KB compressed from the free-tier origin. Compounds the cold-start blocker.",
       "recommendation": "Version the bundle (?v=<build-hash> in index.html) and serve JS/CSS with Cache-Control: public, max-age=31536000, immutable. Keep no-cache only on index.html so deploys propagate.",
-      "effort_hours": 1.5
+      "effort_hours": 1.5,
+      "status": "SHIPPED",
+      "shipped_commit": "393a58c (?v= versioned bust + max-age=31536000 immutable)"
     },
     {
       "id": "vibe-grid-12mb-preload",
@@ -78,7 +94,9 @@
       "category": "performance",
       "evidence": "/asset/default/vibe/ar2192/rhef_full.png is 12.4 MB. solar-archive.js:4592 background-preloads ALL 11 vibes' raw_full + rhef_full tiers. On 3G/slow-4G that's minutes of bandwidth and risks chewing daily data caps; jpg_hq is only 838 KB so cost is in the PNG variants.",
       "recommendation": "Preload only *_thumb URLs; defer full tier to hover/click. Re-encode 12 MB RHEF PNGs as quantized 8-bit PNG or WebP/AVIF (likely 80-90% smaller). Gate any preload on navigator.connection.saveData / effectiveType.",
-      "effort_hours": 4
+      "effort_hours": 4,
+      "status": "SHIPPED",
+      "shipped_commit": "f48b18c (preload diet: only ~10 MB total instead of 130 MB; Save-Data respected)"
     }
   ],
   "needs_fix": [
@@ -87,14 +105,18 @@
       "title": "/debug/* routes expose filesystem layout unauthenticated",
       "category": "security",
       "recommendation": "Gate every /debug/* route behind X-Admin-Key (same _check_admin_key) or remove before public launch. Covers /debug/env, /debug/vso, /debug/vso_download_test, /debug/list_output.",
-      "effort_hours": 1
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "393a58c"
     },
     {
       "id": "security-headers",
       "title": "Missing CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy",
       "category": "security",
       "recommendation": "Add a small SecurityHeadersMiddleware (~30 LOC) setting CSP (self + Shopify CDN), frame-ancestors self + Shopify, HSTS max-age=31536000 includeSubDomains preload, nosniff, strict-origin-when-cross-origin. Mitigates innerHTML XSS surface in solar-archive.js (~25 sites).",
-      "effort_hours": 3
+      "effort_hours": 3,
+      "status": "SHIPPED",
+      "shipped_commit": "393a58c (CSP/HSTS/X-Frame/nosniff/Referrer/Permissions middleware)"
     },
     {
       "id": "admin-key-in-url",
@@ -108,7 +130,9 @@
       "title": "/api/helioviewer_thumb has no rate limit, no origin check, no caching",
       "category": "security",
       "recommendation": "Add enforce_rate_limit + enforce_origin; cap size \u2264 1024; cache responses on disk by (date, wavelength, scale, size) \u2014 deterministic. Prevents bandwidth tap / Helioviewer IP-block.",
-      "effort_hours": 4
+      "effort_hours": 4,
+      "status": "SHIPPED",
+      "shipped_commit": "b40c03e (60/min per IP + origin check)"
     },
     {
       "id": "cors-wildcard",
@@ -395,5 +419,65 @@
       "legal-a11y",
       "perf-compat-obs"
     ]
+  },
+  "_session_summary": {
+    "session_date": "2026-06-01",
+    "commits": [
+      {
+        "sha": "393a58c",
+        "title": "Launch-readiness sweep 1/5 \u2014 security hardening",
+        "items": [
+          "xff-rate-limit-bypass",
+          "printify-upload-no-moderation",
+          "checkout-double-click-no-idempotency",
+          "static-assets-no-cache",
+          "security-headers",
+          "debug-routes-unauth"
+        ]
+      },
+      {
+        "sha": "f48b18c",
+        "title": "Launch-readiness sweep 2/5 \u2014 reliability hardening",
+        "items": [
+          "rhef-oom-512mb",
+          "vibe-grid-12mb-preload",
+          "manifest-non-atomic-writes"
+        ]
+      },
+      {
+        "sha": "25a9309",
+        "title": "Launch-readiness sweep 3/5 \u2014 legal + cookie + telemetry + SEO",
+        "items": [
+          "missing-legal-policies",
+          "cookie-consent-gdpr",
+          "no-error-reporting (partial: Sentry CDN)",
+          "no-analytics",
+          "missing-robots-sitemap-og",
+          "footer-build-low-contrast"
+        ]
+      },
+      {
+        "sha": "b40c03e",
+        "title": "Launch-readiness sweep 4/5 \u2014 error capture + helioviewer rate limit",
+        "items": [
+          "helioviewer-proxy-unrate-limited",
+          "window.onerror handler"
+        ]
+      }
+    ],
+    "blockers_shipped": 9,
+    "blockers_total": 9,
+    "needs_fix_shipped": 8,
+    "needs_fix_total": 34,
+    "next_actions_for_operator": [
+      "Replace [Entity Name], [Support Email], [State / Country \u2026] placeholders in api/legal/*.html before launch",
+      "Set SENTRY_DSN env var on Render service (commit 25a9309 wires the loader; CDN script kicks in once DSN populated)",
+      "Set GA_MEASUREMENT_ID env var on Render service (commit 25a9309 wires GA4 once a user clicks Accept on cookie banner)",
+      "Update window.GA_MEASUREMENT_ID + window.SENTRY_DSN values in index.html inline script via env injection at deploy",
+      "Confirm Shopify storefront has matching legal policies + URLs (Shopify Payments requires merchant-side links too)",
+      "After above, flip BETA_MODE off via env var",
+      "Remaining 26 needs-fix items in feedback.json \u2014 review prioritization with launch_readiness.json punch list"
+    ],
+    "verified_go_status": "CONDITIONAL_GO \u2014 all 9 launch blockers closed in code; operator-side prerequisites (legal placeholder fill + env vars + Shopify policy links) still required before flipping BETA_MODE."
   }
 }
