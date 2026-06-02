@@ -2478,16 +2478,22 @@ body.step-image #selectedProductPreview {
    static. z-index sits above .workflow-breadcrumb (52) so when the
    user scrolls and both stack at the top, the toggle is the upper
    layer rather than the lower. */
+/* Defence in depth — every property that controls "is this floating
+   at the top of the viewport?" is !important so no other rule (or
+   future regression) can quietly drop the toggle into the document
+   flow. Reviewer & Gilly both kept hitting "the toggle isn't sticking";
+   strengthening the rules here closes the door on it. */
 #vibeRevealCta {
   position: fixed !important;
-  top: max(8px, env(safe-area-inset-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  top: max(8px, env(safe-area-inset-top, 0px)) !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 60 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 !important;  /* override .vibe-reveal-cta margin: 4px 0 18px */
   pointer-events: none;
 }
 #vibeRevealCta > * { pointer-events: auto; }
@@ -2504,8 +2510,10 @@ body.step-image #selectedProductPreview {
    this left the toggle "position: static" on step "image" after a
    back-nav from editor, so it scrolled out of view. */
 body.step-editor #vibeRevealCta {
-  position: static;
-  pointer-events: none;
+  /* Editor owns the Quality timeline; hide the master toggle entirely
+     instead of dropping it into static flow (which used to leak a
+     visible row at the top of the editor on prod). */
+  display: none !important;
 }
 body.step-editor .vibe-master-toggle,
 body.step-editor .vibe-reveal-btn {

@@ -319,13 +319,43 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // step's primary affordance is. Skip on popstate (the browser
       // restores its own scroll position) and on initial bootstrap
       // (no transition yet).
-      if (!opts.fromPopstate && prev && prev !== name && name !== "editor") {
-        // Skip the unconditional reset when transitioning INTO editor —
-        // commitImageChoice runs its own smooth scrollIntoView to
-        // #imageStage on the next rAF. The double-scroll caused a
-        // visible flash to top then scroll back down (reviewer M4).
-        try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); }
-        catch (_e) { try { window.scrollTo(0, 0); } catch (_e2) {} }
+      if (!opts.fromPopstate && prev && prev !== name) {
+        // Explicit scroll target per destination step. The previous
+        // implementation (single unconditional scrollTo(0,0) followed
+        // by a smooth scrollIntoView elsewhere) was unreliable — both
+        // because of double-scroll fights and because of "scroll target
+        // is hidden under the new step's body-class CSS." Now we wait
+        // one paint for the body-class swap, then jump to the top of
+        // the newly-revealed section.
+        var _scrollName = name;
+        requestAnimationFrame(function () {
+          try {
+            var target = null;
+            if (_scrollName === "product") {
+              target = document.getElementById("productSection");
+            } else if (_scrollName === "image") {
+              target = document.querySelector(".vibe-grid-section")
+                    || document.getElementById("configSection");
+            } else if (_scrollName === "editor") {
+              target = document.getElementById("imageStage")
+                    || document.querySelector(".editor-with-preview")
+                    || document.getElementById("editSection");
+            }
+            if (target && typeof target.getBoundingClientRect === "function") {
+              var rect = target.getBoundingClientRect();
+              // Account for the fixed top bars: breadcrumb (~44px) +
+              // master toggle (~40px) ≈ 100px on step image. Editor
+              // hides both, so 0 there. Product hides them too.
+              var topPad = _scrollName === "image" ? 100 : 0;
+              var dest = (window.scrollY || 0) + rect.top - topPad;
+              window.scrollTo({ top: Math.max(0, dest), behavior: "auto" });
+            } else {
+              window.scrollTo({ top: 0, behavior: "auto" });
+            }
+          } catch (_e) {
+            try { window.scrollTo(0, 0); } catch (_e2) {}
+          }
+        });
       }
       // Hash sync — skip when coming from popstate (the browser
       // already updated location.hash before firing the event).
@@ -406,12 +436,35 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // appendChild on an already-direct-body child is a no-op.
     try {
       var _ctaInit = document.getElementById("vibeRevealCta");
-      if (_ctaInit && _ctaInit.parentElement !== document.body) {
-        document.body.appendChild(_ctaInit);
+      if (_ctaInit) {
+        if (_ctaInit.parentElement !== document.body) {
+          document.body.appendChild(_ctaInit);
+        }
+        // Belt-and-suspenders: write the floating coords as inline
+        // styles so a future CSS regression (or a stacking-context
+        // surprise) can't quietly drop the toggle into the document
+        // flow. Inline styles win over every stylesheet rule short
+        // of another inline !important — and inline + !important is
+        // the strongest cascade. Gilly kept hitting "the toggle
+        // doesn't pin" after multiple CSS-only fixes; pinning inline
+        // closes the loop for good.
+        _ctaInit.style.setProperty("position", "fixed", "important");
+        _ctaInit.style.setProperty("top", "max(8px, env(safe-area-inset-top, 0px))", "important");
+        _ctaInit.style.setProperty("left", "50%", "important");
+        _ctaInit.style.setProperty("transform", "translateX(-50%)", "important");
+        _ctaInit.style.setProperty("z-index", "60", "important");
+        _ctaInit.style.setProperty("margin", "0", "important");
       }
       var _bcInit = document.getElementById("workflowBreadcrumb");
-      if (_bcInit && _bcInit.parentElement !== document.body) {
-        document.body.appendChild(_bcInit);
+      if (_bcInit) {
+        if (_bcInit.parentElement !== document.body) {
+          document.body.appendChild(_bcInit);
+        }
+        _bcInit.style.setProperty("position", "fixed", "important");
+        _bcInit.style.setProperty("top", "max(8px, env(safe-area-inset-top, 0px))", "important");
+        _bcInit.style.setProperty("left", "50%", "important");
+        _bcInit.style.setProperty("transform", "translateX(-50%)", "important");
+        _bcInit.style.setProperty("z-index", "52", "important");
       }
     } catch (_e) {}
     // BFCache restore (Safari back/forward optimisation): the page is
