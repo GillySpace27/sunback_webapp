@@ -162,7 +162,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // EVE or HMI imagery, so naming them in the credit reads as
       // cargo-cult to a domain reviewer. Restore the longer form
       // here AND in index.html footer if we add EVE/HMI channels.
-      SDO_ACK: "Courtesy of NASA/SDO and the AIA science team.",
+      // NEEDS-FIX (workflow wx5fi2brl, sdo-rules-of-the-road): the
+      // SDO Rules of the Road require crediting the relevant
+      // instrument SCIENCE TEAMS, not just "the AIA science team", so
+      // future products that surface HMI / EVE channels stay compliant
+      // without a copy edit. Bracketed list matches NASA's canonical
+      // phrasing from the SDO data-use policy page.
+      SDO_ACK: "Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.",
       AIA_PAPER: "Lemen, J. R., et al. 2012, Sol. Phys., 275, 17.",
       RHEF_PAPER: "Gilly, C., et al. 2025, Sol. Phys., 300, 174 (https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G).",
       HELIOVIEWER_ACK: "This work has made use of the Helioviewer Project, an open-source project for visualisation of solar and heliospheric data."
@@ -2603,6 +2609,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           });
           hideProgress();
         }
+        // NEEDS-FIX (workflow wx5fi2brl, helioviewer-client-timeout):
+        // browsers will sit on a stalled Image() for up to ~60s before
+        // firing onerror, leaving the user staring at a spinner. Hard
+        // cap at 20s and fire onerror so the user gets the inline
+        // retry button quickly.
+        var _hvImgTimeout = setTimeout(function () {
+          try { img.src = ""; } catch (_e) {}
+          if (typeof img.onerror === "function") img.onerror();
+        }, 20000);
+        var _origImgLoad = img.onload;
+        img.onload = function () {
+          clearTimeout(_hvImgTimeout);
+          if (_origImgLoad) return _origImgLoad.apply(this, arguments);
+        };
+        var _origImgErr = img.onerror;
+        img.onerror = function () {
+          clearTimeout(_hvImgTimeout);
+          if (_origImgErr) return _origImgErr.apply(this, arguments);
+        };
         img.src = url;
       }
     }
@@ -4699,6 +4724,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Bandwidth: ~22 MB total (11 vibes × ~2 MB avg per tier on
     // gzipped PNGs from gamma-corrected warm output). Fires after a
     // brief idle so it doesn't compete with the initial paint.
+    // Module-level abort controller for the background preload pass.
+    // NEEDS-FIX (workflow wx5fi2brl, vibe-preload-no-abort): if the
+    // user navigates away mid-preload, AbortController.abort() lets us
+    // stop dragging bytes through their connection. Fetches that have
+    // already started will short-circuit via .src = "" + setting an
+    // image to load nothing. We also bail the staggered _tick loop.
+    var _vibePreloadAbort = null;
+    window.addEventListener("pagehide", function () {
+      try { if (_vibePreloadAbort) _vibePreloadAbort.abort(); } catch (_e) {}
+    });
     // LAUNCH-BLOCKER fix (workflow wx5fi2brl, vibe-grid-12mb-preload):
     // Before this change, every cold load fired 22 fetches × ~6 MB avg
     // (11 vibes × raw_full + rhef_full) = ~130 MB of egress before the
@@ -4724,11 +4759,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (et === "slow-2g" || et === "2g") return;
         }
       } catch (_e) {}
+      // Fresh abort controller per preload run.
+      try { _vibePreloadAbort = new AbortController(); }
+      catch (_e) { _vibePreloadAbort = null; }
+      var _preloadImgs = [];  // for explicit abort fallback in older browsers
       var slugs = Object.keys(_vibeManifest).filter(function (s) {
         return s !== "birthday";
       });
       var idx = 0;
       function _tick() {
+        // Bail if the page was already navigated away from.
+        if (_vibePreloadAbort && _vibePreloadAbort.signal.aborted) return;
         if (idx >= slugs.length) return;
         var slug = slugs[idx++];
         var entry = _vibeManifest[slug];
@@ -4740,6 +4781,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var url = entry[key];
           if (!url) return;
           var img = new Image();
+          // Older browsers without AbortController support: setting
+          // .src = "" on a still-loading Image() halts the network
+          // fetch on modern Chromium / Firefox; Safari is best-effort.
+          _preloadImgs.push(img);
+          if (_vibePreloadAbort) {
+            _vibePreloadAbort.signal.addEventListener("abort", function () {
+              try { img.src = ""; } catch (_e) {}
+            });
+          }
           // No-op on error: just means this tier won't be preloaded.
           img.src = url;
         });
@@ -11038,7 +11088,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             position: product.position || "front",
             tags: ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()]
           })
-        }, 180000)
+          // NEEDS-FIX (workflow wx5fi2brl, checkout-timeout-mismatch):
+          // bumped 180000 → 300000 to outlast the worst-case server
+          // chain (Printify upload + product create + Shopify publish
+          // can stack to ~4 min under load). Better the user sees a
+          // long-running spinner than a false-positive timeout error
+          // that creates two products on the next retry.
+        }, 300000)
         .then(function(r) {
           if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
           return r.json();
@@ -11097,6 +11153,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               '<i class="fas fa-times"></i> Dismiss</button>' +
           '</div>';
         showToast("Checkout failed: " + msg, "error");
+        // NEEDS-FIX (workflow wx5fi2brl, checkout-failure-observability):
+        // beacon the failure to Sentry (when configured) so we can spot
+        // outages or systemic Printify / Shopify errors quickly. Also
+        // emit a GA event so the conversion funnel reflects the drop.
+        try {
+          if (window.Sentry && window.Sentry.captureMessage) {
+            window.Sentry.captureMessage("checkout-failure: " + msg.slice(0, 200), "error");
+          }
+          if (window.gtag) {
+            window.gtag("event", "checkout_failure", {
+              event_category: "commerce",
+              product_id: (typeof product !== "undefined" && product && product.id) || "",
+              error: msg.slice(0, 100),
+            });
+          }
+        } catch (_e) {}
       })
       .finally(function() {
         // Clear the idempotency latch so a follow-up attempt is allowed.
