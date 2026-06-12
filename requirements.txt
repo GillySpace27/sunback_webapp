@@ -7,7 +7,14 @@ parfive
 requests
 pydantic[email]
 sse_starlette
-sunkit-image
+# Temporary install from Gilly's fork — merges sunpy/sunkit-image#324
+# (sort-and-group rhef kernel, ~10× at our bin density) with #325
+# (analytic find_pixel_radii fast path on non-rotated HPC maps, ~7×).
+# Combined this drops a 4096² RHEF from ~2.1 s → ~150 ms on the
+# Render box.
+# TODO: flip back to a pinned PyPI release (e.g. sunkit-image==0.8.0)
+# once both PRs land in a tagged upstream release.
+sunkit-image @ git+https://github.com/GillySpace27/sunkit-image.git@solar-archive-fast-rhef
 aiapy
 dotenv
 cryptography
