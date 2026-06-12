@@ -1090,8 +1090,25 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                         break
         except Exception as vso_err:
             # VSO/SunPy unavailable (e.g. WSDL mirrors unreachable on this network).
-            # fits_path stays None so the Helioviewer fallback below runs automatically.
-            log_to_queue(f"[generate_preview] VSO unavailable ({type(vso_err).__name__}): {vso_err}")
+            # Try JSOC before falling all the way down to the JPG-only Helioviewer
+            # fallback — JSOC gets us a real FITS frame so RHEF still runs.
+            log_to_queue(f"[generate_preview] VSO unavailable ({type(vso_err).__name__}): {vso_err} — trying JSOC.")
+            try:
+                from pathlib import Path as _Path
+                jsoc_files = _fetch_aia_via_jsoc(dt.replace(second=0, microsecond=0),
+                                                 int(wl), _Path(download_dir))
+                if jsoc_files:
+                    # Pick the first usable file (≥100 KB).
+                    for jf in jsoc_files:
+                        try:
+                            if os.path.exists(jf) and os.path.getsize(jf) >= 100_000:
+                                fits_path = jf
+                                log_to_queue(f"[generate_preview] JSOC delivered: {os.path.basename(jf)}")
+                                break
+                        except Exception:
+                            continue
+            except Exception as jsoc_err:
+                log_to_queue(f"[generate_preview] JSOC fallback failed ({type(jsoc_err).__name__}): {jsoc_err}")
 
         if not fits_path:
             if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
@@ -3038,11 +3055,105 @@ def manual_aiaprep(m, logger=print):
     return m
 
 
+def _fetch_aia_via_jsoc(dt_query: datetime, wl: int, work_dir) -> list:
+    """Fallback SDO/AIA fetch via JSOC when VSO is unreachable.
+
+    Why this exists: VSO's WSDL endpoints (vso.stanford.edu,
+    sdac.virtualsolar.org) have been intermittently down for hours-
+    to-days at a time during 2026. When VSO fails, *every* on-demand
+    HQ render fails, which is a terrible UX. JSOC at Stanford has
+    the same data behind a completely different delivery system
+    (export queue + staged HTTP download). When VSO falls over, JSOC
+    usually still works.
+
+    Tradeoffs:
+    - JSOC requires a registered notification email
+      (SOLAR_ARCHIVE_JSOC_EMAIL env var). Without it the JSOC client
+      raises immediately, this function returns [], and the caller
+      surfaces the original VSO failure.
+    - JSOC fetches go through an export queue: search → request export
+      → poll for staged URL → download. Typical end-to-end is ~30-90s
+      (vs VSO's ~5-15s when healthy). Acceptable for "fallback when
+      VSO is down" but not a primary path.
+    - JSOC's email is for "if there's a problem we email you" — it's
+      registered once at http://jsoc.stanford.edu/ajax/register_email.html
+      and reused on every request.
+
+    Returns the list of downloaded FITS paths, or [] if JSOC is also
+    unreachable (e.g. no email configured, or JSOC itself is down).
+    """
+    email = os.environ.get("SOLAR_ARCHIVE_JSOC_EMAIL", "").strip()
+    if not email:
+        log_to_queue("[fetch][AIA][jsoc] SOLAR_ARCHIVE_JSOC_EMAIL not set; "
+                     "JSOC fallback disabled. Register an email at "
+                     "http://jsoc.stanford.edu/ajax/register_email.html "
+                     "and set the env var to enable.")
+        return []
+    try:
+        from sunpy.net import Fido, attrs as a
+        import astropy.units as u
+    except Exception as e:
+        log_to_queue(f"[fetch][AIA][jsoc] sunpy import failed: {e}")
+        return []
+    # AIA EUV channels (94, 131, 171, 193, 211, 304, 335) → aia.lev1_euv_12s.
+    # AIA UV channels (1600, 1700) → aia.lev1_uv_24s. The 4500 visible
+    # continuum channel is on aia.lev1_vis_1h but we don't expose it
+    # in the UI.
+    if wl in (1600, 1700):
+        series_name = "aia.lev1_uv_24s"
+    else:
+        series_name = "aia.lev1_euv_12s"
+    log_to_queue(f"[fetch][AIA][jsoc] Querying {series_name} at {dt_query.isoformat()} "
+                 f"for {wl} Å (notify={email[:3]}***).")
+    try:
+        _VSO_LIMITER.wait()  # share the limiter so we don't hammer Stanford either way
+        qr = Fido.search(
+            a.Time(dt_query, dt_query + timedelta(minutes=2)),
+            a.jsoc.Series(series_name),
+            a.jsoc.Notify(email),
+            a.Wavelength(wl * u.angstrom),
+            a.jsoc.Segment("image"),
+        )
+    except Exception as e:
+        log_to_queue(f"[fetch][AIA][jsoc] search failed: {e}")
+        return []
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        log_to_queue(f"[fetch][AIA][jsoc] No results at {dt_query.isoformat()}; widening to ±10 min.")
+        try:
+            _VSO_LIMITER.wait()
+            qr = Fido.search(
+                a.Time(dt_query - timedelta(minutes=10), dt_query + timedelta(minutes=10)),
+                a.jsoc.Series(series_name),
+                a.jsoc.Notify(email),
+                a.Wavelength(wl * u.angstrom),
+                a.jsoc.Segment("image"),
+            )
+        except Exception as e:
+            log_to_queue(f"[fetch][AIA][jsoc] wider search failed: {e}")
+            return []
+    if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
+        log_to_queue(f"[fetch][AIA][jsoc] No JSOC results in ±10 min either.")
+        return []
+    log_to_queue(f"[fetch][AIA][jsoc] {len(qr[0])} results queued; exporting.")
+    dl = get_downloader()
+    try:
+        files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
+        try:
+            files = list(map(str, files))
+        except Exception:
+            files = list(files) if isinstance(files, (list, tuple)) else [str(files)]
+    except Exception as e:
+        log_to_queue(f"[fetch][AIA][jsoc] fetch failed: {e}")
+        return []
+    log_to_queue(f"[fetch][AIA][jsoc] Retrieved {len(files)} files from JSOC export.")
+    return files
+
+
 def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
     """
     Retrieve a SunPy Map near the given date for the chosen mission.
     We search a small window around the date to find at least one file.
-    For SDO/AIA, use VSO only.
+    For SDO/AIA, try VSO first then fall back to JSOC if VSO is down.
     """
     log_to_queue(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wavelength}, detector={detector}")
     # Normalize wavelength and detector for cache keys
@@ -3147,22 +3258,32 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 a.Wavelength(wl * u.angstrom),
             )
         if len(qr) == 0 or all(len(resp) == 0 for resp in qr):
-            log_to_queue(f"[fetch] [AIA] No VSO results in ±1 day. SDO/AIA coverage: 2010-06 to present.")
-            raise HTTPException(
-                status_code=502,
-                detail="No VSO data available for this date. SDO/AIA coverage is from mid-2010 to present; try a date in that range.",
-            )
-        log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
-        # Download to work_dir using custom downloader
-        files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
-        try:
-            files = list(map(str, files))
-        except Exception:
-            files = list(files) if isinstance(files, (list, tuple)) else [str(files)]
-        log_to_queue(f"[fetch] Retrieved {len(files)} AIA frames from VSO (existing files were skipped by the downloader if present).")
-        if not files or len(files) == 0:
-            log_to_queue(f"[fetch] [AIA] VSO fetch returned no files.")
-            raise HTTPException(status_code=502, detail="No files from VSO AIA fetch.")
+            log_to_queue(f"[fetch] [AIA] No VSO results in ±1 day. Trying JSOC fallback.")
+            files = _fetch_aia_via_jsoc(dt_query, wl, work_dir)
+            if not files:
+                raise HTTPException(
+                    status_code=502,
+                    detail="No SDO/AIA data available for this date from VSO or JSOC. "
+                           "Coverage is mid-2010 to present; try a date in that range.",
+                )
+        else:
+            log_to_queue(f"[fetch] [AIA] VSO AIA data: {len(qr[0])} results...")
+            # Download to work_dir using custom downloader
+            try:
+                files = Fido.fetch(qr, downloader=dl, path=str(work_dir))
+                try:
+                    files = list(map(str, files))
+                except Exception:
+                    files = list(files) if isinstance(files, (list, tuple)) else [str(files)]
+                log_to_queue(f"[fetch] Retrieved {len(files)} AIA frames from VSO (existing files were skipped by the downloader if present).")
+            except Exception as _vso_dl_err:
+                log_to_queue(f"[fetch] [AIA][warn] VSO fetch raised ({_vso_dl_err}); trying JSOC fallback.")
+                files = _fetch_aia_via_jsoc(dt_query, wl, work_dir)
+            if not files or len(files) == 0:
+                log_to_queue(f"[fetch] [AIA] VSO fetch returned no files; trying JSOC fallback.")
+                files = _fetch_aia_via_jsoc(dt_query, wl, work_dir)
+            if not files or len(files) == 0:
+                raise HTTPException(status_code=502, detail="No files from VSO or JSOC AIA fetch.")
 
         # Restrict to only full-resolution level-1 science FITS files (exclude preview/quicklook)
         fits_files = sorted(work_dir.glob("*.fits"))
