@@ -1180,8 +1180,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var container = productSection.parentNode;
       // Move product section before edit section in DOM order
       container.insertBefore(productSection, editSection);
-      // Update step badge numbers
-      productSection.querySelector(".step-badge").textContent = "2";
+      // Update step badge numbers to reflect the reordered DOM:
+      // product(1) → image-pick(2) → editor(3)
+      productSection.querySelector(".step-badge").textContent = "1";
+      var vibeGridSection = document.querySelector(".vibe-grid-section");
+      if (vibeGridSection) vibeGridSection.querySelector(".step-badge").textContent = "2";
       editSection.querySelector(".step-badge").textContent = "3";
       // Both sections start hidden; productSection shown when wavelength selected,
       // editSection shown when a product card is clicked.
@@ -2566,9 +2569,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               entry.rhef = state.rhefImage; entry.rawBackend = state.rawBackendImage; entry.jpg = state.jpgImage;
               thumbCache[String(wl)] = entry;
               updateFilterStatusLine("Science data ready! Generating HQ\u2026", "loading");
-              // Stay on whatever filter the user currently has selected — just re-render
-              // to make the cached images available.
-              renderCanvas();
+              // If the gallery master toggle is in RHEF mode the user already expressed
+              // a preference — apply RHEF in the editor automatically rather than
+              // leaving them on JPG and requiring a manual toggle.
+              if (state.vibeMasterTier === "rhef") {
+                applyFilterInstant("rhef");
+              } else {
+                renderCanvas();
+              }
               if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
               // RHEF preview is ready — kick off HQ generation in the background.
               // The HQ image will auto-upgrade the canvas to hq_rhef when it arrives.

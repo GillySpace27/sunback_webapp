@@ -40,7 +40,7 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
 </head>
-<body>
+<body class="step-product">
 <!-- Skip-to-content link: visually hidden until focused, lets keyboard
      and screen-reader users bypass the hero/banners and jump straight
      to the editor. Sam Rosenberg round-2 WCAG 2.4.1 finding. -->
@@ -86,7 +86,7 @@
   </div>
 
   <!-- Backend Status Banner -->
-  <div class="backend-banner checking" id="backendBanner">
+  <div class="backend-banner checking hidden" id="backendBanner">
     <span class="banner-icon"><div class="spinner"></div></span>
     <div class="banner-text">
       <strong>Checking backend status...</strong>
@@ -1054,12 +1054,11 @@
       <span aria-hidden="true">·</span>
       <a href="/accessibility">Accessibility</a>
       <span aria-hidden="true">·</span>
-      <a href="#" id="dataCreditsLink" role="button">Data credits</a>
+      <button type="button" id="dataCreditsLink" class="footer-link-btn">Data credits</button>
     </nav>
     <div class="footer-meta">
-      Powered by <a href="https://solar-archive.onrender.com" target="_blank" rel="noopener">Solar Archive</a>
-      &nbsp;·&nbsp; <span id="buildVersion" class="footer-build-tag">—</span>
-      &nbsp;·&nbsp; <span id="buildTime" class="footer-build-tag" title="When index.html, solar-archive.js, solar-archive.css were last saved">—</span>
+      &copy; 2025 Chris Gilly
+      &nbsp;·&nbsp; <span id="buildVersion" class="footer-build-tag"></span><span id="buildTime" class="footer-build-tag" title="Last build time"></span>
     </div>
   </footer>
 
@@ -1076,8 +1075,8 @@
         <p>Solar Archive stores UI preferences in your browser (strict-necessary) and uses Google Analytics 4 for aggregated traffic stats. See our <a href="/privacy">Privacy Policy</a>.</p>
       </div>
       <div class="cookie-banner-actions">
-        <button type="button" class="cookie-banner-btn cookie-banner-btn-decline" id="cookieBannerDecline">Decline analytics</button>
-        <button type="button" class="cookie-banner-btn cookie-banner-btn-accept" id="cookieBannerAccept">Accept</button>
+        <button type="button" class="cookie-banner-btn cookie-banner-btn-decline" id="cookieBannerDecline" aria-label="Decline analytics cookies">Decline analytics</button>
+        <button type="button" class="cookie-banner-btn cookie-banner-btn-accept" id="cookieBannerAccept" aria-label="Accept analytics cookies">Accept</button>
       </div>
     </div>
   </div>
@@ -1133,9 +1132,8 @@
     <div class="beta-thanks-icon"><i class="fas fa-sun" aria-hidden="true"></i></div>
     <h2 class="beta-thanks-title" id="betaThanksTitle">Thanks for testing Solar Archive!</h2>
     <p class="beta-thanks-body">
-      Your design is saved to your downloads. Real product orders aren't
-      wired up yet — please check back in about a week and the full store
-      should be live.
+      Your design is saved to your downloads. Purchasing will be enabled once
+      the store is live — thanks for trying it out!
     </p>
     <div class="beta-thanks-actions">
       <button class="beta-thanks-btn beta-thanks-btn-primary" id="betaThanksReset" type="button">
