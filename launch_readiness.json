@@ -97,6 +97,26 @@
       "effort_hours": 4,
       "status": "SHIPPED",
       "shipped_commit": "f48b18c (preload diet: only ~10 MB total instead of 130 MB; Save-Data respected)"
+    },
+    {
+      "id": "checkout-price-client-controlled",
+      "title": "Checkout retail price taken verbatim from the request body (publish-at-1\u00a2)",
+      "category": "commerce",
+      "evidence": "api/printify_routes.py checkout() did `price = body.get('price', 0)` and published it straight to every Printify variant. A crafted POST could publish (then buy on Shopify) a product at 1\u00a2 while the operator still owed Printify wholesale+shipping. Only BETA_MODE blocked it. Missed by the 2026-05-28 panel \u2014 the Storefront cart-permalink checkout path (commit 3b03708) was added afterward.",
+      "recommendation": "Compute every variant price server-side from the trusted Printify catalog cost; never trust body.price as retail.",
+      "effort_hours": 4,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab (_compute_variant_prices: cost + editor markup, fails closed; branch, not yet deployed)"
+    },
+    {
+      "id": "checkout-flat-price-across-variants",
+      "title": "All size variants published at one flat price; charged != displayed, below-cost on large sizes",
+      "category": "commerce",
+      "evidence": "_do_checkout_sync enabled every variant_id at a single flat `price` while the editor's priceForVariantDisplay (solar-archive.js:9189) shows escalating per-size prices. A buyer picking the largest poster (editor ~$32) was charged the cheapest anchor ($9.99) -> sale below wholesale; a naive clamp-up overcharges the cheap size 5x. Deceptive-pricing + money-loss exposure.",
+      "recommendation": "Price each variant individually server-side using the editor's own formula cost + max(0, anchor - cheapest_cost), so charged == displayed and never below cost.",
+      "effort_hours": 4,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab"
     }
   ],
   "needs_fix": [
@@ -399,6 +419,51 @@
       "effort_hours": 2,
       "status": "SHIPPED",
       "shipped_commit": "853f142 (N/A \u2014 already addressed by removing :has() body selector in 6b474de)"
+    },
+    {
+      "id": "source-code-served-publicly",
+      "title": "Full Python server source downloadable at /static/*.py and /api/static/*.py",
+      "category": "security",
+      "recommendation": "Stop mounting api/ as static; all real assets have explicit routes. Removed both app_dir StaticFiles mounts.",
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab"
+    },
+    {
+      "id": "storefront-sku-substring-wrong-variant",
+      "title": "Storefront SKU lookup substring fallback could resolve cart-permalink to the WRONG variant",
+      "category": "commerce",
+      "recommendation": "Exact SKU match only; on no match fall back to the product page rather than guessing a variant the customer pays for.",
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab"
+    },
+    {
+      "id": "pricing-502-partial-cache-poison",
+      "title": "Pricing-index 502 tolerance stamped a truncated cache as fresh for 30 min",
+      "category": "commerce",
+      "recommendation": "Keep prior complete cache when a rebuild is partial; mark partial results stale in ~60s instead of full TTL.",
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab"
+    },
+    {
+      "id": "cart-url-shopify-url-unthrottled",
+      "title": "/cart_url and /shopify-url Printify-proxy GETs had no rate limit (quota-burn amplifier)",
+      "category": "security",
+      "recommendation": "Add a per-IP read-tier rate limit (120/60s) to both polled endpoints.",
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab"
+    },
+    {
+      "id": "publish-failure-swallowed",
+      "title": "Checkout returned status 'published' even when the Shopify publish failed (orphan, buyer stranded)",
+      "category": "reliability",
+      "recommendation": "Return publish_failed + a published bool so the client can fail fast instead of polling to a 60s timeout.",
+      "effort_hours": 1,
+      "status": "SHIPPED",
+      "shipped_commit": "796f0ab"
     }
   ],
   "nice_to_haves": [
@@ -459,9 +524,10 @@
     }
   ],
   "go_no_go": {
-    "recommendation": "NO_GO",
-    "rationale": "Cannot lift BETA_MODE today. Three categories of blockers must close first: (1) Print-pipeline abuse \u2014 XFF-bypassable rate limit + an unmoderated /upload that forwards arbitrary client images to Printify under the operator's key means the first scripted attacker post-BETA can upload illegal content, exhaust quota, and leave the operator liable under Printify ToS. (2) Commerce integrity \u2014 no idempotency on Buy can double-charge users, and Shopify Payments/Stripe will refuse to operate (or freeze on first dispute) without published Privacy/Terms/Refund/Shipping policies, a support email, and GDPR-grade storage disclosure for EU traffic. (3) Production fitness \u2014 Render free tier's 30 s cold start serves index.html itself, the RHEF render is documented to OOM on instances larger than the one in production, and uncached 215 KB JS/CSS plus 12 MB-per-vibe PNG preloads compound the cold-start pain into a near-unusable first impression on any modest traffic burst. All nine blockers are scoped fixes (~32 hr); a CONDITIONAL_GO is reasonable once they land, with the NEEDS_FIX legal + accessibility items finished in parallel. Analytics, Sentry, and PWA-style polish are not launch gates for a small-stakes printable-image site.",
-    "estimated_total_effort_hours": 31.5
+    "recommendation": "CONDITIONAL_GO",
+    "rationale": "All code-side launch blockers are closed. The 2026-06-22 adversarial verification of the post-audit Shopify cart-permalink checkout path found 5 confirmed launch-gating money bugs the original panel could not have seen (that path was added later): client-controlled price (publish-at-1c) and a flat-price-across-variants design (charged != displayed, below-cost on large sizes). Both are fixed in commit 796f0ab via server-side per-variant pricing, plus five additional majors (public source disclosure, wrong-variant SKU match, pricing-index 502 poisoning, unthrottled Printify-proxy GETs, swallowed publish failures). NONE of this is deployed yet. What remains is NOT code: 11 operator prerequisites in the Shopify/Printify dashboards (payments+payout, Printify<->Shopify link with PRINTIFY_SHOP_ID=25305559, billing card, Render money-path env vars, shipping zones, tax regions, store-side policies, delete the live $1 test products) and ONE real end-to-end test order with BETA off. HARD ORDERING: deploy 796f0ab BEFORE ever flipping BETA_MODE=false (public repo; BETA is currently the only thing gating the price bug on prod).",
+    "remaining_gate": "operator-config + one real end-to-end test order",
+    "estimated_code_effort_hours_remaining": 0
   },
   "_meta": {
     "generated_at": "2026-05-28",
@@ -474,7 +540,8 @@
       "reliability",
       "legal-a11y",
       "perf-compat-obs"
-    ]
+    ],
+    "last_verification": "2026-06-22 \u2014 4-lens adversarial go-live verification (money path, blocker regression, new-commit risk, operator gate)"
   },
   "_session_summary": {
     "session_date": "2026-06-01",
@@ -552,6 +619,19 @@
         "items": [
           "editor-state-persistence"
         ]
+      },
+      {
+        "sha": "796f0ab",
+        "title": "Launch-readiness: server-side per-variant pricing + checkout hardening (2026-06-22 verification)",
+        "items": [
+          "checkout-price-client-controlled",
+          "checkout-flat-price-across-variants",
+          "source-code-served-publicly",
+          "storefront-sku-substring-wrong-variant",
+          "pricing-502-partial-cache-poison",
+          "cart-url-shopify-url-unthrottled",
+          "publish-failure-swallowed"
+        ]
       }
     ],
     "blockers_shipped": 9,
@@ -567,6 +647,85 @@
       "After above, flip BETA_MODE off via env var",
       "Remaining 26 needs-fix items in feedback.json \u2014 review prioritization with launch_readiness.json punch list"
     ],
-    "verified_go_status": "CONDITIONAL_GO \u2014 all 9 launch blockers closed in code; ~28 of 34 needs-fix shipped. Operator-side prerequisites (legal placeholder fill + env vars + Shopify policy links) remain."
-  }
+    "verified_go_status": "CONDITIONAL_GO (2026-06-22) \u2014 all code blockers closed incl. the money-path bugs the original audit missed; remaining gate is operator dashboard config + a real test order. Deploy 796f0ab before flipping BETA_MODE off."
+  },
+  "operator_prerequisites": [
+    {
+      "id": "stale-test-prices-in-live-shop",
+      "title": "$1.00 test retail prices still live in the Printify/Shopify shop pollute the pricing index",
+      "severity": "major",
+      "operator_action": "In the Shopify/Printify admin, delete or re-price the leftover $1.00 test products/variants for blueprints 282, 425, 1206, 400 (and audit all others) so the live pricing index reflects real retail. The cache rebuilds from shop products (api/printify_routes.py:553-612).",
+      "recommendation": "Clean the live shop data before flipping BETA_MODE off; otherwise the first order on a single-variant or mis-anchored product can publish at $1.00. Consider ignoring sub-cost retail prices when building _pricing_cache so future test data can't poison the floor."
+    },
+    {
+      "id": "op-01-shopify-payments-payout",
+      "title": "Activate Shopify Payments + bank/payout in Shopify Admin (the cart permalink lands on a dead checkout otherwise)",
+      "severity": "blocker",
+      "operator_action": "Shopify Admin \u2192 Settings \u2192 Payments \u2192 activate Shopify Payments (or another gateway). Complete business identity (EIN/SSN, legal name 'Solar Archive operated by Chris Gilly'), and Settings \u2192 Payments \u2192 Payouts \u2192 add the bank account that receives payouts. Confirm the account status shows 'Active' / 'Accepting payments', not 'Setup required'.",
+      "recommendation": "VERIFY: In an incognito window navigate directly to https://solar-archive.myshopify.com/cart/<any-live-variant-id>:1 \u2014 the checkout page must show credit-card / Shopify Pay fields, not a 'this store can't accept payments right now' banner. Then complete one real card charge in the end-to-end test (op-09) and confirm the order appears Paid in Shopify Admin \u2192 Orders and a payout is scheduled under Settings \u2192 Payments \u2192 Payouts."
+    },
+    {
+      "id": "op-02-printify-shopify-link-and-shopid",
+      "title": "Confirm Printify shop is linked to THIS Shopify store and PRINTIFY_SHOP_ID points at the connected shop (25305559), not the disconnected one (4253367)",
+      "severity": "blocker",
+      "operator_action": "On Render service srv-... set PRINTIFY_SHOP_ID=25305559 (the shopify-connected shop). In Printify dashboard \u2192 My Stores confirm 'Solar Archive' is connected to solar-archive.myshopify.com and the connection is green/active (re-auth if Shopify token expired). The 'Born Under the Sun' shop (4253367) is disconnected \u2014 do not use it.",
+      "recommendation": "VERIFY: curl https://solar-archive.onrender.com/api/printify/shops and confirm the configured PRINTIFY_SHOP_ID matches the entry whose sales_channel=='shopify' (25305559). During the test order, after /checkout, confirm a new product appears in BOTH Printify \u2192 Solar Archive store AND Shopify Admin \u2192 Products within ~90s (the frontend polls /shopify-url for up to 90s, api/solar-archive.js:11494)."
+    },
+    {
+      "id": "op-03-printify-billing-on-file",
+      "title": "Add a billing method (card) in Printify \u2014 operator is charged wholesale + shipping per order; no card = order never goes to production",
+      "severity": "blocker",
+      "operator_action": "Printify dashboard \u2192 Settings \u2192 Payment / Billing \u2192 add a credit card (and optionally enable 'Automatically pay for orders' / auto-fulfillment so paid Shopify orders flow to production without manual approval). Confirm the card is verified, not expired.",
+      "recommendation": "VERIFY: In the end-to-end test (op-09), after the Shopify order is marked Paid, confirm Printify creates a corresponding order, charges the card (check Printify \u2192 Orders status moves to 'In production'), and that no 'add a payment method' / 'on hold' banner blocks it. If auto-fulfillment is OFF you must manually click 'Send to production' \u2014 decide and document which mode you want before launch."
+    },
+    {
+      "id": "op-04-render-money-path-env-vars",
+      "title": "Set + verify the mandatory money-path env vars on Render (render.yaml/.env only declare the STALE Printful key, so these must be set manually in the dashboard)",
+      "severity": "blocker",
+      "operator_action": "On Render \u2192 solar-archive \u2192 Environment, confirm/set: PRINTIFY_API_KEY (Printify Personal Access Token), PRINTIFY_SHOP_ID=25305559, SHOPIFY_STORE_DOMAIN=solar-archive.myshopify.com, SHOPIFY_STOREFRONT_ACCESS_TOKEN (Shopify Admin \u2192 Apps \u2192 Develop apps \u2192 Storefront API token, scope unauthenticated_read_product_listings \u2014 see shopify_storefront.py:12-18), and leave BETA_MODE set until launch. Optionally clean up render.yaml/.env which still reference the dead PRINTFUL_API_KEY.",
+      "recommendation": "VERIFY each via a live endpoint where possible: PRINTIFY_API_KEY+PRINTIFY_SHOP_ID \u2014 curl /api/printify/shops returns real shop JSON (already confirmed working) and the configured id matches the shopify shop. SHOPIFY_STORE_DOMAIN+BETA_MODE \u2014 curl /api/printify/store-config (currently {shopify_store_domain:solar-archive.myshopify.com, beta_mode:true}). SHOPIFY_STOREFRONT_ACCESS_TOKEN \u2014 after the test publish, curl /api/printify/product/<id>/cart_url?variant_id=<vid> and confirm source=='storefront-api' (not 'fallback-product-page'); if it falls back, the token is missing/wrong-scoped."
+    },
+    {
+      "id": "op-05-shopify-shipping-zones",
+      "title": "Configure Shopify shipping zones/rates \u2014 shipping.html promises 'shipping calculated at checkout', which is dead without zones",
+      "severity": "blocker",
+      "operator_action": "Shopify Admin \u2192 Settings \u2192 Shipping and delivery \u2192 create shipping zones (US + Canada at minimum per shipping.html:63; add international zones for any region you intend to sell to). Either enable Shopify's calculated/carrier rates or set flat rates that match Printify's per-product shipping. Ensure the profile that the Printify-published products belong to has rates.",
+      "recommendation": "VERIFY: Run the test checkout (op-09) to a US address and confirm a shipping rate is offered and added to the total. Repeat with one international address (or explicitly restrict zones to US/CA and update shipping.html if you won't ship internationally). Confirm no 'no shipping options available' error at checkout."
+    },
+    {
+      "id": "op-06-shopify-tax-regions",
+      "title": "Configure Shopify tax regions \u2014 shipping.html promises sales tax/GST/HST 'added at checkout'",
+      "severity": "major",
+      "operator_action": "Shopify Admin \u2192 Settings \u2192 Taxes and duties \u2192 set up tax regions for the jurisdictions where you have nexus (at minimum your home state, Colorado, per the Boulder County governing-law in the legal pages). For Canada, register/enable GST/HST if you actually intend to collect it; if you will NOT, soften the shipping.html wording so the policy isn't making a false promise.",
+      "recommendation": "VERIFY: Run the test checkout to a Colorado shipping address and confirm sales tax is added to the order total and appears on the Shopify order. Confirm the tax behavior in Shopify matches what shipping.html:61-63 claims; reconcile policy text vs. actual config before launch."
+    },
+    {
+      "id": "op-07-shopify-store-side-legal-policies",
+      "title": "Add merchant-side Privacy/Terms/Refund/Shipping policy links inside Shopify (Shopify checkout requires its OWN policies, separate from our /privacy etc.)",
+      "severity": "major",
+      "operator_action": "Shopify Admin \u2192 Settings \u2192 Policies \u2192 paste/author Refund policy, Privacy policy, Terms of service, Shipping policy (mirror the text from api/legal/*.html so they stay consistent \u2014 same entity 'Solar Archive (operated by Chris Gilly)', Colorado governing law, support gillygumption@gmail.com). Optionally also add the legal-page links to the store theme footer.",
+      "recommendation": "VERIFY: In an incognito checkout on solar-archive.myshopify.com, confirm the footer shows Refund/Privacy/Terms/Shipping links and each opens populated content matching our pages. Cross-check entity name + support email match api/legal/privacy.html / refund.html to avoid contradictory terms across the two domains."
+    },
+    {
+      "id": "op-08-beta-mode-flip",
+      "title": "Flip BETA_MODE=false on Render \u2014 the single switch that opens orders \u2014 only AFTER op-01..07 are verified",
+      "severity": "blocker",
+      "operator_action": "ONLY after op-01 through op-07 verify green: Render \u2192 solar-archive \u2192 Environment \u2192 set BETA_MODE=false \u2192 redeploy. (Do the real end-to-end test op-09 in this window before announcing/launching.)",
+      "recommendation": "VERIFY: curl /api/printify/store-config returns beta_mode:false; then curl -X POST /api/printify/checkout with no body returns a 400 validation error (NOT the 403 'paused while BETA_MODE is on' block), proving the gate is lifted. Keep BETA_MODE as the kill-switch: if anything in op-01..07 breaks post-launch, flip it back to true to immediately stop new orders."
+    },
+    {
+      "id": "op-09-real-end-to-end-test-order",
+      "title": "Run ONE real end-to-end test order (BETA off) watched all the way to a shipped product with tracking \u2014 the single most important gate",
+      "severity": "blocker",
+      "operator_action": "With BETA_MODE=false: (1) In Shopify create a 100%-OFF discount code (or accept eating ~$10-20 wholesale on the cheapest item, e.g. matte poster $9.99). (2) Go to the live editor, customize an image, pick a non-default variant (size/color) to exercise the variant\u2192SKU bridge, click Create on Shopify. (3) Complete Shopify checkout with the discount or a real card to your own shipping address. (4) Watch every hop.",
+      "recommendation": "VERIFY at each hop: (a) /checkout returns published product id and a product appears in Printify shop 25305559 AND Shopify Admin \u2192 Products; (b) the cart_url the frontend used has source=='storefront-api' and the correct variant (matching size/color) lands in the Shopify cart at the right price; (c) Shopify Admin \u2192 Orders shows the order Paid with correct tax+shipping; (d) Printify auto-creates the order and charges the operator card (Printify \u2192 Orders \u2192 In production); (e) order ships and an email with a tracking number arrives (shipping.html:71 promises tracking within 1-2 business days). Do NOT announce launch until a tracked package is in hand."
+    },
+    {
+      "id": "op-10-analytics-sentry-empty",
+      "title": "Set GA_MEASUREMENT_ID + SENTRY_DSN (currently empty) so the funnel and crashes are visible at the moment you most need them",
+      "severity": "minor",
+      "operator_action": "Create a GA4 property and a Sentry project; set window.GA_MEASUREMENT_ID (G-XXXXXXXX) and window.SENTRY_DSN in index.html (or via the ops-populated config the comment at index.html:27 describes / a Render env injected at build). If you choose NOT to enable them, instead edit privacy.html to remove the GA4/Sentry claims so the policy is truthful.",
+      "recommendation": "VERIFY: Load the live site and confirm in the browser Network tab a request to google-analytics.com/collect fires, and that a forced JS error shows up in the Sentry dashboard. Either way, reconcile privacy.html with reality (analytics on => policy true; analytics off => remove the claim) before launch."
+    }
+  ]
 }

@@ -109,9 +109,13 @@ def lookup_variant_id_by_sku(handle: str, sku: str) -> Optional[str]:
     if not product:
         return None
     edges = (product.get("variants") or {}).get("edges") or []
-    # Exact SKU match first; some Printify products use suffixed SKUs
-    # (e.g. "MUG-WHITE-11OZ" vs "MUG-WHITE-11OZ-DEFAULT") — fall back
-    # to case-insensitive substring match if no exact hit.
+    # Exact SKU match only. Printify mirrors the variant SKU verbatim onto
+    # Shopify at publish, so an exact match is the correct Printify→Shopify
+    # bridge. A previous loose containment fallback (`sku in ns or ns in sku`)
+    # could resolve to the WRONG variant — a different size/material/price —
+    # and send the buyer straight to a one-tap cart for a product they never
+    # selected. On no exact match we return None so the caller falls back to
+    # the product page, where the customer picks the variant themselves.
     for e in edges:
         node = e.get("node") or {}
         if node.get("sku") == sku:
@@ -120,7 +124,7 @@ def lookup_variant_id_by_sku(handle: str, sku: str) -> Optional[str]:
     for e in edges:
         node = e.get("node") or {}
         ns = (node.get("sku") or "").lower()
-        if ns and (ns == sku_lower or sku_lower in ns or ns in sku_lower):
+        if ns and ns == sku_lower:
             return _numeric_variant_id(node.get("id") or "")
     return None
 
