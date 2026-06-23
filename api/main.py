@@ -547,8 +547,14 @@ app = FastAPI(title=APP_NAME)
 
 
 app_dir = Path(__file__).parent
-# Serve all static files (HTML, JS, CSS) from /api/
-app.mount("/api/static", StaticFiles(directory=str(app_dir)), name="static")
+# NOTE: api/ is NOT mounted as static. It contains the server source (.py),
+# and a bare StaticFiles(app_dir) mount served every module's source publicly
+# (e.g. /api/static/printify_routes.py → 200), handing attackers the exact
+# rate-limit thresholds, admin header names, and bypass tokens. All real
+# frontend assets are served by explicit routes: index.html (/, /api/index.html),
+# solar-archive.js/.css, the _FRONTEND_MODULES whitelist at /{module}.js,
+# favicon/robots/sitemap, the /legal/* pages, and the /asset/* image mounts
+# below (which point at data dirs, never app_dir).
 # MOUNT ORDER MATTERS in Starlette/FastAPI: registration order is the
 # match order, and the first matching prefix wins. So the more-specific
 # /asset/default and /asset/preview mounts must be registered BEFORE the
@@ -2583,8 +2589,9 @@ from api.hek_routes import register_hek_routes as _register_hek_routes
 _register_hek_routes(app, DEFAULT_CACHE_DIR)
 
 
-# Legacy /static mount (kept for backward compatibility)
-app.mount("/static", StaticFiles(directory=str(app_dir), html=True), name="static_legacy")
+# (Removed the legacy /static mount of app_dir — it also served the .py
+# source publicly. Nothing in the frontend references /static; all assets
+# have explicit routes. See the note at the /api/static removal above.)
 
 
 
