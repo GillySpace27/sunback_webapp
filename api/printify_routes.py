@@ -46,6 +46,12 @@ _PRINTIFY_WRITE_LIMIT = 8         # max calls
 _PRINTIFY_WRITE_WINDOW = 60.0     # ...per 60s per IP
 _PRINTIFY_CHECKOUT_LIMIT = 3      # checkout is the only one that
 _PRINTIFY_CHECKOUT_WINDOW = 300.0 # actually publishes — even tighter
+# Polled read endpoints (shopify-url, cart_url) each proxy a live Printify
+# (and Shopify Storefront) call under the operator's keys. The frontend polls
+# shopify-url up to ~30×/checkout, so the limit is generous but still caps an
+# unauthenticated caller from burning the operator's API quota.
+_PRINTIFY_READ_LIMIT = 120
+_PRINTIFY_READ_WINDOW = 60.0
 
 PRINTIFY_API_KEY = os.getenv("PRINTIFY_API_KEY", "")
 PRINTIFY_SHOP_ID = os.getenv("PRINTIFY_SHOP_ID", "")
@@ -564,6 +570,7 @@ def _build_pricing_index_sync() -> None:
     global _pricing_cache, _pricing_index_built_at
     shop_id = _shop_id()
     new_cache: dict = {}
+    partial = False
     page = 1
     # Printify caps shop products list at limit=50 (validation error 8150 above).
     limit = 50
@@ -584,6 +591,7 @@ def _build_pricing_index_sync() -> None:
             # errors and 5xx from Printify.
             _log(f"[printify][pricing] page {page} fetch failed ({e}); committing partial cache "
                  f"({pages_walked} pages walked, {len(new_cache)} (bp, pp) combos cached)")
+            partial = True
             break
         body = resp.json()
         items = body.get("data") or []
@@ -619,15 +627,88 @@ def _build_pricing_index_sync() -> None:
             _log(f"[printify][pricing] stopped at {pages_walked} pages (safety cap)")
             break
         page += 1
+    if partial and _pricing_cache and len(new_cache) < len(_pricing_cache):
+        # A truncated rebuild is worse than the prior complete index — don't
+        # overwrite good pricing with a subset (blueprints on un-walked pages
+        # would silently lose all pricing, and checkout fails closed for them).
+        # Keep the prior cache and force a retry on the next call (~60s) instead
+        # of stamping a full-TTL freshness onto a partial result.
+        _pricing_index_built_at = time.time() - (_PRICING_TTL - 60)
+        _log(f"[printify][pricing] partial rebuild ({len(new_cache)} combos) smaller than "
+             f"prior cache ({len(_pricing_cache)}); keeping prior, retry in ~60s")
+        return
     _pricing_cache = new_cache
-    _pricing_index_built_at = time.time()
+    # On a partial-but-accepted rebuild, mark it stale soon so the gaps fill in;
+    # a clean full walk gets the normal TTL.
+    _pricing_index_built_at = time.time() - (_PRICING_TTL - 60) if partial else time.time()
     _log(f"[printify][pricing] index built: {pages_walked} pages, "
-         f"{total_products} products, {len(new_cache)} (bp, pp) combos")
+         f"{total_products} products, {len(new_cache)} (bp, pp) combos"
+         f"{' (PARTIAL — retry ~60s)' if partial else ''}")
 
 
 def _ensure_pricing_index_sync() -> None:
     if (time.time() - _pricing_index_built_at) > _PRICING_TTL or not _pricing_cache:
         _build_pricing_index_sync()
+
+
+def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client_anchor) -> dict:
+    """Per-variant retail prices (cents), computed SERVER-SIDE from the trusted
+    Printify catalog.
+
+    Why this exists — two money bugs it closes at once:
+      1. Price tampering: checkout used `price = body.get("price", 0)` verbatim
+         as the published retail, so a crafted request could publish (then buy)
+         a product at 1¢ while the operator still owes Printify wholesale.
+      2. Flat-price-across-sizes: every enabled variant was published at one
+         flat price, while the editor advertises an *escalating* per-variant
+         price. A buyer picking the largest size was charged the cheapest
+         anchor (operator sells below cost), and a single clamp-up overcharges
+         the cheapest size. Per-variant pricing is the only correct fix.
+
+    The model mirrors the editor's priceForVariantDisplay (api/solar-archive.js
+    :9189) exactly, so the customer is charged what they were shown:
+
+        markup        = max(0, anchor - cheapest_enabled_cost)
+        variant_price = variant_cost + markup            (always >= cost)
+
+    `anchor` is the product.checkoutPrice the client sent (the advertised
+    "From $X"). Using it only as the markup anchor means a tampered low anchor
+    can at worst drive margin to zero — it can never push a price below cost.
+
+    Returns {variant_id: price_cents} for every variant we could price from the
+    catalog. Variants the catalog has no cost for are omitted (caller refuses
+    to publish them rather than trusting the client price). Returns {} if the
+    pricing index is unavailable so the caller can fail closed.
+    """
+    try:
+        _ensure_pricing_index_sync()
+    except Exception as e:
+        _log(f"[checkout] per-variant pricing: index unavailable ({e})")
+        return {}
+    bucket = _pricing_cache.get((int(blueprint_id), int(print_provider_id)), {})
+    if not bucket:
+        return {}
+    enabled_costs = [
+        bucket[int(v)]["cost"]
+        for v in variant_ids
+        if bucket.get(int(v)) and bucket[int(v)].get("cost") is not None
+    ]
+    if not enabled_costs:
+        # Fall back to the cheapest cost across the whole blueprint so the
+        # anchor still maps to a sane markup if the enabled set is unpriced.
+        enabled_costs = [
+            e["cost"] for e in bucket.values() if e.get("cost") is not None
+        ]
+    min_cost = min(enabled_costs) if enabled_costs else 0
+    anchor = int(client_anchor) if isinstance(client_anchor, int) and client_anchor > 0 else 0
+    markup = max(0, anchor - min_cost)
+    prices = {}
+    for v in variant_ids:
+        vid = int(v)
+        entry = bucket.get(vid)
+        if entry and entry.get("cost") is not None:
+            prices[vid] = int(entry["cost"]) + markup
+    return prices
 
 
 @router.get("/blueprints/cheapest_costs")
@@ -765,6 +846,28 @@ def _do_checkout_sync(
     if not variant_ids:
         raise Exception("No variant IDs provided")
 
+    # Price integrity + per-variant pricing. The client sends one anchor
+    # `price`; we recompute every variant's retail SERVER-SIDE from the trusted
+    # Printify catalog (see _compute_variant_prices). This blocks price
+    # tampering AND makes the charged price match the editor's per-size display.
+    variant_prices = _compute_variant_prices(
+        blueprint_id, print_provider_id, variant_ids, price
+    )
+    if not variant_prices:
+        # Fail closed: without trusted catalog pricing we cannot safely set a
+        # retail price. The pricing index is built from the shop's own
+        # products, so legit variants are present; an empty result means a
+        # Printify outage or an unlisted blueprint — don't publish blind.
+        raise Exception(
+            "Pricing is temporarily unavailable for this product — please try again shortly"
+        )
+    # Only publish variants we could price from the catalog; never fall back to
+    # the unvalidated client price for an unpriced variant.
+    priced_variant_ids = [int(v) for v in variant_ids if int(v) in variant_prices]
+    if not priced_variant_ids:
+        raise Exception("No priceable variants for this product")
+    variant_ids = priced_variant_ids
+
     _log(f"[checkout] Step 1: uploading image ({len(image_base64)} chars)")
     upload_resp = _printify_request(
         "POST",
@@ -792,9 +895,10 @@ def _do_checkout_sync(
         "description": description,
         "blueprint_id": blueprint_id,
         "print_provider_id": print_provider_id,
-        # Enable every requested variant at the same price
+        # Each variant priced individually from the trusted catalog so the
+        # Shopify listing matches the editor's per-size display (no flat price).
         "variants": [
-            {"id": vid, "price": price, "is_enabled": True}
+            {"id": vid, "price": variant_prices[int(vid)], "is_enabled": True}
             for vid in variant_ids
         ],
         # Apply the same print area / image placement to all variants
@@ -860,15 +964,24 @@ def _do_checkout_sync(
         },
         timeout=120,
     )
-    if publish_resp.status_code not in (200, 201):
-        _log(f"[checkout] Publish warning ({publish_resp.status_code}): {publish_resp.text[:300]}")
+    published_ok = publish_resp.status_code in (200, 201)
+    if not published_ok:
+        _log(f"[checkout] Publish FAILED ({publish_resp.status_code}): {publish_resp.text[:300]} "
+             f"— product {product_id} was created but did NOT sync to Shopify; the buyer "
+             f"cannot reach it. Surfacing as publish_failed so the client stops polling.")
 
-    _log(f"[checkout] Complete: product={product_id}, image={image_id}, variants={len(variant_ids)}")
+    _log(f"[checkout] Complete: product={product_id}, image={image_id}, "
+         f"variants={len(variant_ids)}, published={published_ok}")
     return {
         "printify_product_id": product_id,
         "printify_image_id": image_id,
         "variant_count": len(variant_ids),
-        "status": "published",
+        # Honest publish result. The frontend keys off printify_product_id for
+        # polling/cleanup, so the extra fields are backward-compatible; reading
+        # `published` lets it fail fast instead of polling shopify-url to a
+        # 60 s timeout when the product never synced.
+        "published": published_ok,
+        "status": "published" if published_ok else "publish_failed",
     }
 
 
@@ -974,11 +1087,12 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
 
 
 @router.get("/product/{product_id}/shopify-url")
-async def get_shopify_url(product_id: str):
+async def get_shopify_url(product_id: str, request: Request):
     """
     Checks if a Printify product has been synced to Shopify and returns the URL.
     The frontend polls this after publishing.
     """
+    enforce_rate_limit(request, "printify_read", _PRINTIFY_READ_LIMIT, _PRINTIFY_READ_WINDOW)
     # Validate product_id format to prevent SSRF — only allow Printify ObjectId hex strings
     if not _PRINTIFY_ID_RE.match(product_id):
         raise HTTPException(status_code=400, detail="Invalid product_id format")
@@ -1095,13 +1209,14 @@ def _build_cart_url_sync(printify_product_id: str, variant_id: int) -> dict:
 
 
 @router.get("/product/{product_id}/cart_url")
-async def get_cart_url(product_id: str, variant_id: int):
+async def get_cart_url(product_id: str, variant_id: int, request: Request):
     """One-shot lookup: given a Printify product + variant, return
     the Shopify cart-permalink the frontend should redirect to.
 
     Query: variant_id (Printify variant ID — int).
     Response: { status: "ready"|"pending", cart_url, source }
     """
+    enforce_rate_limit(request, "printify_read", _PRINTIFY_READ_LIMIT, _PRINTIFY_READ_WINDOW)
     if not _PRINTIFY_ID_RE.match(product_id):
         raise HTTPException(status_code=400, detail="Invalid product_id format")
     try:
