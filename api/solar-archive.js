@@ -11325,14 +11325,24 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           markCheckoutStep("ckStep4", "active", "Waiting for Shopify product link…");
           return pollShopifyUrl(data.printify_product_id, ckSelectedId);
         })
-        .then(function(shopifyUrl) {
+        .then(function(shopifyResult) {
+          // pollShopifyUrl resolves { url, source }; tolerate a legacy
+          // bare-string resolve too. Only the storefront-api cart-permalink
+          // actually pre-selects the buyer's chosen variant — the product-page
+          // fallback lands them on the shop default, so don't promise a
+          // pre-selection that didn't happen.
+          var shopifyUrl = (shopifyResult && shopifyResult.url) ? shopifyResult.url : shopifyResult;
+          var variantPreselected = !!(shopifyResult && shopifyResult.source === "storefront-api");
+          var reassurance = variantPreselected
+            ? 'Your variant is pre-selected — just complete checkout on Shopify to receive your custom print.'
+            : 'Choose your size and options on the Shopify page, then complete checkout to receive your custom print.';
           markCheckoutStep("ckStep4", "done", "Shopify product ready!");
           checkoutProgress.innerHTML +=
             '<div style="margin-top:16px;">' +
               '<div style="font-size:48px;margin-bottom:8px;">🎉</div>' +
               '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">Your product is live on Shopify!</div>' +
               '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
-                'Your variant is pre-selected — just complete checkout on Shopify to receive your custom print.' +
+                reassurance +
               '</p>' +
               '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
                 '<i class="fab fa-shopify"></i> Complete Purchase on Shopify' +
@@ -11498,8 +11508,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         function tick() {
           attempt++;
           if (attempt > maxAttempts) {
-            // Timed out waiting — give fallback link to store
-            resolve("https://" + SHOPIFY_STORE + "/collections/all");
+            // Timed out waiting — give fallback link to store. No variant
+            // pre-selection on this generic collections page.
+            resolve({ url: "https://" + SHOPIFY_STORE + "/collections/all", source: "fallback-product-page" });
             return;
           }
 
@@ -11530,7 +11541,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             // shopify-url endpoint returns { status, shopify_url }
             var url = data.cart_url || data.shopify_url;
             if (data.status === "ready" && url) {
-              resolve(url);
+              // Carry `source` so the caller can tell the truth about whether
+              // the buyer's variant is actually pre-selected. Only the
+              // storefront-api cart-permalink pre-selects; the product-page
+              // fallback lands them on the shop default.
+              resolve({ url: url, source: data.source || null });
             } else {
               var step4 = document.getElementById("ckStep4");
               if (step4) {
