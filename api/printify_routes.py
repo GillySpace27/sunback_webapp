@@ -688,18 +688,18 @@ def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client
     bucket = _pricing_cache.get((int(blueprint_id), int(print_provider_id)), {})
     if not bucket:
         return {}
-    enabled_costs = [
-        bucket[int(v)]["cost"]
-        for v in variant_ids
-        if bucket.get(int(v)) and bucket[int(v)].get("cost") is not None
+    # Markup anchor must mirror the editor's priceForVariantDisplay
+    # (solar-archive.js:9194-9201), which computes min cost over the ENTIRE
+    # blueprint+provider bucket — NOT just the enabled subset. Anchoring here
+    # to the same whole-bucket min keeps the charged price identical to the
+    # displayed price regardless of which variants the client enables. (The
+    # previous enabled-subset min produced a smaller markup than the editor
+    # showed whenever the filtered set excluded the cheapest variant, so the
+    # buyer was charged slightly less than displayed.)
+    all_costs = [
+        e["cost"] for e in bucket.values() if e.get("cost") is not None
     ]
-    if not enabled_costs:
-        # Fall back to the cheapest cost across the whole blueprint so the
-        # anchor still maps to a sane markup if the enabled set is unpriced.
-        enabled_costs = [
-            e["cost"] for e in bucket.values() if e.get("cost") is not None
-        ]
-    min_cost = min(enabled_costs) if enabled_costs else 0
+    min_cost = min(all_costs) if all_costs else 0
     anchor = int(client_anchor) if isinstance(client_anchor, int) and client_anchor > 0 else 0
     markup = max(0, anchor - min_cost)
     prices = {}
@@ -1078,7 +1078,13 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
                 s = s.split("/products/", 1)[-1].split("/")[0].split("?")[0]
             else:
                 s = s.rstrip("/").split("/")[-1].split("?")[0]
-        return s if s else None
+        # A bare numeric string is a Shopify product ID (external.id), never a
+        # valid product handle. Emitting it would build a guaranteed-404
+        # /products/<id> URL, so treat it as "not yet published" and let the
+        # caller keep polling until Shopify populates the real slug.
+        if not s or s.isdigit():
+            return None
+        return s
 
     slug = slug_only(handle) or slug_only(external_id)
     if slug:
@@ -1166,6 +1172,12 @@ def _shopify_handle_from_printify(product: dict) -> Optional[str]:
             s = s.split("/products/", 1)[-1].split("/")[0].split("?")[0]
         else:
             s = s.rstrip("/").split("/")[-1].split("?")[0]
+    # A bare numeric string is a Shopify product ID (external.id), not a
+    # handle — building /products/<id> from it is a guaranteed 404. Treat it
+    # as not-yet-published so cart_url/shopify-url return "pending" and the
+    # frontend keeps polling for the real handle.
+    if not s or s.isdigit():
+        return None
     return s or None
 
 
