@@ -1,13 +1,38 @@
-# render.yaml
+# render.yaml — infrastructure manifest for the Solar Archive web service.
+#
+# NOTE: the live service is configured in the Render dashboard, not deployed
+# from this file (autoDeploy from `main`). This manifest exists so the env
+# contract is documented and a Blueprint/IaC rebuild prompts the operator for
+# every required secret instead of silently dropping it. Keep it in sync with
+# the dashboard (service srv-d478g9i4d50c73809e60, plan: standard, region:
+# oregon).
 services:
   - type: web
     name: solar-archive
     env: python
+    plan: standard
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port 10000
-    plan: free
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PRINTFUL_API_KEY
+      # ── Money path (checkout). Values are dashboard-managed, never committed.
+      - key: PRINTIFY_API_KEY            # Printify personal access token
         sync: false
+      - key: PRINTIFY_SHOP_ID            # the Shopify-connected Printify shop id
+        sync: false
+      - key: SHOPIFY_STORE_DOMAIN        # e.g. solar-archive.myshopify.com
+        sync: false
+      - key: SHOPIFY_STOREFRONT_ACCESS_TOKEN  # optional: enables one-tap cart pre-select
+        sync: false
+      # ── Launch gate. When truthy, /checkout + /publish 403. Unset/false = live.
+      - key: BETA_MODE
+        sync: false
+      # ── Request hardening.
+      - key: ALLOWED_ORIGINS             # optional CSV override of the origin allowlist
+        sync: false
+      - key: INTERNAL_AUTH_TOKEN         # X-Internal-Auth bypass for server-to-server callbacks
+        sync: false
+      - key: FEEDBACK_ADMIN_KEY          # X-Admin-Key for admin/debug endpoints
+        sync: false
+      # ── Runtime.
       - key: SOLAR_ARCHIVE_OUTPUT_DIR
         value: /tmp/output
