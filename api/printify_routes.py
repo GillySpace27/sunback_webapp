@@ -1239,3 +1239,48 @@ async def get_cart_url(product_id: str, variant_id: int, request: Request):
     except Exception as e:
         _log(f"[cart_url] Error for product {product_id} variant {variant_id}: {e}")
         return JSONResponse(content={"status": "pending"})
+
+
+# ────────────────────────────────────────────────────────────────
+# TEMP diagnostic (admin-only) — remove after debugging the
+# Printify→Shopify publish-sync stall. Dumps the raw publish-state
+# fields of a Printify product so we can see whether a "published"
+# product is actually stuck in a locked/publishing state or simply
+# never got a Shopify handle back.
+# ────────────────────────────────────────────────────────────────
+@router.get("/debug/product/{product_id}")
+async def debug_product_state(product_id: str, request: Request):
+    admin_key = (request.headers.get("X-Admin-Key") or "").strip()
+    expected = (os.getenv("FEEDBACK_ADMIN_KEY") or "").strip()
+    if not (admin_key and expected and hmac.compare_digest(admin_key, expected)):
+        raise HTTPException(status_code=403, detail="admin only")
+    if not _PRINTIFY_ID_RE.match(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product_id format")
+
+    def _fetch():
+        shop_id = _shop_id()
+        resp = _printify_request(
+            "GET",
+            f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+            headers=_headers(),
+            timeout=30,
+        )
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text[:800]
+        return resp.status_code, body
+
+    code, data = await run_in_threadpool(_fetch)
+    if code != 200 or not isinstance(data, dict):
+        return JSONResponse(content={"http": code, "body": data})
+    return JSONResponse(content={
+        "http": code,
+        "id": data.get("id"),
+        "title": data.get("title"),
+        "is_locked": data.get("is_locked"),
+        "visible": data.get("visible"),
+        "external": data.get("external"),
+        "sales_channel_properties": data.get("sales_channel_properties"),
+        "images_count": len(data.get("images") or []),
+    })
