@@ -11903,20 +11903,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           ar = (typeof getEffectiveAspectRatio === "function")
             ? getEffectiveAspectRatio(product) : null;
         } catch (_e) {}
-        var MAX = 240;  // matches the modal's max-width/height envelope
-        var canvasW, canvasH;
-        if (ar && ar.w > 0 && ar.h > 0) {
-          if (ar.w >= ar.h) {
-            canvasW = MAX;
-            canvasH = Math.max(40, Math.round(MAX * ar.h / ar.w));
-          } else {
-            canvasH = MAX;
-            canvasW = Math.max(40, Math.round(MAX * ar.w / ar.h));
-          }
-        } else {
-          canvasW = MAX;
-          canvasH = MAX;
-        }
+        // drawProductMockup renders into a FIXED 160×160 logical space — its
+        // per-product silhouette geometry is tuned to it, and every other
+        // caller (gallery cards etc.) feeds it a matching 160 canvas. Use the
+        // same 160 logical size here. The prior code built a 240-logical
+        // canvas, so drawProductMockup painted only the top-left 160 and the
+        // product landed in the corner. (ar is no longer used for sizing —
+        // drawProductMockup already draws each variant at its correct shape.)
+        var canvasW = 160, canvasH = 160;
         // Container reshapes with the canvas — clear the aspect-ratio
         // inline style from the prior (default-mockup) path and let
         // the canvas dictate the box dimensions instead.
@@ -11937,8 +11931,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           c.width = canvasW * 2;
           c.height = canvasH * 2;
           c.className = "confirm-mockup-canvas";
-          c.style.width = canvasW + "px";
-          c.style.height = canvasH + "px";
+          // Backing is 160-logical @2×; display it larger so the preview fills
+          // the modal box. A canvas upscales cleanly via CSS.
+          c.style.width = "240px";
+          c.style.height = "240px";
+          c.style.display = "block";
+          c.style.margin = "0 auto";
           var mctx = c.getContext("2d");
           mctx.scale(2, 2);
           // Source dimensions for drawProductMockup. solarCanvas is
@@ -11947,21 +11945,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // (product-first cold load before image pick) fall back to
           // the canvas dimensions so drawProductMockup at least
           // renders the product silhouette with the background fill.
-          var srcW = (solarCanvas && solarCanvas.width > 0)
-            ? solarCanvas.width : canvasW;
-          var srcH = (solarCanvas && solarCanvas.height > 0)
-            ? solarCanvas.height : canvasH;
-          // Pass the AR 2192 RHEF default as a fallback source so the
-          // mockup canvas shows a real Sun image on every variant
-          // EVEN BEFORE the user has picked a vibe. This is the same
-          // image baked into the photoreal Printify default mockup,
-          // so the variant picker preview matches what the photoreal
-          // default would have shown — but reshaped per-variant.
-          // (Gilly's request.) _ensureDefaultRhefImage() lazily kicks
-          // off a single Image() load on the first variant-modal open.
-          drawProductMockup(mctx, product.id, srcW, srcH, variant,
-                            { useSelectedSource: true,
-                              fallbackSrc: _ensureDefaultRhefImage() });
+          // Only bind the (possibly empty) editor canvas when the user has
+          // actually loaded their OWN image. In the product-first flow the
+          // editor is empty pre-pick, and forcing it (useSelectedSource) left
+          // the mockup sourceless — a bare silhouette with no Sun. Otherwise
+          // let drawProductMockup use the SAME shared-source path the gallery
+          // tiles use (which shows the default Sun), with the AR 2192 RHEF
+          // thumb as a fallback so a real Sun renders on every variant even
+          // before an image is picked. _ensureDefaultRhefImage() lazily loads
+          // that thumb and re-renders the modal canvas on load.
+          var hasUserImg = !!(state && state.originalImage) && !state.isDefaultActive
+                           && solarCanvas && solarCanvas.width > 0;
+          var srcW = hasUserImg ? solarCanvas.width : canvasW;
+          var srcH = hasUserImg ? solarCanvas.height : canvasH;
+          var _mkOpts = hasUserImg
+            ? { useSelectedSource: true }
+            : { fallbackSrc: _ensureDefaultRhefImage() };
+          drawProductMockup(mctx, product.id, srcW, srcH, variant, _mkOpts);
           mockupEl.appendChild(c);
         } catch (e) {
           mockupEl.classList.add("empty");
