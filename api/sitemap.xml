@@ -1,27 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://solar-archive.onrender.com/</loc>
+    <loc>https://myheliograph.com/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://solar-archive.onrender.com/privacy</loc>
+    <loc>https://myheliograph.com/privacy</loc>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://solar-archive.onrender.com/terms</loc>
+    <loc>https://myheliograph.com/terms</loc>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://solar-archive.onrender.com/refund</loc>
+    <loc>https://myheliograph.com/refund</loc>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://solar-archive.onrender.com/shipping</loc>
+    <loc>https://myheliograph.com/shipping</loc>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>

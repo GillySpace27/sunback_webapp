@@ -11306,7 +11306,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             image_base64: base64Data,
             file_name: fname,
             title: title,
-            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with Solar Archive.",
+            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
             blueprint_id: product.blueprintId,
             print_provider_id: product.printProviderId,
             variant_ids: ckVariantIds,
