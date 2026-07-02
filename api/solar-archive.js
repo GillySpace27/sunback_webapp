@@ -11333,19 +11333,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // pre-selection that didn't happen.
           var shopifyUrl = (shopifyResult && shopifyResult.url) ? shopifyResult.url : shopifyResult;
           var variantPreselected = !!(shopifyResult && shopifyResult.source === "storefront-api");
-          var reassurance = variantPreselected
-            ? 'Your variant is pre-selected — just complete checkout on Shopify to receive your custom print.'
-            : 'Choose your size and options on the Shopify page, then complete checkout to receive your custom print.';
-          markCheckoutStep("ckStep4", "done", "Shopify product ready!");
+          var timedOut = !!(shopifyResult && shopifyResult.timedOut);
+          var reassurance = timedOut
+            ? 'Your product was created and is still publishing to Shopify — it can take a few minutes to go live. Open the store below; if it isn’t there yet, check back shortly.'
+            : (variantPreselected
+                ? 'Your variant is pre-selected — just complete checkout on Shopify to receive your custom print.'
+                : 'Choose your size and options on the Shopify page, then complete checkout to receive your custom print.');
+          markCheckoutStep("ckStep4", "done", timedOut ? "Publishing to Shopify…" : "Shopify product ready!");
           checkoutProgress.innerHTML +=
             '<div style="margin-top:16px;">' +
-              '<div style="font-size:48px;margin-bottom:8px;">🎉</div>' +
-              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">Your product is live on Shopify!</div>' +
+              '<div style="font-size:48px;margin-bottom:8px;">' + (timedOut ? '⏳' : '🎉') + '</div>' +
+              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">' + (timedOut ? 'Almost there — publishing to Shopify' : 'Your product is live on Shopify!') + '</div>' +
               '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
                 reassurance +
               '</p>' +
               '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
-                '<i class="fab fa-shopify"></i> Complete Purchase on Shopify' +
+                '<i class="fab fa-shopify"></i>' + (timedOut ? ' Browse the store' : ' Complete Purchase on Shopify') +
               '</a>' +
               '<div style="margin-top:10px;">' +
                 '<button class="edit-btn" onclick="document.getElementById(\'checkoutProgress\').classList.add(\'hidden\');" style="margin:0 auto;">' +
@@ -11501,16 +11504,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
 
     function pollShopifyUrl(printifyProductId, variantIdForCheckout) {
-      var maxAttempts = 30;  // 30 × 3s = 90s max wait
+      // Printify's publish -> Shopify sync is async and can take several
+      // MINUTES (observed ~5 min for an all-over-print product), not seconds.
+      // The old 90s window bailed to a generic /collections/all link before the
+      // real product URL was ready, stranding the buyer. Poll on a time budget
+      // with a gentle backoff: fast (3s) for the first 30s so quick syncs feel
+      // snappy, then 7s to limit backend load over the long tail.
       var attempt = 0;
+      var deadline = Date.now() + 240000;  // ~4 min total budget
 
       return new Promise(function(resolve, reject) {
         function tick() {
           attempt++;
-          if (attempt > maxAttempts) {
-            // Timed out waiting — give fallback link to store. No variant
-            // pre-selection on this generic collections page.
-            resolve({ url: "https://" + SHOPIFY_STORE + "/collections/all", source: "fallback-product-page" });
+          if (Date.now() > deadline) {
+            // Sync still not done — return the store link plus a flag so the
+            // caller can honestly say the product is still finalizing rather
+            // than claiming it's live.
+            resolve({ url: "https://" + SHOPIFY_STORE + "/collections/all", source: "fallback-product-page", timedOut: true });
             return;
           }
 
@@ -11550,13 +11560,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               var step4 = document.getElementById("ckStep4");
               if (step4) {
                 var span = step4.querySelector("span");
-                if (span) span.textContent = "Waiting for Shopify… (attempt " + attempt + ")";
+                // After the first ~30s, drop the attempt counter for a calmer,
+                // honest message — Shopify sync legitimately takes minutes.
+                if (span) span.textContent = attempt <= 10
+                  ? "Waiting for Shopify to finish publishing…"
+                  : "Shopify is still finalizing your product — this can take a few minutes, hang tight…";
               }
-              setTimeout(tick, 3000);
+              setTimeout(tick, attempt <= 10 ? 3000 : 7000);
             }
           })
           .catch(function() {
-            setTimeout(tick, 3000);
+            setTimeout(tick, attempt <= 10 ? 3000 : 7000);
           });
         }
         tick();
