@@ -16,6 +16,7 @@ import hmac
 import os
 import re
 import time
+import threading
 from typing import Optional
 import requests
 import certifi
@@ -434,6 +435,115 @@ def _create_product_sync(body: dict) -> dict:
     return resp.json()
 
 
+# ────────────────────────────────────────────────
+# Stale mockup-draft sweep
+# ────────────────────────────────────────────────
+# The "Generate real mockup" flow (runMockupQueue → POST /product) creates a
+# throwaway `[MOCKUP] …` draft per preview and CANNOT delete it right away — the
+# draft is what hosts the Printify-rendered mockup image the editor displays.
+# Left alone these accumulate (one go-live pass left 1,195 of them). This sweeps
+# drafts old enough that no user could still be viewing them. Default/landing
+# mockups use a separate download-then-delete path (warm_default) and self-host
+# their PNGs, so they are unaffected.
+_MOCKUP_DRAFT_TTL_SECONDS = 2 * 60 * 60       # keep drafts < 2h old (still viewable)
+_MOCKUP_SWEEP_MIN_INTERVAL = 20 * 60          # run the sweep at most once per 20 min
+_last_mockup_sweep_at = 0.0
+_mockup_sweep_lock = threading.Lock()
+
+
+def _parse_printify_ts(value) -> Optional[float]:
+    """Parse a Printify `created_at` timestamp to an epoch float, or None."""
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip().replace("Z", "+00:00")
+    if " " in s and "T" not in s:
+        s = s.replace(" ", "T", 1)
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(s).timestamp()
+    except Exception:
+        return None
+
+
+def _sweep_stale_mockup_drafts() -> int:
+    """Delete abandoned `[MOCKUP…]` draft products older than the TTL.
+    Best-effort; never touches a product that reached Shopify. Returns the
+    number deleted."""
+    shop_id = _shop_id()
+    now = time.time()
+    deleted = 0
+    page = 1
+    while True:
+        try:
+            resp = _printify_request(
+                "GET",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products.json?limit=50&page={page}",
+                headers=_headers(),
+                timeout=60,
+            )
+        except Exception as e:
+            _log(f"[mockup-sweep] list page {page} failed: {e}")
+            break
+        if resp.status_code != 200:
+            break
+        items = resp.json().get("data") or []
+        if not items:
+            break
+        for p in items:
+            title = p.get("title") or ""
+            if not title.startswith("[MOCKUP"):
+                continue
+            ext = p.get("external") or {}
+            if ext.get("handle") or ext.get("id"):
+                continue  # never delete anything that reached Shopify
+            created = _parse_printify_ts(p.get("created_at"))
+            if created is None or (now - created) < _MOCKUP_DRAFT_TTL_SECONDS:
+                continue  # too new — a user may still be viewing this mockup
+            pid = p.get("id")
+            if not pid:
+                continue
+            try:
+                dr = _printify_request(
+                    "DELETE",
+                    f"{PRINTIFY_BASE}/shops/{shop_id}/products/{pid}.json",
+                    headers=_headers(),
+                    timeout=30,
+                )
+                if dr.status_code < 400:
+                    deleted += 1
+            except Exception:
+                pass
+        if len(items) < 50:
+            break
+        page += 1
+        if page > 60:  # hard safety cap
+            break
+    if deleted:
+        _log(f"[mockup-sweep] deleted {deleted} stale [MOCKUP] draft(s)")
+    return deleted
+
+
+def _maybe_sweep_mockup_drafts() -> None:
+    """Throttled, fire-and-forget trigger for the stale-draft sweep. Called
+    after a `[MOCKUP]` draft is created; runs the sweep on a background thread
+    at most once per `_MOCKUP_SWEEP_MIN_INTERVAL`, so it never blocks or fails
+    the mockup response."""
+    global _last_mockup_sweep_at
+    now = time.time()
+    with _mockup_sweep_lock:
+        if now - _last_mockup_sweep_at < _MOCKUP_SWEEP_MIN_INTERVAL:
+            return
+        _last_mockup_sweep_at = now
+
+    def _run():
+        try:
+            _sweep_stale_mockup_drafts()
+        except Exception as e:
+            _log(f"[mockup-sweep] error: {e}")
+
+    threading.Thread(target=_run, name="mockup-sweep", daemon=True).start()
+
+
 @router.post("/product")
 async def create_product(request: Request):
     """Creates a product in the merchant's Printify shop."""
@@ -446,6 +556,15 @@ async def create_product(request: Request):
     try:
         body = await request.json()
         result = await run_in_threadpool(_create_product_sync, body)
+        # Opportunistic cleanup: [MOCKUP] preview drafts can't be deleted
+        # immediately (they host the mockup image the editor shows), so sweep
+        # abandoned older ones here. Throttled + backgrounded — never blocks
+        # or fails this response.
+        try:
+            if str(body.get("title") or "").startswith("[MOCKUP"):
+                _maybe_sweep_mockup_drafts()
+        except Exception:
+            pass
         return JSONResponse(content=result)
     except HTTPException:
         raise

@@ -102,6 +102,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _wireCookieBanner() {
       var banner = document.getElementById("cookieBanner");
       if (!banner) return;
+      // No third-party telemetry configured (no GA4 measurement id, no Sentry
+      // DSN) → there is nothing to consent to. Only strictly-necessary
+      // localStorage is used, which needs no banner. Keep it hidden so the UI
+      // matches the privacy policy. If a GA4 id / Sentry DSN is injected later,
+      // the banner returns automatically.
+      if (!_GA_MEASUREMENT_ID && !_SENTRY_DSN) {
+        banner.classList.add("hidden");
+        return;
+      }
       if (_cookieConsentState()) {
         if (_cookieConsentState() === "accept") {
           _initGA4();
