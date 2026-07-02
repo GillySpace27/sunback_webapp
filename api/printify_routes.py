@@ -770,6 +770,155 @@ def _ensure_pricing_index_sync() -> None:
         _build_pricing_index_sync()
 
 
+# ────────────────────────────────────────────────
+# Per-variant cost backfill via a throwaway reference product
+# ────────────────────────────────────────────────
+# The shop-scan (_build_pricing_index_sync) only knows the cost of variants that
+# appear in some EXISTING shop product. Printify's catalog API does NOT expose
+# per-variant cost, so any size never sold shows no price → the frontend falls
+# back to the flat "From $X" anchor (uniform prices across sizes) AND checkout
+# fails closed ("pricing unavailable") for those variants. The only reliable way
+# to learn a variant's cost without selling it is to create a product that
+# enables it and read the cost Printify computes. This does exactly that for the
+# missing variants of a (bp, pp), once, then deletes the reference product.
+_backfilled_costs: dict = {}          # {(bp, pp): {vid: {"cost", "price"}}} — succeeded
+_backfill_cooldown: dict = {}         # {(bp, pp): last_attempt_epoch} — throttle retries
+_BACKFILL_COOLDOWN = 10 * 60          # re-attempt a failed backfill at most this often
+_backfill_lock = threading.Lock()
+_PRICING_REF_IMAGE_ID = None
+# 1×1 transparent PNG — the reference product's image is irrelevant; we only
+# read variant costs off the create response.
+_TINY_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+def _pricing_ref_image_id():
+    global _PRICING_REF_IMAGE_ID
+    if _PRICING_REF_IMAGE_ID:
+        return _PRICING_REF_IMAGE_ID
+    try:
+        resp = _printify_request(
+            "POST",
+            f"{PRINTIFY_BASE}/uploads/images.json",
+            headers=_headers(),
+            json={"file_name": "pricing_ref.png", "contents": _TINY_PNG_B64},
+            timeout=60,
+        )
+        if resp.status_code in (200, 201):
+            _PRICING_REF_IMAGE_ID = resp.json().get("id")
+    except Exception as e:
+        _log(f"[pricing-backfill] ref image upload failed: {e}")
+    return _PRICING_REF_IMAGE_ID
+
+
+def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
+    """Discover per-variant costs the shop-scan is missing for a (bp, pp) by
+    creating a throwaway reference product that enables the missing catalog
+    variants, reading the costs Printify returns, merging them into
+    `_pricing_cache`, and deleting the product. Cached so it runs at most once
+    per (bp, pp). Best-effort — returns {} and leaves prior behavior intact on
+    any failure."""
+    try:
+        key = (int(blueprint_id), int(print_provider_id))
+    except (TypeError, ValueError):
+        return {}
+    done = _backfilled_costs.get(key)
+    if done is not None:
+        return done
+    with _backfill_lock:
+        done = _backfilled_costs.get(key)
+        if done is not None:
+            return done
+        last = _backfill_cooldown.get(key, 0.0)
+        if (time.time() - last) < _BACKFILL_COOLDOWN:
+            return {}
+        _backfill_cooldown[key] = time.time()
+
+        result: dict = {}
+        product_id = None
+        shop_id = None
+        try:
+            shop_id = _shop_id()
+            data = _list_variants_sync(key[0], key[1])
+            catalog_ids = [v.get("id") for v in (data.get("variants") or []) if v.get("id") is not None]
+            if not catalog_ids:
+                _backfilled_costs[key] = {}
+                return {}
+            existing = _pricing_cache.get(key, {})
+            missing = [
+                int(vid) for vid in catalog_ids
+                if int(vid) not in existing or existing.get(int(vid), {}).get("cost") is None
+            ]
+            if not missing:
+                _backfilled_costs[key] = {}       # already fully covered
+                return {}
+            image_id = _pricing_ref_image_id()
+            if not image_id:
+                return {}                          # transient — cooldown, retry later
+            payload = {
+                "title": "[MOCKUP-PRICE] pricing reference — auto, do not publish",
+                "description": "Auto-generated to read per-variant costs; deleted immediately.",
+                "blueprint_id": key[0],
+                "print_provider_id": key[1],
+                "variants": [{"id": vid, "price": 999, "is_enabled": True} for vid in missing],
+                "print_areas": [{
+                    "variant_ids": missing,
+                    "placeholders": [{
+                        "position": "front",
+                        "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}],
+                    }],
+                }],
+            }
+            try:
+                payload = _expand_print_areas(payload)
+            except Exception:
+                pass
+            resp = _printify_request(
+                "POST",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
+                headers=_headers(),
+                json=payload,
+                timeout=120,
+            )
+            if resp.status_code not in (200, 201):
+                _log(f"[pricing-backfill] create failed bp={key[0]} pp={key[1]}: "
+                     f"{resp.status_code} {resp.text[:160]}")
+                return {}
+            body = resp.json()
+            product_id = body.get("id")
+            for v in (body.get("variants") or []):
+                vid = v.get("id")
+                cost = v.get("cost")
+                if vid is not None and cost is not None:
+                    result[int(vid)] = {"cost": cost, "price": v.get("price")}
+            # Merge into the live cache so display + checkout see it immediately.
+            bucket = _pricing_cache.setdefault(key, {})
+            for vid, entry in result.items():
+                if vid not in bucket or bucket.get(vid, {}).get("cost") is None:
+                    bucket[vid] = entry
+            _backfilled_costs[key] = result
+            _log(f"[pricing-backfill] bp={key[0]} pp={key[1]}: discovered "
+                 f"{len(result)} variant cost(s) from reference product")
+            return result
+        except Exception as e:
+            _log(f"[pricing-backfill] error bp={key[0]} pp={key[1]}: {e}")
+            return result
+        finally:
+            if product_id and shop_id:
+                try:
+                    _printify_request(
+                        "DELETE",
+                        f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+                        headers=_headers(),
+                        timeout=30,
+                    )
+                except Exception as e:
+                    _log(f"[pricing-backfill] ref delete failed {product_id}: {e} "
+                         f"(sweep will reap it)")
+
+
 def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client_anchor) -> dict:
     """Per-variant retail prices (cents), computed SERVER-SIDE from the trusted
     Printify catalog.
@@ -804,7 +953,17 @@ def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client
     except Exception as e:
         _log(f"[checkout] per-variant pricing: index unavailable ({e})")
         return {}
-    bucket = _pricing_cache.get((int(blueprint_id), int(print_provider_id)), {})
+    key = (int(blueprint_id), int(print_provider_id))
+    bucket = _pricing_cache.get(key, {})
+    # Backfill any missing per-variant costs (see _backfill_variant_costs_sync):
+    # Printify's catalog exposes no cost, so a size never sold otherwise shows
+    # the flat anchor AND can't be checked out. Best-effort; safe on failure.
+    try:
+        if any(int(v) not in bucket or bucket.get(int(v), {}).get("cost") is None for v in variant_ids):
+            _backfill_variant_costs_sync(key[0], key[1])
+            bucket = _pricing_cache.get(key, {})
+    except Exception:
+        pass
     if not bucket:
         return {}
     # Markup anchor must mirror the editor's priceForVariantDisplay
@@ -866,6 +1025,10 @@ async def variant_pricing(blueprint_id: int, provider_id: int):
     the shop's existing products (the catalog API doesn't expose costs)."""
     try:
         await run_in_threadpool(_ensure_pricing_index_sync)
+        # Fill any per-variant cost gaps for this (bp, pp) so the picker shows
+        # true per-size prices instead of the flat anchor. Cached; runs at most
+        # once per (bp, pp). Best-effort — pricing still returns on failure.
+        await run_in_threadpool(_backfill_variant_costs_sync, blueprint_id, provider_id)
         bucket = _pricing_cache.get((int(blueprint_id), int(provider_id)), {})
         return JSONResponse(content={
             "blueprint_id": blueprint_id,
