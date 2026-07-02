@@ -797,12 +797,28 @@ _backfill_cooldown: dict = {}         # {(bp, pp): last_attempt_epoch} — throt
 _BACKFILL_COOLDOWN = 10 * 60          # re-attempt a failed backfill at most this often
 _backfill_lock = threading.Lock()
 _PRICING_REF_IMAGE_ID = None
-# 1×1 transparent PNG — the reference product's image is irrelevant; we only
-# read variant costs off the create response.
-_TINY_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
-    "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
-)
+
+
+def _make_solid_png_b64(size: int = 1000) -> str:
+    """Build a solid-grey size×size PNG (stdlib only) and return its base64.
+    The reference product's image is irrelevant — we only read variant costs —
+    but Printify rejects tiny uploads, so this must be a real, print-sized
+    image (a 1×1 placeholder was silently rejected)."""
+    import struct
+    import zlib
+    import base64
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    row = b"\x00" + (b"\x80\x80\x80" * size)   # filter byte + RGB grey pixels
+    raw = row * size
+    png = (b"\x89PNG\r\n\x1a\n"
+           + _chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+           + _chunk(b"IDAT", zlib.compress(raw, 6))
+           + _chunk(b"IEND", b""))
+    return base64.b64encode(png).decode()
 
 
 def _pricing_ref_image_id():
@@ -814,11 +830,14 @@ def _pricing_ref_image_id():
             "POST",
             f"{PRINTIFY_BASE}/uploads/images.json",
             headers=_headers(),
-            json={"file_name": "pricing_ref.png", "contents": _TINY_PNG_B64},
-            timeout=60,
+            json={"file_name": "pricing_ref.png", "contents": _make_solid_png_b64()},
+            timeout=90,
         )
         if resp.status_code in (200, 201):
             _PRICING_REF_IMAGE_ID = resp.json().get("id")
+        else:
+            _log(f"[pricing-backfill] ref image upload rejected: "
+                 f"{resp.status_code} {resp.text[:160]}")
     except Exception as e:
         _log(f"[pricing-backfill] ref image upload failed: {e}")
     return _PRICING_REF_IMAGE_ID
@@ -855,6 +874,7 @@ def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
             data = _list_variants_sync(key[0], key[1])
             catalog_ids = [v.get("id") for v in (data.get("variants") or []) if v.get("id") is not None]
             if not catalog_ids:
+                _log(f"[pricing-backfill] bp={key[0]} pp={key[1]}: catalog has no variants")
                 _backfilled_costs[key] = {}
                 return {}
             existing = _pricing_cache.get(key, {})
@@ -867,6 +887,8 @@ def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
                 return {}
             image_id = _pricing_ref_image_id()
             if not image_id:
+                _log(f"[pricing-backfill] bp={key[0]} pp={key[1]}: no ref image "
+                     f"(upload failed) — {len(missing)} variants left unpriced")
                 return {}                          # transient — cooldown, retry later
             payload = {
                 "title": "[MOCKUP-PRICE] pricing reference — auto, do not publish",
