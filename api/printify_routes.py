@@ -756,6 +756,17 @@ def _build_pricing_index_sync() -> None:
         _log(f"[printify][pricing] partial rebuild ({len(new_cache)} combos) smaller than "
              f"prior cache ({len(_pricing_cache)}); keeping prior, retry in ~60s")
         return
+    # Retain reference-product backfilled costs (see _backfill_variant_costs_sync)
+    # across the rebuild — a fresh shop-scan doesn't know them, so without this
+    # the per-size prices for never-sold variants would revert to the flat anchor
+    # every 30 min. Only fills gaps; a real shop-product cost still wins.
+    for _bk, _costs in _backfilled_costs.items():
+        if not _costs:
+            continue
+        _b = new_cache.setdefault(_bk, {})
+        for _vid, _entry in _costs.items():
+            if _vid not in _b or _b.get(_vid, {}).get("cost") is None:
+                _b[_vid] = _entry
     _pricing_cache = new_cache
     # On a partial-but-accepted rebuild, mark it stale soon so the gaps fill in;
     # a clean full walk gets the normal TTL.
