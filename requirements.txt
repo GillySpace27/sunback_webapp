@@ -7,14 +7,27 @@ parfive
 requests
 pydantic[email]
 sse_starlette
-# Temporary install from Gilly's fork — merges sunpy/sunkit-image#324
-# (sort-and-group rhef kernel, ~10× at our bin density) with #325
-# (analytic find_pixel_radii fast path on non-rotated HPC maps, ~7×).
-# Combined this drops a 4096² RHEF from ~2.1 s → ~150 ms on the
-# Render box.
-# TODO: flip back to a pinned PyPI release (e.g. sunkit-image==0.8.0)
-# once both PRs land in a tagged upstream release.
-sunkit-image @ git+https://github.com/GillySpace27/sunkit-image.git@solar-archive-fast-rhef
+# Fast-RHEF fork of sunkit-image, VENDORED AS A PRE-BUILT WHEEL.
+#
+# Keeps sunpy/sunkit-image#324 (sort-and-group rhef kernel, ~10× at our bin
+# density) + #325 (analytic find_pixel_radii fast path on non-rotated HPC maps,
+# ~7×) — together ~2.1 s → ~150 ms for a 4096² RHEF on the Render box. Those
+# PRs are NOT in a tagged PyPI release yet, so plain PyPI would forfeit 2–10×.
+#
+# We no longer `pip install git+…@branch`: pip's partial ("promisor remote")
+# clone of the fork flaked ~half of Render's no-cache builds
+# (`fatal: early EOF / index-pack failed`). Installing a committed wheel removes
+# the build-time git clone entirely → deterministic builds, same fast kernels.
+#
+# The wheel is the fork at commit 41e89767 with the bundled test-data FITS
+# stripped (6.2 MB → 81 KB; runtime never touches sunkit_image/data/test/).
+# To REBUILD after updating the fork:
+#   pip wheel --no-deps -w vendor \
+#     git+https://github.com/GillySpace27/sunkit-image.git@<new-sha>
+#   # then strip non-.py files under sunkit_image/data/test/ from the .whl and
+#   # rewrite its RECORD, and update the path below.
+# TODO: flip back to `sunkit-image==<ver>` once #324/#325 land upstream.
+./vendor/sunkit_image-0.1.dev308+g41e89767f-py3-none-any.whl
 aiapy
 dotenv
 cryptography
