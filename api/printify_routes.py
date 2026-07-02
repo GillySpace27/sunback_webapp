@@ -1239,3 +1239,119 @@ async def get_cart_url(product_id: str, variant_id: int, request: Request):
     except Exception as e:
         _log(f"[cart_url] Error for product {product_id} variant {variant_id}: {e}")
         return JSONResponse(content={"status": "pending"})
+
+
+# ────────────────────────────────────────────────────────────────
+# TEMP admin cleanup/inspection (X-Admin-Key = FEEDBACK_ADMIN_KEY).
+# Added to (a) inspect a product's mockup-image array so we can design
+# the checkout image-trim, and (b) delete leftover test / [MOCKUP]
+# draft products (there is otherwise no delete route). Remove after the
+# go-live cleanup is done.
+# ────────────────────────────────────────────────────────────────
+def _require_admin(request: Request) -> None:
+    admin_key = (request.headers.get("X-Admin-Key") or "").strip()
+    expected = (os.getenv("FEEDBACK_ADMIN_KEY") or "").strip()
+    if not (admin_key and expected and hmac.compare_digest(admin_key, expected)):
+        raise HTTPException(status_code=403, detail="admin only")
+
+
+@router.get("/admin/products")
+async def admin_list_products(request: Request):
+    _require_admin(request)
+
+    def _list():
+        shop_id = _shop_id()
+        out = []
+        page = 1
+        while True:
+            resp = _printify_request(
+                "GET",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products.json?limit=50&page={page}",
+                headers=_headers(),
+                timeout=60,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            items = body.get("data") or []
+            if not items:
+                break
+            for p in items:
+                ext = p.get("external") or {}
+                out.append({
+                    "id": p.get("id"),
+                    "title": p.get("title"),
+                    "blueprint_id": p.get("blueprint_id"),
+                    "visible": p.get("visible"),
+                    "is_locked": p.get("is_locked"),
+                    "images": len(p.get("images") or []),
+                    "on_shopify": bool(ext.get("handle") or ext.get("id")),
+                })
+            if len(items) < 50:
+                break
+            page += 1
+            if page > 50:
+                break
+        return out
+
+    return JSONResponse(content={"products": await run_in_threadpool(_list)})
+
+
+@router.get("/admin/product/{product_id}")
+async def admin_get_product(product_id: str, request: Request):
+    _require_admin(request)
+    if not _PRINTIFY_ID_RE.match(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product_id format")
+
+    def _get():
+        shop_id = _shop_id()
+        resp = _printify_request(
+            "GET",
+            f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+            headers=_headers(),
+            timeout=30,
+        )
+        try:
+            return resp.status_code, resp.json()
+        except Exception:
+            return resp.status_code, resp.text[:500]
+
+    code, data = await run_in_threadpool(_get)
+    if isinstance(data, dict):
+        imgs = data.get("images") or []
+        data = {
+            "id": data.get("id"),
+            "title": data.get("title"),
+            "variants_enabled": sum(1 for v in (data.get("variants") or []) if v.get("is_enabled")),
+            "images_count": len(imgs),
+            "images": [
+                {
+                    "position": i.get("position"),
+                    "variant_ids": i.get("variant_ids"),
+                    "is_default": i.get("is_default"),
+                    "is_selected_for_publishing": i.get("is_selected_for_publishing"),
+                    "src": i.get("src"),
+                }
+                for i in imgs
+            ],
+        }
+    return JSONResponse(content={"http": code, "product": data})
+
+
+@router.post("/admin/delete/{product_id}")
+async def admin_delete_product(product_id: str, request: Request):
+    _require_admin(request)
+    if not _PRINTIFY_ID_RE.match(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product_id format")
+
+    def _del():
+        shop_id = _shop_id()
+        resp = _printify_request(
+            "DELETE",
+            f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+            headers=_headers(),
+            timeout=30,
+        )
+        return resp.status_code, resp.text[:300]
+
+    code, text = await run_in_threadpool(_del)
+    return JSONResponse(content={"http": code, "deleted": code in (200, 201, 204), "body": text})
