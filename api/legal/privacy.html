@@ -32,8 +32,7 @@
     <ul>
       <li><strong>Server logs</strong>: IP address, request path, response status, user-agent string, referrer. Retained for up to <strong>30 days</strong> for security + abuse-monitoring purposes.</li>
       <li><strong>Browser storage</strong>: we use <code>localStorage</code> to remember UI preferences (master toggle tier, dismissed banners, last-seen build version). No third-party advertising cookies. See &ldquo;Cookies and similar technologies&rdquo; below.</li>
-      <li><strong>Analytics</strong>: aggregated page-view + funnel metrics via <strong>Google Analytics 4</strong>. GA4 stores a randomly-generated client identifier in a cookie; we do not link it to your identity.</li>
-      <li><strong>Error reporting</strong>: <strong>Sentry</strong> captures crash reports and unhandled exceptions, including a stack trace + the request URL. IP address is included for spam / abuse correlation.</li>
+      <li><strong>Analytics &amp; error reporting</strong>: we do <strong>not</strong> currently use third-party analytics (such as Google Analytics) or third-party error-reporting services. Operational monitoring relies solely on the server logs described above.</li>
     </ul>
 
     <h3>When you place an order</h3>
@@ -47,18 +46,14 @@
     <p>We use the following storage:</p>
     <ul>
       <li><strong>Strictly necessary</strong>: <code>localStorage</code> entries for UI state (master toggle tier, dismissed modals, current workflow step). No consent required under GDPR; disclosed for transparency.</li>
-      <li><strong>Analytics</strong>: Google Analytics 4 cookies (<code>_ga</code>, <code>_ga_*</code>). 14-month retention. You can opt out via the cookie banner shown on first visit.</li>
-      <li><strong>Error reporting</strong>: Sentry uses no cookies; correlates errors by session token only.</li>
     </ul>
-    <p>You can clear all of the above via your browser&rsquo;s site-data controls. We do not use third-party advertising cookies.</p>
+    <p>We do <strong>not</strong> set analytics or third-party advertising cookies. You can clear the browser storage above via your browser&rsquo;s site-data controls.</p>
 
     <h2>Where your data goes</h2>
     <ul>
       <li><strong>Hosting</strong>: Render (US-East), which processes server logs incidental to service operation.</li>
       <li><strong>Shopify</strong>: Canada (payments, order management).</li>
       <li><strong>Printify</strong>: Latvia / United States (fulfilment).</li>
-      <li><strong>Google Analytics</strong>: United States. Google is certified under the EU&ndash;US Data Privacy Framework.</li>
-      <li><strong>Sentry</strong>: United States (sentry.io).</li>
     </ul>
     <p>EU + UK visitors: by using the Service you consent to these international transfers, which rely on the EU&ndash;US Data Privacy Framework + Standard Contractual Clauses for processors not certified under it.</p>
 
