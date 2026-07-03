@@ -3161,13 +3161,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       _qualityCycleTimers = [];
       state._forcedCycleActive = false;
     }
-    function _forcedAdvance(token, tier, delayMs) {
+    function _forcedAdvance(token, tier, delayMs, onDone) {
       var attempts = 0;
+      function finish() { if (typeof onDone === "function") onDone(); }
       function tick() {
         if (token !== state._qualityCycleToken) return;          // superseded by a new image
         if (state._userFilterPick != null) { state._forcedCycleActive = false; return; }  // user took over
         if (!_filterIsReady(tier)) {
-          if (++attempts > 30) return;                           // give up after ~12s of polling
+          if (++attempts > 30) { finish(); return; }             // give up after ~12s of polling
           var tp = setTimeout(tick, 400);
           _qualityCycleTimers.push(tp);
           return;
@@ -3176,9 +3177,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (FILTER_ORDER.indexOf(tier) > FILTER_ORDER.indexOf(state.editorFilter)) {
           applyFilterInstant(tier);
         }
+        finish();
       }
       var t0 = setTimeout(tick, delayMs);
       _qualityCycleTimers.push(t0);
+    }
+    function _endForcedQualityCycle(token) {
+      if (token !== state._qualityCycleToken) return;
+      state._forcedCycleActive = false;
+      // Staged cycle done — hand back to normal promotion so HQ Filtered
+      // applies if it arrived (or was cached) during the cycle.
+      if (state._userFilterPick == null && typeof maybeAutoAdvanceFilter === "function") {
+        maybeAutoAdvanceFilter();
+      }
     }
     function _runForcedQualityCycle() {
       _cancelForcedQualityCycle();
@@ -3193,13 +3204,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         updateMockupDisplay();
       }
       // Stage 2 — Original after a settle delay; Stage 3 — Filtered after a
-      // further delay. Both gated on their tier actually being ready.
+      // further delay. Both gated on their tier actually being ready. When the
+      // Filtered stage completes (applied or its tier never became ready), let
+      // the cycle settle briefly, then end it so HQ Filtered can auto-apply.
       _forcedAdvance(token, "raw", 2500);
-      _forcedAdvance(token, "rhef", 5500);
-      // Close the forced window once we've had time to reach Filtered so
-      // normal auto-advance (e.g. HQ Filtered when it lands later) resumes.
+      _forcedAdvance(token, "rhef", 5500, function () {
+        var t = setTimeout(function () { _endForcedQualityCycle(token); }, 1500);
+        _qualityCycleTimers.push(t);
+      });
+      // Hard safety cap: never keep the forced state longer than this even if
+      // the Filtered stage's callback somehow never fires.
       _qualityCycleTimers.push(setTimeout(function () {
-        if (token === state._qualityCycleToken) state._forcedCycleActive = false;
+        _endForcedQualityCycle(token);
       }, 14000));
     }
 
@@ -6067,6 +6083,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * remain available in memory.
      */
     function _hqApplyUpgrade(format) {
+      // Don't jump to HQ Filtered while the forced quality cycle is staging
+      // Preview → Original → Filtered — it would skip those tiers (pre-warmed
+      // vibes have HQ cached and would otherwise snap to it in <1s). Just mark
+      // it ready in the timeline; the cycle promotes to HQ itself when it ends.
+      if (state._forcedCycleActive) { updateFilterTimelineUI(); return; }
       // Always upgrade to hq_rhef when HQ arrives - the HQ is the premium view
       state.editorFilter = "hq_rhef";
       renderCanvas();
