@@ -8827,7 +8827,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // first, hydrate variantPricingCache and render with real prices
     // instantly; then we kick off the freshness check in the background
     // and overwrite if the upstream Printify pricing changed.
-    var _PRICING_CACHE_LS_KEY = "sunback.variantPricing.v1";
+    // v2: invalidates v1 caches that may hold EMPTY pricing for products whose
+    // per-variant costs are now filled by the backend reference-product
+    // backfill (posters/canvas/acrylic etc. previously had no cost → uniform
+    // "From $X"). Bumping forces one fresh fetch so existing sessions pick up
+    // real per-size prices instead of waiting out the hourly freshness re-fetch.
+    var _PRICING_CACHE_LS_KEY = "sunback.variantPricing.v2";
     var _PRICING_CACHE_TTL_MS = 24 * 3600 * 1000;  // 24h hard expiry
     // Skip the background freshness re-fetch if the cached entry is
     // newer than this. Without the throttle, every variant-modal open
