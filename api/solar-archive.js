@@ -2730,32 +2730,42 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       try { id = ctx.getImageData(0, 0, S, S); } catch (_e) { return null; }  // tainted
       var d = id.data, N = S * S;
       var cx = (S - 1) / 2, cy = (S - 1) / 2, maxR = Math.sqrt(cx * cx + cy * cy) || 1;
-      var BINS = 48;
-      var lum = new Float32Array(N), rb = new Int16Array(N);
+      var BINS = 64;
+      var lum = new Float32Array(N), rf = new Float32Array(N);
       var binVals = []; for (var b = 0; b < BINS; b++) binVals.push([]);
       for (var y = 0; y < S; y++) {
         for (var x = 0; x < S; x++) {
           var i = y * S + x, p = i * 4;
           var L = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
           lum[i] = L;
-          var r = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / maxR;
-          var bb = (r * BINS) | 0; if (bb >= BINS) bb = BINS - 1;
-          rb[i] = bb; binVals[bb].push(L);
+          var rr = (Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / maxR) * BINS;
+          rf[i] = rr;                                  // float bin position (for interpolation)
+          var bb = rr | 0; if (bb >= BINS) bb = BINS - 1;
+          binVals[bb].push(L);
         }
       }
       var lo = new Float32Array(BINS), hi = new Float32Array(BINS);
       for (var bi = 0; bi < BINS; bi++) {
         var arr = binVals[bi];
-        if (!arr.length) { lo[bi] = 0; hi[bi] = 255; continue; }
+        if (!arr.length) { lo[bi] = bi > 0 ? lo[bi - 1] : 0; hi[bi] = bi > 0 ? hi[bi - 1] : 255; continue; }
         arr.sort(function (a, b2) { return a - b2; });
         lo[bi] = arr[(arr.length * 0.02) | 0];
         hi[bi] = arr[Math.min(arr.length - 1, (arr.length * 0.98) | 0)];
       }
       for (var j = 0; j < N; j++) {
-        var bj = rb[j], L0 = lum[j], rng = hi[bj] - lo[bj];
-        var t = rng > 1 ? (L0 - lo[bj]) / rng : (L0 / 255);
+        // Linear-interpolate the per-radius lo/hi between adjacent bin centers
+        // so annuli blend smoothly — hard per-bin normalization produced
+        // visible concentric ring artifacts.
+        var fp = rf[j] - 0.5;
+        var q0 = fp <= 0 ? 0 : (fp | 0); if (q0 > BINS - 1) q0 = BINS - 1;
+        var q1 = q0 + 1 < BINS ? q0 + 1 : q0;
+        var frac = fp - q0; if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
+        var loP = lo[q0] * (1 - frac) + lo[q1] * frac;
+        var hiP = hi[q0] * (1 - frac) + hi[q1] * frac;
+        var L0 = lum[j], rng = hiP - loP;
+        var t = rng > 1 ? (L0 - loP) / rng : (L0 / 255);
         t = t < 0 ? 0 : t > 1 ? 1 : t;
-        var newL = 255 * Math.pow(t, 0.75);           // gamma lift → coronal detail
+        var newL = 255 * Math.pow(t, 0.8);            // gentle gamma lift → coronal detail
         var scale = L0 > 4 ? newL / L0 : (newL > 0 ? 1 : 0);
         var pj = j * 4;
         d[pj]     = Math.min(255, d[pj]     * scale);
