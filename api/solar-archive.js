@@ -3175,6 +3175,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         // Advance forward only — never downgrade a tier already reached.
         if (FILTER_ORDER.indexOf(tier) > FILTER_ORDER.indexOf(state.editorFilter)) {
+          try { console.log("[QC] advance " + tier + " t=" + Math.round(performance.now())); } catch (_e) {}
           applyFilterInstant(tier);
         }
         finish();
@@ -3194,6 +3195,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _runForcedQualityCycle() {
       _cancelForcedQualityCycle();
       var token = (state._qualityCycleToken = (state._qualityCycleToken || 0) + 1);
+      try { console.log("[QC] cycle start t=" + Math.round(performance.now())); } catch (_e) {}
       state._forcedCycleActive = true;
       state._userFilterPick = null;      // fresh image → clear any prior manual pin
       // Stage 1 — Preview now (already set to jpg on install; force a sync).
@@ -6087,6 +6089,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Preview → Original → Filtered — it would skip those tiers (pre-warmed
       // vibes have HQ cached and would otherwise snap to it in <1s). Just mark
       // it ready in the timeline; the cycle promotes to HQ itself when it ends.
+      try { console.log("[QC] hqApply forced=" + !!state._forcedCycleActive + " t=" + Math.round(performance.now())); } catch (_e) {}
       if (state._forcedCycleActive) { updateFilterTimelineUI(); return; }
       // Always upgrade to hq_rhef when HQ arrives - the HQ is the premium view
       state.editorFilter = "hq_rhef";
