@@ -2711,6 +2711,61 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
     }
 
+    // Fast client-side approximation of the RHEF (Radial Histogram Equalizing
+    // Filter) look for a wavelength tile, so that when the master toggle is on
+    // "Filtered" the tiles visibly match — without running the heavy FITS→RHEF
+    // pipeline for every wavelength. It's a per-radial-bin percentile stretch +
+    // gamma lift on the raw Helioviewer thumbnail, which brightens the faint
+    // off-disk corona the way real RHEF does. Approximate, not pixel-accurate.
+    // Returns a <canvas> (drop-in for the <img>) or null if the source image is
+    // cross-origin tainted (can't read pixels).
+    function _approxRhefCanvas(img) {
+      var S = img.naturalWidth ? Math.min(256, img.naturalWidth) : 256;
+      if (S < 8) return null;
+      var c = document.createElement("canvas");
+      c.width = S; c.height = S;
+      var ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, S, S);
+      var id;
+      try { id = ctx.getImageData(0, 0, S, S); } catch (_e) { return null; }  // tainted
+      var d = id.data, N = S * S;
+      var cx = (S - 1) / 2, cy = (S - 1) / 2, maxR = Math.sqrt(cx * cx + cy * cy) || 1;
+      var BINS = 48;
+      var lum = new Float32Array(N), rb = new Int16Array(N);
+      var binVals = []; for (var b = 0; b < BINS; b++) binVals.push([]);
+      for (var y = 0; y < S; y++) {
+        for (var x = 0; x < S; x++) {
+          var i = y * S + x, p = i * 4;
+          var L = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+          lum[i] = L;
+          var r = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / maxR;
+          var bb = (r * BINS) | 0; if (bb >= BINS) bb = BINS - 1;
+          rb[i] = bb; binVals[bb].push(L);
+        }
+      }
+      var lo = new Float32Array(BINS), hi = new Float32Array(BINS);
+      for (var bi = 0; bi < BINS; bi++) {
+        var arr = binVals[bi];
+        if (!arr.length) { lo[bi] = 0; hi[bi] = 255; continue; }
+        arr.sort(function (a, b2) { return a - b2; });
+        lo[bi] = arr[(arr.length * 0.02) | 0];
+        hi[bi] = arr[Math.min(arr.length - 1, (arr.length * 0.98) | 0)];
+      }
+      for (var j = 0; j < N; j++) {
+        var bj = rb[j], L0 = lum[j], rng = hi[bj] - lo[bj];
+        var t = rng > 1 ? (L0 - lo[bj]) / rng : (L0 / 255);
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        var newL = 255 * Math.pow(t, 0.75);           // gamma lift → coronal detail
+        var scale = L0 > 4 ? newL / L0 : (newL > 0 ? 1 : 0);
+        var pj = j * 4;
+        d[pj]     = Math.min(255, d[pj]     * scale);
+        d[pj + 1] = Math.min(255, d[pj + 1] * scale);
+        d[pj + 2] = Math.min(255, d[pj + 2] * scale);
+      }
+      ctx.putImageData(id, 0, 0);
+      return c;
+    }
+
     function loadWavelengthThumbnails() {
       updateWavelengthSectionDateState();
       var dateVal = (dateInput && dateInput.value) ? String(dateInput.value).trim() : "";
@@ -2770,6 +2825,24 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           thumbCache[wl] = { raw: null, canvas2048: null, rhef: null };
           div.classList.add("loaded");
           tileLog("loaded", wl);
+          // Filtered-look sync: when the master toggle is "Filtered" and this
+          // tile is the raw Helioviewer fallback (no real pre-warmed RHEF thumb
+          // for this date+wl), swap in a fast client-side RHEF approximation so
+          // the tile visibly matches the toggle. Real RHEF thumbs skip this.
+          if (state.vibeMasterTier === "rhef" && !cachedThumbUrl) {
+            try {
+              var _approx = _approxRhefCanvas(tileImg);
+              if (_approx) {
+                _approx.setAttribute("aria-label", wl + " Å (filtered preview)");
+                _approx.style.width = "100%";
+                _approx.style.height = "100%";
+                _approx.style.objectFit = "cover";
+                _approx.style.borderRadius = "50%";
+                div.innerHTML = "";
+                div.appendChild(_approx);
+              }
+            } catch (_e) {}
+          }
           // Warm the 512px canvas cache for editor preview. Goes through the
           // same proxy so it's reliable behind corp filters.
           if (API_BASE) {
@@ -4065,20 +4138,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _buildWlThumbCacheIndex() {
       _wlThumbCacheIndex = {};
       if (!_vibeManifest) return;
+      // The manifest is FLAT per vibe slug — each entry pre-warms exactly one
+      // (date, wavelength) with slug-level thumb URLs:
+      //   { date, wavelength, jpg_thumb_url?, raw_thumb_url, rhef_thumb_url }
+      // (The old nested events[].wavelengths[] shape is gone, which is why this
+      // index was silently empty and every tier fell back to raw Helioviewer.)
+      // Key by date + wavelength only: the picker's time-of-day generally
+      // differs from the warmed frame's, and each date+wl has a single warmed
+      // thumbnail, so ignoring time is correct here.
       Object.keys(_vibeManifest).forEach(function (slug) {
         var v = _vibeManifest[slug];
-        if (!v || !v.events || !v.date) return;
-        v.events.forEach(function (ev) {
-          if (!ev || !ev.wavelengths || !ev.time_utc) return;
-          var keyPrefix = v.date + "T" + ev.time_utc + "/";
-          Object.keys(ev.wavelengths).forEach(function (wl) {
-            var w = ev.wavelengths[wl];
-            if (!w) return;
-            if (w.jpg_thumb_url)  _wlThumbCacheIndex["jpg/"  + keyPrefix + wl] = w.jpg_thumb_url;
-            if (w.raw_thumb_url)  _wlThumbCacheIndex["raw/"  + keyPrefix + wl] = w.raw_thumb_url;
-            if (w.rhef_thumb_url) _wlThumbCacheIndex["rhef/" + keyPrefix + wl] = w.rhef_thumb_url;
-          });
-        });
+        if (!v || !v.date || v.wavelength == null) return;
+        var k = v.date + "/" + v.wavelength;
+        if (v.jpg_thumb_url)  _wlThumbCacheIndex["jpg/"  + k] = v.jpg_thumb_url;
+        if (v.raw_thumb_url)  _wlThumbCacheIndex["raw/"  + k] = v.raw_thumb_url;
+        if (v.rhef_thumb_url) _wlThumbCacheIndex["rhef/" + k] = v.rhef_thumb_url;
       });
     }
     // Tier-aware lookup. Tier defaults to the currently active master
@@ -4086,9 +4160,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // rhef → raw → jpg if the requested tier isn't cached for this
     // combo, so the user always sees SOMETHING.
     function _cachedWavelengthThumb(dateStr, timeStr, wl, tier) {
-      if (!dateStr || !timeStr) return null;
+      // timeStr is accepted for back-compat but ignored — the manifest keys
+      // pre-warmed thumbnails by date + wavelength only (see the index above).
+      if (!dateStr) return null;
       tier = tier || (state && state.vibeMasterTier) || "jpg";
-      var keyTail = dateStr + "T" + timeStr + "/" + wl;
+      var keyTail = dateStr + "/" + wl;
       var url = _wlThumbCacheIndex[tier + "/" + keyTail];
       if (url) return url;
       // Fallback ladder: requested tier missing, try in graceful order.
