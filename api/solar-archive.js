@@ -2543,9 +2543,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           state.rawBackendImage = cachedEntry.rawBackend || null;
           state.jpgImage = cachedEntry.jpg || null;
           setTimeout(function() {
-            applyFilterInstant("rhef");
-            showToast("Filtered version loaded from cache! Click Original to switch back.", "info");
-            // RHEF preview is ready — kick off HQ generation immediately (also checks hqCache)
+            // Cached tiers (raw/rhef/jpg) are already in state above — the
+            // forced quality cycle stages Preview → Original → Filtered from
+            // them, so don't jump straight to Filtered here. Just kick off HQ
+            // generation so hq_rhef can upgrade the canvas later.
             startHqFilterGeneration(dateVal, wl, "rhef");
           }, 100);
         } else {
@@ -2578,14 +2579,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               entry.rhef = state.rhefImage; entry.rawBackend = state.rawBackendImage; entry.jpg = state.jpgImage;
               thumbCache[String(wl)] = entry;
               updateFilterStatusLine("Science data ready! Generating HQ\u2026", "loading");
-              // If the gallery master toggle is in RHEF mode the user already expressed
-              // a preference — apply RHEF in the editor automatically rather than
-              // leaving them on JPG and requiring a manual toggle.
-              if (state.vibeMasterTier === "rhef") {
-                applyFilterInstant("rhef");
-              } else {
-                renderCanvas();
-              }
+              // Tiers just landed. The forced quality cycle (started on editor
+              // entry) stages Preview → Original → Filtered as each becomes
+              // ready — don't jump straight to Filtered here; just repaint. If
+              // the cycle window already closed (very slow prefetch),
+              // maybeAutoAdvanceFilter below promotes to the best ready tier.
+              renderCanvas();
               if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
               // RHEF preview is ready — kick off HQ generation in the background.
               // The HQ image will auto-upgrade the canvas to hq_rhef when it arrives.
@@ -2654,6 +2653,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
       }
       updateProductSectionHeader();
+
+      // Force the staged quality cycle on editor entry: Preview → (settle) →
+      // Original → (delay) → Filtered, so every tier renders and syncs its
+      // product mockups by force (each stage waits for its tier to be ready).
+      if (typeof _runForcedQualityCycle === "function") _runForcedQualityCycle();
 
       setTimeout(hideProgress, 1200);
     }
@@ -3117,6 +3121,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      */
     function maybeAutoAdvanceFilter() {
       if (!state.originalImage) return;
+      // While the forced quality cycle (below) is staging Preview → Original →
+      // Filtered, let IT drive the tier changes so intermediate tiers aren't
+      // skipped. Just keep the timeline UI fresh here.
+      if (state._forcedCycleActive) { updateFilterTimelineUI(); return; }
       var current = state.editorFilter;
       var pinIdx = state._userFilterPick != null ? FILTER_ORDER.indexOf(state._userFilterPick) : -1;
       var bestIdx = -1;
@@ -3136,6 +3144,63 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       } else {
         updateFilterTimelineUI();
       }
+    }
+
+    // ── Forced quality cycle on editor entry ──
+    // The master quality selector didn't reliably sync each tier's mockup
+    // (the product "reduction layer") into the previews, because auto-advance
+    // jumped straight to the best-ready tier and skipped the intermediate
+    // renders. On editor entry we FORCE a staged pass — Preview → (settle) →
+    // Original → (delay) → Filtered — so every tier renders and syncs its
+    // mockups by force. Each stage waits for its tier to actually be ready
+    // (the backend images arrive asynchronously) and the whole cycle yields
+    // the moment the user picks a tier themselves.
+    var _qualityCycleTimers = [];
+    function _cancelForcedQualityCycle() {
+      _qualityCycleTimers.forEach(function (t) { clearTimeout(t); });
+      _qualityCycleTimers = [];
+      state._forcedCycleActive = false;
+    }
+    function _forcedAdvance(token, tier, delayMs) {
+      var attempts = 0;
+      function tick() {
+        if (token !== state._qualityCycleToken) return;          // superseded by a new image
+        if (state._userFilterPick != null) { state._forcedCycleActive = false; return; }  // user took over
+        if (!_filterIsReady(tier)) {
+          if (++attempts > 30) return;                           // give up after ~12s of polling
+          var tp = setTimeout(tick, 400);
+          _qualityCycleTimers.push(tp);
+          return;
+        }
+        // Advance forward only — never downgrade a tier already reached.
+        if (FILTER_ORDER.indexOf(tier) > FILTER_ORDER.indexOf(state.editorFilter)) {
+          applyFilterInstant(tier);
+        }
+      }
+      var t0 = setTimeout(tick, delayMs);
+      _qualityCycleTimers.push(t0);
+    }
+    function _runForcedQualityCycle() {
+      _cancelForcedQualityCycle();
+      var token = (state._qualityCycleToken = (state._qualityCycleToken || 0) + 1);
+      state._forcedCycleActive = true;
+      state._userFilterPick = null;      // fresh image → clear any prior manual pin
+      // Stage 1 — Preview now (already set to jpg on install; force a sync).
+      if (state.editorFilter !== "jpg") {
+        applyFilterInstant("jpg");
+      } else {
+        if (typeof renderCanvas === "function") renderCanvas();
+        updateMockupDisplay();
+      }
+      // Stage 2 — Original after a settle delay; Stage 3 — Filtered after a
+      // further delay. Both gated on their tier actually being ready.
+      _forcedAdvance(token, "raw", 2500);
+      _forcedAdvance(token, "rhef", 5500);
+      // Close the forced window once we've had time to reach Filtered so
+      // normal auto-advance (e.g. HQ Filtered when it lands later) resumes.
+      _qualityCycleTimers.push(setTimeout(function () {
+        if (token === state._qualityCycleToken) state._forcedCycleActive = false;
+      }, 14000));
     }
 
     // ── Mockup display switching ────────────────────────────────
@@ -3290,6 +3355,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // existing handleFilterChange flow shows the right toast/dialog and
         // schedules the fetch).
         state._userFilterPick = radio.value;
+        _cancelForcedQualityCycle();   // user took control — stop forcing the staged cycle
         radio.checked = true;
         _syncFilterToggleUI(radio.value);
         handleFilterChange(radio);
