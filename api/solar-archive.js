@@ -4103,14 +4103,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       tier = tier || "raw";
       var entry = _vibeManifest && _vibeManifest[slug];
       if (entry) {
-        // HQ tiers (full-resolution master-toggle preview). Each falls
-        // back to its 256² thumb if HQ isn't cached yet — this is what
-        // happens on a fresh deploy before the HQ warm bundle uploads.
+        // Prefer the small 256² THUMB for the card's immediate display so a
+        // tier flip is instant and the grid never drifts out of sync with the
+        // master toggle. The 13 MB *_full_url is huge — showing it directly
+        // meant a card kept rendering its PREVIOUS tier for the seconds it took
+        // to download. _setVibeThumb progressively upgrades the card to the
+        // full-res version in the background once it's on screen.
         if (tier === "raw") {
-          return entry.raw_full_url || entry.raw_thumb_url || null;
+          return entry.raw_thumb_url || entry.raw_full_url || null;
         }
         if (tier === "rhef") {
-          return entry.rhef_full_url || entry.rhef_thumb_url || null;
+          return entry.rhef_thumb_url || entry.rhef_full_url || null;
         }
         if (tier === "jpg") {
           // Prefer the 1024² HQ JPG cached by warm_vibe_jpg_hq.py.
@@ -4204,9 +4207,41 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (!imgEl) return;
       imgEl.classList.toggle("is-jpg-tier", tier === "jpg");
     }
+    // Progressive quality upgrade: once a card is showing its fast 256² thumb
+    // for `tier`, quietly load the full-res image and swap it in — but ONLY if
+    // the card is still on that tier (guarded by data-vibe-upgrade-tier, which
+    // a later tier change overwrites so a stale upgrade never clobbers the
+    // current view). This keeps the grid instantly in sync (thumb) AND crisp
+    // (full-res) without the multi-second raw→rhef lag of loading 13 MB inline.
+    function _upgradeCardToFull(card, tier) {
+      var slug = card.getAttribute("data-vibe-slug");
+      var entry = _vibeManifest && _vibeManifest[slug];
+      if (!entry) return;
+      var fullUrl = tier === "rhef" ? entry.rhef_full_url
+                  : tier === "raw"  ? entry.raw_full_url : null;
+      if (!fullUrl) return;
+      card.dataset.vibeUpgradeTier = tier;
+      var cachedFull = _thumbCacheGet(fullUrl);
+      var swap = function (node) {
+        if (card.dataset.vibeUpgradeTier !== tier) return;   // tier changed — skip
+        var w = card.querySelector(".vibe-thumb");
+        if (!w) return;
+        var existing = w.querySelector("img");
+        if (existing === node) return;
+        if (existing) existing.replaceWith(node); else { w.innerHTML = ""; w.appendChild(node); }
+      };
+      if (cachedFull) { swap(cachedFull.cloneNode(false)); return; }
+      var full = new Image();
+      full.alt = "";
+      _applyTierClass(full, tier);
+      full.onload = function () { _thumbCacheSet(fullUrl, full); swap(full); };
+      full.src = fullUrl;
+    }
     function _setVibeThumb(card, url, tier) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;
+      // A newer tier for this card supersedes any in-flight full-res upgrade.
+      card.dataset.vibeUpgradeTier = tier;
       var cached = _thumbCacheGet(url);
       if (cached) {
         thumbWell.classList.remove("is-loading");
@@ -4216,6 +4251,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         c.alt = "";
         _applyTierClass(c, tier);
         thumbWell.appendChild(c);
+        _upgradeCardToFull(card, tier);
         return;
       }
       thumbWell.classList.add("is-loading");
@@ -4227,6 +4263,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         thumbWell.innerHTML = "";
         thumbWell.appendChild(img);
         _thumbCacheSet(url, img);
+        _upgradeCardToFull(card, tier);
       };
       img.onerror = function () { thumbWell.classList.remove("is-loading"); };
       img.src = url;
@@ -4304,6 +4341,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             overlay.style.clipPath = "none";
             _thumbCacheSet(url, overlay);
             card.setAttribute("data-vibe-active-tier", toTier);
+            // The wipe animates the fast 256² thumb; upgrade to full-res now.
+            _upgradeCardToFull(card, toTier);
             // Update any per-card toggle UI if present (legacy path).
             card.querySelectorAll(".vibe-tier-btn").forEach(function (b) {
               var on = b.getAttribute("data-tier") === toTier;
