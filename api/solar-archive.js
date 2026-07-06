@@ -9966,7 +9966,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           realImg.style.width = "100%";
           realImg.style.height = "100%";
           realImg.style.objectFit = "contain";
-          realImg.src = defaultMockupManifest[p.id].url;
+          // Grid cards display at ~150px — use the lightweight WebP thumbnail
+          // (~20-30KB) when the warm manifest carries one, falling back to the
+          // full 1200² PNG (~300-540KB) for older caches without thumbs. The
+          // full url is still used for the download/print bundle elsewhere.
+          realImg.src = defaultMockupManifest[p.id].thumb_url || defaultMockupManifest[p.id].url;
           var realPreviewEl = card.querySelector(".product-preview");
           realPreviewEl.innerHTML = "";
           realPreviewEl.appendChild(realImg);

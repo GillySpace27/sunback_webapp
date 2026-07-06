@@ -1859,6 +1859,44 @@ def _phase_b_cleanup_orphan_drafts():
     return deleted
 
 
+def _write_mockup_thumb(src_path: str, dst_path: str, size: int = 400):
+    """Downsample a product-mockup PNG to a WebP grid thumbnail.
+
+    The product grid ("Pick your canvas") shows each mockup at ~150px but the
+    cached Printify PNG is 1200² (~300–540 KB each; ~8 MB across the 25-product
+    grid on a first visit). A 400px WebP is ~20–30 KB — a ~15× cut. Aspect
+    ratio is preserved (mockups aren't all square, e.g. framed/poster crops)."""
+    from PIL import Image
+    with Image.open(src_path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((size, size), Image.LANCZOS)
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        im.save(dst_path, format="WEBP", quality=82, method=6)
+
+
+def _ensure_mockup_thumb(pid: str, manifest: dict) -> bool:
+    """Ensure a WebP grid thumbnail exists for product `pid` and that its
+    manifest entry carries `thumb_url`. Idempotent: (re)generates only when the
+    thumb file is missing or the manifest lacks the url — so re-running the warm
+    endpoint backfills thumbnails for already-cached mockups WITHOUT any
+    Printify calls. Requires the full mockup PNG on disk. Returns True if it
+    (re)generated the thumb."""
+    mock_path = DEFAULT_MOCKUPS_DIR / f"{pid}.png"
+    thumb_path = DEFAULT_MOCKUPS_DIR / f"{pid}.thumb.webp"
+    thumb_url = f"/asset/default/mockups/{pid}.thumb.webp"
+    entry = manifest.get(pid) or {}
+    have_file = thumb_path.exists() and thumb_path.stat().st_size > 200
+    if have_file and entry.get("thumb_url") == thumb_url:
+        return False
+    if not (mock_path.exists() and mock_path.stat().st_size > 1000):
+        return False
+    _write_mockup_thumb(str(mock_path), str(thumb_path))
+    entry["thumb_url"] = thumb_url
+    entry["thumb_size_bytes"] = thumb_path.stat().st_size
+    manifest[pid] = entry
+    return True
+
+
 def _phase_b_warm(image_id_cache):
     """Synchronously pre-render + cache real Printify mockups for every
     product in `_DEFAULT_MOCKUP_PRODUCTS`. Idempotent: skips products
@@ -1925,6 +1963,13 @@ def _phase_b_warm(image_id_cache):
         if mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
             skipped += 1
             status["status"] = "skipped_cached"
+            # Backfill the WebP grid thumbnail even for cached mockups so a
+            # plain re-run of warm_default heals old caches (no Printify calls).
+            try:
+                if _ensure_mockup_thumb(pid, manifest):
+                    status["thumb"] = "created"
+            except Exception as _te:
+                print(f"[warm_default][phase_b] thumb gen failed for {pid}: {_te}", flush=True)
             per_product.append(status)
             continue
 
@@ -1977,6 +2022,12 @@ def _phase_b_warm(image_id_cache):
                     "size_bytes": mock_path.stat().st_size,
                     "source_mockup_url": mockup_url,
                 }
+                # Generate the lightweight WebP grid thumbnail (adds thumb_url
+                # to the entry above) before the incremental write below.
+                try:
+                    _ensure_mockup_thumb(pid, manifest)
+                except Exception as _te:
+                    print(f"[warm_default][phase_b] thumb gen failed for {pid}: {_te}", flush=True)
                 # Incremental manifest write: persists partial progress so a
                 # Render edge-cut on a long-running warm doesn't lose
                 # everything. Re-runs read this manifest + skip cached.
