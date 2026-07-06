@@ -4213,30 +4213,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // a later tier change overwrites so a stale upgrade never clobbers the
     // current view). This keeps the grid instantly in sync (thumb) AND crisp
     // (full-res) without the multi-second raw→rhef lag of loading 13 MB inline.
-    function _upgradeCardToFull(card, tier) {
-      var slug = card.getAttribute("data-vibe-slug");
-      var entry = _vibeManifest && _vibeManifest[slug];
-      if (!entry) return;
-      var fullUrl = tier === "rhef" ? entry.rhef_full_url
-                  : tier === "raw"  ? entry.raw_full_url : null;
-      if (!fullUrl) return;
-      card.dataset.vibeUpgradeTier = tier;
-      var cachedFull = _thumbCacheGet(fullUrl);
-      var swap = function (node) {
-        if (card.dataset.vibeUpgradeTier !== tier) return;   // tier changed — skip
-        var w = card.querySelector(".vibe-thumb");
-        if (!w) return;
-        var existing = w.querySelector("img");
-        if (existing === node) return;
-        if (existing) existing.replaceWith(node); else { w.innerHTML = ""; w.appendChild(node); }
-      };
-      if (cachedFull) { swap(cachedFull.cloneNode(false)); return; }
-      var full = new Image();
-      full.alt = "";
-      _applyTierClass(full, tier);
-      full.onload = function () { _thumbCacheSet(fullUrl, full); swap(full); };
-      full.src = fullUrl;
-    }
+    // BANDWIDTH: vibe cards intentionally STAY on the fast 256² thumbnail.
+    // Upgrading each of the ~11 grid cards to its 13 MB full-res image
+    // (raw_full/rhef_full) was the dominant egress — a single visit that
+    // browsed + toggled pulled ~150–430 MB of full-res purely to render small
+    // grid tiles. The full-res is loaded ONLY when a user actually SELECTS a
+    // vibe to edit (_preloadVibeTiersIntoState in _activateVibe), where print
+    // quality matters. Kept as a no-op so the display/wipe call sites (which
+    // already show the correct-tier thumbnail, keeping the grid in sync) don't
+    // need touching. Re-enable a MEDIUM-res (not full) upgrade here if the
+    // thumbnails ever look too soft.
+    function _upgradeCardToFull(_card, _tier) { /* no-op — see note above */ }
     function _setVibeThumb(card, url, tier) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;

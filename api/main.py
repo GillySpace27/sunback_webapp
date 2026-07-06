@@ -667,6 +667,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         h.setdefault("X-Content-Type-Options", "nosniff")
         h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+        # Long-cache the warmed/immutable IMAGE assets so Cloudflare (and
+        # browsers) serve them from cache instead of re-hitting this origin —
+        # the 13 MB vibe images are the dominant bandwidth cost. Only images
+        # get the immutable header; JSON manifests (fetched no-store) revalidate
+        # so a re-warm still shows up. 30-day TTL self-heals if an image is ever
+        # re-warmed under the same name (also purge Cloudflare in that case).
+        _p = request.url.path
+        if _p.startswith("/asset/"):
+            _ext = _p.rsplit(".", 1)[-1].lower() if "." in _p else ""
+            if _ext in ("png", "jpg", "jpeg", "webp", "gif", "svg", "avif"):
+                h["Cache-Control"] = "public, max-age=2592000, immutable"
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
