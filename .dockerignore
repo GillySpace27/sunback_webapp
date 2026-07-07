@@ -1,0 +1,23 @@
+# Keep the image to exactly what the app needs: requirements + vendor wheel
+# + api/ tree. Everything else is dev-machine or legacy clutter.
+.git
+.gitignore
+.claude
+.env
+.sunpy
+__pycache__
+**/__pycache__
+api/__pycache__
+feedback.json
+launch_readiness.json
+SESSION_NOTES.md
+TODOS.md
+pipeline.py
+run_server
+render.yaml
+fly.toml
+Dockerfile
+.dockerignore
+infra/
+MIGRATION.md
+default_cache/

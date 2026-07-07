@@ -5691,7 +5691,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         actionsHtml =
           '<div class="banner-actions">' +
             '<button class="banner-btn" id="bannerRetry"><i class="fas fa-redo"></i> Retry</button>' +
-            '<a class="banner-btn" href="https://dashboard.render.com" target="_blank" rel="noopener"><i class="fas fa-external-link-alt"></i> Render Dashboard</a>' +
           '</div>';
       }
       backendBanner.innerHTML =
@@ -5747,7 +5746,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               isTimeout
                 ? "Backend is waking up... (attempt " + healthRetries + "/" + MAX_HEALTH_RETRIES + ")"
                 : "Retrying connection... (attempt " + healthRetries + "/" + MAX_HEALTH_RETRIES + ")",
-              "Render free-tier services sleep after inactivity. Cold start takes 30–60 seconds.",
+              "The server sleeps between visits to save energy. Waking it up takes a few seconds.",
               false
             );
             setTimeout(checkBackendHealth, WAKE_RETRY_DELAY);
@@ -5904,9 +5903,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       cspNotice.classList.remove("hidden");
       setBannerState("offline",
         "CORS blocked — backend is running but won't accept requests from this origin",
-        "Your Render backend needs to allow this app's origin in its CORS config. " +
-        "Update allowed_origins in main.py to include [\"*\"] or add the Poe iframe origin. " +
-        "Then redeploy on Render.",
+        "The backend needs to allow this app's origin in its CORS config " +
+        "(the ALLOWED_ORIGINS env var / allowed_origins in main.py). " +
+        "Add this page's origin and redeploy.",
         true
       );
     }
@@ -5916,10 +5915,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       setBannerState("offline",
         "Backend is offline — connection refused",
         API_BASE + " is not accepting connections. This usually means: " +
-        "(1) The deploy failed or crashed on startup (check Render Logs tab for errors), " +
-        "(2) The service is suspended (free-tier limit), or " +
-        "(3) It's still starting up (SunPy imports can take 60+ seconds on free tier). " +
-        "Check Render Dashboard → Logs for the real error.",
+        "(1) The deploy failed or crashed on startup, " +
+        "(2) The service is suspended, or " +
+        "(3) It's still starting up (science-library imports can take a minute). " +
+        "Check the hosting dashboard's logs for the real error.",
         true
       );
     }
@@ -5983,9 +5982,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       setBannerState("offline",
         "Backend appears to have crashed",
         (detail || "A recent request failed. ") +
-        "The Render server may have run out of memory (a known issue on " +
-        "the 2 GB tier during heavy renders) and restarted. Wait 30–60 " +
-        "seconds for it to come back online, then retry.",
+        "The server may have run out of memory during a heavy render " +
+        "and restarted. Wait 30–60 seconds for it to come back online, " +
+        "then retry.",
         true);
       state.backendOnline = false;
     }
@@ -6043,7 +6042,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             throw new Error(
               "Cannot reach backend (" + API_BASE + "). " +
               "The service may be sleeping, suspended, or failed to deploy. " +
-              "Check the Render dashboard for status."
+              "Retry in a moment — it wakes automatically."
             );
           }
           throw err;
@@ -6072,6 +6071,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     function pollStatus(url, onUpdate) {
       return new Promise(function(resolve, reject) {
+        // Task status lives in the server process's memory. If the server
+        // restarts mid-render (deploy, scale-to-zero stop), the task id is
+        // gone and every poll returns status "unknown" forever — without
+        // this counter the spinner would never resolve. A few consecutive
+        // unknowns ⇒ reject with a transient-looking message so the
+        // caller's silent-retry path re-POSTs the generation (cheap: the
+        // render is served from cache if the file survived).
+        var unknownStreak = 0;
         (function tick() {
           fetchWithTimeout(url, { method: "GET" }, 15000)
             .then(function(r) { return r.json(); })
@@ -6079,7 +6086,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               if (onUpdate) onUpdate(data);
               if (data.status === "completed" || data.status === "failed") {
                 resolve(data);
+              } else if (data.status === "unknown" && ++unknownStreak >= 4) {
+                reject(new Error("Server restarted mid-render (task lost) — request timed out"));
               } else {
+                if (data.status !== "unknown") unknownStreak = 0;
                 setTimeout(tick, 1500);
               }
             })

@@ -1,0 +1,68 @@
+# Fly.io config for the My Heliograph FastAPI origin.
+#
+# Topology is deliberately EXACTLY ONE machine × one uvicorn worker — the
+# app's in-memory task registry (HQ status polling), heavy-render semaphore
+# (OOM guard), per-IP rate buckets, and stats-file lock all require it, and
+# the volume mount enforces it. Do not add machines or uvicorn workers.
+#
+# Scale-to-zero: auto_stop + min_machines_running = 0 means ~$0 while idle.
+# kill_timeout = 60s gives an in-flight matplotlib savefig time to finish
+# (renders also write atomically via tmp+os.replace, so a hard kill can no
+# longer poison the cache with truncated PNGs).
+#
+# Secrets to set with `fly secrets set` (NOT here):
+#   PRINTIFY_API_KEY, PRINTIFY_SHOP_ID, SHOPIFY_STORE_DOMAIN,
+#   SHOPIFY_STOREFRONT_ACCESS_TOKEN, FEEDBACK_ADMIN_KEY, INTERNAL_AUTH_TOKEN,
+#   ALLOWED_ORIGINS (must include https://myheliograph.com and
+#   https://www.myheliograph.com and https://solar-archive.myshopify.com),
+#   SOLAR_ARCHIVE_JSOC_EMAIL, FEEDBACK_WEBHOOK_URL, RESEND_API_KEY,
+#   FEEDBACK_NOTIFY_EMAIL  (copy current values from the Render dashboard)
+
+app = "myheliograph-api"
+primary_region = "den"
+
+kill_signal = "SIGINT"
+kill_timeout = "60s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # /var/data is the same persistent-disk path Render used, so every code
+  # path (FEEDBACK_DATA_DIR consumers, the writable-/var/data autodetect
+  # that puts OUTPUT_DIR at /var/data/output) behaves identically.
+  FEEDBACK_DATA_DIR = "/var/data"
+  # TLS verification for Printify calls used to default OFF away from
+  # Render; the code default is now verify-always, this is belt+braces.
+  PRINTIFY_SSL_VERIFY = "1"
+  # Public origin for Printify-facing asset URLs + admin approve links.
+  PUBLIC_BASE_URL = "https://myheliograph.com"
+  SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "1"
+
+[[mounts]]
+  source = "data"
+  destination = "/var/data"
+  initial_size = "3gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[http_service.checks]]
+  grace_period = "60s"    # sunpy/matplotlib imports + NASA cert handshake
+  interval = "30s"
+  method = "GET"
+  path = "/api/health"
+  timeout = "10s"
+
+[[vm]]
+  memory = "2gb"          # one 4096² RHEF render holds 0.5-1GB resident
+  cpu_kind = "shared"
+  cpus = 2

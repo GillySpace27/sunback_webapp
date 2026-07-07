@@ -224,6 +224,31 @@ _HELIOVIEWER_LIMITER = _RateLimiter(360, "helioviewer")
 # Bumped 2× alongside the Helioviewer bump for parity.
 _VSO_LIMITER = _RateLimiter(60, "vso")
 
+
+def _atomic_image_write(out_path, write_fn) -> None:
+    """Write an image via `write_fn(tmp_path)` then os.replace() into place.
+
+    Every cached-image consumer here treats exists() + size>1000 as "valid
+    render" (the do_generate_sync HQ cache check, preview reuse, the vibe
+    grid), so a process kill mid-write must never leave a truncated file at
+    the final path — it would be served as a valid cached image forever,
+    and for the default tuple even copied into the persistent cache. Under
+    scale-to-zero hosting (machine auto-stop) a kill during a 1-3 min
+    render is routine, not exceptional. The tmp name keeps the real
+    extension so matplotlib/PIL format inference still works.
+    """
+    base, ext = os.path.splitext(str(out_path))
+    tmp = f"{base}.tmp{ext or '.png'}"
+    try:
+        write_fn(tmp)
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
 class PreviewRequest(BaseModel):
     date: str
     # User-picked time of day in UTC, "HH:MM" (e.g. "12:00"). Optional —
@@ -509,11 +534,11 @@ except OSError:
     pass
 DEFAULT_VIBE_MANIFEST = DEFAULT_CACHE_DIR / "vibe_manifest.json"
 
-if os.getenv("RENDER"):
-    os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "https://solar-archive.onrender.com/"
-else:
-    os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = "http://127.0.0.1:8000/asset/"
-
+# NOTE: an unconditional overwrite of SOLAR_ARCHIVE_ASSET_BASE_URL used to
+# live here (RENDER → onrender.com, else 127.0.0.1). It clobbered any
+# operator-set value and fed only dead code (local_path_and_url has no
+# callers) — removed during the Fly migration so the env var, if ever
+# used again, actually has authority.
 ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
 print(f"{ASSET_BASE_URL = }")
 print(f"{OUTPUT_DIR = }")
@@ -1042,7 +1067,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             )
             if preserve:
                 arr = np.clip(arr, 0, 255).astype(np.uint8)
-        _plt_jpg.imsave(out_path_jpg, arr)
+        _atomic_image_write(out_path_jpg, lambda _p: _plt_jpg.imsave(_p, arr))
         log_to_queue(f"[generate_preview] Helioviewer JPG saved (resized to {PREVIEW_SIZE}px): {os.path.basename(out_path_jpg)}")
     except Exception as e:
         log_to_queue(f"[generate_preview] Helioviewer JPG failed (continuing): {e}")
@@ -1179,7 +1204,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                         )
                         if preserve:
                             arr = np.clip(arr, 0, 255).astype(np.uint8)
-                    _plt_jpg2.imsave(out_path_jpg, arr)
+                    _atomic_image_write(out_path_jpg, lambda _p: _plt_jpg2.imsave(_p, arr))
                 log_to_queue(f"[generate_preview] Helioviewer fallback saved: {os.path.basename(out_path_filtered)}")
                 return (url_path_filtered, url_path_filtered, url_path_jpg)
             except Exception as e:
@@ -1241,7 +1266,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                 )
                 if _preserve:
                     _arr = np.clip(_arr, 0, 255).astype(np.uint8)
-            _plt_jpg3.imsave(out_path_jpg, _arr)
+            _atomic_image_write(out_path_jpg, lambda _p: _plt_jpg3.imsave(_p, _arr))
             log_to_queue(
                 f"[generate_preview] JPG re-fetched at FITS DATE-OBS={hv_obs_str} "
                 f"(co-registered with RAW/RHEF)"
@@ -1287,7 +1312,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         plt.axis("off")
         plt.imshow(reduced, cmap=cmap, vmin=vmin_raw, vmax=vmax_raw, origin="lower")
         plt.tight_layout(pad=0)
-        plt.savefig(out_path_raw, bbox_inches="tight", pad_inches=0)
+        _atomic_image_write(out_path_raw, lambda _p: plt.savefig(_p, bbox_inches="tight", pad_inches=0))
         plt.close('all')
         # Filtered preview (RHEF)
         from sunkit_image import radial
@@ -1302,7 +1327,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         plt.axis("off")
         plt.imshow(rhef_data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
         plt.tight_layout(pad=0)
-        plt.savefig(out_path_filtered, bbox_inches="tight", pad_inches=0)
+        _atomic_image_write(out_path_filtered, lambda _p: plt.savefig(_p, bbox_inches="tight", pad_inches=0))
         plt.close('all')
         import time
         for _ in range(50):
@@ -1650,7 +1675,7 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
         plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
         plt.tight_layout(pad=0)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+        _atomic_image_write(out_path, lambda _p: plt.savefig(_p, bbox_inches="tight", pad_inches=0))
         plt.close('all')
         # Ensure PNG is written and visible
         import time
@@ -1683,7 +1708,10 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
         try:
             import shutil
             DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(out_path, str(DEFAULT_CACHE_DIR / out_name))
+            _atomic_image_write(
+                str(DEFAULT_CACHE_DIR / out_name),
+                lambda _p: shutil.copy2(out_path, _p),
+            )
             log_to_queue(f"[do_generate_sync] Default HQ written through to persistent cache")
         except Exception as e:
             log_to_queue(f"[do_generate_sync][warn] Persistent write-through failed: {e}")
@@ -1931,7 +1959,7 @@ def _write_mockup_thumb(src_path: str, dst_path: str, size: int = 400):
         im = im.convert("RGB")
         im.thumbnail((size, size), Image.LANCZOS)
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-        im.save(dst_path, format="WEBP", quality=82, method=6)
+        _atomic_image_write(dst_path, lambda _p: im.save(_p, format="WEBP", quality=82, method=6))
 
 
 def _ensure_mockup_thumb(pid: str, manifest: dict) -> bool:
@@ -2076,7 +2104,7 @@ def _phase_b_warm(image_id_cache):
                 # fails on this CDN because our process has SSL_CERT_FILE
                 # pointed at a NASA-augmented bundle for VSO/FITS work.
                 img_bytes = _phase_b_cdn_download(mockup_url)
-                mock_path.write_bytes(img_bytes)
+                _atomic_image_write(mock_path, lambda _p: Path(_p).write_bytes(img_bytes))
                 manifest[pid] = {
                     "url": f"/asset/default/mockups/{pid}.png",
                     "size_bytes": mock_path.stat().st_size,
@@ -2326,7 +2354,7 @@ def _vibe_render_array_to_png(data, out_path: str, cmap, gamma: float = None):
             plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
         plt.tight_layout(pad=0)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+        _atomic_image_write(out_path, lambda _p: plt.savefig(_p, bbox_inches="tight", pad_inches=0))
     finally:
         # plt.close(fig) would skip if fig wasn't bound (early exception
         # before plt.figure). plt.close('all') is the safe drain.
@@ -2358,7 +2386,7 @@ def _vibe_write_thumb(full_path: str, thumb_path: str, size: int = 256):
             canvas.paste(im, (x, y))
             im = canvas
         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
-        im.save(thumb_path, format="PNG", optimize=True)
+        _atomic_image_write(thumb_path, lambda _p: im.save(_p, format="PNG", optimize=True))
 
 
 def _render_vibe_pair(vibe: dict) -> dict:
