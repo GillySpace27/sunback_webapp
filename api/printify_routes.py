@@ -59,6 +59,15 @@ PRINTIFY_SHOP_ID = os.getenv("PRINTIFY_SHOP_ID", "")
 PRINTIFY_BASE = "https://api.printify.com/v1"
 
 
+def _public_base_url() -> str:
+    """Public origin this deployment serves generated assets from.
+
+    Read per-call (not at import) so tests/ops can flip it without a
+    process restart. Defaults to the legacy Render host so the
+    pre-migration deployment needs no new env var."""
+    return (os.getenv("PUBLIC_BASE_URL") or "https://solar-archive.onrender.com").rstrip("/")
+
+
 def _log(msg: str):
     print(msg, flush=True)
     sys.stdout.flush()
@@ -110,14 +119,12 @@ def _printify_request(method: str, url: str, **kwargs):
     network HTTPS_PROXY in their shell profile, and corp-network users still
     reach the API via the filter.
     """
-    in_production = os.getenv("RENDER") is not None
+    # Default is VERIFY. The old default skipped verification whenever the
+    # RENDER env var was absent — which silently disabled TLS checks on any
+    # non-Render host (e.g. Fly). Corp-proxy dev machines that need the old
+    # behavior can set PRINTIFY_SSL_VERIFY=0 explicitly.
     explicit = os.getenv("PRINTIFY_SSL_VERIFY", "").strip().lower()
-    if explicit in ("0", "false", "no"):
-        skip_verify = True
-    elif explicit in ("1", "true", "yes"):
-        skip_verify = False
-    else:
-        skip_verify = not in_production
+    skip_verify = explicit in ("0", "false", "no")
     saved_ca = os.environ.pop("REQUESTS_CA_BUNDLE", None)
     saved_ssl = os.environ.pop("SSL_CERT_FILE", None)
     try:
@@ -228,9 +235,14 @@ async def upload_image(request: Request):
 
         # URL allowlist: any URL pointing OUTSIDE our origin is rejected
         # for non-admin callers — attackers can't redirect Printify at
-        # arbitrary content under the operator's account.
+        # arbitrary content under the operator's account. The public host
+        # is env-driven (PUBLIC_BASE_URL) with every known deployment host
+        # kept as a static fallback so a cutover can't strand a client.
         if url and not is_admin:
             _ALLOWED_PREFIXES = (
+                f"{_public_base_url()}/asset/",
+                "https://myheliograph.com/asset/",
+                "https://www.myheliograph.com/asset/",
                 "https://solar-archive.onrender.com/asset/",
                 "http://127.0.0.1:8000/asset/",
                 "http://127.0.0.1:8001/asset/",
@@ -262,12 +274,17 @@ async def upload_image(request: Request):
             payload = {"file_name": file_name, "contents": contents}
             _log(f"[printify][upload] POST /v1/uploads/images.json  base64 upload, {len(contents)} chars")
         else:
-            # Rewrite localhost URLs to the public domain when deployed
-            render_env = os.getenv("RENDER")
-            if render_env or url.startswith("http://127.0.0.1") or url.startswith("http://localhost"):
+            # Printify's servers fetch this URL, so it must be absolute and
+            # publicly reachable: absolutize bare /asset/ paths and rewrite
+            # localhost hosts to the public origin (PUBLIC_BASE_URL env,
+            # onrender.com fallback for the pre-migration deployment).
+            if url.startswith("/asset/"):
+                url = f"{_public_base_url()}{url}"
+                _log(f"[printify][upload] Absolutized URL -> {url}")
+            elif url.startswith("http://127.0.0.1") or url.startswith("http://localhost"):
                 url = re.sub(
                     r"^http://(127\.0\.0\.1|localhost)(:\d+)?",
-                    "https://solar-archive.onrender.com",
+                    _public_base_url(),
                     url,
                 )
                 _log(f"[printify][upload] Rewrote URL -> {url}")
@@ -542,6 +559,29 @@ def _maybe_sweep_mockup_drafts() -> None:
             _log(f"[mockup-sweep] error: {e}")
 
     threading.Thread(target=_run, name="mockup-sweep", daemon=True).start()
+
+
+@router.post("/admin/sweep_mockup_drafts")
+async def admin_sweep_mockup_drafts(request: Request):
+    """Run the stale-[MOCKUP] draft sweep synchronously (admin-key gated).
+
+    The opportunistic in-app trigger (_maybe_sweep_mockup_drafts) runs as a
+    post-response daemon thread — under scale-to-zero hosting the machine can
+    stop seconds after the response, killing the sweep mid-pagination, and
+    sweeps only fire at all while someone is generating mockups. This
+    endpoint is the mechanism of record post-migration: an external cron
+    (Cloudflare Worker trigger) POSTs here on a schedule; the held connection
+    keeps the machine awake for the sweep's whole duration, and the TTL logic
+    is idempotent so overlapping/retried calls converge."""
+    import hmac as _hmac
+    provided = (request.headers.get("X-Admin-Key") or "").strip()
+    expected = (os.getenv("FEEDBACK_ADMIN_KEY") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Admin access disabled — set FEEDBACK_ADMIN_KEY to enable.")
+    if not provided or not _hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    deleted = await run_in_threadpool(_sweep_stale_mockup_drafts)
+    return JSONResponse(content={"deleted": deleted})
 
 
 @router.post("/product")

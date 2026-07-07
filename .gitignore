@@ -15,3 +15,9 @@ product_stats.json
 product_stats.json.tmp
 default_cache/
 api/certs/auto_appended.pem
+
+# Migration working data (Render disk mirror + built worker assets)
+infra/data_mirror/
+infra/worker/public/
+infra/worker/node_modules/
+infra/worker/.wrangler/
