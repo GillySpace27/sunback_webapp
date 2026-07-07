@@ -2254,7 +2254,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // off the vibe's intended wavelength so the live pipeline takes
       // over cleanly.
       if (state.activeVibeSlug && _vibeManifest && _vibeManifest[state.activeVibeSlug]) {
-        var _vibeWl = parseInt(_vibeManifest[state.activeVibeSlug].wl, 10);
+        // Manifest schema uses `wavelength` (int). This read was `.wl` for a
+        // while — always NaN, so the stale-slug clear below never fired.
+        var _vibeWl = parseInt(_vibeManifest[state.activeVibeSlug].wavelength, 10);
         if (_vibeWl && _vibeWl !== state.wavelength) {
           state.activeVibeSlug = null;
         }
@@ -2481,11 +2483,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.rhefImage = null;
       state.rawBackendImage = null;
       state.editorFilter = "jpg";
+      // Vibe-card entry detection. The vibe's Raw/RHEF/HQ files are
+      // pre-warmed on disk and already loading (or cached) via
+      // _preloadVibeTiersIntoState in _activateVibe — for that flow we
+      // re-install them after the reset below and promote straight to
+      // the best ready tier instead of running the staged forced cycle.
+      // Guard on date+wavelength matching the manifest entry: a stale
+      // activeVibeSlug (user re-dated after visiting a vibe) must NOT
+      // pull the old vibe's images under a different day's preview.
+      var _vibeEntryRec = (state.activeVibeSlug && state.activeVibeSlug !== "birthday" &&
+                           _vibeManifest && _vibeManifest[state.activeVibeSlug]) || null;
+      var _vibeEntry = !!(_vibeEntryRec &&
+                          String(_vibeEntryRec.date) === String(dateVal) &&
+                          parseInt(_vibeEntryRec.wavelength, 10) === parseInt(wl, 10));
       // Arm the forced quality cycle NOW (it's fully started at the end of this
       // function). This defers any HQ auto-apply that fires during install
       // (e.g. the page-load default-HQ prime, or a cached-HQ upgrade) so the
       // staged Preview → Original → Filtered pass isn't pre-empted.
-      state._forcedCycleActive = true;
+      // Vibe entries skip the cycle entirely, so leave auto-advance free.
+      state._forcedCycleActive = !_vibeEntry;
       state.rotation = 0;
       state.flipH = false;
       state.flipV = false;
@@ -2537,11 +2553,24 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         });
       } catch (_e) {}
 
+      // Vibe entry: the reset above just cleared the tier images that
+      // _preloadVibeTiersIntoState installed at click time. Re-install
+      // them — cached tiers restore synchronously (timeline flips to
+      // ready immediately), in-flight ones re-assign on load. This also
+      // re-promotes the 3000² RHEF as the HQ tier, so all four quality
+      // steps unlock without a backend round-trip.
+      if (_vibeEntry) {
+        _preloadVibeTiersIntoState(state.activeVibeSlug);
+      }
+
       // Restore from cache if this wavelength was already fetched this session.
       // Otherwise fire off a background RHE prefetch so the science data has a
       // head-start while the user browses products and edits.  The prefetch does
       // NOT switch the active filter — the user stays on JPG until they choose to toggle.
-      if (API_BASE && dateVal && wl) {
+      // Skipped on vibe entry: the manifest files ARE the science data —
+      // re-fetching from the backend wastes bandwidth, and the wl-keyed
+      // thumbCache could even restore a DIFFERENT date's tiers.
+      if (!_vibeEntry && API_BASE && dateVal && wl) {
         var cachedEntry = thumbCache[String(wl)];
         if (cachedEntry && cachedEntry.rhef) {
           state.rhefImage = cachedEntry.rhef;
@@ -2662,7 +2691,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Force the staged quality cycle on editor entry: Preview → (settle) →
       // Original → (delay) → Filtered, so every tier renders and syncs its
       // product mockups by force (each stage waits for its tier to be ready).
-      if (typeof _runForcedQualityCycle === "function") _runForcedQualityCycle();
+      // Vibe entry instead jumps straight to the best ready tier — all four
+      // images are pre-warmed, so the editor should open with the top tier
+      // selected and every quality step already unlocked. Tiers still in
+      // flight promote on arrival via _onTierReady → maybeAutoAdvanceFilter.
+      if (_vibeEntry) {
+        state._userFilterPick = null;   // fresh image → clear any prior manual pin
+        if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
+      } else if (typeof _runForcedQualityCycle === "function") {
+        _runForcedQualityCycle();
+      }
 
       setTimeout(hideProgress, 1200);
     }
@@ -2709,71 +2747,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       } else {
         wlGrid.classList.add("hidden");
       }
-    }
-
-    // Fast client-side approximation of the RHEF (Radial Histogram Equalizing
-    // Filter) look for a wavelength tile, so that when the master toggle is on
-    // "Filtered" the tiles visibly match — without running the heavy FITS→RHEF
-    // pipeline for every wavelength. It's a per-radial-bin percentile stretch +
-    // gamma lift on the raw Helioviewer thumbnail, which brightens the faint
-    // off-disk corona the way real RHEF does. Approximate, not pixel-accurate.
-    // Returns a <canvas> (drop-in for the <img>) or null if the source image is
-    // cross-origin tainted (can't read pixels).
-    function _approxRhefCanvas(img) {
-      var S = img.naturalWidth ? Math.min(256, img.naturalWidth) : 256;
-      if (S < 8) return null;
-      var c = document.createElement("canvas");
-      c.width = S; c.height = S;
-      var ctx = c.getContext("2d");
-      ctx.drawImage(img, 0, 0, S, S);
-      var id;
-      try { id = ctx.getImageData(0, 0, S, S); } catch (_e) { return null; }  // tainted
-      var d = id.data, N = S * S;
-      var cx = (S - 1) / 2, cy = (S - 1) / 2, maxR = Math.sqrt(cx * cx + cy * cy) || 1;
-      var BINS = 64;
-      var lum = new Float32Array(N), rf = new Float32Array(N);
-      var binVals = []; for (var b = 0; b < BINS; b++) binVals.push([]);
-      for (var y = 0; y < S; y++) {
-        for (var x = 0; x < S; x++) {
-          var i = y * S + x, p = i * 4;
-          var L = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
-          lum[i] = L;
-          var rr = (Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / maxR) * BINS;
-          rf[i] = rr;                                  // float bin position (for interpolation)
-          var bb = rr | 0; if (bb >= BINS) bb = BINS - 1;
-          binVals[bb].push(L);
-        }
-      }
-      var lo = new Float32Array(BINS), hi = new Float32Array(BINS);
-      for (var bi = 0; bi < BINS; bi++) {
-        var arr = binVals[bi];
-        if (!arr.length) { lo[bi] = bi > 0 ? lo[bi - 1] : 0; hi[bi] = bi > 0 ? hi[bi - 1] : 255; continue; }
-        arr.sort(function (a, b2) { return a - b2; });
-        lo[bi] = arr[(arr.length * 0.02) | 0];
-        hi[bi] = arr[Math.min(arr.length - 1, (arr.length * 0.98) | 0)];
-      }
-      for (var j = 0; j < N; j++) {
-        // Linear-interpolate the per-radius lo/hi between adjacent bin centers
-        // so annuli blend smoothly — hard per-bin normalization produced
-        // visible concentric ring artifacts.
-        var fp = rf[j] - 0.5;
-        var q0 = fp <= 0 ? 0 : (fp | 0); if (q0 > BINS - 1) q0 = BINS - 1;
-        var q1 = q0 + 1 < BINS ? q0 + 1 : q0;
-        var frac = fp - q0; if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
-        var loP = lo[q0] * (1 - frac) + lo[q1] * frac;
-        var hiP = hi[q0] * (1 - frac) + hi[q1] * frac;
-        var L0 = lum[j], rng = hiP - loP;
-        var t = rng > 1 ? (L0 - loP) / rng : (L0 / 255);
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        var newL = 255 * Math.pow(t, 0.8);            // gentle gamma lift → coronal detail
-        var scale = L0 > 4 ? newL / L0 : (newL > 0 ? 1 : 0);
-        var pj = j * 4;
-        d[pj]     = Math.min(255, d[pj]     * scale);
-        d[pj + 1] = Math.min(255, d[pj + 1] * scale);
-        d[pj + 2] = Math.min(255, d[pj + 2] * scale);
-      }
-      ctx.putImageData(id, 0, 0);
-      return c;
     }
 
     function loadWavelengthThumbnails() {
@@ -2835,24 +2808,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           thumbCache[wl] = { raw: null, canvas2048: null, rhef: null };
           div.classList.add("loaded");
           tileLog("loaded", wl);
-          // Filtered-look sync: when the master toggle is "Filtered" and this
-          // tile is the raw Helioviewer fallback (no real pre-warmed RHEF thumb
-          // for this date+wl), swap in a fast client-side RHEF approximation so
-          // the tile visibly matches the toggle. Real RHEF thumbs skip this.
-          if (state.vibeMasterTier === "rhef" && !cachedThumbUrl) {
-            try {
-              var _approx = _approxRhefCanvas(tileImg);
-              if (_approx) {
-                _approx.setAttribute("aria-label", wl + " Å (filtered preview)");
-                _approx.style.width = "100%";
-                _approx.style.height = "100%";
-                _approx.style.objectFit = "cover";
-                _approx.style.borderRadius = "50%";
-                div.innerHTML = "";
-                div.appendChild(_approx);
-              }
-            } catch (_e) {}
-          }
+          // Custom-date tiles stay on the raw Helioviewer thumbnail even when
+          // the master toggle is "Filtered". The old client-side RHEF
+          // approximation (per-radial-bin percentile stretch) looked bad on
+          // real data — banded, blown-out corona — so it was removed. Only
+          // the vibe dates, which have genuine pre-warmed RHEF thumbnails
+          // (served directly via cachedThumbUrl above), show a filtered tile.
           // Warm the 512px canvas cache for editor preview. Goes through the
           // same proxy so it's reliable behind corp filters.
           if (API_BASE) {
@@ -3226,9 +3187,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         target = FILTER_ORDER[bestIdx];
       }
       if (target !== current) {
-        state.editorFilter = target;
-        updateFilterTimelineUI();
-        if (typeof renderCanvas === "function") renderCanvas();
+        // applyFilterInstant (not a bare editorFilter assignment) so the
+        // raw-vs-filtered mockup set switches along with the canvas — a
+        // jpg→raw promotion here used to leave state.mockups pointing at
+        // the filtered set until the next manual tier click.
+        applyFilterInstant(target);
       } else {
         updateFilterTimelineUI();
       }
@@ -4388,7 +4351,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
 
       // Initial thumb load (manifest first, fall back to Helioviewer).
-      // Cards START in Raw — the narrative reveal flips them to RHEF.
+      // Cards START at the LOWEST tier (Preview/jpg) — the synced tier
+      // ramp below steps the whole grid up to Filtered when the user
+      // reaches the image-selection step.
       _loadVibeManifest().then(function () {
         var anyHasTiers = false;
         grid.querySelectorAll(".vibe-card[data-vibe-slug]").forEach(function (card) {
@@ -4400,14 +4365,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var date = card.getAttribute("data-vibe-date") || "";
           var wl = card.getAttribute("data-vibe-wl") || "171";
           var time = card.getAttribute("data-vibe-time") || "12:00";
-          // Start in Raw. Fall back to Helioviewer JPG if manifest absent.
-          // When the manifest IS absent and we get the JPG fallback, we
-          // still pass tier="raw" — the JPG fallback is at 256² thumb
+          // Start at Preview. Fall back to Helioviewer JPG if manifest
+          // absent. When the manifest IS absent and we get the JPG
+          // fallback, we pass tier="raw" — the fallback is at 256² thumb
           // scale (not the 1024² HQ JPG that needs co-registration), so
           // the is-jpg-tier transform shouldn't apply.
-          var url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time });
-          _setVibeThumb(card, url, "raw");
-          card.setAttribute("data-vibe-active-tier", "raw");
+          var url = _vibeThumbUrl(slug, "jpg", { date: date, wl: wl, time: time });
+          var tierTag = entry ? "jpg" : "raw";
+          if (entry && !url) {
+            // Manifest entry without a jpg rung — fall down the ladder.
+            url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time }) ||
+                  _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
+            tierTag = "raw";
+          }
+          if (url) {
+            _setVibeThumb(card, url, tierTag);
+            card.setAttribute("data-vibe-active-tier", tierTag);
+          }
         });
         // Reveal the master "Click here for the filtered view" CTA only
         // if at least one card has both tiers available (otherwise the
@@ -4427,52 +4401,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (cta && cta.parentElement !== document.body) {
           document.body.appendChild(cta);
         }
-        // Default active tier should reflect what the cards are
-        // actually loading. Gilly's request: "start the toggle in the
-        // filtered position if there are cached images to load,
-        // otherwise jpg preview is appropriate."
-        var initialMasterTier = anyHasTiers ? "rhef" : "jpg";
-        state.vibeMasterTier = initialMasterTier;
-        // Sync the HTML aria-pressed + is-active on the matching pill.
+        // Commit the master toggle to the LOWEST tier to match the
+        // just-painted cards. Gilly: "start them all at the lowest
+        // tier, then step up to the higher tier every 2 seconds until
+        // it reaches the highest, then stop, leaving the page with
+        // all-synced tiers." The ramp itself runs on entry to the
+        // image-selection step (or right now, if we're already there).
+        state.vibeMasterTier = "jpg";
         var masterToggleEl = document.getElementById("vibeMasterToggle");
         if (masterToggleEl) {
           masterToggleEl.querySelectorAll(".vibe-master-btn").forEach(function (b) {
-            var on = b.getAttribute("data-tier") === initialMasterTier;
+            var on = b.getAttribute("data-tier") === "jpg";
             b.classList.toggle("is-active", on);
             b.setAttribute("aria-pressed", on ? "true" : "false");
           });
         }
-        // Re-paint EVERY card's thumb in the chosen initial tier so
-        // the master indicator's promise matches the rendered pixels
-        // from the very first frame. Friction: cards previously
-        // rendered an assortment (raw / jpg / rhef) on first load
-        // because only `.has-tiers` cards got repainted to rhef while
-        // the rest stayed at their cold-render tier. Cover the whole
-        // grid here — a card without the requested tier falls back to
-        // the next-best available tier (rhef → raw → jpg).
-        grid.querySelectorAll(".vibe-card").forEach(function (card) {
-          var slug = card.getAttribute("data-vibe-slug");
-          if (!slug || slug === "birthday") return;
-          var date = card.getAttribute("data-vibe-date") || "";
-          var wl = card.getAttribute("data-vibe-wl") || "171";
-          var time = card.getAttribute("data-vibe-time") || "12:00";
-          var hasTiers = card.classList.contains("has-tiers");
-          // Try the master tier first; fall back if this card doesn't
-          // have that tier cached.
-          var order;
-          if (initialMasterTier === "rhef") order = hasTiers ? ["rhef", "raw", "jpg"] : ["jpg", "raw"];
-          else if (initialMasterTier === "raw") order = hasTiers ? ["raw", "rhef", "jpg"] : ["jpg", "raw"];
-          else order = ["jpg", "raw", "rhef"];
-          for (var i = 0; i < order.length; i++) {
-            var tt = order[i];
-            var u = _vibeThumbUrl(slug, tt, { date: date, wl: wl, time: time });
-            if (u) {
-              _setVibeThumb(card, u, tt);
-              card.setAttribute("data-vibe-active-tier", tt);
-              break;
-            }
-          }
-        });
+        if (state.currentStep === "image") _startVibeTierRamp();
         // Gilly's "for the vibe cards they should all be ready a priori"
         // — kick off background preload of every vibe's Raw + RHEF
         // tier the moment the manifest lands. By the time the user
@@ -4491,10 +4435,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // so the toggle can update its visual state only on success
       // (indicator-first: button reflects the actual rendered tier, not
       // an optimistic guess that may de-sync from a failed image load).
-      function _wipeAllCards(toTier) {
+      function _wipeAllCards(toTier, staggerMs) {
         var cards = grid.querySelectorAll(".vibe-card.has-tiers");
         if (!cards.length) return Promise.resolve();
-        var staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
+        // Default: 90ms cascade for manual pill clicks. The synced tier
+        // ramp passes 0 so every card flips at the same instant.
+        if (staggerMs == null) {
+          staggerMs = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90;
+        }
         // Pre-stamp the wipe intent on every card BEFORE we start
         // staggering. If a previous wipe-batch's animations are still
         // mid-flight, their onload / done handlers will see the new
@@ -4573,61 +4521,116 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           }, fadeDelay);
         });
       }
-      if (masterToggle) {
-        // Indicator-first state machine. Per the design note in the
-        // index.html toggle markup: button click triggers a TIER REQUEST,
-        // and the button's visual state (.is-active / aria-pressed) only
-        // commits once the wipe + image-load completes. If the load
-        // fails, we revert. This prevents the toggle from lying about
-        // what the user is actually looking at.
-        masterToggle.addEventListener("click", function (e) {
-          var btn = e.target.closest(".vibe-master-btn");
-          if (!btn) return;
-          var tier = btn.getAttribute("data-tier");
-          var prevTier = state.vibeMasterTier;
-          if (tier === prevTier) return;
-          // Already a request in flight? Coalesce — newest target wins.
-          // (We don't queue; if the user clicks A then C while A is
-          // wiping, we abandon A and chase C.)
-          // STRESS-006: clear stale is-pending-target from OTHER buttons
-          // before tagging the new target — rapid clicking left multiple
-          // pills carrying the pending-glow simultaneously, which the
-          // friction agent called "muddled in-flight visual".
-          masterToggle.querySelectorAll(".vibe-master-btn.is-pending-target").forEach(function (b) {
-            if (b !== btn) b.classList.remove("is-pending-target");
-          });
-          masterToggle.dataset.pendingTier = tier;
-          masterToggle.classList.add("is-pending");
-          btn.classList.add("is-pending-target");
-          // Stamp the new tier on state so URL-resolving consumers
-          // (_cachedWavelengthThumb, _vibeThumbUrl) read the in-flight
-          // target. The visual button state DOES NOT change yet.
-          state.vibeMasterTier = tier;
-          var wipePromise = _wipeAllCards(tier);
-          _swapProductSourceForTier(tier);
-          if (typeof loadWavelengthThumbnails === "function") {
-            try { lastThumbDate = ""; } catch (_e) {}
-            loadWavelengthThumbnails();
-          }
-          wipePromise.then(function () {
-            // Race-guard: if a newer click landed while we were waiting,
-            // let THAT one own the commit. We bail here so the toggle
-            // doesn't briefly settle on this tier before flipping again.
-            if (masterToggle.dataset.pendingTier !== tier) return;
-            masterToggle.classList.remove("is-pending");
-            delete masterToggle.dataset.pendingTier;
-            masterToggle.querySelectorAll(".vibe-master-btn").forEach(function (b) {
-              var on = b === btn;
-              b.classList.toggle("is-active", on);
-              b.classList.remove("is-pending-target");
-              b.setAttribute("aria-pressed", on ? "true" : "false");
-            });
+      // Indicator-first tier request, shared by the pill click handler
+      // and the synced auto-ramp below. Per the design note in the
+      // index.html toggle markup: a TIER REQUEST starts the wipes, and
+      // the pill's visual state (.is-active / aria-pressed) only commits
+      // once the wipe + image-load completes. If the load fails, we
+      // revert. This prevents the toggle from lying about what the user
+      // is actually looking at.
+      // opts.stagger    — per-card cascade delay override (ramp uses 0 so
+      //                   every card flips at the same instant).
+      // opts.skipThumbs — skip the wavelength-tile reload (the ramp
+      //                   reloads them once, at its final tier, not 3×).
+      // opts.force      — run even when tier === state.vibeMasterTier
+      //                   (ramp step 1 repaints stray cards to Preview).
+      function _requestMasterTier(tier, opts) {
+        opts = opts || {};
+        if (!masterToggle) return Promise.resolve();
+        var btn = masterToggle.querySelector('.vibe-master-btn[data-tier="' + tier + '"]');
+        if (tier === state.vibeMasterTier && !opts.force) return Promise.resolve();
+        // Already a request in flight? Coalesce — newest target wins.
+        // (We don't queue; if the user clicks A then C while A is
+        // wiping, we abandon A and chase C.)
+        // STRESS-006: clear stale is-pending-target from OTHER buttons
+        // before tagging the new target — rapid clicking left multiple
+        // pills carrying the pending-glow simultaneously, which the
+        // friction agent called "muddled in-flight visual".
+        masterToggle.querySelectorAll(".vibe-master-btn.is-pending-target").forEach(function (b) {
+          if (b !== btn) b.classList.remove("is-pending-target");
+        });
+        masterToggle.dataset.pendingTier = tier;
+        masterToggle.classList.add("is-pending");
+        if (btn) btn.classList.add("is-pending-target");
+        // Stamp the new tier on state so URL-resolving consumers
+        // (_cachedWavelengthThumb, _vibeThumbUrl) read the in-flight
+        // target. The visual button state DOES NOT change yet.
+        state.vibeMasterTier = tier;
+        var wipePromise = _wipeAllCards(tier, opts.stagger);
+        _swapProductSourceForTier(tier);
+        if (!opts.skipThumbs && typeof loadWavelengthThumbnails === "function") {
+          try { lastThumbDate = ""; } catch (_e) {}
+          loadWavelengthThumbnails();
+        }
+        return wipePromise.then(function () {
+          // Race-guard: if a newer request landed while we were waiting,
+          // let THAT one own the commit. We bail here so the toggle
+          // doesn't briefly settle on this tier before flipping again.
+          if (masterToggle.dataset.pendingTier !== tier) return;
+          masterToggle.classList.remove("is-pending");
+          delete masterToggle.dataset.pendingTier;
+          masterToggle.querySelectorAll(".vibe-master-btn").forEach(function (b) {
+            var on = b === btn;
+            b.classList.toggle("is-active", on);
+            b.classList.remove("is-pending-target");
+            b.setAttribute("aria-pressed", on ? "true" : "false");
           });
         });
       }
-      // Initial master tier — cards start in Raw (matches the
-      // reveal-button default which wipes Raw → RHEF on first click).
-      state.vibeMasterTier = state.vibeMasterTier || "raw";
+      if (masterToggle) {
+        masterToggle.addEventListener("click", function (e) {
+          var btn = e.target.closest(".vibe-master-btn");
+          if (!btn) return;
+          // Manual pick — the user owns the tier now; stop the auto-ramp.
+          _cancelVibeTierRamp();
+          _requestMasterTier(btn.getAttribute("data-tier"));
+        });
+      }
+      // Initial master tier — cards paint at the lowest tier (Preview)
+      // and the synced ramp steps the grid up on image-step entry.
+      state.vibeMasterTier = state.vibeMasterTier || "jpg";
+
+      // ── Synced tier ramp ──────────────────────────────────────────
+      // Gilly: "start them all at the lowest tier, then step up to the
+      // higher tier every 2 seconds until it reaches the highest, then
+      // stop, leaving the page with all-synced tiers." Runs on every
+      // entry to the image-selection step. Each step flips EVERY card
+      // at the same instant (stagger 0), stamps state.vibeMasterTier,
+      // and commits the master pill — so the toggle, the cards, and the
+      // wavelength tiles can never drift apart. A manual pill click or
+      // opening a vibe card cancels the remaining steps.
+      var _vibeRampTimers = [];
+      var _vibeRampToken = 0;
+      function _cancelVibeTierRamp() {
+        _vibeRampToken++;
+        _vibeRampTimers.forEach(function (t) { clearTimeout(t); });
+        _vibeRampTimers = [];
+      }
+      function _startVibeTierRamp() {
+        _cancelVibeTierRamp();
+        var token = _vibeRampToken;
+        // No warmed tiers → nothing to step through. Pin the toggle to
+        // Preview so it can't advertise a tier the cards aren't showing.
+        var hasTiers = !!grid.querySelector(".vibe-card.has-tiers");
+        _requestMasterTier("jpg", { force: true, stagger: 0, skipThumbs: hasTiers });
+        if (!hasTiers) return;
+        ["raw", "rhef"].forEach(function (tier, i) {
+          var isLast = tier === "rhef";
+          _vibeRampTimers.push(setTimeout(function () {
+            if (token !== _vibeRampToken) return;
+            _requestMasterTier(tier, { stagger: 0, skipThumbs: !isLast });
+          }, (i + 1) * 2000));
+        });
+      }
+      // Run the ramp every time the user arrives at the image step;
+      // kill it when they leave. (Cold loads land on step "product", so
+      // the manifest handler above only paints the lowest tier and the
+      // ramp fires on the product → image transition.)
+      document.body.addEventListener("solar-archive:step-change", function (ev) {
+        var to = ev && ev.detail && ev.detail.to;
+        if (to === "image") _startVibeTierRamp();
+        else _cancelVibeTierRamp();
+      });
 
       // Per-card click delegate. The per-card Raw/RHEF toggle was
       // removed in favour of a single master toggle at the section
@@ -4669,6 +4672,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Birthday card's date input is its own affordance — let its
         // change handler run instead of treating focus-clicks as opens.
         if (e.target.closest(".vibe-birthday-input")) return;
+        // Card open ends the browsing phase — stop the auto-ramp so a
+        // pending step can't swap the product source mid-editor-install.
+        _cancelVibeTierRamp();
         _activateVibe(card2);
       });
 
@@ -4730,6 +4736,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           card.setAttribute("data-vibe-date", picked);
           card.setAttribute("data-vibe-time", "");  // let HEK auto-fill
           card.setAttribute("data-vibe-wl", "");    // let HEK suggest
+          _cancelVibeTierRamp();
           _activateVibe(card, { fromBirthday: true });
         });
       }
@@ -4744,6 +4751,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // hop is instant. state.rawBackendImage / state.rhefImage are the
     // single canonical refs the renderCanvas + timeline read from.
     var _vibeTierImageCache = Object.create(null);
+    // In-flight tier downloads, keyed like the cache (slug:tier). Lets a
+    // second _preloadVibeTiersIntoState call for the same slug (e.g.
+    // _activateVibe at click time, then _installPreviewImage re-installing
+    // after its state reset) piggyback on the first call's download instead
+    // of spawning a duplicate multi-MB fetch.
+    var _vibeTierInflight = Object.create(null);
     function _preloadVibeTiersIntoState(slug) {
       if (!slug || slug === "birthday") return;
       var entry = _vibeManifest && _vibeManifest[slug];
@@ -4777,6 +4790,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           _onTierReady();
           return;
         }
+        // Already downloading (a prior call for this slug is in flight) —
+        // its onload does the same state assignment + ready announcement.
+        if (_vibeTierInflight[tierKey]) return;
         var img = new Image();
         // No crossOrigin attribute: the asset is same-origin so CORS
         // headers are irrelevant. Setting it to "anonymous" required
@@ -4784,11 +4800,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // server, which Render's static-file route doesn't always
         // emit — that was the silent failure mode reported.
         img.onload = function () {
+          delete _vibeTierInflight[tierKey];
           _vibeTierImageCache[tierKey] = img;
+          // Only install into live editor state if this vibe is still
+          // the active one — a late-landing tier from a previously
+          // clicked vibe must not clobber the current vibe's images.
+          if (state.activeVibeSlug !== slug) return;
           try { assign(img); } catch (_e) {}
           _onTierReady();
         };
-        // Silent on error — JPG path still works.
+        // Silent on error — JPG path still works. Clear the in-flight
+        // marker so a later attempt isn't wedged out forever.
+        img.onerror = function () { delete _vibeTierInflight[tierKey]; };
+        _vibeTierInflight[tierKey] = img;
         img.src = url;
       }
       function _onTierReady() {
@@ -11417,11 +11441,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Conversion signal: a finalized "Create on Shopify" checkout.
       recordStatEvent(product.id, "buy");
 
-      var hqNote = state.hqReady
-        ? "The full NASA/SDO HQ image is ready and will be used for printing."
-        : (state.hqTaskId
-            ? "The HQ image is still rendering — checkout will wait for it automatically before uploading."
-            : "The preview image will be used. Switch the Filter to <strong>HQ Filtered</strong> first if you want the full-resolution print.");
+      // Warm vibe cards print from their pre-warmed HQ; custom/birthday
+      // dates get a full-resolution, time-integrated render produced at
+      // checkout (the editor showed a faster single-frame preview). Either
+      // way the user's edits are composited on before upload.
+      var _isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
+      var hqNote = (_isWarmVibe && state.hqReady)
+        ? "The full NASA/SDO HQ image is ready and will be used for printing, with your edits applied."
+        : "We render a full-resolution, time-integrated print image at checkout and composite your edits onto it — checkout waits for it automatically (this can take a minute). If that render can't finish, we fall back to the best image available so your order still goes through.";
 
       showModal(
         "Create " + product.name + " on Shopify",
@@ -11650,40 +11677,95 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * If HQ is still generating: wait for it (polling hqCache), then do same.
      * If no HQ task: just export the current canvas (Helioviewer preview + edits).
      */
-    function _getCheckoutImageBase64(dateStr) {
-      // No HQ task running — use current canvas as-is
-      if (!state.hqTaskId && !state.hqReady) {
-        return Promise.resolve(getCanvasBase64());
-      }
+    // Silently render (once) the multi-frame, time-integrated HQ for the
+    // active custom date and resolve its URL. The editor only ever shows the
+    // FAST single-frame HQ; this is the higher-SNR "stacked" render used for
+    // the actual print. Cached per date+time+wl so a repeat checkout doesn't
+    // re-render. Resolves null on failure so checkout can fall back. Progress
+    // is surfaced on the checkout step-1 line while it renders.
+    var _integratedHqCache = {};              // cacheKey -> { url } | { promise }
+    var _INTEGRATED_HQ_DEADLINE_MS = 240000;  // ~4 min client cap, then fall back
+    function _ensureIntegratedHqUrl(dateStr) {
+      var wl = state.wavelength;
+      var t = _solarTimeValue();
+      var cacheKey = dateStr + "T" + t + "_" + wl;
+      var entry = _integratedHqCache[cacheKey];
+      if (entry && entry.url) return Promise.resolve(entry.url);
+      if (entry && entry.promise) return entry.promise;
 
-      // HQ already done — load it, rerender with edits, export
-      if (state.hqReady && state.hqImageUrl) {
+      markCheckoutStep("ckStep1", "active", "Rendering the print-quality image (time-integrated)…");
+      var work = postJSON(API_BASE + "/api/generate", {
+        date: dateStr,
+        time: t,
+        wavelength: wl,
+        mission: "SDO",
+        detector: "AIA",
+        format: "rhef",
+        integrate: true
+      }, 180000).then(function (res) {
+        if (!res.task_id || !res.status_url) throw new Error("integrated HQ task failed to start");
+        return pollStatus(API_BASE + res.status_url, function (data) {
+          _recordQueueDepth(data);
+          if (data.status === "queued") {
+            markCheckoutStep("ckStep1", "active", "Print-quality render queued…");
+          } else if (data.status === "started" || data.status === "processing") {
+            markCheckoutStep("ckStep1", "active", "Rendering the print-quality image (time-integrated)…");
+          }
+        });
+      }).then(function (result) {
+        if (result.status === "completed" && result.image_url) {
+          return result.image_url.charAt(0) === "/" ? API_BASE + result.image_url : result.image_url;
+        }
+        throw new Error(result.message || "integrated HQ generation failed");
+      });
+
+      // Race the render against a client-side deadline so a stuck/slow
+      // backend can't strand checkout — on timeout we fall back to the
+      // editor HQ / canvas. The backend task keeps running and caches its
+      // PNG, so a later checkout retry can still pick up the finished render.
+      var timeout = new Promise(function (resolve) {
+        setTimeout(function () { resolve(null); }, _INTEGRATED_HQ_DEADLINE_MS);
+      });
+
+      var p = Promise.race([work, timeout]).then(function (url) {
+        if (url) { _integratedHqCache[cacheKey] = { url: url }; return url; }
+        // Timed out — drop the cached promise so a retry can re-attempt.
+        delete _integratedHqCache[cacheKey];
+        console.warn("[checkout] time-integrated HQ timed out; falling back.");
+        return null;
+      }).catch(function (err) {
+        // Drop the failed promise so a later retry can re-attempt; resolve
+        // null so the checkout caller falls back to the editor HQ / canvas.
+        delete _integratedHqCache[cacheKey];
+        console.warn("[checkout] time-integrated HQ unavailable, falling back:", (err && err.message) || err);
+        return null;
+      });
+      _integratedHqCache[cacheKey] = { promise: p };
+      return p;
+    }
+
+    // Resolve the image to upload at checkout, compositing the user's edits
+    // on top. Warm vibe cards already ship a genuine pre-warmed HQ
+    // (rhef_full), so use that directly. Custom / birthday dates silently
+    // render the multi-frame time-integrated print and composite onto THAT —
+    // the editor showed only the fast single-frame version. Every branch
+    // falls back to the current canvas if the HQ can't be produced/loaded.
+    function _getCheckoutImageBase64(dateStr) {
+      var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
+      if (isWarmVibe && state.hqReady && state.hqImageUrl) {
         return _loadHqAndExport(state.hqImageUrl);
       }
-
-      // HQ is still generating — poll until it appears in hqCache
-      markCheckoutStep("ckStep1", "active", "Waiting for HQ image to finish rendering…");
-      var cacheKey = dateStr + "_" + state.wavelength;
-      return new Promise(function(resolve, reject) {
-        var attempts = 0;
-        var maxAttempts = 120; // up to 4 minutes
-        function checkCache() {
-          attempts++;
-          var cached = hqCache[cacheKey];
-          if (state.hqReady && state.hqImageUrl) {
-            _loadHqAndExport(state.hqImageUrl).then(resolve).catch(reject);
-          } else if (cached && cached.url) {
-            state.hqImageUrl = cached.url;
-            state.hqReady = true;
-            _loadHqAndExport(cached.url).then(resolve).catch(reject);
-          } else if (attempts >= maxAttempts) {
-            // Timed out — fall back to current canvas
-            resolve(getCanvasBase64());
-          } else {
-            setTimeout(checkCache, 2000);
-          }
+      return _ensureIntegratedHqUrl(dateStr).then(function (integratedUrl) {
+        if (integratedUrl) {
+          markCheckoutStep("ckStep1", "active", "Compositing your edits onto the print-quality image…");
+          return _loadHqAndExport(integratedUrl);
         }
-        checkCache();
+        // Integrated render unavailable (VSO down / timeout) — fall back to
+        // the best image we already have so checkout still completes, and
+        // say so rather than silently shipping a lesser print.
+        markCheckoutStep("ckStep1", "active", "Full-quality render unavailable — using the best available image…");
+        if (state.hqReady && state.hqImageUrl) return _loadHqAndExport(state.hqImageUrl);
+        return getCanvasBase64();
       });
     }
 
@@ -11694,14 +11776,32 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      */
     function _loadHqAndExport(hqUrl) {
       return loadImage(hqUrl).then(function(hqImg) {
-        // Swap originalImage to HQ, render with all edits, export, then restore
-        var prevImg = state.originalImage;
-        state.originalImage = hqImg;
-        renderCanvas();
-        var b64 = getCanvasBase64();
-        // Restore — user keeps editing the preview canvas
-        state.originalImage = prevImg;
-        renderCanvas();
+        // Draw the loaded HQ image through the tier renderCanvas ACTUALLY
+        // draws (hq_rhef → state.hqFilterImage), not by swapping
+        // state.originalImage. renderCanvas resolves the drawn pixels from
+        // state.editorFilter; originalImage only sets the reference frame /
+        // pan space. Swapping originalImage alone therefore exported the
+        // OLD tier's pixels (single-frame HQ, or the low-res preview) and
+        // silently discarded this HQ image — it only happened to work for
+        // vibe cards, whose tier images already equal their HQ image.
+        // Keeping originalImage unchanged also preserves the crop/pan/zoom
+        // coordinate space exactly as the editor showed it.
+        var prevFmt = state.editorFilter;
+        var prevHqImg = state.hqFilterImage;
+        var prevHqFormat = state.hqFormat;
+        state.hqFilterImage = hqImg;
+        state.hqFormat = "rhef";
+        state.editorFilter = "hq_rhef";
+        var b64;
+        try {
+          b64 = getCanvasBase64();   // sets _fullResRender + renders internally
+        } finally {
+          // Restore — user keeps editing the preview canvas at its own tier.
+          state.editorFilter = prevFmt;
+          state.hqFilterImage = prevHqImg;
+          state.hqFormat = prevHqFormat;
+          renderCanvas();
+        }
         return b64;
       }).catch(function() {
         // If HQ can't be loaded (CORS etc), fall back to current canvas
