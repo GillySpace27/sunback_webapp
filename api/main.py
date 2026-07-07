@@ -967,6 +967,21 @@ def fetch_first_fits(dt, wl):
     return str(files[0])
 
 
+def _shared_lev1_fits_path(mission, wavelength, dt) -> str:
+    """Canonical on-disk location for the single full-res lev1 AIA frame that
+    the interactive preview downloads. The HQ render (`fido_fetch_map`) reads
+    this before hitting VSO, so the FITS — the slow, outage-prone part — is
+    fetched ONCE per (mission, wavelength, UTC date+time) and the HQ image
+    becomes the full-res version of the exact frame the user previewed. Keyed
+    by date+HHMM (the time selects the frame) so a re-dated-different-time
+    preview never reuses a stale frame; matches the time-keyed `.npz` cache."""
+    try:
+        wl_key = int(wavelength if wavelength is not None else int(DEFAULT_AIA_WAVELENGTH.value))
+    except Exception:
+        wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
+    return os.path.join(OUTPUT_DIR, f"shared_lev1_{mission}_{wl_key}_{dt.strftime('%Y%m%d_%H%M')}.fits")
+
+
 def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, out_path_jpg, url_path_raw, url_path_filtered, url_path_jpg):
     """Blocking FITS fetch + raw and RHEF-filtered PNGs. Also fetches Helioviewer instant preview as JPG.
     Writes preview_SDO_{wl}_{date_str}_raw.png, _filtered.png, and _jpg.png (Helioviewer) for the UI."""
@@ -1176,6 +1191,20 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     import matplotlib.pyplot as plt
     from skimage.measure import block_reduce
     smap = Map(fits_path)
+
+    # Stash this frame at the shared path so a later HQ render reuses it
+    # instead of re-downloading the same FITS from VSO. Copy (not move) so
+    # the preview's own fits_path stays valid, and overwrite any prior copy
+    # so the shared frame always reflects the most recent preview for this
+    # date+wl. Best-effort: a copy failure just means HQ falls back to VSO.
+    try:
+        _shared_dst = _shared_lev1_fits_path("SDO", wl, dt)
+        if os.path.abspath(fits_path) != os.path.abspath(_shared_dst):
+            import shutil as _shutil
+            _shutil.copy2(fits_path, _shared_dst)
+            log_to_queue(f"[generate_preview] Cached frame for HQ reuse: {os.path.basename(_shared_dst)}")
+    except Exception as _share_err:
+        log_to_queue(f"[generate_preview] Could not cache frame for HQ reuse: {_share_err}")
 
     # ── JPG ↔ FITS co-registration ──────────────────────────────
     # Helioviewer's takeScreenshot snaps to the nearest available
@@ -1473,10 +1502,12 @@ tasks: dict = _LRUTasks()
 # Thread lock for status updates
 status_lock = threading.Lock()
 
-async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str, format_type: str = "rhef"):
+async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str, format_type: str = "rhef", integrate: bool = False):
     """
     Actual HQ generation logic for async background task.
     format_type: 'jpg' | 'raw' | 'rhef'. Currently only rhef is implemented.
+    integrate: forward to do_generate_sync — True renders the multi-frame
+    time-integrated print (checkout), False the fast single-frame editor HQ.
     """
     try:
         with status_lock:
@@ -1503,7 +1534,7 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
                 tasks[task_id] = {"status": "started", "message": "HQ generation started"}
                 log_to_queue(f"[hq-task][{task_id}] Status: started")
             # format_type ignored for now; only RHEF is produced
-            png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector)
+            png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector, integrate)
         # Check PNG existence
         png_path = os.path.join(OUTPUT_DIR, os.path.basename(png_url.lstrip("/")))
         if os.path.exists(png_path) and os.path.getsize(png_path) > 1000:
@@ -1529,10 +1560,16 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
 
 
 # Helper: HQ generation, sync version for to_thread usage
-def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str):
+def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str, integrate: bool = False):
     """
     Generate a HQ PNG using the full RHEF pipeline, caching result if already exists.
     Returns the /asset/... URL path to the PNG.
+
+    integrate: when False (editor path) the render reuses the single frame the
+    preview already downloaded — fast, and what the user sees while editing.
+    When True (checkout path) it forces the multi-frame, exposure-weighted
+    time-integrated combine for the actual print, cached under a distinct
+    `_integrated` filename so it never collides with the fast editor render.
     """
     # Reassert SSL/NASA cert configuration inside thread
     import ssl, certifi
@@ -1542,9 +1579,25 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
         ssl._create_default_https_context = ssl._create_unverified_context
     else:
         ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=NASA_CA_BUNDLE)
-    # Compose output PNG path and URL
+    # Compose output PNG path and URL.
+    #
+    # The time-of-day selects which AIA FITS frame(s) get fetched, so two
+    # different times on the SAME date are distinct images and must NOT share
+    # a cache file. Every render is therefore keyed by date + HHMM. The one
+    # exception is the fixed landing default (canonically the NOON frame),
+    # which keeps a stable, time-less filename (DEFAULT_HQ_FILENAME) so its
+    # pre-warmed persistent /var/data PNG still restores across deploys.
     date_str = date.strftime("%Y%m%d")
-    out_name = f"hq_{mission}_{wavelength}_{date_str}.png"
+    _integ_suffix = "_integrated" if integrate else ""
+    _is_default = (
+        not integrate
+        and _is_default_tuple(date, wavelength, mission, detector)
+        and getattr(date, "hour", 0) == 12 and getattr(date, "minute", 0) == 0
+    )
+    if _is_default:
+        out_name = DEFAULT_HQ_FILENAME
+    else:
+        out_name = f"hq_{mission}_{wavelength}_{date_str}_{date.strftime('%H%M')}{_integ_suffix}.png"
     out_path = os.path.join(OUTPUT_DIR, out_name)
     url_path = f"/asset/{out_name}"
     # If already exists and is non-empty, return its URL (cached)
@@ -1557,7 +1610,7 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     # we previously wrote it to the persistent disk (DEFAULT_CACHE_DIR),
     # restore from there instead. Cheap, idempotent, only kicks in for
     # the default — user-picked dates regenerate as before.
-    if _is_default_tuple(date, wavelength, mission, detector):
+    if _is_default:
         persistent_default = DEFAULT_CACHE_DIR / out_name
         if persistent_default.exists() and persistent_default.stat().st_size > 1000:
             try:
@@ -1569,12 +1622,12 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
             except Exception as e:
                 log_to_queue(f"[do_generate_sync][warn] Persistent default restore failed: {e}")
     # Fetch and process HQ map
-    log_to_queue(f"[do_generate_sync] Generating HQ PNG: {out_path}")
+    log_to_queue(f"[do_generate_sync] Generating HQ PNG: {out_path} (integrate={integrate})")
     smap = None
     rhef_map = None
     data = None
     try:
-        smap = fido_fetch_map(date, mission, wavelength, detector)
+        smap = fido_fetch_map(date, mission, wavelength, detector, integrate=integrate)
         # Apply RHEF filter at full resolution
         try:
             rhef_map = rhef(smap, progress=True)
@@ -1622,8 +1675,11 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
         _finalize_render()
     # Write-through to the persistent default cache so the next deploy
     # (after /tmp wipes) self-restores instead of regenerating. Only the
-    # FIXED default tuple — user-picked dates stay ephemeral.
-    if _is_default_tuple(date, wavelength, mission, detector):
+    # FIXED default tuple (noon frame) — user-picked dates/times stay
+    # ephemeral. Integrated renders are never written through: the
+    # persistent default cache holds exactly the one canonical (fast)
+    # default landing image.
+    if _is_default:
         try:
             import shutil
             DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1678,6 +1734,10 @@ async def start_generate(background_tasks: BackgroundTasks, payload: dict):
     mission = payload.get("mission", "SDO")
     detector = payload.get("detector", "AIA")
     format_type = payload.get("format", "rhef")
+    # integrate=True → the multi-frame, time-integrated print render used at
+    # checkout. Defaults False so the editor's HQ tier stays the fast
+    # single-frame reuse.
+    integrate = bool(payload.get("integrate", False))
     if not date or not wavelength:
         raise HTTPException(status_code=400, detail="Missing date or wavelength")
     # Fold time into the date string the worker receives so we don't
@@ -1694,7 +1754,7 @@ async def start_generate(background_tasks: BackgroundTasks, payload: dict):
     task_id = str(uuid.uuid4())
     with status_lock:
         tasks[task_id] = {"status": "queued", "message": "HQ generation queued"}
-    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector, format_type)
+    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector, format_type, integrate)
     return {"task_id": task_id, "status_url": f"/api/status/{task_id}"}
 
 @app.get("/api/status/{task_id}")
@@ -3218,13 +3278,18 @@ def _fetch_aia_via_jsoc(dt_query: datetime, wl: int, work_dir) -> list:
     return files
 
 
-def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str]) -> Map:
+def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detector: Optional[str], integrate: bool = False) -> Map:
     """
     Retrieve a SunPy Map near the given date for the chosen mission.
     We search a small window around the date to find at least one file.
     For SDO/AIA, try VSO first then fall back to JSOC if VSO is down.
+
+    integrate: when False, reuse the single frame the preview already
+    downloaded (fast, no re-fetch). When True, skip that reuse and do the
+    full multi-frame exposure-weighted combine, cached under a distinct
+    `_integrated` .npz so the fast and time-integrated maps never collide.
     """
-    log_to_queue(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wavelength}, detector={detector}")
+    log_to_queue(f"[fetch] mission={mission}, date={dt.date()}, wavelength={wavelength}, detector={detector}, integrate={integrate}")
     # Normalize wavelength and detector for cache keys
     wl_used = None
     det_used = (detector or DEFAULT_DETECTOR_LASCO)
@@ -3248,8 +3313,14 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     import numpy as np
     combined_cache_file = None
     date_str = dt.strftime("%Y%m%d")
+    # Time-of-day selects the FITS frame, so it is part of the cache key —
+    # two times on one date are distinct maps. Integrated (multi-frame) maps
+    # cache separately from the fast single-frame reuse (via _integ_suffix)
+    # so a prior editor render can't shadow a checkout render.
+    _time_tag = dt.strftime("%H%M")
+    _integ_suffix = "_integrated" if integrate else ""
     if mission == "SDO":
-        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_used}_{date_str}.npz")
+        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_used}_{date_str}_{_time_tag}{_integ_suffix}.npz")
         # Optional: warn if legacy cache exists but new cache does not
         legacy_ccf = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{date_str}.npz")
         if os.path.exists(legacy_ccf) and not os.path.exists(combined_cache_file):
@@ -3280,6 +3351,56 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         from sunpy.net import Fido, attrs as a
         import astropy.units as u
         wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
+
+        # ── Reuse the preview's already-downloaded frame ─────────────
+        # The interactive preview (_generate_preview_sync) downloads a
+        # full-res lev1 AIA frame for this (date, wl) and stashes it at a
+        # shared path. If it's there, build the HQ map from THAT frame
+        # instead of re-searching + re-downloading from VSO — the FITS is
+        # the slow, outage-prone part, so this avoids fetching it twice and
+        # makes the HQ render the full-res version of the exact frame the
+        # user previewed. A single prepped frame is what the from-scratch
+        # path also reduces to when the ±2min window holds one frame; the
+        # per-frame aiaprep matches. Falls through to VSO/JSOC when no
+        # preview frame exists, or if anything about the reuse goes wrong.
+        # Skipped entirely when integrate=True: the checkout print wants the
+        # multi-frame time-integrated combine, not the single preview frame.
+        shared_fits = _shared_lev1_fits_path(mission, wavelength, dt)
+        if not integrate and os.path.exists(shared_fits) and os.path.getsize(shared_fits) > 100_000:
+            try:
+                import numpy as np
+                log_to_queue(f"[fetch][AIA] Reusing preview frame (no VSO fetch): {os.path.basename(shared_fits)}")
+                m = Map(shared_fits)
+                try:
+                    m_prep = manual_aiaprep(m, logger=lambda msg: log_to_queue(msg))
+                except Exception as _prep_err:
+                    log_to_queue(f"[fetch][AIA][warn] aiaprep failed on reused frame ({_prep_err}); using raw frame.")
+                    m_prep = m
+                reused_data = np.asarray(m_prep.data, dtype=np.float32)
+                reused_meta = m_prep.meta.copy()
+                reused_meta["n_frames"] = 1
+                # Write the same date+time-keyed .npz the top cache-check reads
+                # (non-integrated: reuse only runs when integrate=False), so a
+                # repeat HQ for this exact frame is instant (and consistent).
+                wl_key = int(wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+                cache_npz = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}_{_time_tag}.npz")
+                try:
+                    np.savez_compressed(cache_npz, data=reused_data, meta=reused_meta)
+                    log_to_queue(f"[cache] Saved reused single-frame map to {cache_npz}")
+                    # The .npz now serves this date; drop the shared FITS so
+                    # previewed dates don't accumulate full-res frames in the
+                    # (ephemeral) output dir. Mirrors the from-scratch path,
+                    # which deletes its FITS after caching the combined map.
+                    try:
+                        os.remove(shared_fits)
+                    except OSError:
+                        pass
+                except Exception as _npz_err:
+                    log_to_queue(f"[cache][warn] Could not cache reused frame ({_npz_err}); continuing.")
+                return Map(reused_data, reused_meta)
+            except Exception as _reuse_err:
+                log_to_queue(f"[fetch][AIA][warn] Preview-frame reuse failed ({_reuse_err}); falling back to VSO.")
+
         log_to_queue(f"[fetch] Using VSO for AIA data ({wl}Å)")
 
         from sunpy.net import vso
@@ -3460,7 +3581,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
         except Exception:
             wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
-        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}.npz")
+        combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}_{_time_tag}{_integ_suffix}.npz")
         np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
         import psutil
         mem = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
