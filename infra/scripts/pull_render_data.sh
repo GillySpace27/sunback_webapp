@@ -12,8 +12,10 @@ cd data_mirror
 
 SSH_TARGET="srv-d478g9i4d50c73809e60@ssh.oregon.render.com"
 
-echo "Tarring /var/data on Render (~350-600 MB, a few minutes)..."
-ssh "$SSH_TARGET" "cd /var/data && tar czf - ." > render_var_data.tgz
+# Exclude: events/ (orphaned jpg_thumb tree ~500MB, not in any manifest),
+# macOS ._* AppleDouble junk, and output/data (regenerable raw-FITS cache).
+echo "Tarring /var/data on Render (~360 MB, a few minutes)..."
+ssh "$SSH_TARGET" "cd /var/data && tar czf - --exclude='*/events' --exclude='._*' --exclude='output/data' ." > render_var_data.tgz
 
 echo "Extracting local mirror..."
 rm -rf mirror
