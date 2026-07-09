@@ -206,6 +206,21 @@ body::before {
   margin-top: 6px;
   font-weight: 300;
 }
+/* Backend status banner removed from the UI — the landing is zero-backend
+   and warms in the background, so "checking/online" was pure noise. Hidden
+   rather than deleted so the JS that references #backendBanner stays valid.
+   ponytail: one-line hide beats guarding ~10 JS call sites. */
+#backendBanner { display: none !important; }
+
+/* Promoted tagline — sits right under the wordmark, larger + warmer than
+   the descriptive line below it. */
+.hero p.hero-tagline {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--accent-sun, #f5a623);
+  margin-top: 4px;
+  letter-spacing: 0.01em;
+}
 /* NASA/SDO acknowledgement under the hero subtitle — present but quiet,
    so it's prominent (top of page, seen first) without competing with
    the tagline. */
