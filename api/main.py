@@ -320,19 +320,36 @@ def _build_nasa_chain():
     # Start with certifi bundle
     with open(bundle_path, "rb") as src, open(merged_path, "wb") as dst:
         shutil.copyfileobj(src, dst)
-        # Append each .pem in ./certs (if any)
+        # Append each .pem in ./certs (if any). CRITICAL: append a PEM only
+        # if it parses on its own — OpenSSL rejects the ENTIRE bundle with
+        # "[X509] PEM lib" if any single entry is malformed, which silently
+        # breaks every verified HTTPS call (VSO + JSOC metadata queries die,
+        # so HQ renders fail with "No SDO/AIA data"). Validating per-file
+        # keeps the good NASA certs and drops only the bad one.
         if os.path.isdir(certs_dir):
             for name in sorted(os.listdir(certs_dir)):
-                if name.lower().endswith(".pem"):
-                    pem_path = os.path.join(certs_dir, name)
-                    try:
-                        with open(pem_path, "rb") as pemf:
-                            dst.write(b"\n")
-                            dst.write(pemf.read())
-                            dst.write(b"\n")
-                    except Exception as e:
-                        print(f"[startup][warn] Could not append NASA PEM {pem_path}: {e}", flush=True)
-    return merged_path
+                if not name.lower().endswith(".pem"):
+                    continue
+                pem_path = os.path.join(certs_dir, name)
+                try:
+                    data = open(pem_path, "rb").read()
+                    _probe = ssl.create_default_context()
+                    _probe.load_verify_locations(cadata=data.decode("ascii", "strict"))
+                    dst.write(b"\n")
+                    dst.write(data)
+                    dst.write(b"\n")
+                except Exception as e:
+                    print(f"[startup][warn] skipping unparseable NASA PEM {name}: {e}", flush=True)
+    # Final guard: the merged bundle MUST parse. If it somehow still doesn't
+    # (e.g. a certifi-side issue or a join artifact), fall back to plain
+    # certifi so verified HTTPS keeps working — VSO/JSOC use standard CAs
+    # already in certifi, and NASA FITS downloads use ssl=False regardless.
+    try:
+        ssl.create_default_context(cafile=merged_path)
+        return merged_path
+    except Exception as e:
+        print(f"[startup][warn] merged CA bundle unparseable ({e}); using certifi only.", flush=True)
+        return bundle_path
 
 # --- New startup sequence: ensure NASA cert, build merged CA bundle, set env vars, and set SSL context ---
 ensure_nasa_cert()
