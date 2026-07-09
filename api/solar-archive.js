@@ -10738,10 +10738,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // (and the operator's Printify wholesale bill) safely out of the
     // loop while still letting the full editor flow get exercised.
     function _applyBetaModeUI() {
-      // Page-level beta cues (title badge + orange sub-banner) are
-      // independent of the editor button — apply them whenever the
-      // flag is on, even if the user hasn't entered the editor yet.
-      if (BETA_MODE) {
+      // Page-level beta cues (title badge + orange sub-banner) show only
+      // once /store-config has CONFIRMED beta is on — never optimistically
+      // during the cold-start unknown window (the buy button stays locked
+      // meanwhile via the BETA_MODE gate below, so this is display-only).
+      if (BETA_MODE && betaConfirmed) {
         document.body.classList.add("beta-mode-active");
         var titleEl = document.getElementById("appTitle");
         if (titleEl && !titleEl.querySelector(".app-title-beta-badge")) {
@@ -11392,6 +11393,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // rather than away from it. Operator flips this off only after the
     // server explicitly tells us so.
     var BETA_MODE = true;
+    // Whether /store-config has given a definitive answer yet. The visible
+    // BETA badge/banner waits for this, so it never flashes on a cold-start
+    // visit before the backend confirms the mode. Purchases still stay
+    // fail-secure-locked meanwhile (that gate keys off BETA_MODE, not this).
+    var betaConfirmed = false;
 
     // Fetch store config on load — with RETRIES. The backend is scale-to-zero
     // (Fly), so on a cold visit the first fetch can outrun its own timeout
@@ -11410,6 +11416,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           }
           if (data && typeof data.beta_mode !== "undefined") {
             BETA_MODE = !!data.beta_mode;
+            betaConfirmed = true;  // definitive — the badge may now show
             if (typeof updateBuyButtonState === "function") updateBuyButtonState();
             if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
             if (typeof renderProducts === "function") renderProducts();
