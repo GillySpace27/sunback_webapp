@@ -1,19 +1,16 @@
 // Cloudflare Worker: the routing front for myheliograph.com.
 //
 //   static frontend  → Workers Static Assets (public/, built by build-public.sh)
-//   /asset/*         → R2 bucket (zero egress), origin fallback for
-//                      dynamically-minted files (user HQ renders, previews)
+//   /asset/*         → Fly origin, cached at the Cloudflare edge (Fly isn't
+//                      behind Cloudflare, so caching works — no R2 needed)
 //   everything else  → proxied to the Fly.io FastAPI origin
 //
 // Deploy flow:
 //   1. ./build-public.sh                 (populate public/ from ../../api)
-//   2. npx wrangler r2 bucket create heliograph-assets   (once)
-//   3. npx wrangler secret put ADMIN_KEY (FEEDBACK_ADMIN_KEY value — used by
-//      the cron trigger to run the Printify mockup-draft sweep)
-//   4. npx wrangler deploy               (test on the workers.dev URL first)
-//   5. CUTOVER: uncomment "routes" below, delete the existing DNS records
-//      for myheliograph.com/www in the Cloudflare dashboard, redeploy —
-//      custom domains create their own DNS. Rollback = re-create the old
+//   2. npx wrangler secret put ADMIN_KEY (FEEDBACK_ADMIN_KEY — cron sweep auth)
+//   3. npx wrangler deploy               (test on the workers.dev URL first)
+//   4. CUTOVER: uncomment "routes" below, delete the existing DNS records
+//      for myheliograph.com/www, redeploy. Rollback = re-create the old
 //      CNAME to solar-archive.onrender.com.
 {
   "name": "myheliograph-router",
@@ -22,25 +19,20 @@
   "workers_dev": true,
   "assets": {
     "directory": "./public",
-    "binding": "STATIC",
-    // /privacy resolves to privacy.html etc. (parity with FastAPI's routes)
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "none"
   },
-  "r2_buckets": [
-    { "binding": "BUCKET", "bucket_name": "heliograph-assets" }
-  ],
   "vars": {
     "ORIGIN": "https://myheliograph-api.fly.dev"
   },
   "triggers": {
     // Stale-[MOCKUP]-draft sweep: the in-app trigger is a post-response
     // daemon thread that scale-to-zero kills; this cron is the mechanism
-    // of record. Every 6 hours, offset to avoid the top-of-hour stampede.
+    // of record. Every 6 hours, offset off the top of the hour.
     "crons": ["17 */6 * * *"]
-  }
-  // "routes": [
-  //   { "pattern": "myheliograph.com", "custom_domain": true },
-  //   { "pattern": "www.myheliograph.com", "custom_domain": true }
-  // ]
+  },
+  "routes": [
+    { "pattern": "myheliograph.com", "custom_domain": true },
+    { "pattern": "www.myheliograph.com", "custom_domain": true }
+  ]
 }
