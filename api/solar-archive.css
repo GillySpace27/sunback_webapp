@@ -205,6 +205,9 @@ body::before {
   font-size: 1rem;
   margin-top: 6px;
   font-weight: 300;
+  /* Balance the wrap so the last line doesn't orphan a single word
+     ("…or / canvas."). */
+  text-wrap: balance;
 }
 /* Backend status banner removed from the UI — the landing is zero-backend
    and warms in the background, so "checking/online" was pure noise. Hidden

@@ -2063,9 +2063,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           return;
         }
         if (product && typeof showConfirmSelectModal === "function") {
-          // Direct modal entry. onContinue is a no-op — the modal's
-          // own logic re-selects the variant and updates the editor.
-          showConfirmSelectModal(product, function() { /* committed inside modal */ });
+          // Direct modal entry from the editor. On commit, refresh the editor
+          // in place so the new variant's mockup + price appear immediately —
+          // previously this was a no-op, so the user had to click elsewhere to
+          // see the change.
+          showConfirmSelectModal(product, function() {
+            if (typeof scheduleCanvasRender === "function") scheduleCanvasRender();
+            if (typeof scheduleMockupRefresh === "function") scheduleMockupRefresh();
+            if (typeof loadVariantPricing === "function") loadVariantPricing(product);
+            if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+            if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
+          });
           return;
         }
         // No fallback to card-click — on step "editor" the product
@@ -10249,9 +10257,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         if (_snap.activeVibeSlug) state.activeVibeSlug = _snap.activeVibeSlug;
         if (typeof _snap.wavelength === "number") state.wavelength = _snap.wavelength;
+        // timestampStamp deliberately NOT restored — the caption stays OFF
+        // by default every session (users opt in via the Timestamp tool).
+        // Its position settings still restore so a re-enable lands where the
+        // user last put it.
         ["cropZoom","brightness","contrast","saturation","hue",
          "vignette","vignetteWidth","rotation","inverted","cropRatio",
-         "vibeMasterTier","timestampStamp","timestampPos","timestampVOffset"
+         "vibeMasterTier","timestampPos","timestampVOffset"
         ].forEach(function (k) {
           if (_snap[k] !== undefined && _snap[k] !== null) state[k] = _snap[k];
         });
@@ -11381,30 +11393,40 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // server explicitly tells us so.
     var BETA_MODE = true;
 
-    // Fetch store config on load
-    fetchWithTimeout(API_BASE + "/api/printify/store-config", {}, 10000)
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(data) {
-        if (data && data.shopify_store_domain) {
-          SHOPIFY_STORE = data.shopify_store_domain;
-        }
-        if (data && typeof data.beta_mode !== "undefined") {
-          BETA_MODE = !!data.beta_mode;
-          // Re-sync the buy button now that we know the mode.
+    // Fetch store config on load — with RETRIES. The backend is scale-to-zero
+    // (Fly), so on a cold visit the first fetch can outrun its own timeout
+    // while the machine wakes (~24s). BETA_MODE defaults fail-secure (true),
+    // so a one-shot fetch that times out would leave the store stuck in beta
+    // (purchases disabled) until a manual reload. Retry every 5s (30s timeout
+    // each) until the server gives a definitive answer, so beta flips off as
+    // soon as the backend is up.
+    function loadStoreConfig(attempt) {
+      attempt = attempt || 1;
+      fetchWithTimeout(API_BASE + "/api/printify/store-config", {}, 30000)
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (data && data.shopify_store_domain) {
+            SHOPIFY_STORE = data.shopify_store_domain;
+          }
+          if (data && typeof data.beta_mode !== "undefined") {
+            BETA_MODE = !!data.beta_mode;
+            if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+            if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+            if (typeof renderProducts === "function") renderProducts();
+            return;  // definitive answer — stop retrying
+          }
+          // No usable payload (null / garbage) → keep retrying while waking.
+          if (attempt < 10) setTimeout(function () { loadStoreConfig(attempt + 1); }, 5000);
+        })
+        .catch(function () {
+          // Timeout / network error → keep fail-secure UI, but keep trying so
+          // beta doesn't stay stuck ON after a cold-start wake.
           if (typeof updateBuyButtonState === "function") updateBuyButtonState();
           if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
-          // Re-render so the operator/beta-only popularity badge appears
-          // now that BETA_MODE is known.
-          if (typeof renderProducts === "function") renderProducts();
-        }
-        // No beta_mode in response → keep fail-secure default (true).
-      })
-      .catch(function() {
-        // Network / parse failure → keep fail-secure default (true).
-        // Re-paint so the locked-buy UI reflects the safe state.
-        if (typeof updateBuyButtonState === "function") updateBuyButtonState();
-        if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
-      });
+          if (attempt < 10) setTimeout(function () { loadStoreConfig(attempt + 1); }, 5000);
+        });
+    }
+    loadStoreConfig();
 
     function updateSendToPrintifyButton() {
       // Re-render product cards and Select this product buttons when HQ state changes
