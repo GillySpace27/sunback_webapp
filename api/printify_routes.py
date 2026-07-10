@@ -223,14 +223,15 @@ async def upload_image(request: Request):
         if not url and not contents:
             raise HTTPException(status_code=400, detail="Missing 'url' or 'contents' field.")
 
-        # base64 upload size cap (~25 MB raw → ~33 MB base64). Anything
-        # bigger than this isn't a legit canvas snapshot — it's someone
-        # trying to abuse the operator's storage quota.
-        _MAX_BASE64_BYTES = 33 * 1024 * 1024
+        # base64 upload size cap. A composited LOSSLESS 4096² RHEF print PNG is
+        # ~25 MB raw → ~34 MB base64 (verified against Printify, which accepts
+        # it), so the cap is 45 MB to fit it with headroom. Bigger than that
+        # isn't a legit canvas snapshot — it's storage-quota abuse.
+        _MAX_BASE64_BYTES = 45 * 1024 * 1024
         if contents and not is_admin and len(contents) > _MAX_BASE64_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail="Base64 upload exceeds 33 MB cap.",
+                detail="Base64 upload exceeds 45 MB cap.",
             )
 
         # URL allowlist: any URL pointing OUTSIDE our origin is rejected
