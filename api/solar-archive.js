@@ -10357,6 +10357,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // _continueOpenEditor helper below. We extract it as a helper so
     // commitImageChoice can call it AFTER the editor section is visible.
     function _continueOpenEditor(product) {
+      // Buy intent: an image + a product are now in the editor. Start the
+      // time-integrated print render in the background so checkout finds it
+      // cached (no second wait). No-op for warm vibes / missing date.
+      if (typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
 
       // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
       // vignette so the print area is covered completely the moment the
@@ -11751,7 +11755,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var cacheKey = dateStr + "T" + t + "_" + wl;
       var entry = _integratedHqCache[cacheKey];
       if (entry && entry.url) return Promise.resolve(entry.url);
-      if (entry && entry.promise) return entry.promise;
+      if (entry && entry.promise) {
+        // Pre-warm already running (started at editor-open). Surface progress
+        // for a checkout caller; no-ops harmlessly if called before checkout.
+        markCheckoutStep("ckStep1", "active", "Rendering the print-quality image (time-integrated)…");
+        return entry.promise;
+      }
 
       markCheckoutStep("ckStep1", "active", "Rendering the print-quality image (time-integrated)…");
       var work = postJSON(API_BASE + "/api/generate", {
@@ -11802,6 +11811,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
       _integratedHqCache[cacheKey] = { promise: p };
       return p;
+    }
+
+    // Pre-warm the time-integrated print render EARLY — the moment the user
+    // opens the editor with a product (buy intent) — so it's already cached by
+    // the time they reach checkout and there's no second wait. Only custom /
+    // birthday dates need it (warm vibes ship a pre-warmed HQ, used directly).
+    // Fire-and-forget: _ensureIntegratedHqUrl caches per date+time+wl, queues
+    // behind the fast single-frame HQ on the backend's heavy-render semaphore,
+    // and swallows errors. Its markCheckoutStep calls no-op while the checkout
+    // UI isn't mounted, so running this during editing is safe.
+    function _prewarmIntegratedHq() {
+      try {
+        if (state.activeVibeSlug && state.activeVibeSlug !== "birthday") return; // warm vibe → skip
+        var dateStr = (typeof dateInput !== "undefined" && dateInput && dateInput.value) ? dateInput.value : "";
+        if (!dateStr || !state.wavelength) return;
+        _ensureIntegratedHqUrl(dateStr);  // result cached; ignore the promise here
+      } catch (_e) {}
     }
 
     // Resolve the image to upload at checkout, compositing the user's edits
