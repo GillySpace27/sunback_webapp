@@ -190,6 +190,35 @@
 
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
 
+      <!-- "Your day" tile (FIRST position) — the core product: pick any date
+           plus an optional UTC time, then press SUBMIT. Deliberately does NOT
+           fire on the date input's change event: users reported the background
+           render auto-triggered before they could finish filling the fields.
+           The submit button (and Enter in either field) is the ONLY trigger. -->
+      <div class="vibe-card vibe-card-birthday" data-vibe-slug="birthday">
+        <div class="vibe-birthday-inner">
+          <div class="vibe-birthday-icon" aria-hidden="true">
+            <i class="fas fa-gift"></i>
+          </div>
+          <div class="vibe-birthday-meta">
+            <div class="vibe-title">Your day</div>
+            <div class="vibe-sub">Birthday, anniversary, any date</div>
+          </div>
+          <label for="vibeBirthdayInput" class="vibe-birthday-label">Pick a date</label>
+          <!-- max is set dynamically to today in solar-archive.js init so the
+               user can't pick a future date. min is SDO/AIA first light. -->
+          <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
+                 min="2010-05-15" aria-describedby="vibeBirthdayHint">
+          <label for="vibeBirthdayTime" class="vibe-birthday-label">Time — UTC (optional)</label>
+          <input type="time" id="vibeBirthdayTime" class="vibe-birthday-input"
+                 aria-describedby="vibeBirthdayHint">
+          <button type="button" id="vibeBirthdaySubmit" class="vibe-birthday-submit">
+            <i class="fas fa-sun" aria-hidden="true"></i> See the Sun
+          </button>
+          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Any date from May 15, 2010 through yesterday. Leave the time blank and we'll pick the day's best moment.</div>
+        </div>
+      </div>
+
       <div class="vibe-card" data-vibe-slug="ar2192"
            data-vibe-date="2014-10-24" data-vibe-wl="193" data-vibe-time="12:00">
         <div class="vibe-controls">
@@ -390,30 +419,6 @@
             <div class="vibe-date">Oct 24, 2014 · 1700 Å</div>
           </div>
         </button>
-      </div>
-
-      <!-- "Your day" tile (last position) — date input only, no preview thumbnail,
-           no submit button. The date input's "change" event fires the
-           same flow as a vibe-card click (sets date, triggers HEK +
-           wavelength suggestion + editor scroll). Replaces the older
-           below-the-grid birthday CTA section. -->
-      <div class="vibe-card vibe-card-birthday" data-vibe-slug="birthday">
-        <div class="vibe-birthday-inner">
-          <div class="vibe-birthday-icon" aria-hidden="true">
-            <i class="fas fa-gift"></i>
-          </div>
-          <div class="vibe-birthday-meta">
-            <div class="vibe-title">Your day</div>
-            <div class="vibe-sub">Birthday, anniversary, any date</div>
-          </div>
-          <label for="vibeBirthdayInput" class="vibe-birthday-label">Pick a date</label>
-          <!-- max is set dynamically to today in solar-archive.js init so the
-               user can't pick a future date (was: silently rendered "latest"
-               while the UI displayed e.g. 2030). min is SDO/AIA first light. -->
-          <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
-                 min="2010-05-15" aria-describedby="vibeBirthdayHint">
-          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Any date from May 15, 2010 through yesterday — print the Sun that was shining that day.</div>
-        </div>
       </div>
 
     </div>

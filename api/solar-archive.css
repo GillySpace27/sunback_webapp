@@ -2684,6 +2684,28 @@ body.step-editor .vibe-reveal-btn {
   width: 100%;
 }
 .vibe-birthday-input:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
+.vibe-birthday-submit {
+  margin-top: 4px;
+  padding: 11px 14px;
+  min-height: 44px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 1.0rem;
+  cursor: pointer;
+  color: #1a1206;
+  background: linear-gradient(135deg, #ffb347, #ff8c42);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: filter 0.12s ease, transform 0.06s ease;
+}
+.vibe-birthday-submit:hover { filter: brightness(1.06); }
+.vibe-birthday-submit:active { transform: translateY(1px); }
+.vibe-birthday-submit:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 2px; }
 .vibe-birthday-hint {
   font-size: 0.78rem;
   color: var(--text-dim, #9a93a8);
