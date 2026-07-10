@@ -1602,6 +1602,48 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
 
 
 # Helper: HQ generation, sync version for to_thread usage
+def _write_rhef_webp_artifacts(data, cmap, vmin, vmax, out_dir, base_name):
+    """From a full-res RHEF float array, write two LOSSLESS WebP artifacts and
+    return their filenames (hq_name, rhq_name):
+
+      <base>_hq4096.webp  — colormapped full-res RHEF: the PRINT source. The
+                            browser downloads this at checkout, composites the
+                            user's edits on a canvas, and uploads a JPEG/PNG to
+                            Printify (which can't ingest WebP, but never sees it).
+      <base>_rhq2048.webp — the SAME render, 2×2 nanmedian-downsampled to ~2048:
+                            the EDITOR display. Median-of-4 rejects the RHEF-
+                            amplified coronal speckle far better than a mean
+                            downsample, so the smaller image stays clean.
+
+    Both share ONE vmin/vmax so the on-screen edit and the print are tonally
+    identical (WYSIWYG). Lossless because RHEF's high-frequency texture shows
+    real artifacts under lossy WebP even at q100 (measured)."""
+    import numpy as np
+    from PIL import Image
+    from skimage.measure import block_reduce
+    os.makedirs(out_dir, exist_ok=True)
+    _span = float(vmax - vmin) or 1e-8
+    _fill = float(np.nanmin(data)) if np.isfinite(data).any() else 0.0
+    # 256-entry uint8 LUT instead of cmap(a) directly: colormapping a 4096²
+    # float array allocates a ~536MB float64 RGBA, which would OOM the 2GB
+    # box mid-render. LUT indexing yields the 50MB uint8 RGB straight away.
+    _lut = (cmap(np.linspace(0.0, 1.0, 256))[:, :3] * 255).astype(np.uint8)
+    def _to_rgb(arr):
+        a = np.where(np.isfinite(arr), arr, _fill)
+        idx = np.clip((a - vmin) / _span, 0.0, 1.0)
+        idx = (idx * 255.0).astype(np.uint8)
+        return _lut[idx][::-1]  # imshow origin='lower' → flip rows to match PNG
+    hq_name = f"{base_name}_hq4096.webp"
+    Image.fromarray(_to_rgb(data)).save(
+        os.path.join(out_dir, hq_name), format="WEBP", lossless=True, method=4)
+    bs = max(1, data.shape[0] // 2048)
+    reduced = block_reduce(data, (bs, bs), np.nanmedian) if bs > 1 else data
+    rhq_name = f"{base_name}_rhq2048.webp"
+    Image.fromarray(_to_rgb(reduced)).save(
+        os.path.join(out_dir, rhq_name), format="WEBP", lossless=True, method=4)
+    return hq_name, rhq_name
+
+
 def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str, integrate: bool = False):
     """
     Generate a HQ PNG using the full RHEF pipeline, caching result if already exists.
@@ -1701,6 +1743,22 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
                 break
             time.sleep(0.05)
         log_to_queue(f"[do_generate_sync] HQ PNG written: {out_path}")
+        # Option A: also emit the lossless-WebP print (hq4096) + editor (rhq2048)
+        # artifacts from the same RHEF float, before `data` is freed below.
+        try:
+            _base = os.path.splitext(out_name)[0]
+            _hq_n, _rhq_n = _write_rhef_webp_artifacts(data, cmap, vmin, vmax, OUTPUT_DIR, _base)
+            log_to_queue(f"[do_generate_sync] WebP artifacts: {_hq_n}, {_rhq_n}")
+            if _is_default:
+                try:
+                    import shutil
+                    DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    for _n in (_hq_n, _rhq_n):
+                        shutil.copy2(os.path.join(OUTPUT_DIR, _n), str(DEFAULT_CACHE_DIR / _n))
+                except Exception as _dwe:
+                    log_to_queue(f"[do_generate_sync][warn] default WebP write-through failed: {_dwe}")
+        except Exception as _we:
+            log_to_queue(f"[do_generate_sync][warn] WebP artifact write failed: {_we}")
     finally:
         # Drop the big buffers + sweep matplotlib figures so the next
         # queued render starts on a clean heap. A 4096² float32 ndarray
