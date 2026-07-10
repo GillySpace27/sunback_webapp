@@ -11138,19 +11138,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         ectx.drawImage(solarCanvas, ew, 0, ew, eh);
       }
 
-      // Format choice:
-      //   - PNG when the vignette fade is "transparent" OR the product
-      //     has a non-rectangular print area (circular, etc). JPEG
-      //     would flatten the alpha to black and Printify's mockup
-      //     renderer then prints a black rectangle behind the disk on
-      //     fabric products (real beta-tester report on a maroon
-      //     crewneck — fabric should show through, not black box).
-      //   - JPEG at q=0.85 otherwise. Smaller upload, no quality
-      //     difference for fully-opaque renders.
-      var needsAlpha = (state.vignetteFade === "transparent") || isCircularProduct;
-      var dataUrl = needsAlpha
-        ? exportCanvas.toDataURL("image/png")
-        : exportCanvas.toDataURL("image/jpeg", 0.85);
+      // Print upload is always LOSSLESS PNG now (Option A): the whole point
+      // of the 4k HQ pipeline is a pristine print, so we don't re-lossy it on
+      // export. Printify accepts the ~34 MB base64 (verified), and the upload
+      // cap was raised to match. PNG also preserves alpha for the transparent-
+      // vignette / circular-product cases that JPEG used to black-box.
+      var dataUrl = exportCanvas.toDataURL("image/png");
 
       // Restore on-screen view (with border/guides/text overlay) for the editor.
       state._burningCanvas = wasBurning || false;
