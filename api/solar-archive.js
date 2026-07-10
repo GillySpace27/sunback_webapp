@@ -3933,7 +3933,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (token !== _hekFetchToken) return;
           if (!data) {
             _renderHekTiles({ events: [{
-              rank: 1, rank_label: "Noon UTC (couldn't reach HEK)",
+              rank: 1, rank_label: "Noon UTC",
               time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
               event_type: "Noon UTC", event_code: null, family: null, tier: 4,
               fallback: true,
@@ -3985,7 +3985,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           clearTimeout(timer);
           if (token !== _hekFetchToken) return;
           _renderHekTiles({ events: [{
-            rank: 1, rank_label: "Noon UTC (couldn't reach HEK)",
+            rank: 1, rank_label: "Noon UTC",
             time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
             event_type: "Noon UTC", event_code: null, family: null, tier: 4,
             fallback: true,
@@ -4677,9 +4677,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // popover may overlay part of the card; we don't want a stray
         // miss to launch the editor flow).
         if (e.target.closest(".vibe-info-popover")) return;
-        // Birthday card's date input is its own affordance — let its
-        // change handler run instead of treating focus-clicks as opens.
-        if (e.target.closest(".vibe-birthday-input")) return;
+        // The birthday card has its own date/time inputs + submit button —
+        // NOTHING inside it should auto-open the editor; only its submit
+        // handler activates. (Users reported the render firing before they
+        // finished filling the fields.)
+        if (e.target.closest(".vibe-card-birthday")) return;
         // Card open ends the browsing phase — stop the auto-ramp so a
         // pending step can't swap the product source mid-editor-install.
         _cancelVibeTierRamp();
@@ -4722,31 +4724,50 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var msg = card.querySelector(".vibe-birthday-range-error");
           if (msg && msg.parentNode) msg.parentNode.removeChild(msg);
         }
+        var bdayTimeInput = document.getElementById("vibeBirthdayTime");
+        var bdaySubmitBtn = document.getElementById("vibeBirthdaySubmit");
+
+        // Date change only VALIDATES the range now — it no longer fires the
+        // render. The render is submit-only (users couldn't fill the fields
+        // before the old change-handler auto-triggered the background fetch).
         bdayInput.addEventListener("change", function () {
-          if (!bdayInput.value) return;
-          // Range guard (BLOCKER fix): the native <input type=date> min/max
-          // attributes don't prevent the user from TYPING an out-of-range
-          // date — the value sets and the change handler used to flow
-          // straight into _activateVibe → HEK → wavelength tile → server
-          // error several screens later. Validate up front so the user
-          // sees a friendly inline message and can one-click jump to the
-          // earliest available date.
+          if (!bdayInput.value) { _bdayClearRangeError(); return; }
           var picked = bdayInput.value;
+          if ((bdayInput.min && picked < bdayInput.min) ||
+              (bdayInput.max && picked > bdayInput.max)) {
+            _bdayShowRangeError(picked);
+          } else {
+            _bdayClearRangeError();
+          }
+        });
+
+        // The ONLY trigger: submit button (or Enter in either field).
+        function _bdaySubmit() {
+          var picked = bdayInput.value;
+          if (!picked) {
+            _bdayShowRangeError(picked);
+            try { bdayInput.focus(); } catch (_e) {}
+            return;
+          }
           if ((bdayInput.min && picked < bdayInput.min) ||
               (bdayInput.max && picked > bdayInput.max)) {
             _bdayShowRangeError(picked);
             return;
           }
           _bdayClearRangeError();
-          // Build a synthetic vibe payload and run _activateVibe to share
-          // the same flow (HEK fetch, scroll, focus, etc.).
+          // Explicit UTC time if the user set one; blank → let HEK/noon decide.
+          var t = bdayTimeInput && bdayTimeInput.value ? bdayTimeInput.value.trim() : "";
           var card = bdayInput.closest(".vibe-card");
           card.setAttribute("data-vibe-date", picked);
-          card.setAttribute("data-vibe-time", "");  // let HEK auto-fill
+          card.setAttribute("data-vibe-time", t);  // "" → HEK auto-fill / noon
           card.setAttribute("data-vibe-wl", "");    // let HEK suggest
           _cancelVibeTierRamp();
           _activateVibe(card, { fromBirthday: true });
-        });
+        }
+        if (bdaySubmitBtn) bdaySubmitBtn.addEventListener("click", _bdaySubmit);
+        function _bdayEnter(e) { if (e.key === "Enter") { e.preventDefault(); _bdaySubmit(); } }
+        bdayInput.addEventListener("keydown", _bdayEnter);
+        if (bdayTimeInput) bdayTimeInput.addEventListener("keydown", _bdayEnter);
       }
     }
 
