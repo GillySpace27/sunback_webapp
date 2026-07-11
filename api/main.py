@@ -1376,8 +1376,9 @@ _preview_in_progress: set = set()
 
 
 @app.post("/api/clear_preview_failed")
-async def clear_preview_failed():
+async def clear_preview_failed(request: Request):
     """Clear the in-memory set of failed preview keys so they can be retried."""
+    enforce_origin(request)  # same-origin only (blocks direct-to-Fly abuse)
     count = len(_preview_failed)
     _preview_failed.clear()
     # Also clear in_progress so stalled tasks can be retried
@@ -1390,12 +1391,18 @@ async def clear_preview_failed():
 
 
 @app.post("/api/generate_preview")
-async def generate_preview(req: PreviewRequest = Body(...)):
+async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
     """
     Warm the science-image cache: if preview PNG exists return it; if we already know
     this date/wl has no data, return preview_url=null; otherwise run FITS+RHEF in background.
     Only one background task per (date+time, wavelength) is allowed at a time.
     """
+    # B5: each preview is a real VSO/JSOC FITS fetch — gate so a script can't
+    # scrape unique dates and get our NASA fetch IP block-listed. Same-origin
+    # only (Bot Fight Mode covers Cloudflare; this covers direct-to-Fly), plus
+    # a generous per-IP budget (users legitimately preview many dates).
+    enforce_origin(request)
+    enforce_rate_limit(request, "generate_preview", 90, 60.0)
     # Server-side date validation — same rules as /api/helioviewer_thumb.
     # The form's HTML5 min/max attributes don't cover direct API hits, and
     # the heavy FITS pipeline is way too expensive to kick off only to
@@ -1825,11 +1832,16 @@ def _check_ram_headroom(min_free_mb: int = 400) -> None:
 
 
 @app.post("/api/generate")
-async def start_generate(background_tasks: BackgroundTasks, payload: dict):
+async def start_generate(request: Request, background_tasks: BackgroundTasks, payload: dict):
     """Start the HQ generation task asynchronously and return a task_id.
     Optional 'format': 'jpg' | 'raw' | 'rhef' (default rhef). Currently only rhef is implemented.
     Optional 'time' (HH:MM UTC) gets folded into `date` so the HQ render
     targets the same instant as the preview pipeline."""
+    # B5: HQ renders are the most expensive NASA fetch (multi-frame FITS +
+    # RHEF). Same-origin gate + per-IP budget so a crawler hitting unique
+    # dates can't run us into a VSO/JSOC block-list (breaks renders for all).
+    enforce_origin(request)
+    enforce_rate_limit(request, "generate", 40, 300.0)  # 40 renders / 5 min / IP
     _check_ram_headroom()
     date = payload.get("date")
     time_raw = (payload.get("time") or "12:00").strip()
@@ -2878,6 +2890,9 @@ start_stream_mirroring()
 
 @app.get("/logs/stream")
 async def stream_logs(request: Request):
+    # B5: the raw server-log tail is operator-only — admin-gate it so it's not
+    # a public info-leak (no frontend consumes it).
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
     import asyncio
     async def event_generator():
         # Disable buffering where possible
@@ -2910,7 +2925,9 @@ async def stream_logs(request: Request):
 
 import shutil
 @app.post("/api/clear_cache")
-async def clear_cache():
+async def clear_cache(request: Request):
+    # B5: destructive (wipes render + SunPy caches) — admin-only.
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
     try:
         shutil.rmtree("/tmp/output", ignore_errors=True)
         os.makedirs("/tmp/output", exist_ok=True)
@@ -4251,8 +4268,18 @@ async def serve_preview_asset(filename: str):
 
 @app.get("/asset/{subpath:path}")
 async def serve_asset(subpath: str):
-    """Serve any file under OUTPUT_DIR, including previews and HQ renders."""
-    file_path = os.path.join(OUTPUT_DIR, subpath)
+    """Serve any file under OUTPUT_DIR, including previews and HQ renders.
+
+    NOTE: in practice the StaticFiles mount at "/asset" shadows this route
+    (verified: live traversal payloads 404 with no leak), but guard it anyway
+    as defense-in-depth so a future mount-order change can't turn it into a
+    path-traversal read of the persistent disk (feedback.jsonl PII etc.)."""
+    safe = os.path.normpath(subpath)
+    if ".." in safe.split(os.sep) or os.path.isabs(safe):
+        raise HTTPException(status_code=404, detail="File not found")
+    file_path = os.path.join(OUTPUT_DIR, safe)
+    if not os.path.realpath(file_path).startswith(os.path.realpath(OUTPUT_DIR) + os.sep):
+        raise HTTPException(status_code=404, detail="File not found")
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path, media_type="image/png", headers={**CORS_HEADERS, "Cache-Control": "no-cache"})
