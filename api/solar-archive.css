@@ -209,6 +209,26 @@ body::before {
      ("…or / canvas."). */
   text-wrap: balance;
 }
+/* Landing quality-showcase strip (RHEF innovation, above the product picker). */
+.quality-strip-section { text-align: center; }
+.quality-strip-section img {
+  width: 100%;
+  max-width: 1100px;
+  height: auto;
+  border-radius: 12px;
+  display: block;
+  margin: 0 auto;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+}
+.quality-strip-caption {
+  max-width: 760px;
+  margin: 12px auto 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.quality-strip-caption strong { color: var(--accent-sun, #f5a623); font-weight: 600; }
+
 /* Backend status banner removed from the UI — the landing is zero-backend
    and warms in the background, so "checking/online" was pure noise. Hidden
    rather than deleted so the JS that references #backendBanner stays valid.

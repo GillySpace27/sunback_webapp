@@ -40,6 +40,7 @@ if [ -d "../../$DC" ] || [ -d "../$DC" ]; then
   mkdir -p "$DEST/mockups"
   cp "$SRC/default_mockups.json" "$DEST/" 2>/dev/null || true
   cp "$SRC/vibe_manifest.json" "$DEST/" 2>/dev/null || true
+  cp "$SRC/quality_strip.webp" "$DEST/" 2>/dev/null || true  # landing showcase
   cp "$SRC"/mockups/*.thumb.webp "$DEST/mockups/" 2>/dev/null || true
   # vibe thumbnails (raw_thumb/rhef_thumb per slug) — small, makes the
   # gallery instant too. Full-res *_full.png deliberately excluded.
