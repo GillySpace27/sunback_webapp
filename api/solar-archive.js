@@ -4796,20 +4796,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // tier isn't cached yet.
       var cachedRaw  = _vibeTierImageCache[slug + ":raw"];
       var cachedRhef = _vibeTierImageCache[slug + ":rhef"];
+      var cachedHq   = _vibeTierImageCache[slug + ":hq"];
       state.rawBackendImage = cachedRaw || null;
       state.rhefImage = cachedRhef || null;
-      // Hard-reset HQ state so a previous vibe's HQ image doesn't
-      // bleed into the new one. If the new vibe's RHEF is cached we
-      // immediately promote it to HQ (it's the same 3000² render).
+      // Hard-reset HQ state so a previous vibe's HQ image doesn't bleed into
+      // the new one. Option A: the "HQ Filtered" tier is the STACKED rHQ_2048
+      // (clean corona), DISTINCT from the single-frame rhef_full "Filtered".
+      // hqImageUrl points at the 4096 print source the checkout composites
+      // onto. Falls back to rhef_full when a vibe hasn't been re-warmed with
+      // the Option-A artifacts yet (so the HQ tier still lights up).
       state.hqFilterImage = null;
       state.hqReady = false;
       state.hqImageUrl = null;
       state.hqFormat = null;
-      if (cachedRhef) {
-        state.hqFilterImage = cachedRhef;
+      var _cachedHqDisplay = cachedHq || cachedRhef;
+      if (_cachedHqDisplay) {
+        state.hqFilterImage = _cachedHqDisplay;
         state.hqFormat = "rhef";
         state.hqReady = true;
-        state.hqImageUrl = entry.rhef_full_url || null;
+        state.hqImageUrl = entry.hq_4096_url || entry.rhef_full_url || null;
       }
       function _preload(url, tierKey, assign) {
         if (!url) return;
@@ -4854,22 +4859,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
       }
       _preload(entry.raw_full_url,  slug + ":raw",  function (img) { state.rawBackendImage = img; });
-      _preload(entry.rhef_full_url, slug + ":rhef", function (img) {
-        state.rhefImage = img;
-        // Gilly: the vibe cards have rhef pre-warmed at 3000² — that
-        // IS the HQ-tier image in our system. Re-use it as the HQ
-        // RHEF source instead of leaving the timeline's "HQ RHEF"
-        // step at "LOCKED" forever. Setting state.hqFilterImage +
-        // state.hqFormat="rhef" + state.hqReady=true matches what
-        // the live HQ pipeline produces; _filterIsReady("hq_rhef")
-        // becomes true so the editor's Quality timeline reaches the
-        // top tier instantly for any vibe-card flow. The manifest URL
-        // also doubles as state.hqImageUrl for download / Printify
-        // upload paths that read from it directly.
+      // "Filtered" (MQ) = the single-frame rhef_full. No longer aliased to HQ.
+      _preload(entry.rhef_full_url, slug + ":rhef", function (img) { state.rhefImage = img; });
+      // "HQ Filtered" = the STACKED rHQ_2048 (clean corona) — a genuinely
+      // different, better image than Filtered. Fallback to rhef_full for
+      // vibes not yet re-warmed. hqImageUrl → the 4096 print source that the
+      // checkout composites the user's edits onto (loadImage handles WebP).
+      _preload(entry.rhq_2048_url || entry.rhef_full_url, slug + ":hq", function (img) {
         state.hqFilterImage = img;
         state.hqFormat = "rhef";
         state.hqReady = true;
-        state.hqImageUrl = entry.rhef_full_url;
+        state.hqImageUrl = entry.hq_4096_url || entry.rhef_full_url;
       });
       // First-paint UI update reflecting any cached tiers we just
       // restored (above) AND the "loading" state for in-flight ones.
@@ -11776,7 +11776,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         });
       }).then(function (result) {
         if (result.status === "completed" && result.image_url) {
-          return result.image_url.charAt(0) === "/" ? API_BASE + result.image_url : result.image_url;
+          // Option A: composite onto the 4096 lossless-WebP print source
+          // (derived from the render's PNG url), not the PNG. loadImage
+          // decodes WebP fine; _loadHqAndExport falls back to the canvas if
+          // it can't load (e.g. a date rendered before Stage 1 shipped).
+          var _src = result.image_url.replace(/\.png$/i, "_hq4096.webp");
+          return _src.charAt(0) === "/" ? API_BASE + _src : _src;
         }
         throw new Error(result.message || "integrated HQ generation failed");
       });
