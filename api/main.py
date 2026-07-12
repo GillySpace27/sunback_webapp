@@ -641,6 +641,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.security import enforce_origin, enforce_rate_limit
 
 _DEFAULT_ALLOWED = [
+    "https://myheliograph.com",
+    "https://www.myheliograph.com",
     "https://solar-archive.myshopify.com",
     "https://solar-archive.onrender.com",
     "http://localhost:8000",
