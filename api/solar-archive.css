@@ -209,6 +209,26 @@ body::before {
      ("…or / canvas."). */
   text-wrap: balance;
 }
+/* Trust bar — reassurance row near the funnel end. */
+.trust-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px 16px;
+  max-width: 900px;
+  margin: 8px auto 0;
+  padding: 14px 18px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.trust-bar i { color: var(--accent-sun, #f5a623); margin-right: 5px; }
+.trust-bar > span[aria-hidden] { color: var(--text-dim); opacity: 0.5; }
+@media (max-width: 600px) {
+  .trust-bar > span[aria-hidden] { display: none; }
+  .trust-bar { gap: 8px; flex-direction: column; text-align: center; }
+}
+
 /* Landing quality-showcase strip (RHEF innovation, above the product picker). */
 .quality-strip-section { text-align: center; }
 .quality-strip-section img {

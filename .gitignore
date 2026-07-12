@@ -21,3 +21,6 @@ infra/data_mirror/
 infra/worker/public/
 infra/worker/node_modules/
 infra/worker/.wrangler/
+
+# Committed secret removed from tracking (rotate PRINTFUL_API_KEY + purge history separately)
+.env

@@ -39,7 +39,12 @@ from fastapi import HTTPException, Request
 # ────────────────────────────────────────────────
 
 _DEFAULT_ALLOWED_ORIGINS = (
+    # Production storefront (primary — must be here so a missing ALLOWED_ORIGINS
+    # env var can't 403 real traffic and break mockups/checkout).
+    "https://myheliograph.com",
+    "https://www.myheliograph.com",
     "https://solar-archive.myshopify.com",
+    # Legacy host kept harmlessly during the Render→Fly soak.
     "https://solar-archive.onrender.com",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
