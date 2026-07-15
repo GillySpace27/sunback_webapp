@@ -77,7 +77,7 @@ Ranked by impact ÷ effort.
 
 **Status as of 2026-07-15 (this session's pass):**
 
-- [ ] **B1 done:** Printful token rotated at vendor **and** purged from git history (not just HEAD). *(Operator-only — `.env` is untracked as of `e36a21f`, confirmed still untracked this session, but the key must still be rotated at the vendor and purged from history per `MIGRATION.md` Stage 5. Cannot be done from this session.)*
+- [~] **B1 half-done:** Printful token **revoked at the vendor 2026-07-15** (operator action, confirmed). Git-history purge (the leaked value still sits in 5 old commits / 12 branches in the public repo) is prepped but paused — deliberately deferred, low urgency now that the key itself is dead. See MIGRATION.md Stage 5.
 - [x] **B4 + B5 done:** verified live on `myheliograph.com` this session — `/asset/..%2f..%2f..%2fetc%2fpasswd` → 400, `/asset/../main.py` → 404; `clear_cache` → 401, `logs/stream` → 401, `generate` → 403 (origin-gated), `generate_preview` → 403 (origin-gated) when called without the frontend Origin header.
 - [ ] **One real end-to-end test purchase completed** — real card charged, Printify order created, Shopify confirmation received. *(Still owed — operator-only, needs a real card/store action.)*
 - [x] **B3 done:** Buy button is no longer hard-disabled on the personalized path (commit `cd4d70d`) — the mockup is now a soft nudge, not a checkout gate.
@@ -90,7 +90,9 @@ Ranked by impact ÷ effort.
 
 Also landed this session (a11y bundle, fix #7): `.sr-only` class defined (the assertive alert region no longer paints visibly), the reduced-motion selector fixed (`::before:not()` had voided the whole rule), a light-mode `--accent-cool` override (footer links were ~2:1 contrast on light, now ~5.9:1), the quality-timeline radios are keyboard-operable, and all 20 editor sliders + their row selects/color-pickers have accessible names. Fix #2 ("Pick your canvas" → "Pick your product") also shipped.
 
-**Everything above is code-complete and committed but NOT YET DEPLOYED** — the live site still reflects the pre-session state for B2/B3/B6/#7/#9 until the branch is merged and deployed.
+Also fixed: the editor's preview pane was floating fixed on top of the quality timeline and Buy button at 741–1099px widths (a JS pinning threshold that didn't match the actual layout breakpoint), and the feedback FAB pills covered the Buy button in the same width range plus mobile — both reported live by the operator with a screenshot, reproduced and fixed by measuring real element geometry against myheliograph.com before/after.
+
+**Everything above is code-complete and open in [PR #9](https://github.com/GillySpace27/sunback_webapp/pull/9) (`claude/heliograph-ship-readiness-242a1f` → `main`) but NOT YET DEPLOYED** — the live site still reflects the pre-session state for B2/B3/B6/#7/#9/layout-overlap until the PR merges and someone runs `fly deploy`.
 
 ### 🟡 Soft-launch first (STRONGLY recommended) — trickle, then watch
 Once the hard gate is green, **do not full-send.** Drive a **trickle** — ~$20–50/day of tightly-targeted ads, or friends/family + one enthusiast community (r/space) — and watch these for ~1–2 weeks:
