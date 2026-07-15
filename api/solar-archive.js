@@ -12375,6 +12375,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       function _pricingMap() {
         return variantPricingCache[cacheKey] || {};
       }
+      // Gilly (2026-07-15): "I never want to see a grid of variants that
+      // all have the same price, not even for an instant." Before
+      // loadVariantPricing(product) resolves, variantPricingCache[cacheKey]
+      // is undefined and priceForVariantDisplay falls through to the flat
+      // product.price for every single variant — identical numbers across
+      // a size grid that obviously isn't flat-priced. loadVariantPricing
+      // always writes SOMETHING to variantPricingCache[cacheKey] once it
+      // settles (real data on success, {} on failure — see its catch
+      // block), so "key absent" is an unambiguous "still in flight" signal
+      // distinct from "resolved, no per-variant data available".
+      function _variantPricingLoading() {
+        return !variantPricingCache[cacheKey];
+      }
+      function _priceSpinnerHtml() {
+        return '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i><span class="sr-only"> Fetching price…</span>';
+      }
       function _priceForVariant(v) {
         // Delegates to the shared retail formula (cost + markup anchored to
         // product.checkoutPrice) so the inline read-only panel and this
@@ -12386,10 +12402,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var ar = getEffectiveAspectRatio(product);
         var simplified = ar ? simplifyAspectRatio(ar.w, ar.h) : null;
         var arText = simplified ? (simplified.w + ":" + simplified.h) : "flexible";
-        var price = _priceForVariant(variant);
+        var priceSegment = "";
+        if (_variantPricingLoading()) {
+          priceSegment = ' <span class="confirm-summary-dot">·</span> <span class="confirm-summary-price">' + _priceSpinnerHtml() + '</span>';
+        } else {
+          var price = _priceForVariant(variant);
+          if (price) {
+            priceSegment = ' <span class="confirm-summary-dot">·</span> <span class="confirm-summary-price">' + escapeHtmlSimple(price) + '</span>';
+          }
+        }
         summaryEl.innerHTML =
           '<span class="confirm-summary-aspect">Aspect ratio <strong>' + escapeHtmlSimple(arText) + '</strong></span>' +
-          (price ? ' <span class="confirm-summary-dot">·</span> <span class="confirm-summary-price">' + escapeHtmlSimple(price) + '</span>' : '');
+          priceSegment;
       }
       function _renderMockup(variant) {
         if (!mockupEl) return;
@@ -12840,6 +12864,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var activeSize = _variantSize(activeVariant);
         var activeColor = activeVariant && variantColorOption(activeVariant);
         var activeHex = activeColor && activeColor.hex;
+        var pricingLoading = _variantPricingLoading();
 
         var html = "";
         orderedSizes.forEach(function(sz) {
@@ -12861,14 +12886,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var c = variantColorOption(v); return c && c.hex === activeHex;
           });
           if (!priceVariant) priceVariant = bucket.variants[0];
-          var priceStr = priceVariant ? priceForVariantDisplay(product, priceVariant) : "";
-          var priceMarkup = priceStr
-            ? '<span class="confirm-size-chip-price">' + escapeHtmlSimple(priceStr) + '</span>'
-            : '';
+          var priceStr = (!pricingLoading && priceVariant) ? priceForVariantDisplay(product, priceVariant) : "";
+          var priceMarkup = pricingLoading
+            ? '<span class="confirm-size-chip-price">' + _priceSpinnerHtml() + '</span>'
+            : (priceStr ? '<span class="confirm-size-chip-price">' + escapeHtmlSimple(priceStr) + '</span>' : '');
           html += '<button type="button" role="option" class="confirm-size-chip' + isActive + '"' +
                   ' data-size="' + escapeHtmlSimple(sz) + '"' +
                   (unavailable ? ' data-unavailable="true"' : '') +
-                  ' title="' + escapeHtmlSimple(sz) + (priceStr ? " — " + priceStr : "") + (unavailable ? " (not in this colour)" : "") + '">' +
+                  ' title="' + escapeHtmlSimple(sz) + (pricingLoading ? " — fetching price" : (priceStr ? " — " + priceStr : "")) + (unavailable ? " (not in this colour)" : "") + '">' +
                   '<span class="confirm-size-chip-label">' + escapeHtmlSimple(sz) + '</span>' +
                   priceMarkup +
                   '</button>';
@@ -12911,14 +12936,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Honors printShape so user-requested round products get the
         // right label too.
         var isRound = (product.id === "wall_clock") || (product && product.printShape === "circle");
+        var pricingLoading = _variantPricingLoading();
         variants.forEach(function(v) {
           var label = variantLabel(v);
-          var price = _priceForVariant(v);
+          var price = pricingLoading ? "" : _priceForVariant(v);
+          var priceMarkup = pricingLoading
+            ? '<span class="confirm-variant-tile-price">' + _priceSpinnerHtml() + '</span>'
+            : (price ? '<span class="confirm-variant-tile-price">' + escapeHtmlSimple(price) + '</span>' : '');
           var dims = getVariantPrintDims(v);
           var dimSuffix = isRound ? '" diameter' : '" tall';
           var heightText = dims ? dims.heightIn.toFixed(1) + dimSuffix : "";
           var isActive = (v.id === pendingVariantId);
-          var tooltip = label + (price ? " — " + price : "") + (dims ? " — " + dims.widthIn.toFixed(1) + '" × ' + dims.heightIn.toFixed(1) + '"' : "");
+          var tooltip = label + (pricingLoading ? " — fetching price" : (price ? " — " + price : "")) + (dims ? " — " + dims.widthIn.toFixed(1) + '" × ' + dims.heightIn.toFixed(1) + '"' : "");
           html +=
             '<button type="button" role="option"' +
               ' class="confirm-variant-tile' + (isActive ? ' active' : '') + '"' +
@@ -12926,7 +12955,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               ' data-variant-id="' + v.id + '"' +
               ' title="' + escapeHtmlSimple(tooltip) + '">' +
               '<span class="confirm-variant-tile-label">' + escapeHtmlSimple(label) + '</span>' +
-              (price ? '<span class="confirm-variant-tile-price">' + escapeHtmlSimple(price) + '</span>' : '') +
+              priceMarkup +
               (heightText ? '<span class="confirm-variant-tile-dims">' + escapeHtmlSimple(heightText) + '</span>' : '') +
             '</button>';
         });
