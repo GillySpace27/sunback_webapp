@@ -1376,9 +1376,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         preview.style.width = "";
         return;
       }
-      // Narrow screens stack vertically (see media query in CSS) — no
-      // pinning needed; let the natural document flow handle it.
-      if (window.innerWidth <= 740) {
+      // Below the left-rail breakpoint, single-preview-mode's grid is
+      // ALWAYS a single stacked column (preview / toolbar / actions —
+      // see body.single-preview-mode .editor-with-preview in CSS).
+      // Pin-on-scroll assumes "past the row" means unrelated content
+      // below, but in the stacked layout that's the quality timeline
+      // and Buy button in the SAME column — pinning floated the
+      // preview pane fixed directly on top of them (reported bug:
+      // everything overlapping in the ~741-1099px gap between the
+      // mobile stack breakpoint and the left-rail breakpoint). Only
+      // pin at/above the rail breakpoint; left-rail-preview itself
+      // (checked above) owns pinning from there via CSS, so this is
+      // now mostly a safety-net no-op.
+      if (window.innerWidth < _LEFT_RAIL_BREAKPOINT) {
         preview.classList.remove("preview-pinned");
         preview.style.left = "";
         preview.style.width = "";
