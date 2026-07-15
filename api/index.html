@@ -27,12 +27,13 @@
   <meta name="twitter:image" content="https://myheliograph.com/asset/default/og_card.jpg">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg">
-  <!-- Telemetry config: ops populates GA_MEASUREMENT_ID + SENTRY_DSN
-       from environment-variable-controlled inline script in production.
-       Default values are empty strings → the wires skip silently. -->
+  <!-- Telemetry config. Both values are meant to be client-visible (GA4
+       measurement IDs and Sentry DSNs are not secrets), so they're just
+       committed here rather than templated in at deploy time — this file
+       is served as a static asset with no build step. -->
   <script>
-    window.GA_MEASUREMENT_ID = window.GA_MEASUREMENT_ID || "";  /* G-XXXXXXXX */
-    window.SENTRY_DSN = window.SENTRY_DSN || "";  /* https://abc@sentry.io/123 */
+    window.GA_MEASUREMENT_ID = window.GA_MEASUREMENT_ID || "G-YQGH255Z02";
+    window.SENTRY_DSN = window.SENTRY_DSN || "";  /* set once a Sentry project exists — see MIGRATION.md / launch docs */
   </script>
   <!-- Preconnect to the Font Awesome CDN + the Solar Archive API
        origin so the TCP+TLS handshake overlaps with HTML parsing
