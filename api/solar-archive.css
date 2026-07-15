@@ -4760,6 +4760,30 @@ body.step-product .feedback-fab-group {
 body.step-product .feedback-fab-label { display: none; }
 body.step-product .feedback-fab { padding: 11px; }
 
+/* Bug (reported 2026-07-15): the docked editor also has a sticky
+   bottom-0 CTA bar (.editor-action-bar — Generate real mockup / Buy
+   now), same as the rail and product-picker cases above, but this
+   one was never given the clearance fix — the fixed FAB pills sat
+   permanently on top of the Buy button any time the rail layout
+   wasn't active (i.e. below the 1100px left-rail breakpoint, which
+   is most of the time on real devices). Mirror the same shrink +
+   shift treatment. :not(.left-rail-preview) so this doesn't fight
+   the rail's own positioning above. */
+body.step-editor:not(.left-rail-preview) .feedback-fab-group {
+  right: 18px;
+  bottom: 88px;
+}
+body.step-editor:not(.left-rail-preview) .feedback-fab-label { display: none; }
+body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
+@media (max-width: 740px) {
+  /* .editor-action-bar switches to flex-direction:column here (two
+     stacked buttons instead of one row) and grows to roughly double
+     the height — clear that taller bar instead of the desktop 88px. */
+  body.step-editor:not(.left-rail-preview) .feedback-fab-group {
+    bottom: 148px;
+  }
+}
+
 @media (max-width: 600px) {
   /* On narrow screens, hide labels so the two pills stay icon-only and
      don't crowd each other — full label still appears in the title attr. */
