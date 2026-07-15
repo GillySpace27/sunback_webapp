@@ -58,9 +58,8 @@
     <p>Pick any date since 2010 and see the real Sun from that day — yours as a print, poster, or canvas.</p>
     <!-- NASA SDO rules-of-the-road acknowledgement, surfaced prominently
          at the top (moved up from the footer). Required on any SDO-
-         derived imagery. Restore the longer "AIA, EVE, and HMI science
-         teams" form here AND in solar-archive.js CITATIONS.SDO_ACK if we
-         ever surface EVE/HMI channels. -->
+         derived imagery. Keep in sync with solar-archive.js
+         CITATIONS.SDO_ACK (both use the full canonical phrasing). -->
     <p class="hero-credit">Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams. Not affiliated; no endorsement implied.</p>
     <!-- Beta banner — shown only when BETA_MODE is on (the /store-config
          fetch sets the .beta-mode-active class on <body>, which un-hides
@@ -868,7 +867,7 @@
           </div>
           <div class="timestamp-pos-offset" title="Inset the caption further from the chosen edge — useful when a corona or mockup bezel clips it.">
             <span class="timestamp-pos-label">Offset</span>
-            <input type="range" id="timestampOffsetSlider" min="0" max="100" value="0">
+            <input type="range" id="timestampOffsetSlider" min="0" max="100" value="0" aria-label="Caption offset from edge">
             <span class="slider-val" id="timestampOffsetVal">0</span>
           </div>
         </div>
@@ -1089,7 +1088,7 @@
       <button type="button" id="dataCreditsLink" class="footer-link-btn">Data credits</button>
     </nav>
     <div class="footer-meta">
-      &copy; 2025 Chris Gilly
+      &copy; 2026 Chris Gilly
       &nbsp;·&nbsp; <span id="buildVersion" class="footer-build-tag"></span><span id="buildTime" class="footer-build-tag" title="Last build time"></span>
     </div>
   </footer>
