@@ -1118,6 +1118,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var cropOverlay = $("#cropOverlay");
     var productSection = $("#productSection");
     var productGrid = $("#productGrid");
+    // Real-price cache for the product grid (see the full comment further
+    // down near _ensureRealPricesLoaded). Declared here, early, because
+    // renderProducts() has a synchronous call site below that can fire
+    // before a `var` declared later in module-eval order would have run
+    // its initializer — function declarations hoist fully, plain `var`
+    // assignments don't.
+    var _productPriceCache = {};   // productId -> formatted "$X.XX" string
+    var _cheapestCostsPromise = null;
     var checkoutProgress = $("#checkoutProgress");
     var btnBuyInEditor = $("#btnBuyInEditor");
     var orderStatus = $("#orderStatus");
@@ -9528,8 +9536,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // cost, advertised checkoutPrice) — matches the advertised number when
     // Printify's cost is under it, floors at true cost if Printify's price
     // rose above the advertised number (never silently sells below cost).
-    var _productPriceCache = {};   // productId -> formatted "$X.XX" string
-    var _cheapestCostsPromise = null;
+    // _productPriceCache/_cheapestCostsPromise are declared way up near
+    // `productGrid` (not here) — renderProducts() has an early, fully
+    // synchronous call site (the "eager-render pre-image" block, well
+    // before this line textually) and `var x = {}` does NOT hoist its
+    // assignment the way a hoisted `function` declaration does, so a
+    // late var here left them `undefined` on that first real paint.
     function _productPriceSpinnerHtml() {
       return '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span class="sr-only">Loading price…</span>';
     }
