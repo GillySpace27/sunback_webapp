@@ -74,16 +74,25 @@ Ranked by impact ÷ effort.
 **The literal answer to "how will I know when I should start driving traffic?"** — every box below must be checkable-true. Split into "gate to spend a dollar" (hard) and "gate to full-send" (scale).
 
 ### 🔴 Hard gate — ALL must be true before *any* paid/seeded traffic
-- [ ] **B1 done:** Printful token rotated at vendor **and** purged from git history (not just HEAD).
-- [ ] **B4 + B5 done:** path-traversal containment on `/asset/{subpath}` verified on the live Fly deploy; `clear_cache`, `generate`, `generate_preview`, `logs/stream`, `clear_preview_failed` all gated. Confirm no route can trigger unthrottled NASA/VSO fetches.
-- [ ] **One real end-to-end test purchase completed** — real card charged, Printify order created, Shopify confirmation received. *(Still owed — nobody has driven checkout to a completed order.)*
-- [ ] **B3 done:** Buy button reachable on the personalized path without a manual "Generate real mockup" click.
-- [ ] **B2 acceptable:** checkout either reframed as a normal purchase, OR — at minimum — verified to complete within a tolerable time with clear "we're preparing your print" copy (not a raw 4-step "publishing to Shopify" technical list). Confirm the VSO/JSOC-down fallback lands on the rendered editor image, not a blank (`solar-archive.js:11741-94`).
-- [ ] **B6 done:** telemetry disclosures reconciled (banner/Privacy/Terms agree); legal host corrected.
-- [ ] **Analytics actually installed** — you cannot optimize ad spend blind. GA4/Shopify conversion tracking live and firing on the real purchase path (verify a test event lands).
-- [ ] **Real-device visual QA** — mobile + desktop, light + dark theme, in an actual browser. *(Still owed.)*
-- [ ] **OG share preview verified** — paste a `myheliograph.com` link into Twitter/X, Slack, iMessage; image renders (post-fix #4).
-- [ ] Trust line + returns/guarantee visible near the CTA (fix #1); "arrives by" estimate shown (fix #9).
+
+**Status as of 2026-07-15 (this session's pass):**
+
+- [~] **B1 half-done:** Printful token **revoked at the vendor 2026-07-15** (operator action, confirmed). Git-history purge (the leaked value still sits in 5 old commits / 12 branches in the public repo) is prepped but paused — deliberately deferred, low urgency now that the key itself is dead. See MIGRATION.md Stage 5.
+- [x] **B4 + B5 done:** verified live on `myheliograph.com` this session — `/asset/..%2f..%2f..%2fetc%2fpasswd` → 400, `/asset/../main.py` → 404; `clear_cache` → 401, `logs/stream` → 401, `generate` → 403 (origin-gated), `generate_preview` → 403 (origin-gated) when called without the frontend Origin header.
+- [ ] **One real end-to-end test purchase completed** — real card charged, Printify order created, Shopify confirmation received. *(Still owed — operator-only, needs a real card/store action.)*
+- [x] **B3 done:** Buy button is no longer hard-disabled on the personalized path (commit `cd4d70d`) — the mockup is now a soft nudge, not a checkout gate.
+- [x] **B2 acceptable:** checkout reframed in customer language — CTA "Buy now", confirm modal "Buy \<product\>", 4-step list now reads "Preparing your print file… / Setting up your product / Connecting to secure checkout / Getting your checkout link" (commit `cd4d70d`). Mechanics (idempotency latch, beforeunload guard, timeouts) unchanged.
+- [x] **B6 done:** cookie banner copy corrected from an affirmative "we use GA4" claim to a consent-conditional "may use, with your consent" (commit `cd4d70d`), matching Privacy's "we do not currently use" language and the code's actual consent-gated `_initGA4()`/`_initSentry()` flow. Legal host (Fly.io + Cloudflare) already correct in `privacy.html`.
+- [ ] **Analytics actually installed** — GA_MEASUREMENT_ID / SENTRY_DSN are still empty strings in `index.html` (confirmed live). *(Operator-only: create the GA4 property + Sentry project, set the two values.)*
+- [x] **Visual QA** — this session's pass: desktop (1280px) + mobile (375px) viewports, light + dark `prefers-color-scheme`, live site + local build, via the in-app browser. Console clean, no layout breaks found. *(Not a physical-device pass — recommend one manual phone check before spend, but no blocking issues surfaced.)*
+- [x] **OG share preview** — `og:image` is a 187 KB JPEG at the correct 1200×630, served with `cf-cache-status: HIT` (verified live this session; well under Twitter/X's 5 MB cap).
+- [x] Trust line + returns/guarantee visible near the CTA (fix #1, already live); "arrives by" estimate now shown in the trust bar and the buy confirm modal (fix #9, commit `cd4d70d`).
+
+Also landed this session (a11y bundle, fix #7): `.sr-only` class defined (the assertive alert region no longer paints visibly), the reduced-motion selector fixed (`::before:not()` had voided the whole rule), a light-mode `--accent-cool` override (footer links were ~2:1 contrast on light, now ~5.9:1), the quality-timeline radios are keyboard-operable, and all 20 editor sliders + their row selects/color-pickers have accessible names. Fix #2 ("Pick your canvas" → "Pick your product") also shipped.
+
+Also fixed: the editor's preview pane was floating fixed on top of the quality timeline and Buy button at 741–1099px widths (a JS pinning threshold that didn't match the actual layout breakpoint), and the feedback FAB pills covered the Buy button in the same width range plus mobile — both reported live by the operator with a screenshot, reproduced and fixed by measuring real element geometry against myheliograph.com before/after.
+
+**Everything above is code-complete and open in [PR #9](https://github.com/GillySpace27/sunback_webapp/pull/9) (`claude/heliograph-ship-readiness-242a1f` → `main`) but NOT YET DEPLOYED** — the live site still reflects the pre-session state for B2/B3/B6/#7/#9/layout-overlap until the PR merges and someone runs `fly deploy`.
 
 ### 🟡 Soft-launch first (STRONGLY recommended) — trickle, then watch
 Once the hard gate is green, **do not full-send.** Drive a **trickle** — ~$20–50/day of tightly-targeted ads, or friends/family + one enthusiast community (r/space) — and watch these for ~1–2 weeks:

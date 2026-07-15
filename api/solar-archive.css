@@ -64,6 +64,10 @@ html:not(.dark) {
   /* Old value #9898b8 on white = ~3.9:1, fails AA. #6a6a8a measures
      ~6.0:1 against white — comfortable AA pass. */
   --text-dim: #6a6a8a;
+  /* #38bdf8 on the light surfaces is ~2:1 — fails AA for the footer
+     legal links that use --accent-cool as text (launch review #7c).
+     #0369a1 measures ~5.9:1 on white. */
+  --accent-cool: #0369a1;
   --border: #d8d8e8;
   --border-active: #7b61ff;
   --glow-sun: rgba(247,168,37,0.15);
@@ -90,6 +94,20 @@ html:not(.dark) {
    (date input, modal close X). Re-applying the global ring on top
    doubles the indicator. Opt out by adding `data-no-focus-ring` to
    the element. */
+/* Screen-reader-only utility — used by the assertive #alertRegion.
+   Without this the alert region paints error text visibly at the
+   bottom of the page (launch review #7d). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 [data-no-focus-ring]:focus-visible {
   outline: none;
 }
@@ -100,9 +118,11 @@ html:not(.dark) {
    intentionally heavy-handed — anything we want to keep animated
    for that audience should opt in with `data-animate-always`. */
 @media (prefers-reduced-motion: reduce) {
+  /* Pseudo-class must precede the pseudo-element (`::before:not()` is
+     invalid and voids the whole selector list — launch review #7e). */
   *:not([data-animate-always]),
-  *::before:not([data-animate-always]),
-  *::after:not([data-animate-always]) {
+  *:not([data-animate-always])::before,
+  *:not([data-animate-always])::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -831,6 +851,22 @@ select:focus-visible {
   position: absolute;
   opacity: 0;
   pointer-events: none;
+}
+/* Keyboard operability (launch review #7b): the radios are now in the
+   tab order, so paint a visible ring around the whole step pill when
+   one has keyboard focus. The input covers the step and renders
+   nothing but its outline. */
+.filter-step input[type="radio"]:focus-visible {
+  opacity: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
 }
 .filter-step-num {
   display: inline-flex;
@@ -4723,6 +4759,30 @@ body.step-product .feedback-fab-group {
 }
 body.step-product .feedback-fab-label { display: none; }
 body.step-product .feedback-fab { padding: 11px; }
+
+/* Bug (reported 2026-07-15): the docked editor also has a sticky
+   bottom-0 CTA bar (.editor-action-bar — Generate real mockup / Buy
+   now), same as the rail and product-picker cases above, but this
+   one was never given the clearance fix — the fixed FAB pills sat
+   permanently on top of the Buy button any time the rail layout
+   wasn't active (i.e. below the 1100px left-rail breakpoint, which
+   is most of the time on real devices). Mirror the same shrink +
+   shift treatment. :not(.left-rail-preview) so this doesn't fight
+   the rail's own positioning above. */
+body.step-editor:not(.left-rail-preview) .feedback-fab-group {
+  right: 18px;
+  bottom: 88px;
+}
+body.step-editor:not(.left-rail-preview) .feedback-fab-label { display: none; }
+body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
+@media (max-width: 740px) {
+  /* .editor-action-bar switches to flex-direction:column here (two
+     stacked buttons instead of one row) and grows to roughly double
+     the height — clear that taller bar instead of the desktop 88px. */
+  body.step-editor:not(.left-rail-preview) .feedback-fab-group {
+    bottom: 148px;
+  }
+}
 
 @media (max-width: 600px) {
   /* On narrow screens, hide labels so the two pills stay icon-only and
