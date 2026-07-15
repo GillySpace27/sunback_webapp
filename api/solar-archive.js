@@ -1484,15 +1484,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var ratioText = arSimple ? arSimple.w + ":" + arSimple.h : "flexible";
       previewPane.querySelector(".preview-product-ratio").textContent = "Aspect ratio: " + ratioText;
 
-      // Update create button label. Price intentionally omitted — the price
-      // lives in the preview pane; a "create" button that also shows price
-      // reads as "buy now" to beta testers and blurs the create vs. purchase
-      // steps (purchase happens on Shopify after this).
+      // Purchase framing (launch review B2): the CTA reads as a normal
+      // buy action, not an internal "create a product" publishing step.
+      // Price intentionally omitted — it lives in the preview pane.
       // In beta mode the button is a local "Download Your Design" — leave
       // the label untouched and let _applyBetaModeUI() reassert it.
       var buyLabel = document.getElementById("btnBuyLabel");
       if (buyLabel && !BETA_MODE) {
-        buyLabel.textContent = "Create on Shopify";
+        buyLabel.textContent = "Buy now";
       }
       if (BETA_MODE && typeof _applyBetaModeUI === "function") _applyBetaModeUI();
 
@@ -3432,6 +3431,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         state._userFilterPick = radio.value;
         _cancelForcedQualityCycle();   // user took control — stop forcing the staged cycle
         radio.checked = true;
+        _syncFilterToggleUI(radio.value);
+        handleFilterChange(radio);
+      });
+      // Keyboard operability (launch review #7b): the radios are in the
+      // tab order and arrow keys fire native `change` events — mirror the
+      // click path. Mouse clicks never reach here (the delegate above
+      // preventDefault()s them), so this only fires for keyboard/AT.
+      editorFilterToggleEl.addEventListener("change", function(e) {
+        var radio = e.target;
+        if (!radio || radio.name !== "editorFilter") return;
+        if (radio.value === state.editorFilter) return;
+        state._userFilterPick = radio.value;
+        _cancelForcedQualityCycle();
         _syncFilterToggleUI(radio.value);
         handleFilterChange(radio);
       });
@@ -7429,11 +7441,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (slider.dataset.noStepButtons != null) return;
         slider.dataset.stepDecorated = "1";
         var labelText = _sliderLabelText(slider);
+        // Launch review #7a: the row <label> elements have no `for`, so
+        // the ranges had no accessible name. Reuse the row label.
+        if (labelText && labelText !== "value" && !slider.hasAttribute("aria-label") && !slider.hasAttribute("aria-labelledby")) {
+          slider.setAttribute("aria-label", labelText);
+        }
         var minus = _makeStepBtn(slider, -1, labelText);
         var plus = _makeStepBtn(slider, +1, labelText);
         slider.parentNode.insertBefore(minus, slider);
         if (slider.nextSibling) slider.parentNode.insertBefore(plus, slider.nextSibling);
         else slider.parentNode.appendChild(plus);
+      });
+      // Same accessible-name fix for the selects and color pickers that
+      // share those rows (they don't get step buttons).
+      var fields = (root || document).querySelectorAll(
+        '.slider-row select, .field-row select, .slider-row input[type="color"], .field-row input[type="color"]');
+      Array.prototype.forEach.call(fields, function (field) {
+        if (field.hasAttribute("aria-label") || field.hasAttribute("aria-labelledby")) return;
+        var name = _sliderLabelText(field);
+        if (name && name !== "value") field.setAttribute("aria-label", name);
       });
     }
     decorateSlidersWithStepButtons(document);
@@ -10704,35 +10730,35 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
     function updateBuyButtonState() {
       if (!btnBuyInEditor) return;
-      // Both beta and prod modes now gate on having a real Printify
-      // mockup ready first. Reasons differ:
-      //   - prod: don't let users publish a product they haven't
-      //     previewed (catches bad crops before money changes hands)
-      //   - beta: the local zip bundle only carries the real mockups
-      //     once they exist, and an empty download is worse than a
-      //     disabled button that tells the tester what to do next.
-      var ready = !!state.selectedProduct && _hasRealMockup();
+      // Beta still hard-gates on a real Printify mockup (the zip bundle
+      // is useless without one). Prod treats the mockup as a soft nudge —
+      // see the B3 note below.
+      var hasMock = _hasRealMockup();
       if (BETA_MODE) {
-        btnBuyInEditor.disabled = !ready;
-        btnBuyInEditor.classList.toggle("buy-locked", !ready);
+        var betaReady = !!state.selectedProduct && hasMock;
+        btnBuyInEditor.disabled = !betaReady;
+        btnBuyInEditor.classList.toggle("buy-locked", !betaReady);
         if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
         return;
       }
+      // Launch review B3: the mockup is a PREVIEW aid — checkout uploads
+      // the editor canvas composite and never consumes it. Requiring a
+      // manual "Generate real mockup" click before Buy was pure friction
+      // at peak intent, so it's a soft nudge now: the button stays
+      // enabled with a product selected; skipping the mockup adds a
+      // caution line to the confirm modal instead.
+      var ready = !!state.selectedProduct;
       btnBuyInEditor.disabled = !ready;
-      // The visual state is driven by [disabled] in CSS; we also swap the
-      // tooltip and label so the user knows what unlocks the action.
-      if (ready) {
-        btnBuyInEditor.title = "Create this product on Shopify and complete your purchase.";
-        btnBuyInEditor.classList.remove("buy-locked");
-      } else {
-        btnBuyInEditor.title = "Generate a real mockup first (Reset to canvas preview → Generate real mockup) so you can preview before publishing.";
-        btnBuyInEditor.classList.add("buy-locked");
-      }
-      // Inline locked-state hint — tooltip alone is invisible on touch
-      // devices, so render a visible one-liner pointing the user at the
-      // mockup button (persona-sweep finding). Placed AFTER the action
-      // bar (not inside it) so it doesn't clobber the Generate /
-      // Download buttons' flex row.
+      btnBuyInEditor.classList.toggle("buy-locked", !ready);
+      btnBuyInEditor.title = hasMock
+        ? "Buy now — secure checkout on Shopify."
+        : "Buy now — secure checkout on Shopify. Tip: Generate real mockup previews the finished product first.";
+      // Inline hint — tooltip alone is invisible on touch devices, so
+      // render a visible one-liner (persona-sweep finding). Now a SOFT
+      // tip (B3): checkout is never locked behind the mockup, we just
+      // point at the preview affordance until one exists. Placed AFTER
+      // the action bar (not inside it) so it doesn't clobber the
+      // Generate / Download buttons' flex row.
       try {
         var hint = document.getElementById("editorBuyLockHint");
         var bar = document.getElementById("editorActionBar");
@@ -10747,13 +10773,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           bar.parentNode.insertBefore(hint, bar.nextSibling);
         }
         if (hint) {
-          if (ready) {
+          if (!ready || hasMock) {
             hint.style.display = "none";
             hint.textContent = "";
           } else {
             hint.style.display = "";
-            hint.innerHTML = '<i class="fas fa-arrow-up" aria-hidden="true"></i> ' +
-                             'Click <strong>Generate real mockup</strong> first to unlock checkout.';
+            hint.innerHTML = '<i class="fas fa-lightbulb" aria-hidden="true"></i> ' +
+                             'Tip: <strong>Generate real mockup</strong> shows the finished product before you buy.';
           }
         }
       } catch (_e) {}
@@ -10856,11 +10882,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           return;
         }
 
-        if (!_hasRealMockup()) { _unbusy(); return; }
+        // B3: no hard mockup gate — the mockup is preview-only (checkout
+        // uploads the canvas composite). Skipping it just adds a caution
+        // line to the confirm modal.
+        var mockupSkipped = !_hasRealMockup();
         var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
         if (!product) { _unbusy(); return; }
         _gatePrintQuality(function(ok) {
-          try { if (ok) startCheckout(product); } finally { _unbusy(); }
+          try { if (ok) startCheckout(product, mockupSkipped); } finally { _unbusy(); }
         });
       });
       updateBuyButtonState();
@@ -11482,7 +11511,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // this, two Printify products + two Shopify listings get created
     // per "click" — possible double-charge in worst case.
     var _checkoutInFlight = false;
-    function startCheckout(product) {
+    function startCheckout(product, mockupSkipped) {
       if (_checkoutInFlight) {
         showToast("Checkout already in progress — sit tight.", "info");
         return;
@@ -11495,7 +11524,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         showInfo("Product Not Ready", "This product's print details are still being resolved. Please wait a moment and try again.");
         return;
       }
-      // Conversion signal: a finalized "Create on Shopify" checkout.
+      // Conversion signal: a finalized buy click.
       recordStatEvent(product.id, "buy");
 
       // Warm vibe cards print from their pre-warmed HQ; custom/birthday
@@ -11504,13 +11533,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // way the user's edits are composited on before upload.
       var _isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
       var hqNote = (_isWarmVibe && state.hqReady)
-        ? "The full NASA/SDO HQ image is ready and will be used for printing, with your edits applied."
-        : "We render a full-resolution, time-integrated print image at checkout and composite your edits onto it — checkout waits for it automatically (this can take a minute). If that render can't finish, we fall back to the best image available so your order still goes through.";
+        ? "Your print uses the full NASA/SDO HQ image with your edits applied."
+        : "We prepare a full-resolution print of your image while you check out — this can take a minute, and we'll fall back to the best available image if needed so your order still goes through.";
+      // B3 soft-gate: buying without having generated a photorealistic
+      // mockup is allowed — say plainly what will be printed.
+      var mockNote = mockupSkipped
+        ? "<br><br>Heads up: you haven't previewed a photorealistic product mockup. We print exactly the image shown in the editor — use <strong>Generate real mockup</strong> first if you'd like to see the finished product."
+        : "";
 
       showModal(
-        "Create " + product.name + " on Shopify",
-        "This will publish your custom <strong>" + product.name + "</strong> to Shopify with your selected variant locked in. All you'll do on Shopify is complete payment — no need to re-pick the product, size, or color.<br><br>" +
-          hqNote,
+        "Buy " + product.name,
+        "You'll finish payment on Shopify's secure checkout with your custom <strong>" + product.name + "</strong> and selected variant already locked in — no need to re-pick the product, size, or color.<br><br>" +
+          hqNote + mockNote +
+          // Delivery window = production 2–7 + US transit 3–6 business
+          // days; keep in sync with /shipping and the trust bar.
+          "<br><br><small>Made to order — US orders typically arrive in 5–13 business days.</small>",
         function() {
           // LAUNCH-BLOCKER fix: set _checkoutInFlight HERE (inside the
           // confirm callback), not in startCheckout — so Cancel doesn't
@@ -11540,29 +11577,32 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             requestAnimationFrame(function() { setTimeout(resolve, 650); });
           });
         },
-        "Create on Shopify",
-        "Creating product\u2026"
+        "Buy now",
+        "Preparing your print\u2026"
       );
     }
 
     function doCheckout(product) {
       // Show checkout progress
       checkoutProgress.classList.remove("hidden");
+      // Customer-language step copy (launch review B2): this reads as
+      // "we're preparing your print", not an internal publish pipeline.
+      // Step IDs + mechanics unchanged.
       checkoutProgress.innerHTML =
         '<div style="font-weight:600;margin-bottom:12px;font-size:1rem;">' +
-          '<i class="fas fa-shopping-cart"></i> Creating your ' + product.name + '…' +
+          '<i class="fas fa-shopping-cart"></i> Preparing your ' + product.name + '…' +
         '</div>' +
         '<div class="checkout-step active" id="ckStep1">' +
-          '<i class="fas fa-spinner fa-spin"></i> <span>Uploading your solar image…</span>' +
+          '<i class="fas fa-spinner fa-spin"></i> <span>Preparing your print file…</span>' +
         '</div>' +
         '<div class="checkout-step" id="ckStep2">' +
-          '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Creating product with all variants</span>' +
+          '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Setting up your product</span>' +
         '</div>' +
         '<div class="checkout-step" id="ckStep3">' +
-          '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Publishing to Shopify</span>' +
+          '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Connecting to secure checkout</span>' +
         '</div>' +
         '<div class="checkout-step" id="ckStep4">' +
-          '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Waiting for Shopify product link</span>' +
+          '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Getting your checkout link</span>' +
         '</div>';
 
       // Scroll checkout progress into view
@@ -11581,7 +11621,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Update step 1 to show upload size
         var sizeKB = Math.round(base64Data.length / 1024);
         var step1 = document.getElementById("ckStep1");
-        if (step1) step1.querySelector("span").textContent = "Uploading solar image (" + sizeKB + " KB)…";
+        if (step1) step1.querySelector("span").textContent = "Uploading your print file (" + sizeKB + " KB)…";
 
         // Collect all filtered variants to enable on the Printify product so customers
         // can choose their preferred size/color on Shopify.
@@ -11625,10 +11665,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         .then(function(data) {
           if (!data.printify_product_id) throw new Error("No product ID returned");
           var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
-          markCheckoutStep("ckStep1", "done", "Image uploaded");
-          markCheckoutStep("ckStep2", "done", "Product created" + vcMsg);
-          markCheckoutStep("ckStep3", "done", "Published to Shopify");
-          markCheckoutStep("ckStep4", "active", "Waiting for Shopify product link…");
+          markCheckoutStep("ckStep1", "done", "Print file uploaded");
+          markCheckoutStep("ckStep2", "done", "Product set up" + vcMsg);
+          markCheckoutStep("ckStep3", "done", "Connected to secure checkout");
+          markCheckoutStep("ckStep4", "active", "Getting your checkout link…");
           return pollShopifyUrl(data.printify_product_id, ckSelectedId);
         })
         .then(function(shopifyResult) {
@@ -11645,11 +11685,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             : (variantPreselected
                 ? 'Your variant is pre-selected — just complete checkout on Shopify to receive your custom print.'
                 : 'Choose your size and options on the Shopify page, then complete checkout to receive your custom print.');
-          markCheckoutStep("ckStep4", "done", timedOut ? "Publishing to Shopify…" : "Shopify product ready!");
+          markCheckoutStep("ckStep4", "done", timedOut ? "Still finishing up…" : "Checkout link ready!");
           checkoutProgress.innerHTML +=
             '<div style="margin-top:16px;">' +
               '<div style="font-size:48px;margin-bottom:8px;">' + (timedOut ? '⏳' : '🎉') + '</div>' +
-              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">' + (timedOut ? 'Almost there — publishing to Shopify' : 'Your product is live on Shopify!') + '</div>' +
+              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">' + (timedOut ? 'Almost there — your product is still going live' : 'Ready for secure checkout!') + '</div>' +
               '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
                 reassurance +
               '</p>' +
