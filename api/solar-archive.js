@@ -175,17 +175,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     //                     (Raw / RHEF / HQ RHEF) since those go
     //                     through VSO → SunPy bypassing Helioviewer.
     var CITATIONS = {
-      // Trimmed from "AIA, EVE, and HMI science teams" to "AIA"
-      // only per Patricia's round-2 note: we don't currently surface
-      // EVE or HMI imagery, so naming them in the credit reads as
-      // cargo-cult to a domain reviewer. Restore the longer form
-      // here AND in index.html footer if we add EVE/HMI channels.
-      // NEEDS-FIX (workflow wx5fi2brl, sdo-rules-of-the-road): the
-      // SDO Rules of the Road require crediting the relevant
-      // instrument SCIENCE TEAMS, not just "the AIA science team", so
-      // future products that surface HMI / EVE channels stay compliant
-      // without a copy edit. Bracketed list matches NASA's canonical
-      // phrasing from the SDO data-use policy page.
+      // NEEDS-FIX (workflow wx5fi2brl, sdo-rules-of-the-road) settled
+      // this at the full NASA canonical phrasing — the SDO Rules of the
+      // Road credit the relevant instrument SCIENCE TEAMS, not just
+      // "the AIA science team". Keep in sync with index.html's
+      // .hero-credit line (both currently use this full form).
       SDO_ACK: "Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.",
       AIA_PAPER: "Lemen, J. R., et al. 2012, Sol. Phys., 275, 17.",
       RHEF_PAPER: "Gilly, C., et al. 2025, Sol. Phys., 300, 174 (https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G).",
