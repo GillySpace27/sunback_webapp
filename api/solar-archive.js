@@ -9516,6 +9516,60 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       return product.price || null;
     }
 
+    // ── Product-grid "From $X" — real price, not a guessed placeholder ──
+    // Gilly (2026-07-15): the grid's price line used to be the hardcoded
+    // product.price string from products.js the instant a card painted —
+    // fine when it happens to match the real cheapest variant, misleading
+    // the moment Printify's actual wholesale cost drifts past it. Cards now
+    // show a loading spinner instead and swap in the real "From $X.XX"
+    // once /blueprints/cheapest_costs resolves (one bulk call, reuses the
+    // same warm pricing index the variant picker uses). Same anchor-vs-cost
+    // formula as priceForVariantDisplay: real price = max(true cheapest
+    // cost, advertised checkoutPrice) — matches the advertised number when
+    // Printify's cost is under it, floors at true cost if Printify's price
+    // rose above the advertised number (never silently sells below cost).
+    var _productPriceCache = {};   // productId -> formatted "$X.XX" string
+    var _cheapestCostsPromise = null;
+    function _productPriceSpinnerHtml() {
+      return '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span class="sr-only">Loading price…</span>';
+    }
+    function _updateProductPriceDom(productId, html) {
+      var el = productGrid.querySelector('.product-price[data-product-id="' + productId + '"]');
+      if (el) el.innerHTML = html;
+      var reqGrid = document.getElementById("userRequestsGrid");
+      var reqEl = reqGrid && reqGrid.querySelector('.product-price[data-product-id="' + productId + '"]');
+      if (reqEl) reqEl.innerHTML = html;
+    }
+    function _ensureRealPricesLoaded() {
+      if (_cheapestCostsPromise) return _cheapestCostsPromise;
+      _cheapestCostsPromise = fetchWithTimeout(API_BASE + "/api/printify/blueprints/cheapest_costs", {}, 30000)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var costs = (data && data.costs) || {};
+          PRODUCTS.forEach(function(p) {
+            var trueCost = costs[p.blueprintId];
+            // Blueprint absent from the index (shop has never sold it) —
+            // fall back to the advertised price rather than spinning forever.
+            var cents = trueCost != null ? Math.max(trueCost, p.checkoutPrice || 0) : p.checkoutPrice;
+            var html = "From " + (formatCents(cents) || p.price);
+            _productPriceCache[p.id] = html;
+            _updateProductPriceDom(p.id, html);
+          });
+        })
+        .catch(function() {
+          // Network/backend failure — fall back to the advertised static
+          // price for every card rather than leaving spinners stuck.
+          PRODUCTS.forEach(function(p) {
+            _productPriceCache[p.id] = p.price;
+            _updateProductPriceDom(p.id, p.price);
+          });
+        });
+      return _cheapestCostsPromise;
+    }
+    function productPriceGridHtml(product) {
+      return _productPriceCache[product.id] || _productPriceSpinnerHtml();
+    }
+
     /**
      * Stable sort variants by retail price ascending. The intent is grouping:
      * variants with similar features tend to share a price tier (e.g. all
@@ -9868,6 +9922,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     });
 
     function renderProducts() {
+      _ensureRealPricesLoaded();  // idempotent; no-op after the first call resolves
       productGrid.innerHTML = "";
       // Loading skeleton: when this is the FIRST render after page load
       // and the defaultMockupManifest hasn't resolved yet, the cards
@@ -9935,7 +9990,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         card.dataset.productId = p.id;
         card.setAttribute("role", "button");
         card.setAttribute("tabindex", "0");
-        card.setAttribute("aria-label", p.name + " - " + p.desc + ". " + p.price + (canSelect ? " Select to edit" : ""));
+        var priceAriaText = _productPriceCache[p.id] || "price loading";
+        card.setAttribute("aria-label", p.name + " - " + p.desc + ". " + priceAriaText + (canSelect ? " Select to edit" : ""));
         // Card layout: preview → info text → action button → collapsible variant pane.
         // The variant pane lives BELOW the button so clicking the button reads as
         // "expand this to see variants." Each variant row carries its own
@@ -9946,7 +10002,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           '<div class="product-info">' +
             '<div class="product-name">' + statusDot + p.name + "</div>" +
             '<div class="product-desc">' + p.desc + "</div>" +
-            '<div class="product-price">' + p.price + "</div>" +
+            '<div class="product-price" data-product-id="' + p.id + '">' + productPriceGridHtml(p) + "</div>" +
             '<button class="product-buy-btn product-select-btn" data-product-id="' + p.id + '" aria-expanded="false"' +
               (canSelect ? '' : ' disabled') + '>' + selectLabel + '</button>' +
             '<div class="variant-panel hidden" data-product-id="' + p.id + '"></div>' +
