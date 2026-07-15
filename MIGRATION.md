@@ -77,8 +77,12 @@ lock all require it.
 1. Suspend service srv-d478g9i4d50c73809e60 (keeps the disk).
 2. Watch for breakage for a week (anything still calling onrender.com).
 3. Delete service + disk. Billing stops.
-4. Rotate/remove the legacy PRINTFUL_API_KEY committed in `.env` (public
-   repo!) and drop the stray DEPLOY_NUDGE env var memory note.
+4. Rotate the legacy PRINTFUL_API_KEY at printful.com/dashboard/store (it's
+   committed in `.env` in this repo's history — public repo!) and purge it
+   from git history. `pipeline.py`, the only code that ever read this key,
+   is deleted (dead since the Printify switch) — this is now pure cleanup
+   of a leaked credential, not an in-use secret. Also drop the stray
+   DEPLOY_NUDGE env var memory note.
 
 ## Post-migration ops changes
 - Admin warms: call the **Fly hostname directly** (`myheliograph-api.fly.dev`)
