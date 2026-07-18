@@ -86,12 +86,16 @@ export const PRODUCTS = [
     variantFilter: { sizes: ["S","M","L","XS","XL","2XL"] } },
   // ── Tech & Desk ──
   // Blueprint 269 / provider 1 (SPOKE) covers iPhone 11–17 and Samsung Galaxy S21–S25.
-  // Google Pixel cases require blueprint 421 / provider 23 (WOYC) — a separate product
-  // entry can be added once that blueprint's checkout flow is verified.
   { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case — iPhone & Samsung",        icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front", aspectRatio: { w: 1290, h: 2160 } },
-  // Pixel Phone Case — blueprint 421, provider 23 (WOYC). Uncomment and verify variant IDs
-  // before enabling.  Pixel 7/8/8a/9/9 Pro confirmed on WOYC catalog.
-  // { id: "phone_case_pixel", name: "Phone Case (Pixel)", desc: "Tough snap case — Google Pixel", icon: "fa-mobile-alt", price: "From $24.99", checkoutPrice: 2499, blueprintId: 421, printProviderId: 23, variantId: null, position: "front", aspectRatio: { w: 9, h: 19 } },
+  // Pixel Phone Case — blueprint 421, provider 23 (WOYC). This blueprint's
+  // catalog is shared across iPhone/Samsung/Pixel; variantFilter narrows the
+  // 128 raw variants down to the 16 Pixel ones (Pixel 6/6 Pro/7/8/8 Pro/9/9 Pro/
+  // 9 Pro XL × Glossy/Matte) so it doesn't duplicate the phone_case product
+  // above. Verified live 2026-07-18 against the WOYC catalog — no "8a" model
+  // exists there (an earlier note assumed one). Default variant is Pixel 9 /
+  // Glossy; aspectRatio is that variant's real print-area placeholder (1329×2126).
+  { id: "phone_case_pixel",     name: "Phone Case (Pixel)",  desc: "Tough snap case — Google Pixel",            icon: "fa-mobile-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 421,  printProviderId: 23,  variantId: 116386, position: "front", aspectRatio: { w: 1329, h: 2126 },
+    variantFilter: { sizes: ["Google Pixel 6 Pro","Google Pixel 6","Google Pixel 7","Google Pixel 8 Pro","Google Pixel 8","Google Pixel 9 Pro XL","Google Pixel 9 Pro","Google Pixel 9"] } },
   { id: "laptop_sleeve",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
   // Mouse pad's physical print area is a circle, not a square. Same treatment
   // as wall_clock — round frame border in the editor, circular clip on the

@@ -500,6 +500,7 @@ _DEFAULT_MOCKUP_PRODUCTS = [
     {"id": "crewneck_sweatshirt",  "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
     {"id": "crew_socks",           "blueprintId": 365,  "printProviderId": 14,  "variantId": 44904, "position": "front"},
     {"id": "phone_case",           "blueprintId": 269,  "printProviderId": 1,   "variantId": 62582, "position": "front"},
+    {"id": "phone_case_pixel",     "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
     {"id": "laptop_sleeve",        "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
     {"id": "mouse_pad",            "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
     {"id": "desk_mat",             "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
