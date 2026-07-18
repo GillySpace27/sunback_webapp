@@ -73,20 +73,24 @@ export const PRODUCTS = [
     variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green","Military Green"] } },
   { id: "crewneck_sweatshirt",  name: "Crewneck Sweatshirt", desc: "Unisex heavy blend crewneck",               icon: "fa-vest",         price: "From $34.99", checkoutPrice: 3499, blueprintId: 49,   printProviderId: 29,  variantId: 25377, position: "front", aspectRatio: { w: 3319, h: 3761 },
     variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green"] } },
-  // Crew socks blueprint requires four 1358×3839 leg-panel placeholders
-  // (front_left_leg, front_right_leg, back_left_leg, back_right_leg).
-  // The editor canvas mirrors the panel aspect — the same image is
-  // sent to all four panels, so the design has to look right within
-  // the tall narrow rectangle. initialCropZoom of 136 zooms in to the
-  // largest sock-aspect rectangle that fits inside the solar disk
-  // (formula in selectProductCard): the full disk doesn't fit in a
-  // 1:2.83 panel, but a slice through it does, and looks like an
-  // intentional close-up rather than letterboxed white space.
-  { id: "crew_socks",           name: "Crew Socks",          desc: "All-over sublimation print socks",          icon: "fa-socks",        price: "From $14.99", checkoutPrice: 1499, blueprintId: 365,  printProviderId: 14,  variantId: 44904, position: "front", aspectRatio: { w: 1358, h: 3839 }, initialCropZoom: 136,
-    variantFilter: { sizes: ["S","M","L","XS","XL","2XL"] } },
+  // Crew Socks removed 2026-07-18 (Gilly): too complicated a product —
+  // four 1358×3839 leg-panel placeholders, narrow awkward crop, low
+  // conversion signal from operator dogfood feedback in TODOS.md. Cached
+  // mockup/manifest entries on /var/data are left to age out naturally
+  // rather than manually purged.
   // ── Tech & Desk ──
-  // Blueprint 269 / provider 1 (SPOKE) covers iPhone 11–17 and Samsung Galaxy S21–S25.
-  { id: "phone_case",           name: "Phone Case",          desc: "Tough snap case — iPhone & Samsung",        icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 62582, position: "front", aspectRatio: { w: 1290, h: 2160 } },
+  // Blueprint 269 / provider 1 (SPOKE) covers iPhone 11–17 and Samsung Galaxy
+  // S21–S26 in one shared catalog. Split into one product per manufacturer
+  // (Gilly, 2026-07-18) via variantFilter, same mechanism as the Pixel case
+  // below — a buyer picking "iPhone" should never see Samsung models mixed
+  // into the same size list, and vice versa. Real per-variant cost is
+  // uniform ($11.04) across nearly every model in both filters except the
+  // newest Galaxy S26 ($12.62) — checkoutPrice unchanged from the original
+  // single product, so margin is unaffected by the split.
+  { id: "phone_case_apple",     name: "Phone Case (iPhone)", desc: "Tough snap case — iPhone",                  icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 112814, position: "front", aspectRatio: { w: 1246, h: 2085 },
+    variantFilter: { sizes: ["iPhone 11 Pro Max","iPhone 11 Pro","iPhone 11","iPhone 12 Pro Max","iPhone 12 Pro","iPhone 12 Mini","iPhone 12","iPhone 13 Pro Max","iPhone 13 Pro","iPhone 13 Mini","iPhone 13","iPhone 14 Pro Max","iPhone 14 Pro","iPhone 14 Plus","iPhone 14","iPhone 15 Pro Max","iPhone 15 Pro","iPhone 15 Plus","iPhone 15","iPhone 16 Pro Max","iPhone 16 Pro","iPhone 16 Plus","iPhone 16","iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17 Air","iPhone 17"] } },
+  { id: "phone_case_samsung",   name: "Phone Case (Samsung)", desc: "Tough snap case — Samsung Galaxy",         icon: "fa-mobile-alt",   price: "From $19.99", checkoutPrice: 1999, blueprintId: 269,  printProviderId: 1,   variantId: 125531, position: "front", aspectRatio: { w: 1251, h: 2097 },
+    variantFilter: { sizes: ["Samsung Galaxy S26","Samsung Galaxy S25","Samsung Galaxy S24","Samsung Galaxy S23","Samsung Galaxy S22","Samsung Galaxy S21"] } },
   // Pixel Phone Case — blueprint 421, provider 23 (WOYC). This blueprint's
   // catalog is shared across iPhone/Samsung/Pixel; variantFilter narrows the
   // 128 raw variants down to the 16 Pixel ones (Pixel 6/6 Pro/7/8/8 Pro/9/9 Pro/
