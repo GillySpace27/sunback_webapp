@@ -908,8 +908,13 @@ def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
         _backfill_cooldown[key] = time.time()
 
         result: dict = {}
-        product_id = None
         shop_id = None
+        # Printify rejects a product create with >100 enabled variants
+        # (validation error 8251 "Too many variants enabled"). Blueprints
+        # with large size/colour matrices (hoodies, crewnecks, some phone
+        # cases) routinely exceed that in one shot, so the reference
+        # product is created in batches instead of a single call.
+        _BATCH = 99
         try:
             shop_id = _shop_id()
             data = _list_variants_sync(key[0], key[1])
@@ -923,6 +928,8 @@ def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
                 int(vid) for vid in catalog_ids
                 if int(vid) not in existing or existing.get(int(vid), {}).get("cost") is None
             ]
+            _log(f"[pricing-backfill] bp={key[0]} pp={key[1]}: catalog={len(catalog_ids)} "
+                 f"existing={len(existing)} missing={len(missing)}")
             if not missing:
                 _backfilled_costs[key] = {}       # already fully covered
                 return {}
@@ -931,42 +938,61 @@ def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
                 _log(f"[pricing-backfill] bp={key[0]} pp={key[1]}: no ref image "
                      f"(upload failed) — {len(missing)} variants left unpriced")
                 return {}                          # transient — cooldown, retry later
-            payload = {
-                "title": "[MOCKUP-PRICE] pricing reference — auto, do not publish",
-                "description": "Auto-generated to read per-variant costs; deleted immediately.",
-                "blueprint_id": key[0],
-                "print_provider_id": key[1],
-                "variants": [{"id": vid, "price": 999, "is_enabled": True} for vid in missing],
-                "print_areas": [{
-                    "variant_ids": missing,
-                    "placeholders": [{
-                        "position": "front",
-                        "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}],
-                    }],
-                }],
-            }
-            try:
-                payload = _expand_print_areas(payload)
-            except Exception:
-                pass
-            resp = _printify_request(
-                "POST",
-                f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
-                headers=_headers(),
-                json=payload,
-                timeout=120,
-            )
-            if resp.status_code not in (200, 201):
-                _log(f"[pricing-backfill] create failed bp={key[0]} pp={key[1]}: "
-                     f"{resp.status_code} {resp.text[:160]}")
-                return {}
-            body = resp.json()
-            product_id = body.get("id")
-            for v in (body.get("variants") or []):
-                vid = v.get("id")
-                cost = v.get("cost")
-                if vid is not None and cost is not None:
-                    result[int(vid)] = {"cost": cost, "price": v.get("price")}
+            for i in range(0, len(missing), _BATCH):
+                batch = missing[i:i + _BATCH]
+                product_id = None
+                try:
+                    payload = {
+                        "title": "[MOCKUP-PRICE] pricing reference — auto, do not publish",
+                        "description": "Auto-generated to read per-variant costs; deleted immediately.",
+                        "blueprint_id": key[0],
+                        "print_provider_id": key[1],
+                        "variants": [{"id": vid, "price": 999, "is_enabled": True} for vid in batch],
+                        "print_areas": [{
+                            "variant_ids": batch,
+                            "placeholders": [{
+                                "position": "front",
+                                "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}],
+                            }],
+                        }],
+                    }
+                    try:
+                        payload = _expand_print_areas(payload)
+                    except Exception:
+                        pass
+                    resp = _printify_request(
+                        "POST",
+                        f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
+                        headers=_headers(),
+                        json=payload,
+                        timeout=120,
+                    )
+                    if resp.status_code not in (200, 201):
+                        _log(f"[pricing-backfill] create failed bp={key[0]} pp={key[1]} "
+                             f"batch {i // _BATCH + 1}: {resp.status_code} {resp.text[:160]}")
+                        continue  # best-effort — keep whatever earlier batches found
+                    body = resp.json()
+                    product_id = body.get("id")
+                    for v in (body.get("variants") or []):
+                        vid = v.get("id")
+                        cost = v.get("cost")
+                        if vid is not None and cost is not None:
+                            result[int(vid)] = {"cost": cost, "price": v.get("price")}
+                except Exception as e:
+                    _log(f"[pricing-backfill] batch error bp={key[0]} pp={key[1]} "
+                         f"batch {i // _BATCH + 1}: {e}")
+                finally:
+                    if product_id and shop_id:
+                        try:
+                            _printify_request(
+                                "DELETE",
+                                f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+                                headers=_headers(),
+                                timeout=30,
+                            )
+                        except Exception as e:
+                            _log(f"[pricing-backfill] ref delete failed {product_id}: {e} "
+                                 f"(sweep will reap it)")
             # Merge into the live cache so display + checkout see it immediately.
             bucket = _pricing_cache.setdefault(key, {})
             for vid, entry in result.items():
@@ -974,23 +1000,12 @@ def _backfill_variant_costs_sync(blueprint_id, print_provider_id) -> dict:
                     bucket[vid] = entry
             _backfilled_costs[key] = result
             _log(f"[pricing-backfill] bp={key[0]} pp={key[1]}: discovered "
-                 f"{len(result)} variant cost(s) from reference product")
+                 f"{len(result)} variant cost(s) from reference product(s) "
+                 f"({-(-len(missing) // _BATCH)} batch(es))")
             return result
         except Exception as e:
             _log(f"[pricing-backfill] error bp={key[0]} pp={key[1]}: {e}")
             return result
-        finally:
-            if product_id and shop_id:
-                try:
-                    _printify_request(
-                        "DELETE",
-                        f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
-                        headers=_headers(),
-                        timeout=30,
-                    )
-                except Exception as e:
-                    _log(f"[pricing-backfill] ref delete failed {product_id}: {e} "
-                         f"(sweep will reap it)")
 
 
 def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client_anchor) -> dict:
