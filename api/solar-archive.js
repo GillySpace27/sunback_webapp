@@ -153,6 +153,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var HEALTH_TIMEOUT_MS = 12000;    // 12s to allow cold start
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
+    var HQ_POLL_DEADLINE_MS = 5 * 60000; // hard cap on any render poll loop
+    var IMG_LOAD_TIMEOUT_MS = 60000;  // an <img> that never fires load/error
 
     // ── Attribution citation strings ─────────────────────────────
     // Referenced when we wire the per-product attribution work
@@ -2350,7 +2352,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       return attemptFetch(maxRetries);
     }
 
+    // ── Selection token ─────────────────────────────────
+    // Every render chain (preview → RHE prefetch → HQ) is async and can
+    // outlive the selection that started it. On a slow link an earlier
+    // wavelength's response could resolve LAST and paint the canvas —
+    // beta tester picked 304 Å, got 131 Å. Each chain stamps the token it
+    // started under; stale results are dropped instead of painted.
+    // ponytail: one counter, not per-field identity — any selection change
+    // (wavelength, date, time) goes through loadHelioviewerPreview.
+    var _selToken = 0;
+    function _selStale(tok) { return tok !== _selToken; }
+    function _staleJob() { var e = new Error("superseded"); e._stale = true; return e; }
+
     function loadHelioviewerPreview(wl, dateVal) {
+      var tok = ++_selToken;
+      // Supersede anything still in flight for the previous selection.
+      state.rhefFetching = false;
+      state.rhefFetchPromise = null;
+      state.hqFetching = false;
+      if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
       setStatus('<i class="fas fa-spinner fa-spin"></i> Loading ' + wl + ' Å preview…', true);
       setProgress(10);
       // Show a visible spinner overlay on the image stage so the
@@ -2367,7 +2387,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Get raw canvas from thumbCache or fetch fresh
       var cached = thumbCache[String(wl)];
       if (cached && cached.canvas2048) {
-        _startPreviewFromCanvas(cached.canvas2048, cached, wl, dateVal);
+        _startPreviewFromCanvas(cached.canvas2048, cached, wl, dateVal, tok);
       } else {
         // Fetch preview for main canvas via backend proxy (512px — fast & reliable from Helioviewer,
         // image_scale=12 → ~1.5 R☉ FOV). 2048px was unreliable; 512px is sufficient for editing.
@@ -2378,6 +2398,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
         var img = new Image();
         img.onload = function() {
+          if (_selStale(tok)) return;   // user moved on — don't paint
           var rawC = document.createElement("canvas");
           rawC.width = img.naturalWidth || 512;
           rawC.height = img.naturalHeight || 512;
@@ -2385,9 +2406,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var entry = thumbCache[String(wl)] || { raw: null, rhef: null, canvas2048: null };
           entry.canvas2048 = rawC;
           thumbCache[String(wl)] = entry;
-          _startPreviewFromCanvas(rawC, entry, wl, dateVal);
+          _startPreviewFromCanvas(rawC, entry, wl, dateVal, tok);
         };
         img.onerror = function() {
+          if (_selStale(tok)) return;
           // Image onerror doesn't expose the HTTP status, so re-query the same
           // URL via fetch() to distinguish upstream Helioviewer failures (502
           // from the backend proxy) from real user-network / backend-down
@@ -2457,7 +2479,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * Install the raw high-res image in the editor immediately (no RHE on load).
      * Science-image request is fired in the background to warm the cache.
      */
-    function _startPreviewFromCanvas(rawCanvas, cacheEntry, wl, dateVal) {
+    function _startPreviewFromCanvas(rawCanvas, cacheEntry, wl, dateVal, tok) {
+      if (tok == null) tok = _selToken;
       var dataUrl;
       try {
         dataUrl = rawCanvas.toDataURL("image/png");
@@ -2468,8 +2491,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       var rawImg = new Image();
       rawImg.onload = function() {
+        if (_selStale(tok)) return;
         try {
-          _installPreviewImage(rawImg, wl, dateVal);
+          _installPreviewImage(rawImg, wl, dateVal, tok);
         } catch(e) {
           console.error("[preview] _installPreviewImage threw:", e);
           setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Preview install failed: ' + e.message, false);
@@ -2488,7 +2512,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * and reveal the edit / product sections. Called both from Helioviewer click
      * and (legacy path) from the NASA preview flow.
      */
-    function _installPreviewImage(img, wl, dateVal) {
+    function _installPreviewImage(img, wl, dateVal, tok) {
+      if (tok == null) tok = _selToken;
       state.originalImage = img;
       // Set accessible alt text for the preview image
       var altText = "Solar image from " + dateVal + ", " + wl + " Angstrom wavelength";
@@ -2596,11 +2621,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           state.rawBackendImage = cachedEntry.rawBackend || null;
           state.jpgImage = cachedEntry.jpg || null;
           setTimeout(function() {
+            if (_selStale(tok)) return;
             // Cached tiers (raw/rhef/jpg) are already in state above — the
             // forced quality cycle stages Preview → Original → Filtered from
             // them, so don't jump straight to Filtered here. Just kick off HQ
             // generation so hq_rhef can upgrade the canvas later.
-            startHqFilterGeneration(dateVal, wl, "rhef");
+            startHqFilterGeneration(dateVal, wl, "rhef", 1, tok);
           }, 100);
         } else {
           // Background prefetch — warm the backend cache without blocking the UI.
@@ -2610,12 +2636,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
             updateFilterStatusLine("Prefetching science data\u2026", "loading");
             state.rhefFetchPromise = fetchBackendRHEPreview(dateVal, wl, function(pct, msg, optData) {
+              if (_selStale(tok)) return;
               updateFilterStatusLine(msg || "Generating preview\u2026", "loading");
               if (optData && optData.preview_jpg_url) {
                 var jpgUrl = (String(optData.preview_jpg_url).indexOf("http") === 0) ? optData.preview_jpg_url : (API_BASE + optData.preview_jpg_url);
                 var jpgImg = new Image();
                 jpgImg.crossOrigin = "anonymous";
                 jpgImg.onload = function() {
+                  if (_selStale(tok)) return;
                   state.jpgImage = jpgImg;
                   if (state.editorFilter === "jpg") renderCanvas();
                   if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
@@ -2623,6 +2651,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 jpgImg.src = jpgUrl;
               }
             }).then(function(ob) {
+              if (_selStale(tok)) return;   // stale wavelength — drop the result
               state.rhefImage = ob.filteredImg;
               state.rawBackendImage = ob.rawImg || null;
               state.jpgImage = ob.jpgImg || null;
@@ -2641,11 +2670,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
               // RHEF preview is ready — kick off HQ generation in the background.
               // The HQ image will auto-upgrade the canvas to hq_rhef when it arrives.
-              startHqFilterGeneration(dateVal, wl, "rhef");
+              startHqFilterGeneration(dateVal, wl, "rhef", 1, tok);
             }).catch(function(err) {
               console.warn("[Prefetch] RHE prefetch failed (non-blocking):", err);
+              if (_selStale(tok)) return;
               state.rhefFetching = false; if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
               state.rhefFetchPromise = null;
+              // Never leave the cheaper tiers spinning: whatever already
+              // landed (JPG/Raw) stays usable, and the timeline drops back
+              // to a clickable state so the user can retry a tier.
+              if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
+              showToast("Science data failed: " + ((err && err.message) || err) + " — tap a quality step to retry.", "error");
               updateFilterStatusLine("", "");
             });
           })();
@@ -2896,11 +2931,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (!dateStr || !wavelength) return Promise.reject(new Error("Missing date or wavelength"));
       if (onProgress) onProgress(10, "Requesting RHE…");
       var timeStr = _solarTimeValue();
-      return fetch(API_BASE + "/api/generate_preview", {
+      // Kickoff POST is time-boxed: on flaky wifi a bare fetch() can hang
+      // indefinitely, which left every quality tier spinning with no error
+      // and no retry (the poll loop below already had its own timeouts).
+      return fetchWithTimeout(API_BASE + "/api/generate_preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" })
-      }).then(function(res) { return res.json().then(function(data) { return { status: res.status, data: data }; }); })
+      }, 30000).then(function(res) { return res.json().then(function(data) { return { status: res.status, data: data }; }); })
         .then(function(result) {
           _recordQueueDepth(result.data);
           if (result.data.preview_url) {
@@ -3015,8 +3053,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var jpgImg = urls.jpgUrl ? new Image() : null;
             var need = 1 + (rawImg ? 1 : 0) + (jpgImg ? 1 : 0);
             var done = 0;
+            // An <img> on a stalled connection may fire neither load nor
+            // error. Without this the promise never settles and rhefFetching
+            // stays true forever — the "everything locked on Loading" report.
+            var imgTimer = setTimeout(function() {
+              reject(new Error("Preview images timed out on a slow connection — retry."));
+            }, IMG_LOAD_TIMEOUT_MS);
             function maybeResolve() {
               if (++done >= need) {
+                clearTimeout(imgTimer);
                 if (onProgress) onProgress(100, "Done");
                 resolve({ filteredImg: filteredImg, rawImg: rawImg, jpgImg: jpgImg });
               }
@@ -6122,7 +6167,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
     }
 
-    function pollStatus(url, onUpdate) {
+    // deadlineMs bounds the whole poll loop, not one request. Without it a
+    // backend that stays "processing" (or a link that keeps timing out one
+    // request at a time) spins the spinner forever — the tester sat at
+    // "HQ RENDER · 0m54s" with nothing ever resolving.
+    function pollStatus(url, onUpdate, deadlineMs) {
+      deadlineMs = deadlineMs || HQ_POLL_DEADLINE_MS;
+      var started = Date.now();
       return new Promise(function(resolve, reject) {
         // Task status lives in the server process's memory. If the server
         // restarts mid-render (deploy, scale-to-zero stop), the task id is
@@ -6133,6 +6184,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // render is served from cache if the file survived).
         var unknownStreak = 0;
         (function tick() {
+          if (Date.now() - started >= deadlineMs) {
+            reject(new Error("Rendering timed out after " +
+              Math.round(deadlineMs / 60000) + " min — the backend may be overloaded. Try again."));
+            return;
+          }
           fetchWithTimeout(url, { method: "GET" }, 15000)
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -6146,7 +6202,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 setTimeout(tick, 1500);
               }
             })
-            .catch(reject);
+            .catch(function(err) {
+              // Flaky link: one dropped poll shouldn't kill the job. Keep
+              // polling until the deadline, then give up honestly.
+              if (Date.now() - started < deadlineMs) setTimeout(tick, 3000);
+              else reject(err);
+            });
         })();
       });
     }
@@ -6167,15 +6228,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * Hard errors (bad input, backend-logic failures) fall through to the
      * user-facing toast on the first attempt so real issues stay visible.
      */
-    function startHqFilterGeneration(date, wavelength, format, _attempt) {
+    function startHqFilterGeneration(date, wavelength, format, _attempt, tok) {
       format = format || state.editorFilter || "rhef";
       _attempt = _attempt || 1;
-
-      // Dedup: only guard on the initial call; retries are allowed to continue
-      // the existing fetch lifecycle.
-      if (_attempt === 1 && state.hqFetching) return Promise.resolve();
+      if (tok == null) tok = _selToken;
 
       var cacheKey = date + "T" + _solarTimeValue() + "_" + wavelength + "_hq_" + format;
+
+      // Dedup: only skip when the in-flight job is for THIS exact selection.
+      // Previously any in-flight HQ blocked a new one, so a job started for
+      // the old wavelength both kept running and prevented the new one — the
+      // stale render then won the canvas.
+      if (_attempt === 1 && state.hqFetching && state._hqJobKey === cacheKey) return Promise.resolve();
+      state._hqJobKey = cacheKey;
       var cached = hqCache[cacheKey];
       if (cached && cached.imageObj) {
         state.hqFilterImage = cached.imageObj;
@@ -6223,14 +6288,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           }
         });
       }).then(function(result) {
+        if (_selStale(tok)) throw _staleJob();
         if (result.status === "completed" && result.image_url) {
           var hqUrl = result.image_url.startsWith("/") ? API_BASE + result.image_url : result.image_url;
           setProgress(85);
           updateFilterStatusLine("Loading full-res RHEF image\u2026", "loading");
           return loadImage(hqUrl).then(function(img) {
+            // Cache regardless — the bytes are good even if the user moved on.
+            hqCache[cacheKey] = { url: hqUrl, imageObj: img };
+            if (_selStale(tok)) throw _staleJob();
             state.hqFilterImage = img;
             state.hqFormat = format;
             state.hqFetching = false;
+            state._hqJobKey = null;
             // Mark HQ as ready for the print-quality gate + checkout
             // image path. Previously only the checkout poll set these,
             // so a user who let HQ finish in the background and then hit
@@ -6255,6 +6325,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         throw new Error(result.message || "HQ generation failed");
       }).catch(function(err) {
+        // Superseded by a newer selection: leave the newer job's state alone
+        // and say nothing — this is not a user-visible failure.
+        if (err && err._stale) return null;
+        if (_selStale(tok)) return null;
         var msg = (err && err.message) || String(err);
         var isTransient =
           /Failed to fetch|NetworkError|timeout|timed out|5\d\d|bad gateway|service unavailable/i.test(msg);
@@ -6264,18 +6338,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // short backoff so we don't hammer the same flaky endpoint.
           return new Promise(function(resolve, reject) {
             setTimeout(function() {
-              startHqFilterGeneration(date, wavelength, format, _attempt + 1)
+              if (_selStale(tok)) { resolve(null); return; }
+              startHqFilterGeneration(date, wavelength, format, _attempt + 1, tok)
                 .then(resolve, reject);
             }, 1500);
           });
         }
-        // Terminal failure — surface to the user.
+        // Terminal failure. HQ is its own tier: clear ONLY HQ state so the
+        // JPG / Raw / Filtered images that already landed stay ready and
+        // usable (tester saw all four tiers strand on a single HQ failure).
+        // The HQ step falls back to "locked", and tapping it retries.
         state.hqFetching = false;
+        state._hqJobKey = null;
         if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
+        if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
         hideProgress();
         updateFilterStatusLine("HQ generation failed: " + msg, "error");
-        showToast("HQ failed: " + msg, "error");
-        return Promise.reject(err);
+        showToast("HQ failed: " + msg + " — tap \u201cHQ Filtered\u201d to retry.", "error");
+        // Resolve rather than reject: HQ is a background upgrade, and an
+        // unhandled rejection here used to look like a hung app.
+        return null;
       });
     }
 
@@ -6301,7 +6383,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
     // ── Load image with CORS proxy fallback ──────────────────────
     function loadImage(url) {
-      return new Promise(function(resolve, reject) {
+      // Same stalled-<img> hazard as the preview loader: no timeout meant a
+      // hung image download pinned hqFetching=true forever.
+      var timer = null;
+      var p = new Promise(function(resolve, reject) {
+        timer = setTimeout(function() {
+          reject(new Error("Image download stalled — check your connection and retry."));
+        }, IMG_LOAD_TIMEOUT_MS);
         var img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = function() { resolve(img); };
@@ -6314,6 +6402,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         };
         img.src = url;
       });
+      var clear = function() { clearTimeout(timer); };
+      p.then(clear, clear);
+      return p;
     }
 
     // ── Timestamp caption helpers ─────────────────────────────
@@ -11695,18 +11786,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var step1 = document.getElementById("ckStep1");
         if (step1) step1.querySelector("span").textContent = "Uploading your print file (" + sizeKB + " KB)…";
 
-        // Collect all filtered variants to enable on the Printify product so customers
-        // can choose their preferred size/color on Shopify.
-        var ckCacheKey = product.blueprintId + "_" + product.printProviderId;
-        var ckAllVariants = variantCache[ckCacheKey] || [];
-        var ckFiltered = filterVariantsForProduct(product, ckAllVariants);
-        var ckVariantIds = ckFiltered.map(function(v) { return v.id; });
-        // Always include the user-selected variant as a fallback
+        // Only the variant actually being ordered. Enabling every filtered
+        // variant made Printify render a mockup per variant (dozens), which
+        // multiplied backend load and slowed/failed the very render the buyer
+        // was waiting on. The buyer already picked their size in the variant
+        // panel; the Shopify product is one-off per order anyway.
         var ckSelectedId = state.selectedVariantByProduct[product.id] || product.variantId;
-        if (ckSelectedId && ckVariantIds.indexOf(ckSelectedId) === -1) {
-          ckVariantIds.unshift(ckSelectedId);
-        }
-        if (!ckVariantIds.length) ckVariantIds = [ckSelectedId];
+        var ckVariantIds = [ckSelectedId];
 
         return fetchWithTimeout(API_BASE + "/api/printify/checkout", {
           method: "POST",
