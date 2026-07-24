@@ -5004,10 +5004,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var slug = slugs[idx++];
         var entry = _vibeManifest[slug];
         if (!entry) return setTimeout(_tick, 0);
-        // Only preload the light-weight bits: jpg_hq_url (~800 KB) and
-        // the 256² thumbs are dwarfed by the 12 MB rhef_full. Total
-        // bandwidth dropped from ~130 MB to ~10 MB.
-        ["jpg_hq_url", "raw_thumb_url", "rhef_thumb_url"].forEach(function (key) {
+        // Preload ONLY the 256² thumbs. jpg_hq_url is ~800 KB–1 MB × 11 ≈
+        // 9 MB and the cards default to the raw thumb, so preloading it on
+        // landing bought nothing but bandwidth that starved the thumbnails
+        // actually on screen. It now loads lazily when the user flips the
+        // master toggle to JPG (or selects a vibe) — the "prices catch up"
+        // principle applied to preloads. (2026-07-24 landing-perf audit.)
+        ["raw_thumb_url", "rhef_thumb_url"].forEach(function (key) {
           var url = entry[key];
           if (!url) return;
           var img = new Image();
@@ -5383,7 +5386,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             })
             .catch(function () { /* not warmed yet — fine */ });
         })();
-        (function _primeDefaultHQ() {
+        function _primeDefaultHQ() {
           // STRESS-015: the legacy /asset/hq_SDO_193_20141024.png path
           // no longer exists on prod (the file moved to the per-vibe
           // tree). Switch to the canonical AR 2192 RHEF full asset
@@ -5412,7 +5415,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           };
           probe.onerror = function () { /* not cached yet — fine */ };
           probe.src = defaultUrl;
-        })();
+        }
+        // Defer the 13 MB default-HQ prime to TRUE idle. It warms hqCache for
+        // the rare visitor who enters the editor on the untouched default
+        // image — but the product-first flow doesn't auto-load that image, so
+        // it must never compete with the thumbnails actually on screen.
+        // requestIdleCallback naturally waits until the initial asset rush
+        // settles; the 5 s fallback covers browsers without it.
+        // (2026-07-24 landing-perf audit.)
+        (window.requestIdleCallback || function (cb) { setTimeout(cb, 5000); })(
+          _primeDefaultHQ, { timeout: 15000 }
+        );
         // Product-first refactor: do NOT auto-load the default 193 Å
         // image on cold load. The user is on step "product" and the
         // Phase B Printify mockups render photoreal previews without a

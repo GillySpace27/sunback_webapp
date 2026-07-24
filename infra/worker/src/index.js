@@ -11,6 +11,12 @@
 //       which forced every request to origin) the edge cache works here.
 //       Immutable images cache 30d; only 2xx is cached, so a 404 for a
 //       not-yet-rendered hq_*.png is never frozen in front of the real file.
+//   /api/helioviewer_thumb?…  → proxied to Fly and edge-cached. The
+//       wavelength-tile + gallery thumbnails are a fixed set of
+//       (date, wavelength, scale, size) tuples shared by every visitor, so
+//       caching by full URL turns 27 origin round-trips per landing (~3 MB,
+//       and a cold-Fly wake on the first) into edge HITs for everyone after
+//       the first. Deterministic historical frames → treat as immutable.
 //   everything else (/api/**, /logs/stream, /shopify/*, /favicon.ico, …)
 //       → transparent proxy to Fly (fetch streams bodies, so SSE + long
 //       polls pass through).
@@ -48,6 +54,15 @@ export default {
     const { pathname } = new URL(request.url);
     if (pathname === "/asset" || pathname.startsWith("/asset/")) {
       return serveAsset(request, env);
+    }
+    // Edge-cache the deterministic thumbnail proxy (GET only — the origin's
+    // Origin gate still runs on every cache MISS). Cache key includes the
+    // query string, so each (date, wavelength, scale, size) caches on its own.
+    if (pathname === "/api/helioviewer_thumb" && request.method === "GET") {
+      return toOrigin(request, env, {
+        cacheEverything: true,
+        cacheTtlByStatus: { "200-299": 2592000, "300-599": 0 },
+      });
     }
     return toOrigin(request, env);
   },
