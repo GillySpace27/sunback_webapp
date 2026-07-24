@@ -5822,6 +5822,49 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
     } catch (_e) {}
 
+    // ── Keep the origin awake while someone is editing ───────────
+    // The Fly machine scales to zero after a few idle minutes. Editing is
+    // entirely client-side, so a user cropping and adjusting for five
+    // minutes sends zero requests, the machine stops, and their next HQ
+    // render pays a ~20s cold start (or fails outright on a weak link).
+    // A cheap /api/health ping on editor entry, repeated while the editor
+    // is on screen, keeps it up exactly while a purchase is in progress.
+    // ponytail: setInterval + a visibility check, not a service worker.
+    var _WARM_INTERVAL_MS = 60000;
+    var _warmTimer = null;
+    var _lastWarmAt = 0;
+    function _warmBackend() {
+      if (!API_BASE) return;
+      var now = Date.now();
+      if (now - _lastWarmAt < 5000) return;   // coalesce bursts
+      _lastWarmAt = now;
+      // no-store so a cached 200 can't stand in for an actually-awake origin
+      fetch(API_BASE + "/api/health", { method: "GET", cache: "no-store" })
+        .catch(function () { /* warm-up only — never surface this */ });
+      if (_warmTimer) return;
+      _warmTimer = setInterval(function () {
+        var ed = document.getElementById("editSection");
+        var editorVisible = ed && !ed.classList.contains("hidden");
+        // Stop pinging once the editor is closed or the tab is backgrounded,
+        // so an abandoned tab doesn't hold the machine (and the bill) up.
+        if (!editorVisible || document.hidden) {
+          clearInterval(_warmTimer);
+          _warmTimer = null;
+          return;
+        }
+        _lastWarmAt = Date.now();
+        fetch(API_BASE + "/api/health", { method: "GET", cache: "no-store" })
+          .catch(function () {});
+      }, _WARM_INTERVAL_MS);
+    }
+    // Returning to a backgrounded tab: re-arm immediately rather than waiting
+    // out an interval that was cancelled while hidden.
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) return;
+      var ed = document.getElementById("editSection");
+      if (ed && !ed.classList.contains("hidden")) _warmBackend();
+    });
+
     function checkBackendHealth() {
       setBannerState("checking", "Checking backend status...", "Connecting to " + API_BASE, false);
 
@@ -10546,6 +10589,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // _continueOpenEditor helper below. We extract it as a helper so
     // commitImageChoice can call it AFTER the editor section is visible.
     function _continueOpenEditor(product) {
+      // Wake the origin NOW. The machine scales to zero and takes ~20s to
+      // come back; editing (crop, pan, sliders) makes no backend calls, so a
+      // user who spends a few minutes here can have the machine stop
+      // underneath them and then eat a cold start on their HQ render — which
+      // is what the 2026-07-23 tester hit as "Cannot reach backend".
+      // Fire-and-forget: this is a warm-up, not a dependency.
+      _warmBackend();
+
       // Buy intent: an image + a product are now in the editor. Start the
       // time-integrated print render in the background so checkout finds it
       // cached (no second wait). No-op for warm vibes / missing date.
