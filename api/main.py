@@ -71,6 +71,8 @@ import io
 import json
 import hashlib
 import time
+import re
+import glob
 import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -734,7 +736,15 @@ app.add_middleware(SecurityHeadersMiddleware)
 @app.get("/api/health")
 async def api_health():
     """Return 200 as soon as the server can respond. Frontend uses this instead of /docs for status."""
-    return JSONResponse(content={"status": "ok"}, headers=CORS_HEADERS)
+    body = {"status": "ok"}
+    used = _disk_used_pct()
+    if used >= _DISK_WARN_PCT:
+        # Surfaced, not fatal: a full volume breaks renders while /health still
+        # says "ok", which is how the 2026-07-24 outage stayed invisible.
+        body["disk_pct"] = round(used)
+        body["warning"] = "disk nearly full"
+        print(f"[disk][WARN] health check: {used:.0f}% used at {OUTPUT_DIR}", flush=True)
+    return JSONResponse(content=body, headers=CORS_HEADERS)
 
 
 # ---------------------------------------------------------------------------
@@ -1370,9 +1380,90 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         _finalize_render()
 
 
-# Cache of (date_str, wl) for which preview generation already failed (e.g. no VSO data)
-# so we return 200 with preview_url=null instead of 202 again and avoid repeated failing tasks.
-_preview_failed: set = set()
+# ── Disk guard ──────────────────────────────────────────────────────
+# 2026-07-24 outage: the 3 GB volume filled with 1.5 GB of temp_combined_*.npz
+# (the FITS-stack cache, which had no eviction), every render then died on
+# [Errno 28], and each death got recorded as "no VSO data" — so the store told
+# customers their date didn't exist when the real problem was a full disk.
+_DISK_WARN_PCT = 85          # log loudly past this
+_TEMP_CACHE_TARGET_PCT = 75  # prune the npz cache back down to this
+def _disk_used_pct(path: str = None) -> float:
+    try:
+        st = os.statvfs(path or OUTPUT_DIR)
+        total = st.f_blocks * st.f_frsize
+        return 0.0 if total <= 0 else 100.0 * (total - st.f_bavail * st.f_frsize) / total
+    except Exception:
+        return 0.0
+
+def _prune_temp_cache() -> int:
+    """Delete oldest temp_combined_*.npz until usage is back under target.
+
+    These are derived caches — dropping one costs a re-render, never data.
+    ponytail: mtime order, no index. The set is tens of files, not millions.
+    """
+    used = _disk_used_pct()
+    if used < _TEMP_CACHE_TARGET_PCT:
+        return 0
+    try:
+        files = sorted(
+            glob.glob(os.path.join(OUTPUT_DIR, "temp_combined_*.npz")),
+            key=lambda p: os.path.getmtime(p),
+        )
+    except Exception:
+        return 0
+    removed = 0
+    for f in files:
+        if _disk_used_pct() < _TEMP_CACHE_TARGET_PCT:
+            break
+        try:
+            os.remove(f)
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        print(f"[disk] pruned {removed} temp_combined caches; now at "
+              f"{_disk_used_pct():.0f}% of {OUTPUT_DIR}", flush=True)
+    return removed
+
+def _disk_check(where: str) -> None:
+    """Warn loudly before a full volume turns into a wrong error message."""
+    used = _disk_used_pct()
+    if used >= _DISK_WARN_PCT:
+        print(f"[disk][WARN] {used:.0f}% used at {OUTPUT_DIR} ({where}) — pruning", flush=True)
+        _prune_temp_cache()
+
+# Cache of (date_str, wl) → (expires_at, reason) for previews that failed, so we
+# return 200 with preview_url=null instead of re-running a task we expect to
+# fail. Entries EXPIRE: a genuine "no data for this date" is stable, but the
+# same code path also catches disk/OOM/network blips, and those must not
+# blacklist a date forever (they did, until 2026-07-24).
+_PREVIEW_FAIL_TTL_S = 15 * 60
+_preview_failed: dict = {}
+
+def _preview_fail_reason(key):
+    """Live failure reason for this key, or None if absent/expired."""
+    entry = _preview_failed.get(key)
+    if not entry:
+        return None
+    expires_at, reason = entry
+    if time.time() >= expires_at:
+        _preview_failed.pop(key, None)
+        return None
+    return reason
+
+def _is_infrastructure_error(exc: Exception) -> bool:
+    """True for our-fault failures (disk, memory, transient upstream).
+
+    These get retried rather than remembered — telling a customer their date
+    has no data because our volume was full is a lie.
+    """
+    if isinstance(exc, (OSError, MemoryError, TimeoutError)):
+        return True
+    return bool(re.search(
+        r"no space left|out of memory|cannot allocate|timed? ?out|connection reset|"
+        r"temporarily unavailable|bad gateway",
+        str(exc), re.I,
+    ))
 # Keys currently being generated — prevents spawning duplicate background tasks when the
 # client polls and gets 202 multiple times before the task finishes.
 _preview_in_progress: set = set()
@@ -1443,10 +1534,11 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
             raw_url = url_path_raw if os.path.exists(out_path_raw) else None
             jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
             return {"preview_url": url_path_filtered, "preview_raw_url": raw_url, "preview_jpg_url": jpg_url}
-        if key in _preview_failed:
+        _reason = _preview_fail_reason(key)
+        if _reason:
             return JSONResponse(
                 status_code=200,
-                content={"preview_url": None, "error": "No VSO AIA data for this date/wavelength"},
+                content={"preview_url": None, "error": _reason},
                 headers=CORS_HEADERS,
             )
         # If already generating, return partial results so UI can show JPG while RHEF runs
@@ -1484,6 +1576,7 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
             # and OOM the box. The slot context-manager also keeps the
             # queue-depth counter accurate while we're waiting.
             try:
+                _disk_check("generate_preview")
                 async with _HeavyRenderSlot():
                     await asyncio.to_thread(
                         _generate_preview_sync, dt, wl, date_str,
@@ -1491,8 +1584,19 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
                         url_path_raw, url_path_filtered, url_path_jpg
                     )
             except Exception as e:
-                _preview_failed.add(key)
-                print(f"[generate_preview] background failed: {e}", flush=True)
+                # Only remember failures we believe are about the DATA. An
+                # infrastructure failure (full disk, OOM, upstream blip) gets
+                # a clean retry next time instead of a permanent — and false —
+                # "no data for this date".
+                if _is_infrastructure_error(e):
+                    print(f"[generate_preview] INFRA failure (not blacklisted): {e}", flush=True)
+                    _prune_temp_cache()
+                else:
+                    _preview_failed[key] = (
+                        time.time() + _PREVIEW_FAIL_TTL_S,
+                        "No VSO AIA data for this date/wavelength",
+                    )
+                    print(f"[generate_preview] background failed: {e}", flush=True)
             finally:
                 _preview_in_progress.discard(key)
         asyncio.create_task(run())
@@ -1577,6 +1681,9 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         except ValueError:
             dt = datetime.strptime(date, "%Y-%m-%d")
         wl = int(wavelength)
+        # A 4096² HQ render is the biggest thing we write — check headroom
+        # before burning 1–3 min on a render that can't be saved.
+        _disk_check("hq-task")
         # Heavy semaphore: queues this HQ render behind any preview/HQ
         # already in flight. status flips from "queued" to "started" the
         # instant we acquire the slot, so the UI can differentiate the
