@@ -1,8 +1,17 @@
+import os
+
+# Headless matplotlib, decided before ANY matplotlib import can happen.
+# This used to be `matplotlib.use("Agg")` next to a module-level import; now
+# that the science stack loads lazily, a function-level `import
+# matplotlib.pyplot` can win the race and pick a GUI backend instead — which
+# crashes outright when it runs on a worker thread. An env var can't lose
+# that race and costs nothing at startup.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import ssl
 import aiohttp
 import certifi
 from parfive import Downloader
-import os
 
 
 def _is_nasa_url(url: str) -> bool:
@@ -84,16 +93,92 @@ from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, Redirect
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 from pydantic import BaseModel, Field
-from sunpy.visualization import colormaps  # registers all SunPy maps like sdoaia171, sohoeit195, etc.
-import matplotlib
-matplotlib.use("Agg")
-from astropy import units as u
-import matplotlib.pyplot as plt
-from sunkit_image import radial
-rhef = radial.rhef
-from sunpy.net import Fido, attrs as a
-from sunpy.net import vso
-from sunpy.map import Map
+# ── Deferred heavy imports ──────────────────────────────────────────
+# sunpy + matplotlib + sunkit_image cost ~19s of the ~21s cold start, and
+# the machine scales to zero, so every wake paid that before it could answer
+# even /api/health. A customer who idled in the editor while the machine
+# stopped then hit "Cannot reach backend" on their next render (2026-07-23
+# tester report). Now uvicorn is serving in ~2s and the science stack loads
+# on first actual use.
+#
+# The names below are proxies: touching any attribute or calling one pulls
+# the WHOLE stack in (all-or-nothing, exactly like the old module-level
+# block — `colormaps` in particular registers the sdoaia* colour tables as
+# an import side effect, so it must not load independently of plt).
+# ponytail: proxies instead of editing 140+ call sites. The ceiling is that
+# `isinstance(x, Map)` would not work through a proxy — nothing does that
+# today; if something needs to, call _load_heavy() and use the real name.
+_heavy_loaded = False
+
+def _load_heavy():
+    """Import the science stack once, replacing the proxies in globals()."""
+    global _heavy_loaded, colormaps, matplotlib, u, plt, radial, rhef, Fido, a, vso, Map
+    global register, update_pointing, correct_degradation, get_pointing_table
+    if _heavy_loaded:
+        return
+    _t0 = time.time()
+    import matplotlib as _matplotlib
+    _matplotlib.use("Agg")            # must precede pyplot
+    from sunpy.visualization import colormaps as _colormaps  # registers sdoaia171 etc.
+    from astropy import units as _u
+    import matplotlib.pyplot as _plt
+    from sunkit_image import radial as _radial
+    from sunpy.net import Fido as _Fido, attrs as _a
+    from sunpy.net import vso as _vso
+    from sunpy.map import Map as _Map
+    colormaps, matplotlib, u, plt = _colormaps, _matplotlib, _u, _plt
+    radial, rhef = _radial, _radial.rhef
+    Fido, a, vso, Map = _Fido, _a, _vso, _Map
+    # aiapy's calibrate API moved between versions — same fallback ladder as before.
+    try:
+        from aiapy.calibrate import (register as _reg, update_pointing as _up,
+                                     correct_degradation as _cd, get_pointing_table as _gpt)
+    except ImportError:
+        from aiapy.calibrate import (register as _reg, update_pointing as _up,
+                                     correct_degradation as _cd)
+        try:
+            from aiapy.calibrate.util import get_correction_table as _gpt
+        except ImportError:
+            _gpt = None
+    register, update_pointing, correct_degradation, get_pointing_table = _reg, _up, _cd, _gpt
+    _heavy_loaded = True
+    print(f"[startup] science stack loaded in {time.time() - _t0:.1f}s", flush=True)
+
+
+class _LazyHeavy:
+    """Stand-in for a science-stack name until something actually uses it."""
+    __slots__ = ("_name",)
+
+    def __init__(self, name):
+        self._name = name
+
+    def _resolve(self):
+        _load_heavy()
+        real = globals()[self._name]
+        if isinstance(real, _LazyHeavy):     # loader forgot to rebind this name
+            raise RuntimeError(f"_load_heavy() did not bind {self._name}")
+        return real
+
+    def __getattr__(self, item):
+        return getattr(self._resolve(), item)
+
+    def __call__(self, *args, **kwargs):
+        return self._resolve()(*args, **kwargs)
+
+    def __repr__(self):
+        return f"<lazy {self._name} (science stack not yet loaded)>"
+
+
+colormaps = _LazyHeavy("colormaps")
+matplotlib = _LazyHeavy("matplotlib")
+u = _LazyHeavy("u")
+plt = _LazyHeavy("plt")
+radial = _LazyHeavy("radial")
+rhef = _LazyHeavy("rhef")
+Fido = _LazyHeavy("Fido")
+a = _LazyHeavy("a")
+vso = _LazyHeavy("vso")
+Map = _LazyHeavy("Map")
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="parfive.downloader")
 from fastapi import Body
@@ -568,8 +653,11 @@ os.makedirs(PREVIEW_DIR, exist_ok=True)
 
 
 # Defaults
-DEFAULT_AIA_WAVELENGTH = 211 * u.angstrom
-DEFAULT_EIT_WAVELENGTH = 195 * u.angstrom
+# Plain ints, not astropy Quantities: every consumer reads `.value` and casts
+# to int anyway, and building a Quantity at module scope dragged the whole
+# science stack into startup — defeating the deferred imports above.
+DEFAULT_AIA_WAVELENGTH = 211  # angstrom
+DEFAULT_EIT_WAVELENGTH = 195  # angstrom
 DEFAULT_DETECTOR_LASCO = "C2"  # or "C3"
 
 # Mission thresholds (rough, practical)
@@ -1031,9 +1119,9 @@ def _shared_lev1_fits_path(mission, wavelength, dt) -> str:
     by date+HHMM (the time selects the frame) so a re-dated-different-time
     preview never reuses a stale frame; matches the time-keyed `.npz` cache."""
     try:
-        wl_key = int(wavelength if wavelength is not None else int(DEFAULT_AIA_WAVELENGTH.value))
+        wl_key = int(wavelength if wavelength is not None else int(DEFAULT_AIA_WAVELENGTH))
     except Exception:
-        wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
+        wl_key = int(DEFAULT_AIA_WAVELENGTH)
     return os.path.join(OUTPUT_DIR, f"shared_lev1_{mission}_{wl_key}_{dt.strftime('%Y%m%d_%H%M')}.fits")
 
 
@@ -3325,14 +3413,13 @@ async def list_output(x_admin_key: Optional[str] = Header(None)):
     return {"output_dir": OUTPUT_DIR, "files": files}
 
 # --- Safe aiapy calibration import (handles version differences gracefully) ---
-try:
-    from aiapy.calibrate import register, update_pointing, correct_degradation, get_pointing_table
-except ImportError:
-    from aiapy.calibrate import register, update_pointing, correct_degradation
-    try:
-        from aiapy.calibrate.util import get_correction_table as get_pointing_table
-    except ImportError:
-        get_pointing_table = None
+# Deferred with the rest of the science stack: importing aiapy.calibrate pulls
+# in sunpy + astropy + matplotlib, so doing it at module scope reimposed the
+# whole cold start no matter how lazy the names above were.
+register = _LazyHeavy("register")
+update_pointing = _LazyHeavy("update_pointing")
+correct_degradation = _LazyHeavy("correct_degradation")
+get_pointing_table = _LazyHeavy("get_pointing_table")
 
 def normalize_exposure(m):
     """
@@ -3362,6 +3449,10 @@ def manual_aiaprep(m, logger=print):
     import astropy.units as u
     from datetime import timedelta
     from sunpy.map import Map
+
+    # Resolve the deferred names for real before the `is not None` check below:
+    # an unresolved proxy is never None, so the guard would wrongly pass.
+    _load_heavy()
 
     # Use safe import block from above (get_pointing_table may be None)
     point = False
@@ -3524,9 +3615,9 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
     wl_used = None
     det_used = (detector or DEFAULT_DETECTOR_LASCO)
     if mission == "SDO":
-        wl_used = int(wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+        wl_used = int(wavelength or int(DEFAULT_AIA_WAVELENGTH))
     elif mission == "SOHO-EIT":
-        wl_used = int(wavelength or int(DEFAULT_EIT_WAVELENGTH.value))
+        wl_used = int(wavelength or int(DEFAULT_EIT_WAVELENGTH))
     if mission == "SDO" and dt < SDO_EPOCH:
         print(f"[fetch] Date {dt.date()} before SDO; switching to SOHO-EIT.", flush=True)
         mission = "SOHO-EIT"
@@ -3580,7 +3671,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         work_dir.mkdir(parents=True, exist_ok=True)
         from sunpy.net import Fido, attrs as a
         import astropy.units as u
-        wl = wavelength or int(DEFAULT_AIA_WAVELENGTH.value)
+        wl = wavelength or int(DEFAULT_AIA_WAVELENGTH)
 
         # ── Reuse the preview's already-downloaded frame ─────────────
         # The interactive preview (_generate_preview_sync) downloads a
@@ -3612,7 +3703,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
                 # Write the same date+time-keyed .npz the top cache-check reads
                 # (non-integrated: reuse only runs when integrate=False), so a
                 # repeat HQ for this exact frame is instant (and consistent).
-                wl_key = int(wavelength or int(DEFAULT_AIA_WAVELENGTH.value))
+                wl_key = int(wavelength or int(DEFAULT_AIA_WAVELENGTH))
                 cache_npz = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}_{_time_tag}.npz")
                 try:
                     np.savez_compressed(cache_npz, data=reused_data, meta=reused_meta)
@@ -3815,9 +3906,9 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         date_str = dt.strftime("%Y%m%d")
         try:
             from astropy import units as _u
-            wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH.value)))
+            wl_key = int((wavelength or int(DEFAULT_AIA_WAVELENGTH)))
         except Exception:
-            wl_key = int(DEFAULT_AIA_WAVELENGTH.value)
+            wl_key = int(DEFAULT_AIA_WAVELENGTH)
         combined_cache_file = os.path.join(OUTPUT_DIR, f"temp_combined_{mission}_{wl_key}_{date_str}_{_time_tag}{_integ_suffix}.npz")
         np.savez_compressed(combined_cache_file, data=combined_data, meta=combined_meta)
         import psutil
@@ -3845,7 +3936,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
             combined_map = combined_data
         return combined_map
     elif mission == "SOHO-EIT":
-        wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH.value)) * u.angstrom
+        wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH)) * u.angstrom
         log_to_queue(f"[fetch] SOHO-EIT wavelength {wl}")
         qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(wl))
     elif mission == "SOHO-LASCO":
@@ -3860,7 +3951,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         t0b = dt - timedelta(days=1)
         t1b = dt + timedelta(days=2)
         if mission == "SOHO-EIT":
-            wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH.value)) * u.angstrom
+            wl = (wavelength or int(DEFAULT_EIT_WAVELENGTH)) * u.angstrom
             qr = Fido.search(a.Time(t0b, t1b), a.Instrument("EIT"), a.Wavelength(wl))
         else:
             det = detector or DEFAULT_DETECTOR_LASCO
@@ -3929,7 +4020,7 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
 # Shared SOHO-EIT fallback for SDO failures
 def soho_eit_fallback(dt: datetime) -> Map:
     log_to_queue(f"[fetch] Fallback to SOHO-EIT 195Å")
-    fallback_wl = int(DEFAULT_EIT_WAVELENGTH.value)
+    fallback_wl = int(DEFAULT_EIT_WAVELENGTH)
     t0 = dt
     t1 = dt + timedelta(days=1)
     fallback_qr = Fido.search(a.Time(t0, t1), a.Instrument("EIT"), a.Wavelength(fallback_wl * u.angstrom))
