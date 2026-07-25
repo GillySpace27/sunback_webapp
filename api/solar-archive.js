@@ -4253,10 +4253,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Preview ("jpg") tier now renders the fast 256² raw thumb (see
       // _vibeThumbUrl) instead of the 1 MB jpg_hq. The raw thumb is the
       // native card FOV, so it needs NO 1.22× scale (that existed only to
-      // reframe the wider jpg_hq) — but the raw frame is linear and reads
-      // dim, so brighten it with the sqrt/gamma SVG filter to match the old
-      // jpg's look. (2026-07-24 landing-perf audit.)
-      imgEl.classList.toggle("is-gamma", tier === "jpg");
+      // reframe the wider jpg_hq). The sqrt display stretch is baked into the
+      // committed raw_thumb.png files (build-time), so no display filter is
+      // applied here — a runtime filter would double it. (2026-07-24.)
       imgEl.classList.remove("is-jpg-tier");
     }
     // Progressive quality upgrade: once a card is showing its fast 256² thumb

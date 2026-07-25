@@ -45,11 +45,12 @@
   <link href="solar-archive.css" rel="stylesheet">
 </head>
 <body class="step-product">
-<!-- Gamma filter for vibe Preview thumbnails. The fast 256² raw thumb is
-     linearly scaled and reads dim; feFuncX exponent 0.5 = sqrt brightening
-     so it matches the old Helioviewer jpg. color-interpolation-filters="sRGB"
-     so it operates on the stored pixel values (not linearized), matching the
-     reference computed in numpy. Zero-size, purely a filter source. -->
+<!-- sqrt display filter for RAW frames of ARBITRARY (non-committed) dates.
+     Committed vibe thumbnails have the sqrt baked into the PNG at build time;
+     this GPU filter is for live/custom-date raw frames that can't be
+     pre-baked. exponent 0.5 = sqrt; color-interpolation-filters="sRGB" so it
+     operates on stored pixel values (verified pixel-identical to a numpy
+     sqrt). Zero-size, purely a filter source. -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <filter id="vibeRawGamma" color-interpolation-filters="sRGB">
     <feComponentTransfer>
