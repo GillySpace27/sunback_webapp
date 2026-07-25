@@ -45,6 +45,20 @@
   <link href="solar-archive.css" rel="stylesheet">
 </head>
 <body class="step-product">
+<!-- Gamma filter for vibe Preview thumbnails. The fast 256² raw thumb is
+     linearly scaled and reads dim; feFuncX exponent 0.5 = sqrt brightening
+     so it matches the old Helioviewer jpg. color-interpolation-filters="sRGB"
+     so it operates on the stored pixel values (not linearized), matching the
+     reference computed in numpy. Zero-size, purely a filter source. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <filter id="vibeRawGamma" color-interpolation-filters="sRGB">
+    <feComponentTransfer>
+      <feFuncR type="gamma" amplitude="1" exponent="0.5" offset="0"/>
+      <feFuncG type="gamma" amplitude="1" exponent="0.5" offset="0"/>
+      <feFuncB type="gamma" amplitude="1" exponent="0.5" offset="0"/>
+    </feComponentTransfer>
+  </filter>
+</svg>
 <!-- Skip-to-content link: visually hidden until focused, lets keyboard
      and screen-reader users bypass the hero/banners and jump straight
      to the editor. Sam Rosenberg round-2 WCAG 2.4.1 finding. -->

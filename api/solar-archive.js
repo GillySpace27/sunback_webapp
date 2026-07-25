@@ -4156,9 +4156,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           return entry.rhef_thumb_url || entry.rhef_full_url || null;
         }
         if (tier === "jpg") {
-          // Prefer the 1024² HQ JPG cached by warm_vibe_jpg_hq.py.
-          // Falls back to the primary-event/primary-wavelength 256²
-          // jpg_thumb_url, then to the live Helioviewer proxy below.
+          // Preview tier: use the fast 256² raw thumb (edge-static, ~55 KB),
+          // brightened at display time by the is-gamma SVG filter. The old
+          // path returned the 1024² jpg_hq (~1 MB × 11 cards ≈ 9 MB on the
+          // landing critical path); the thumb is visually equivalent at card
+          // size once gamma-corrected and costs 14× less. jpg_hq is still
+          // produced by the warm pipeline and used in the editor.
+          // (2026-07-24 landing-perf audit.)
+          if (entry.raw_thumb_url) return entry.raw_thumb_url;
           if (entry.jpg_hq_url) return entry.jpg_hq_url;
           var ev1 = (entry.events || [])[0];
           if (ev1 && ev1.wavelengths) {
@@ -4245,7 +4250,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // in solar-archive.css for the geometry justification.
     function _applyTierClass(imgEl, tier) {
       if (!imgEl) return;
-      imgEl.classList.toggle("is-jpg-tier", tier === "jpg");
+      // Preview ("jpg") tier now renders the fast 256² raw thumb (see
+      // _vibeThumbUrl) instead of the 1 MB jpg_hq. The raw thumb is the
+      // native card FOV, so it needs NO 1.22× scale (that existed only to
+      // reframe the wider jpg_hq) — but the raw frame is linear and reads
+      // dim, so brighten it with the sqrt/gamma SVG filter to match the old
+      // jpg's look. (2026-07-24 landing-perf audit.)
+      imgEl.classList.toggle("is-gamma", tier === "jpg");
+      imgEl.classList.remove("is-jpg-tier");
     }
     // Progressive quality upgrade: once a card is showing its fast 256² thumb
     // for `tier`, quietly load the full-res image and swap it in — but ONLY if
@@ -5416,16 +5428,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           probe.onerror = function () { /* not cached yet — fine */ };
           probe.src = defaultUrl;
         }
-        // Defer the 13 MB default-HQ prime to TRUE idle. It warms hqCache for
-        // the rare visitor who enters the editor on the untouched default
-        // image — but the product-first flow doesn't auto-load that image, so
-        // it must never compete with the thumbnails actually on screen.
-        // requestIdleCallback naturally waits until the initial asset rush
-        // settles; the 5 s fallback covers browsers without it.
-        // (2026-07-24 landing-perf audit.)
-        (window.requestIdleCallback || function (cb) { setTimeout(cb, 5000); })(
-          _primeDefaultHQ, { timeout: 15000 }
-        );
+        // Defer the 13 MB default-HQ prime until AFTER the page has loaded.
+        // It warms hqCache for the rare visitor who enters the editor on the
+        // untouched default image — but the product-first flow doesn't
+        // auto-load that image, so it must never compete with the thumbnails
+        // on screen. requestIdleCallback alone was NOT enough: it fires on
+        // CPU-idle (~300 ms here), not network-idle, so the 13 MB fetch still
+        // started alongside the thumbnails. Gate on window 'load' (all
+        // critical resources done) THEN idle. (2026-07-24 landing-perf audit.)
+        var _armPrime = function () {
+          (window.requestIdleCallback || function (cb) { setTimeout(cb, 1500); })(
+            _primeDefaultHQ, { timeout: 15000 }
+          );
+        };
+        if (document.readyState === "complete") _armPrime();
+        else window.addEventListener("load", _armPrime, { once: true });
         // Product-first refactor: do NOT auto-load the default 193 Å
         // image on cold load. The user is on step "product" and the
         // Phase B Printify mockups render photoreal previews without a

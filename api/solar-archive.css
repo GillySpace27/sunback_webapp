@@ -2806,6 +2806,11 @@ body.step-editor .vibe-reveal-btn {
    — shrinking the science to match — would leave a transparent margin
    since FITS data doesn't extend past 2458 arcsec. */
 .vibe-thumb img.is-jpg-tier { transform: scale(1.22); transform-origin: center; }
+/* Preview tier now shows the fast 256² raw thumb. The raw frame is linearly
+   scaled and reads dim next to the old Helioviewer jpg; #vibeRawGamma is a
+   sqrt (gamma-0.5) transfer that brightens it to match. GPU-composited — no
+   canvas, no re-encoding. Filter def lives in index.html. */
+.vibe-thumb img.is-gamma { filter: url(#vibeRawGamma); }
 .vibe-thumb.is-loading::after {
   content: "";
   position: absolute; inset: 0;
