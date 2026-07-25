@@ -4156,13 +4156,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           return entry.rhef_thumb_url || entry.rhef_full_url || null;
         }
         if (tier === "jpg") {
-          // Preview tier: use the fast 256² raw thumb (edge-static, ~55 KB),
-          // brightened at display time by the is-gamma SVG filter. The old
-          // path returned the 1024² jpg_hq (~1 MB × 11 cards ≈ 9 MB on the
-          // landing critical path); the thumb is visually equivalent at card
-          // size once gamma-corrected and costs 14× less. jpg_hq is still
-          // produced by the warm pipeline and used in the editor.
-          // (2026-07-24 landing-perf audit.)
+          // Preview tier: use the fast 256² raw thumb (edge-static, ~55 KB)
+          // with the sqrt stretch baked into the committed PNG. The old path
+          // returned the 1024² jpg_hq (~1 MB × 11 cards ≈ 9 MB on the landing
+          // critical path); the stretched thumb is visually equivalent at card
+          // size and costs 14× less. jpg_hq is still produced by the warm
+          // pipeline and used in the editor. (2026-07-24 landing-perf audit.)
           if (entry.raw_thumb_url) return entry.raw_thumb_url;
           if (entry.jpg_hq_url) return entry.jpg_hq_url;
           var ev1 = (entry.events || [])[0];
