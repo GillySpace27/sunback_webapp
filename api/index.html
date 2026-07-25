@@ -133,7 +133,7 @@
        RHEF filter reads as the core innovation (not just a print-time detail).
        Static edge asset (~0.37 MB WebP); zero backend. -->
   <div class="section quality-strip-section" id="qualityStrip">
-    <img src="/asset/default/quality_strip.webp" alt="The same Sun shown at three processing steps: Preview (fast web image), Original (raw telescope data), and Filtered (the RHEF algorithm revealing the corona)." loading="lazy" />
+    <img src="/asset/default/quality_strip.webp" alt="The same Sun shown before and after processing: Original (raw telescope data) and Filtered (the RHEF algorithm revealing the corona)." loading="lazy" />
     <p class="quality-strip-caption">Every print runs through our <strong>RHEF filter</strong> — the algorithm that pulls the faint corona out of raw telescope data. The <strong>HQ</strong> version is a multi-frame stack rendered at full 4K for your print.</p>
   </div>
 
@@ -193,14 +193,12 @@
          Mapping is documented at the top of solar-archive.js where the
          toggle is wired. -->
     <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
-         role="radiogroup" aria-label="Image stretch — Helioviewer preview, sRGB-gamma original, or radial-equalized filtered">
+         role="radiogroup" aria-label="Image stretch — original telescope frame or radial-equalized filtered">
       <!-- No is-active on initial markup: JS (_wireVibeGrid) picks the
            tier when the manifest resolves (rhef if cached, jpg
            otherwise) and applies is-active to the matching pill.
            Hardcoding is-active on `raw` caused a visible "Original"
            flash on first paint before the JS override (reviewer M8). -->
-      <button type="button" class="vibe-master-btn" data-tier="jpg" aria-pressed="false"
-              title="Helioviewer JPG preview — instant, lower resolution.">Preview</button>
       <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
               title="The conventional NASA SDO look — what astronomers see published.">Original</button>
       <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
@@ -609,22 +607,13 @@
                radio values STAY jpg/raw/rhef/hq_rhef so all the
                state.editorFilter / _filterIsReady / quality-pipeline
                wiring continues to work unchanged. -->
-          <div class="filter-step" data-filter="jpg" title="Colorized JPG from the Helioviewer takeScreenshot service. Loads instantly. Great for screens and quick previews; print fidelity is limited compared with the FITS-derived tiers below.">
-            <span class="filter-step-num"><i class="fas fa-bolt" aria-hidden="true"></i></span>
-            <span class="filter-step-info">
-              <span class="filter-step-name">Preview</span>
-              <span class="filter-step-status" data-status="locked"></span>
-            </span>
-            <input type="radio" name="editorFilter" value="jpg" checked aria-label="Preview quality">
-          </div>
-          <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC.">
+          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC. Paints instantly from a fast web preview, then sharpens to the full telescope frame.">
             <span class="filter-step-num"><i class="fas fa-satellite" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Original</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="raw" aria-label="Original quality">
+            <input type="radio" name="editorFilter" value="raw" checked aria-label="Original quality">
           </div>
           <div class="filter-step-connector"></div>
           <div class="filter-step" data-filter="rhef" title="Radial Histogram Equalization Filter — brings out faint corona detail invisible in the original. Method: Gilly et al. 2025 (Sol. Phys. 300, 174).">

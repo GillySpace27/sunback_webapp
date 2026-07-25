@@ -74,7 +74,7 @@ export const state = {
   clockNumbers: null, // wall_clock only: { font, color, strokeColor, strokeWidth, size, radiusPct }
   mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
   uploadedPrintifyId: null,  // reusable image ID from Printify upload
-  editorFilter: "jpg",       // "jpg" | "raw" | "rhef" — preview only; HQ is separate button
+  editorFilter: "raw",       // "raw" | "rhef" — HQ is separate; "jpg" is raw's fast first-paint, not a tier
   jpgImage: null,            // JPG = Helioviewer-derived from backend; distinct from raw and RHEF
   rhefImage: null,            // RHE-processed preview image
   rawBackendImage: null,     // backend raw preview (no RHEF) for toggling with rhefImage
