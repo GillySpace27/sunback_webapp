@@ -6994,7 +6994,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
 
       // ── Clock numbers (wall_clock only; 12 at top, 1–11 clockwise) ──
-      if (state.clockNumbers && state.selectedProduct === "wall_clock") {
+      // Skipped when burning: the clean snapshot that feeds drawProductMockup
+      // must be numeral-free, or the mockup's own numeral pass doubles them
+      // (2026-07-25, Conner's clock report). drawProductMockup is the single
+      // source of truth for numerals on every displayed/exported surface.
+      if (!state._burningCanvas && state.clockNumbers && state.selectedProduct === "wall_clock") {
         var cn = state.clockNumbers;
         var cw = solarCanvas.width;
         var ch = solarCanvas.height;
@@ -7137,8 +7141,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
       }
 
-      // Live-update the selected product preview — redraws persistent canvas, no DOM mutations
-      refreshLivePreview();
+      // Live-update the selected product preview — redraws persistent canvas,
+      // no DOM mutations. Skipped while burning: the burning render exists only
+      // to produce the clean snapshot INSIDE drawProductMockup, so re-entering
+      // refreshLivePreview → drawProductMockup here would recurse.
+      if (!state._burningCanvas) refreshLivePreview();
     }
 
     // ── Edit tools ───────────────────────────────────────────────
