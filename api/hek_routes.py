@@ -139,20 +139,35 @@ def _cache_path(cache_root: Path, date_str: str) -> Path:
     return cache_root / "hek" / f"{date_str}.json"
 
 
+# Bump when the SHAPE or the USER-FACING COPY of a cached payload changes.
+# The cache stores fully-formatted intensity_labels, so a wording change is
+# invisible on any date already cached until the entry is discarded. That bit
+# us on 2026-07-26: plain-language labels shipped but every previously-visited
+# date kept serving "area 2.21e+10" from the volume.
+HEK_CACHE_FORMAT = 2
+
+
 def _read_cache(cache_root: Path, date_str: str) -> Optional[Dict[str, Any]]:
     p = _cache_path(cache_root, date_str)
     if not p.exists() or p.stat().st_size <= 2:
         return None
     try:
         with p.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            payload = json.load(f)
     except Exception:
         return None
+    # Written by an older format (or pre-versioning) — treat as a miss so the
+    # response is rebuilt with current labels.
+    if not isinstance(payload, dict) or payload.get("cache_format") != HEK_CACHE_FORMAT:
+        return None
+    return payload
 
 
 def _write_cache(cache_root: Path, date_str: str, payload: Dict[str, Any]) -> None:
     p = _cache_path(cache_root, date_str)
     try:
+        payload = dict(payload)
+        payload["cache_format"] = HEK_CACHE_FORMAT
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(".json.tmp")
         with tmp.open("w", encoding="utf-8") as f:
