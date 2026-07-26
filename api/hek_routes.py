@@ -268,13 +268,16 @@ def _row_to_candidate(row, code: str, family: str) -> Optional[Dict[str, Any]]:
             speed = _float_or(_safe_get(row, "cme_speed"))
         ang_width = _float_or(_safe_get(row, "cme_angularwidth"))
         if speed > 0:
-            label = f"{int(speed)} km/s"
+            # Plain language: a bare "466 km/s" left a tester asking "what,
+            # coming at me? what does this mean?" (Conner, 2026-07-26). Name
+            # the phenomenon and add mph, which most shoppers can feel.
+            label = f"Eruption \u00b7 {int(speed)} km/s ({speed * 2236.94 / 1e6:.1f}M mph)"
             intensity = speed
             score = speed
         elif ang_width > 0:
             # Score < a 1 km/s CME so a measured-speed event always wins,
             # but well above a non-CME tier-1 fallback.
-            label = f"width {int(ang_width)}°"
+            label = f"Eruption spanning {int(ang_width)}\u00b0 of the Sun"
             intensity = ang_width
             score = max(1.0, ang_width / 360.0)
         else:
@@ -314,8 +317,11 @@ def _row_to_candidate(row, code: str, family: str) -> Optional[Dict[str, Any]]:
             # positive score so a zero-area FE still ranks above quiet day.
             "tier_score": area if area > 0 else 0.1,
             "intensity": area if area > 0 else None,
+            # The raw HEK area figure ("area 2.21e+10") is noise to a shopper
+            # — say what it IS and where, not an unlabelled magnitude.
             "intensity_label": (
-                f"area {area:.2e} on-disk" if area > 0 else None
+                "Filament eruption on the disk" if (area > 0 and on_disk)
+                else "Filament eruption off the limb" if area > 0 else None
             ),
             "on_disk": on_disk,
             "time_iso": time_iso,
@@ -375,7 +381,7 @@ def _row_to_candidate(row, code: str, family: str) -> Optional[Dict[str, Any]]:
             "ar_number": ar_num,
             "intensity": area if area > 0 else None,
             "intensity_label": (
-                f"NOAA AR {ar_num}" if ar_num else f"area {area:.2e}"
+                f"Sunspot group \u00b7 NOAA {ar_num}" if ar_num else "Large sunspot group"
             ) if (ar_num or area > 0) else None,
             "time_iso": noon,
             "frm_name": frm,

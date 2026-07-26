@@ -2835,6 +2835,9 @@ body.step-editor .vibe-reveal-btn {
 .hek-picker-header { margin-bottom: 10px; }
 .hek-picker-title  { margin: 0; font-size: 1.0rem; color: var(--text-primary, #fff); font-weight: 600; }
 .hek-picker-sub    { margin: 4px 0 0; font-size: 0.82rem; color: var(--text-secondary, #d0c8d8); }
+/* Plain-language footnote under the event tiles — deliberately quiet. */
+.hek-picker-note   { margin: 10px 2px 0; font-size: 0.72rem; line-height: 1.45;
+                     color: var(--text-secondary, #d0c8d8); opacity: 0.72; }
 .hek-tile-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

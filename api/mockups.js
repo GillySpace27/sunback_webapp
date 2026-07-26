@@ -134,7 +134,12 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
       ].join(":");
     }
     function getCleanCanvasSnapshot() {
-      if (!_deps.solarCanvas || _deps.solarCanvas.width === 0) return _deps.solarCanvas;
+      // `width === 0` never fires for an untouched canvas (browser default is
+      // 300×150), so also require an actual editor image — otherwise we hand
+      // back a blank canvas that downstream code mistakes for real art.
+      if (!_deps.solarCanvas || _deps.solarCanvas.width === 0 || !state.originalImage) {
+        return _deps.solarCanvas;
+      }
       var sig = _currentCanvasSig();
       if (_cleanSnapshotCanvas && _cleanSnapshotSig === sig
           && _cleanSnapshotCanvas.width === _deps.solarCanvas.width
@@ -349,8 +354,19 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
       // render the AR 2192 default RHEF (the same image that bakes
       // into the photoreal Printify default mockup) so the modal's
       // canvas still shows a real Sun on every variant.
-      var hasSource = (sourceCanvas && sourceCanvas.width > 0)
+      // An untouched <canvas> reports the browser DEFAULT 300×150 — so
+      // `width > 0` is true even when nothing has ever been painted into it.
+      // That made the blank editor canvas look like a valid source in the
+      // product-first flow (variant picker opens before any image is chosen),
+      // so opts.fallbackSrc was never consulted and the picker drew a bare
+      // silhouette: Conner's "shouldn't there be a preview sun here?"
+      // (2026-07-26). state.originalImage is the real precondition — the
+      // editor canvas only means anything once an image is installed.
+      var canvasUsable = !!(sourceCanvas && sourceCanvas.width > 0
+                            && (state.originalImage || sourceCanvas !== _deps.solarCanvas));
+      var hasSource = canvasUsable
         || (shareSrc && (shareSrc.naturalWidth || shareSrc.width));
+      if (!canvasUsable) sourceCanvas = null;   // never draw from a blank canvas
       if (!hasSource && opts && opts.fallbackSrc) {
         var fb = opts.fallbackSrc;
         if (fb && (fb.naturalWidth || fb.width)) {

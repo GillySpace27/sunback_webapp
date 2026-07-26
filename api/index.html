@@ -495,6 +495,15 @@
         <!-- Skeleton tiles render here from JS during loading; real event
              tiles + the custom tile replace them once HEK returns. -->
       </div>
+      <!-- Plain-language footnote. A tester read the raw catalogue values
+           ("466 km/s", "area 2.21e+10") and asked "what does this mean?"
+           — the labels themselves are now plain, and this one line explains
+           why a number is shown at all. Kept visible rather than a tooltip
+           because the flow is mostly mobile, where hover doesn't exist. -->
+      <p class="hek-picker-note">
+        Every time is UTC. The numbers describe how big the event was —
+        bigger usually means more structure in your picture.
+      </p>
     </section>
 
     <!-- Wavelength auto-suggest caption — populated by JS once the

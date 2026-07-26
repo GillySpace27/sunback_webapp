@@ -2183,7 +2183,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             // Determine the correct variant bucket from the active filter.
             //   "jpg" / "raw" science  →  "raw"   (non-filtered Helioviewer/science slot)
             //   "rhef"                 →  "filtered" (science-processed slot)
-            var mockupVariant = (state.editorFilter === "rhef") ? "filtered" : "raw";
+            // HQ Filtered ("hq_rhef") IS filtered — the old check only matched
+            // "rhef", so viewing HQ Filtered bucketed the mockup as "raw".
+            // That both mislabelled the upload and desynced the cache from the
+            // display alias in updateMockupDisplay(), which is how the button
+            // could land on an already-cached entry and silently no-op
+            // ("clicking generate mockup appears to do nothing" — Conner,
+            // 2026-07-26, who was on HQ Filtered at the time).
+            var mockupVariant = (state.editorFilter === "rhef" || state.editorFilter === "hq_rhef")
+              ? "filtered" : "raw";
 
             // ALWAYS clear the cached upload ID for this variant before generating
             // a single-product mockup.  Without this, if the user resets and regenerates
@@ -2216,6 +2224,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                   }
                 }
               }, MOCKUP_BUTTON_WATCHDOG_MS);
+              /* eslint-disable-next-line no-undef */
               autoGenerateMockups(mockupVariant, productId, function(err) {
                 // Drop late callbacks from prior clicks.
                 if (myToken !== _mockupCallToken) return;
@@ -2228,6 +2237,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                   showToast("Mockup failed: " + (err.message || "unknown error"));
                 }
               });
+            } else {
+              // Guard failed — clear the disabled/busy state we set above, or
+              // the button stays permanently dead with no explanation.
+              _setMockupBtnLoading(false);
+              _unbusy();
+              showToast("Mockup generator unavailable — reload and try again.", "error");
+              return;
             }
             showToast("Generating real mockup for this product…");
           }
@@ -6613,10 +6629,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       ctx.scale(state.flipH ? -1 : 1, state.flipV ? -1 : 1);
       ctx.translate(-refCW / 2, -refCH / 2);
       var scaleImg = Math.max(refCW / iw, refCH / ih);
-      // Helioviewer-sourced JPG (fmt="jpg") covers 3 000 arcsec of sky at 384 px.
-      // FITS-derived raw/rhef cover the AIA full disk: 4 096 px × 0.6 arcsec/px = 2 458 arcsec.
-      // Scale up the JPG so the solar disk appears the same physical size as in raw/rhef.
-      if (fmt === "jpg") {
+      // Helioviewer-sourced JPG covers 3 000 arcsec of sky; FITS-derived
+      // raw/rhef cover the AIA full disk (4 096 px × 0.6 arcsec/px = 2 458
+      // arcsec). Scale the JPG up so the solar disk is the same physical size
+      // in every tier, or the framing visibly jumps as tiers land.
+      //
+      // Keyed off the image ACTUALLY being drawn, not the tier name: since the
+      // Preview tier was folded into Original (diptych, 2026-07-25), fmt ===
+      // "raw" legitimately draws state.jpgImage as its instant first-paint. The
+      // old `fmt === "jpg"` test missed that, so the fast paint rendered the
+      // disk 22 % small and it visibly grew — clipping at the bottom of the
+      // circular clock — the moment the FITS/HQ frame replaced it. (Conner,
+      // 2026-07-26: "the HQ image is cropped before the bottom of the clock".)
+      if (fmt === "jpg" || (img && img === state.jpgImage)) {
         scaleImg *= 3000 / (4096 * 0.6); // ≈ 1.220
       }
       var drawW = iw * scaleImg;
@@ -7202,6 +7227,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         state.textMode = false;
         if (state.selectedProduct) state.aspectFlippedByProduct[state.selectedProduct] = false;
         state.clockNumbers = null;
+        // Re-sync the Hide/Show-numerals label. Without this the button still
+        // read "Hide numerals" after a Reset had already removed them, so the
+        // next tap re-ran the hide branch and appeared to do nothing — the user
+        // had to tap twice to get numerals back. (Conner's clock session,
+        // 2026-07-26: he lost his numerals to Reset.)
+        if (typeof _syncClockToggleLabel === "function") _syncClockToggleLabel();
         if (typeof syncVignetteFadeUI === "function") syncVignetteFadeUI();
         $("#brightnessSlider").value = 0;
         $("#contrastSlider").value = 0;
@@ -11488,8 +11519,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       var needsMockup = ready.filter(function(p) { return !targetCache[p.id]; });
       if (needsMockup.length === 0) {
-        // Already fully mocked for this variant; just update display
+        // Already mocked for this variant. This used to return with no visible
+        // change at all, which reads as a dead button — the display alias in
+        // updateMockupDisplay() can point at a DIFFERENT bucket than the one we
+        // just found populated, so "already done" wasn't necessarily on screen.
+        // Show it and say so. (Conner: "clicking generate mockup appears to do
+        // nothing", 2026-07-26.)
         updateMockupDisplay();
+        if (typeof updatePreviewPaneMockupState === "function") updatePreviewPaneMockupState();
+        if (typeof refreshLivePreview === "function") refreshLivePreview();
+        if (mockupStatus) {
+          mockupStatus.innerHTML = '<span style="color:#3ddc84;font-size:12px;">' +
+            '<i class="fas fa-check-circle"></i> Mockup already generated — showing it now.</span>';
+        }
+        showToast("Mockup already generated for this version — showing it.");
         _settle(null);
         return;
       }
@@ -12460,6 +12503,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // drawProductMockup falls through to its silhouette path.
       return _defaultRhefImage;
     }
+    // Warm the default preview Sun BEFORE the user can open a variant picker.
+    // It used to load lazily on first modal open, so the first picker of the
+    // session showed a bare silhouette until the image arrived (and on a slow
+    // link, long enough to read as broken). The thumb is a ~69 KB edge-static
+    // asset, so this is cheap — but it's deferred past load + idle so it can't
+    // compete with the landing thumbnails.
+    // NOTE: must stay AFTER the `var _defaultRhefImage/_defaultRhefLoadKicked`
+    // declarations above — calling it earlier in the IIFE body would be undone
+    // when those `var` initializers run and reset both to null/false.
+    (function _armDefaultSunPreload() {
+      var kick = function () {
+        (window.requestIdleCallback || function (cb) { setTimeout(cb, 600); })(
+          function () { try { _ensureDefaultRhefImage(); } catch (_e) {} },
+          { timeout: 4000 }
+        );
+      };
+      if (document.readyState === "complete") kick();
+      else window.addEventListener("load", kick, { once: true });
+    })();
 
     function showConfirmSelectModal(product, onContinue) {
       var modal = document.getElementById("confirmSelectModal");
