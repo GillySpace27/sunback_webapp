@@ -11,6 +11,12 @@
 //       which forced every request to origin) the edge cache works here.
 //       Immutable images cache 30d; only 2xx is cached, so a 404 for a
 //       not-yet-rendered hq_*.png is never frozen in front of the real file.
+//   /api/helioviewer_thumb?…  → proxied to Fly and edge-cached. The
+//       wavelength-tile + gallery thumbnails are a fixed set of
+//       (date, wavelength, scale, size) tuples shared by every visitor, so
+//       caching by full URL turns 27 origin round-trips per landing (~3 MB,
+//       and a cold-Fly wake on the first) into edge HITs for everyone after
+//       the first. Deterministic historical frames → treat as immutable.
 //   everything else (/api/**, /logs/stream, /shopify/*, /favicon.ico, …)
 //       → transparent proxy to Fly (fetch streams bodies, so SSE + long
 //       polls pass through).
@@ -43,11 +49,44 @@ function serveAsset(request, env) {
   return toOrigin(request, env, cf);
 }
 
+// Explicit edge cache for the thumbnail proxy. Keyed by full URL (so each
+// date/wavelength/scale/size caches on its own); the cached copy has
+// Vary/Set-Cookie stripped and a 30-day immutable TTL. Only 2xx is stored, so
+// a transient origin error or a pre-generation failure is never frozen.
+async function cacheThumb(request, env, ctx) {
+  const cache = caches.default;
+  const key = new Request(new URL(request.url).toString(), { method: "GET" });
+  const hit = await cache.match(key);
+  if (hit) return hit;
+
+  const resp = await toOrigin(request, env);
+  if (resp.status >= 200 && resp.status < 300) {
+    const headers = new Headers(resp.headers);
+    headers.delete("Vary");
+    headers.delete("Set-Cookie");
+    headers.set("Cache-Control", "public, max-age=2592000, immutable");
+    const cached = new Response(resp.clone().body, {
+      status: resp.status, statusText: resp.statusText, headers,
+    });
+    ctx.waitUntil(cache.put(key, cached));
+  }
+  return resp;
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
     if (pathname === "/asset" || pathname.startsWith("/asset/")) {
       return serveAsset(request, env);
+    }
+    // Edge-cache the deterministic thumbnail proxy (GET only). The `cf`
+    // cache option can't cache this — the origin sends `Vary: Origin` (from
+    // its CORS gate), and Cloudflare treats any Vary other than
+    // Accept-Encoding as uncacheable. The image is identical regardless of
+    // Origin, so we cache explicitly with Vary stripped. The origin's Origin
+    // gate still runs on every MISS (we only reach it then).
+    if (pathname === "/api/helioviewer_thumb" && request.method === "GET") {
+      return cacheThumb(request, env, ctx);
     }
     return toOrigin(request, env);
   },

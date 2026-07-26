@@ -2526,7 +2526,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.panY = img.naturalHeight / 2;
       state.rhefImage = null;
       state.rawBackendImage = null;
-      state.editorFilter = "jpg";
+      state.editorFilter = "raw";  // Original (paints from the fast jpg fallback, sharpens to FITS)
       // Vibe-card entry detection. The vibe's Raw/RHEF/HQ files are
       // pre-warmed on disk and already loading (or cached) via
       // _preloadVibeTiersIntoState in _activateVibe — for that flow we
@@ -2582,7 +2582,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.transitionInProgress = false;
 
       // Reset filter toggle UI to JPG
-      _syncFilterToggleUI("jpg");
+      _syncFilterToggleUI("raw");
       // Repaint the editor's quality timeline so the previous image's
       // LOCKED/HQ-READY state can't leak into the freshly-installed
       // preview. Without this the timeline kept the previous vibe's
@@ -2645,7 +2645,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 jpgImg.onload = function() {
                   if (_selStale(tok)) return;
                   state.jpgImage = jpgImg;
-                  if (state.editorFilter === "jpg") renderCanvas();
+                  if (state.editorFilter === "raw") renderCanvas();
                   if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
                 };
                 jpgImg.src = jpgUrl;
@@ -3158,18 +3158,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
 
     // ── Filter quality timeline ──
-    // The four image versions form a progression: JPG (instant) → Raw → RHEF
-    // → HQ RHEF (highest quality). Each step's status icon reflects whether
-    // its underlying image is locked, loading, or ready. Selection auto-
-    // advances forward as new versions land — unless the user manually
-    // clicked an earlier step, in which case we honor their choice and don't
-    // override it on subsequent ready events. All four images are
-    // co-registered in renderCanvas via the per-format scaleImg adjustment,
-    // so panning/cropping survives a quality jump.
-    var FILTER_ORDER = ["jpg", "raw", "rhef", "hq_rhef"];
+    // The tiers form a progression: Original → Filtered → HQ Filtered. The
+    // fast Helioviewer "jpg" is no longer a user-facing tier of its own — the
+    // sqrt-brightened raw and the jpg look the same now, so the old "Preview"
+    // step was a duplicate of "Original" (2026-07-25, Gilly). jpg lives on ONLY
+    // as Original's instant first-paint: renderCanvas draws jpgImage while the
+    // FITS raw downloads, then swaps to rawBackendImage. So "raw" is ready the
+    // moment EITHER the fast jpg or the real FITS frame is in hand.
+    // Each step's icon reflects locked/loading/ready; selection auto-advances
+    // forward as tiers land unless the user picks one. All co-registered in
+    // renderCanvas so panning/cropping survives a quality jump.
+    var FILTER_ORDER = ["raw", "rhef", "hq_rhef"];
     function _filterIsReady(f) {
-      if (f === "jpg") return !!(state.jpgImage || state.originalImage);
-      if (f === "raw") return !!state.rawBackendImage;
+      if (f === "raw") return !!(state.rawBackendImage || state.jpgImage || state.originalImage);
       if (f === "rhef") return !!state.rhefImage;
       if (f === "hq_rhef") return !!(state.hqFilterImage && state.hqFormat === "rhef");
       return false;
@@ -3311,19 +3312,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var token = (state._qualityCycleToken = (state._qualityCycleToken || 0) + 1);
       state._forcedCycleActive = true;
       state._userFilterPick = null;      // fresh image → clear any prior manual pin
-      // Stage 1 — Preview now (already set to jpg on install; force a sync).
-      if (state.editorFilter !== "jpg") {
-        applyFilterInstant("jpg");
+      // Stage 1 — Original now (set to raw on install; paints instantly from
+      // the fast jpg fallback, sharpens to FITS). Force a sync.
+      if (state.editorFilter !== "raw") {
+        applyFilterInstant("raw");
       } else {
         if (typeof renderCanvas === "function") renderCanvas();
         updateMockupDisplay();
       }
-      // Stage 2 — Original after a settle delay; Stage 3 — Filtered after a
-      // further delay. Both gated on their tier actually being ready. When the
-      // Filtered stage completes (applied or its tier never became ready), let
-      // the cycle settle briefly, then end it so HQ Filtered can auto-apply.
-      _forcedAdvance(token, "raw", 2500);
-      _forcedAdvance(token, "rhef", 5500, function () {
+      // Stage 2 — Filtered after a delay, gated on the RHEF tier being ready.
+      // Diptych: no separate Preview stage (it duplicated Original). When the
+      // Filtered stage completes (applied or never became ready), settle
+      // briefly, then end so HQ Filtered can auto-apply.
+      _forcedAdvance(token, "rhef", 3500, function () {
         var t = setTimeout(function () { _endForcedQualityCycle(token); }, 1500);
         _qualityCycleTimers.push(t);
       });
@@ -3386,8 +3387,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           jpgImg.onload = function() {
             state.jpgImage = jpgImg;
             // Cache the early JPG preview but don't force-switch the user's active filter.
-            // Only re-render so the cached image is used if editorFilter is already "jpg".
-            if (state.editorFilter === "jpg") renderCanvas();
+            // Only re-render so the cached fast-paint is used if editorFilter is "raw".
+            if (state.editorFilter === "raw") renderCanvas();
             if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
           };
           jpgImg.src = jpgUrl;
@@ -4156,9 +4157,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           return entry.rhef_thumb_url || entry.rhef_full_url || null;
         }
         if (tier === "jpg") {
-          // Prefer the 1024² HQ JPG cached by warm_vibe_jpg_hq.py.
-          // Falls back to the primary-event/primary-wavelength 256²
-          // jpg_thumb_url, then to the live Helioviewer proxy below.
+          // Preview tier: use the fast 256² raw thumb (edge-static, ~55 KB)
+          // with the sqrt stretch baked into the committed PNG. The old path
+          // returned the 1024² jpg_hq (~1 MB × 11 cards ≈ 9 MB on the landing
+          // critical path); the stretched thumb is visually equivalent at card
+          // size and costs 14× less. jpg_hq is still produced by the warm
+          // pipeline and used in the editor. (2026-07-24 landing-perf audit.)
+          if (entry.raw_thumb_url) return entry.raw_thumb_url;
           if (entry.jpg_hq_url) return entry.jpg_hq_url;
           var ev1 = (entry.events || [])[0];
           if (ev1 && ev1.wavelengths) {
@@ -4216,7 +4221,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // timeStr is accepted for back-compat but ignored — the manifest keys
       // pre-warmed thumbnails by date + wavelength only (see the index above).
       if (!dateStr) return null;
-      tier = tier || (state && state.vibeMasterTier) || "jpg";
+      tier = tier || (state && state.vibeMasterTier) || "raw";
       var keyTail = dateStr + "/" + wl;
       var url = _wlThumbCacheIndex[tier + "/" + keyTail];
       if (url) return url;
@@ -4245,7 +4250,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // in solar-archive.css for the geometry justification.
     function _applyTierClass(imgEl, tier) {
       if (!imgEl) return;
-      imgEl.classList.toggle("is-jpg-tier", tier === "jpg");
+      // Preview ("jpg") tier now renders the fast 256² raw thumb (see
+      // _vibeThumbUrl) instead of the 1 MB jpg_hq. The raw thumb is the
+      // native card FOV, so it needs NO 1.22× scale (that existed only to
+      // reframe the wider jpg_hq). The sqrt display stretch is baked into the
+      // committed raw_thumb.png files (build-time), so no display filter is
+      // applied here — a runtime filter would double it. (2026-07-24.)
+      imgEl.classList.remove("is-jpg-tier");
     }
     // Progressive quality upgrade: once a card is showing its fast 256² thumb
     // for `tier`, quietly load the full-res image and swap it in — but ONLY if
@@ -4447,13 +4458,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // fallback, we pass tier="raw" — the fallback is at 256² thumb
           // scale (not the 1024² HQ JPG that needs co-registration), so
           // the is-jpg-tier transform shouldn't apply.
-          var url = _vibeThumbUrl(slug, "jpg", { date: date, wl: wl, time: time });
-          var tierTag = entry ? "jpg" : "raw";
+          var url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time });
+          var tierTag = "raw";  // diptych: cards rest on Original, reveal to Filtered
           if (entry && !url) {
-            // Manifest entry without a jpg rung — fall down the ladder.
-            url = _vibeThumbUrl(slug, "raw", { date: date, wl: wl, time: time }) ||
-                  _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
-            tierTag = "raw";
+            url = _vibeThumbUrl(slug, "rhef", { date: date, wl: wl, time: time });
+            tierTag = "rhef";
           }
           if (url) {
             _setVibeThumb(card, url, tierTag);
@@ -4484,11 +4493,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // it reaches the highest, then stop, leaving the page with
         // all-synced tiers." The ramp itself runs on entry to the
         // image-selection step (or right now, if we're already there).
-        state.vibeMasterTier = "jpg";
+        state.vibeMasterTier = "raw";
         var masterToggleEl = document.getElementById("vibeMasterToggle");
         if (masterToggleEl) {
           masterToggleEl.querySelectorAll(".vibe-master-btn").forEach(function (b) {
-            var on = b.getAttribute("data-tier") === "jpg";
+            var on = b.getAttribute("data-tier") === "raw";
             b.classList.toggle("is-active", on);
             b.setAttribute("aria-pressed", on ? "true" : "false");
           });
@@ -4665,7 +4674,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       // Initial master tier — cards paint at the lowest tier (Preview)
       // and the synced ramp steps the grid up on image-step entry.
-      state.vibeMasterTier = state.vibeMasterTier || "jpg";
+      state.vibeMasterTier = state.vibeMasterTier || "raw";
 
       // ── Synced tier ramp ──────────────────────────────────────────
       // Gilly: "start them all at the lowest tier, then step up to the
@@ -4686,18 +4695,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       function _startVibeTierRamp() {
         _cancelVibeTierRamp();
         var token = _vibeRampToken;
-        // No warmed tiers → nothing to step through. Pin the toggle to
-        // Preview so it can't advertise a tier the cards aren't showing.
+        // Diptych: cards rest on Original (raw), then reveal Filtered (rhef) —
+        // no separate Preview step. Pin the toggle to Original first.
         var hasTiers = !!grid.querySelector(".vibe-card.has-tiers");
-        _requestMasterTier("jpg", { force: true, stagger: 0, skipThumbs: hasTiers });
+        _requestMasterTier("raw", { force: true, stagger: 0, skipThumbs: hasTiers });
         if (!hasTiers) return;
-        ["raw", "rhef"].forEach(function (tier, i) {
-          var isLast = tier === "rhef";
-          _vibeRampTimers.push(setTimeout(function () {
-            if (token !== _vibeRampToken) return;
-            _requestMasterTier(tier, { stagger: 0, skipThumbs: !isLast });
-          }, (i + 1) * 2000));
-        });
+        _vibeRampTimers.push(setTimeout(function () {
+          if (token !== _vibeRampToken) return;
+          _requestMasterTier("rhef", { stagger: 0, skipThumbs: false });
+        }, 2000));
       }
       // Run the ramp every time the user arrives at the image step;
       // kill it when they leave. (Cold loads land on step "product", so
@@ -5004,10 +5010,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var slug = slugs[idx++];
         var entry = _vibeManifest[slug];
         if (!entry) return setTimeout(_tick, 0);
-        // Only preload the light-weight bits: jpg_hq_url (~800 KB) and
-        // the 256² thumbs are dwarfed by the 12 MB rhef_full. Total
-        // bandwidth dropped from ~130 MB to ~10 MB.
-        ["jpg_hq_url", "raw_thumb_url", "rhef_thumb_url"].forEach(function (key) {
+        // Preload ONLY the 256² thumbs. jpg_hq_url is ~800 KB–1 MB × 11 ≈
+        // 9 MB and the cards default to the raw thumb, so preloading it on
+        // landing bought nothing but bandwidth that starved the thumbnails
+        // actually on screen. It now loads lazily when the user flips the
+        // master toggle to JPG (or selects a vibe) — the "prices catch up"
+        // principle applied to preloads. (2026-07-24 landing-perf audit.)
+        ["raw_thumb_url", "rhef_thumb_url"].forEach(function (key) {
           var url = entry[key];
           if (!url) return;
           var img = new Image();
@@ -5383,7 +5392,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             })
             .catch(function () { /* not warmed yet — fine */ });
         })();
-        (function _primeDefaultHQ() {
+        function _primeDefaultHQ() {
           // STRESS-015: the legacy /asset/hq_SDO_193_20141024.png path
           // no longer exists on prod (the file moved to the per-vibe
           // tree). Switch to the canonical AR 2192 RHEF full asset
@@ -5412,7 +5421,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           };
           probe.onerror = function () { /* not cached yet — fine */ };
           probe.src = defaultUrl;
-        })();
+        }
+        // Defer the 13 MB default-HQ prime until AFTER the page has loaded.
+        // It warms hqCache for the rare visitor who enters the editor on the
+        // untouched default image — but the product-first flow doesn't
+        // auto-load that image, so it must never compete with the thumbnails
+        // on screen. requestIdleCallback alone was NOT enough: it fires on
+        // CPU-idle (~300 ms here), not network-idle, so the 13 MB fetch still
+        // started alongside the thumbnails. Gate on window 'load' (all
+        // critical resources done) THEN idle. (2026-07-24 landing-perf audit.)
+        var _armPrime = function () {
+          (window.requestIdleCallback || function (cb) { setTimeout(cb, 1500); })(
+            _primeDefaultHQ, { timeout: 15000 }
+          );
+        };
+        if (document.readyState === "complete") _armPrime();
+        else window.addEventListener("load", _armPrime, { once: true });
         // Product-first refactor: do NOT auto-load the default 193 Å
         // image on cold load. The user is on step "product" and the
         // Phase B Printify mockups render photoreal previews without a
@@ -6970,7 +6994,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
 
       // ── Clock numbers (wall_clock only; 12 at top, 1–11 clockwise) ──
-      if (state.clockNumbers && state.selectedProduct === "wall_clock") {
+      // Skipped when burning: the clean snapshot that feeds drawProductMockup
+      // must be numeral-free, or the mockup's own numeral pass doubles them
+      // (2026-07-25, Conner's clock report). drawProductMockup is the single
+      // source of truth for numerals on every displayed/exported surface.
+      if (!state._burningCanvas && state.clockNumbers && state.selectedProduct === "wall_clock") {
         var cn = state.clockNumbers;
         var cw = solarCanvas.width;
         var ch = solarCanvas.height;
@@ -7113,8 +7141,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
       }
 
-      // Live-update the selected product preview — redraws persistent canvas, no DOM mutations
-      refreshLivePreview();
+      // Live-update the selected product preview — redraws persistent canvas,
+      // no DOM mutations. Skipped while burning: the burning render exists only
+      // to produce the clean snapshot INSIDE drawProductMockup, so re-entering
+      // refreshLivePreview → drawProductMockup here would recurse.
+      if (!state._burningCanvas) refreshLivePreview();
     }
 
     // ── Edit tools ───────────────────────────────────────────────

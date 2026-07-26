@@ -141,8 +141,25 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
           && _cleanSnapshotCanvas.height === _deps.solarCanvas.height) {
         return _cleanSnapshotCanvas;
       }
+      // Produce a GUARANTEED numeral-free source. Two things forced numerals
+      // into this "clean" snapshot before (2026-07-25, Conner's clock report):
+      //   1. clock numerals draw in renderCanvas without a _burningCanvas
+      //      guard, so a burning render still painted them.
+      //   2. when getCleanCanvasSnapshot runs during a render (renderCanvas →
+      //      refreshLivePreview → drawProductMockup → here), the burning
+      //      renderCanvas bailed on the re-entry guard and we copied the
+      //      already-numbered solarCanvas. drawProductMockup then drew a
+      //      SECOND set on top → the intermittent double numerals.
+      // Belt and braces: null clockNumbers so numerals can't be drawn at all,
+      // AND clear the re-entry guard so the burning render actually runs and
+      // overwrites solarCanvas clean (refreshLivePreview is skipped while
+      // burning — see renderCanvas — so this can't recurse back into here).
       var wasBurning = state._burningCanvas;
+      var savedClock = state.clockNumbers;
+      var savedInProgress = state._renderInProgress;
       state._burningCanvas = true;
+      state.clockNumbers = null;
+      state._renderInProgress = false;
       try { _deps.renderCanvas(); } catch (_e) {}
       if (!_cleanSnapshotCanvas) _cleanSnapshotCanvas = document.createElement("canvas");
       _cleanSnapshotCanvas.width = _deps.solarCanvas.width;
@@ -151,6 +168,8 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
       cctx.clearRect(0, 0, _cleanSnapshotCanvas.width, _cleanSnapshotCanvas.height);
       cctx.drawImage(_deps.solarCanvas, 0, 0);
       state._burningCanvas = wasBurning || false;
+      state.clockNumbers = savedClock;
+      state._renderInProgress = savedInProgress;
       try { _deps.renderCanvas(); } catch (_e) {}
       _cleanSnapshotSig = sig;
       return _cleanSnapshotCanvas;

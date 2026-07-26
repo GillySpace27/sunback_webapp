@@ -2806,6 +2806,10 @@ body.step-editor .vibe-reveal-btn {
    — shrinking the science to match — would leave a transparent margin
    since FITS data doesn't extend past 2458 arcsec. */
 .vibe-thumb img.is-jpg-tier { transform: scale(1.22); transform-origin: center; }
+/* The Preview tier's sqrt display stretch is baked into the committed
+   raw_thumb.png files at build time (see infra scripts), so no runtime
+   filter is applied. Arbitrary (non-committed) dates get the stretch
+   client-side where their raw frame is displayed. */
 .vibe-thumb.is-loading::after {
   content: "";
   position: absolute; inset: 0;
