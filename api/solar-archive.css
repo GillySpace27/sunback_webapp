@@ -2109,6 +2109,10 @@ input[type="range"]::-moz-range-thumb {
    / showColorChooser). Covers edge cases where stacking contexts
    conspire to keep FAB visible despite the z bump. */
 body.modal-open .feedback-fab-group { display: none !important; }
+/* Belt and braces for the same collision: while consent is pending, get the
+   floating pills out of the way entirely. (:has() is well supported; the
+   z-index rule above is the fallback for anything that lacks it.) */
+body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !important; }
 
 @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
 
@@ -3246,8 +3250,11 @@ body.step-editor .vibe-reveal-btn {
      height ~52px). 90px clears it on mobile so the banner doesn't
      cover the Request / Comment pills (persona-sweep finding). */
   bottom: calc(90px + env(safe-area-inset-bottom, 0px));
-  /* Below FAB (9990) so a modal-open scroll-lock can still grey it. */
-  z-index: 9989;
+  /* ABOVE the FAB cluster (9990). At bottom:16px on desktop the banner sits
+     in the same zone as the pills, and at 9989 they painted on top of it —
+     covering the "Accept" button (usability sweep, 2026-07-28). A consent
+     gate should always win the stacking contest. */
+  z-index: 9995;
   background: rgba(15, 17, 30, 0.96);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border, #2a2a44);
@@ -3328,6 +3335,12 @@ body.step-editor .vibe-reveal-btn {
 }
 
 .toast.show { transform: translateX(-50%) translateY(0); }
+/* Lift clear of the sticky editor action bar. A tester watched the
+   "193 Å loaded!" toast sit directly on top of the Buy button (usability
+   sweep, 2026-07-28). Also click-to-dismiss — see showToast(). */
+body.step-editor .toast { bottom: 104px; }
+@media (max-width: 749px) { body.step-editor .toast { bottom: 120px; } }
+.toast { cursor: pointer; }
 .toast.success { border-color: #3ddc84; }
 .toast.error { border-color: var(--accent-flare); }
 
@@ -6346,3 +6359,5 @@ body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
   /* Product grid stays 2-up but tighten gap further. */
   .product-grid { gap: 8px; }
 }
+
+

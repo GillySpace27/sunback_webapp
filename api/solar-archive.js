@@ -154,6 +154,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
     var HQ_POLL_DEADLINE_MS = 5 * 60000; // hard cap on any render poll loop
+    // Poll backoff. Both render loops used a flat 1.5 s, so a 90 s wait cost
+    // ~170 requests (a tester counted them) — and generate_preview is a POST
+    // that re-submits the whole job description each tick, not a cheap status
+    // read. Start responsive, then ease off: most renders finish early, and a
+    // 4-minute render now costs ~30 requests instead of ~160.
+    function _pollDelay(attempt) {
+      return Math.min(1500 * Math.pow(1.35, Math.max(0, attempt)), 8000);
+    }
     var IMG_LOAD_TIMEOUT_MS = 60000;  // an <img> that never fires load/error
 
     // ── Attribution citation strings ─────────────────────────────
@@ -2961,7 +2969,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function fetchBackendRHEPreview(dateStr, wavelength, onProgress) {
       dateStr = (dateStr || "").trim();
       if (!dateStr || !wavelength) return Promise.reject(new Error("Missing date or wavelength"));
-      if (onProgress) onProgress(10, "Requesting RHE…");
+      if (onProgress) onProgress(10, "Requesting the sharper version…");
       var timeStr = _solarTimeValue();
       // Kickoff POST is time-boxed: on flaky wifi a bare fetch() can hang
       // indefinitely, which left every quality tier spinning with no error
@@ -3002,14 +3010,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               function _pollTimeoutError() {
                 var mins = Math.max(1, Math.round(_pollElapsedMs() / 60000));
                 return new Error(
-                  "RHE preview timed out after about " + mins + " minute" +
+                  "The sharper version timed out after about " + mins + " minute" +
                   (mins === 1 ? "" : "s") +
                   ". The science data is slow to retrieve right now — try again, " +
                   "or pick a nearby date or time."
                 );
               }
               function poll() {
-                if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Generating RHE from science data…");
+                if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Sharpening the telescope image…");
                 // Each poll attempt gets its own AbortController so a
                 // slow-network hang (3G, hotel wifi) can't pause the
                 // polling loop forever — a QA tester flagged that
@@ -3040,7 +3048,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                         if (onProgress) onProgress(40, "JPG ready; generating RHE…", { preview_jpg_url: d.preview_jpg_url });
                         attempts++;
                         if (_pollTimedOut()) reject(_pollTimeoutError());
-                        else setTimeout(poll, 1500);
+                        else setTimeout(poll, _pollDelay(attempts));
                         return;
                       }
                       reject(new Error(d.error || "No VSO data for this date"));
@@ -3048,7 +3056,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                     }
                     attempts++;
                     if (_pollTimedOut()) reject(_pollTimeoutError());
-                    else setTimeout(poll, 1500);
+                    else setTimeout(poll, _pollDelay(attempts));
                   })
                   .catch(function(err) {
                     clearTimeout(perReqTimer);
@@ -3059,11 +3067,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                     if (err && err.name === "AbortError") {
                       attempts++;
                       if (_pollTimedOut()) {
-                        reject(new Error("Connection too slow — RHE preview attempts timed out repeatedly. Retry on a stronger network."));
+                        reject(new Error("Connection too slow — the sharper version kept timing out. Try again on a stronger network."));
                         return;
                       }
                       if (onProgress) onProgress(20 + Math.min(50, (attempts / maxAttempts) * 50), "Slow connection — retrying…");
-                      setTimeout(poll, 1500);
+                      setTimeout(poll, _pollDelay(attempts));
                       return;
                     }
                     // Any other error → bubble up to the .catch on the
@@ -3795,7 +3803,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       } else if (event.ar_number) {
         metaPhrase = "NOAA active region " + event.ar_number + ". ";
       }
-      return rankPhrase + typePhrase + " " + timePhrase + ". " + metaPhrase + "Tap to select.";
+      return rankPhrase + typePhrase + " " + timePhrase + ". " + metaPhrase + "Select this moment.";
     }
 
     function _eventTileHTML(event, isFirstRadio) {
@@ -4073,19 +4081,44 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           fallback: true,
         }] }, dateStr);
       }, 12000);
-      fetch("/api/hek/best_time?date=" + encodeURIComponent(dateStr),
-            { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
-        .then(function (r) { return r.ok ? r.json() : null; })
+      // ONE silent retry before we conclude anything. A tester saw
+      // "No notable events catalogued for 2024-05-10" — the site's own hero
+      // date, which has a CME and an X3.9 flare — because the FIRST request
+      // came back net::ERR_ABORTED (cold backend / superseded in-flight
+      // request) and the identical URL returned 200 moments later. Claiming
+      // "no events" when we simply failed to ask is a lie to the customer.
+      // (Usability sweep 2026-07-28.)
+      function _hekFetchOnce(attempt) {
+        return fetch("/api/hek/best_time?date=" + encodeURIComponent(dateStr),
+                     { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function (err) {
+            var aborted = err && err.name === "AbortError";
+            if (attempt === 0 && !aborted && token === _hekFetchToken) {
+              return new Promise(function (res) { setTimeout(res, 900); })
+                .then(function () { return _hekFetchOnce(1); });
+            }
+            throw err;
+          });
+      }
+      _hekFetchOnce(0)
         .then(function (data) {
           clearTimeout(timer);
           if (token !== _hekFetchToken) return;
           if (!data) {
             _renderHekTiles({ events: [{
-              rank: 1, rank_label: "Noon UTC",
+              rank: 1, rank_label: "Midday",
               time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
-              event_type: "Noon UTC", event_code: null, family: null, tier: 4,
+              event_type: "Midday", event_code: null, family: null, tier: 4,
               fallback: true,
             }] }, dateStr);
+            // Say what actually happened: we couldn't check. Do NOT reuse the
+            // "the Sun was calm" copy — that asserts something we don't know.
+            var _subEl = document.getElementById("hekPickerSub");
+            if (_subEl) {
+              _subEl.textContent = "Couldn't check the day's events just now — using midday. " +
+                                   "You can set your own time below.";
+            }
             return;
           }
           _renderHekTiles(data, dateStr);
@@ -4139,13 +4172,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           clearTimeout(timer);
           if (token !== _hekFetchToken) return;
           _renderHekTiles({ events: [{
-            rank: 1, rank_label: "Noon UTC",
+            rank: 1, rank_label: "Midday",
             time_utc: "12:00", peak_time_iso: dateStr + "T12:00:00",
-            event_type: "Noon UTC", event_code: null, family: null, tier: 4,
+            event_type: "Midday", event_code: null, family: null, tier: 4,
             fallback: true,
           }] }, dateStr);
+          var _subErr = document.getElementById("hekPickerSub");
+          if (_subErr) {
+            _subErr.textContent = "Couldn't check the day's events just now — using midday. " +
+                                  "You can set your own time below.";
+          }
           // A failed event lookup must not cost the user their Sun — the
-          // date is still perfectly renderable at noon.
+          // date is still perfectly renderable at midday.
           if (_autoSunPending) _fireAutoSun(193);
         });
     }
@@ -5561,6 +5599,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       requestAnimationFrame(function() { toastEl.classList.add("show"); });
       clearTimeout(toastTimer);
       toastTimer = setTimeout(function() { toastEl.classList.remove("show"); }, 4000);
+      // Always dismissable. A tester reported a toast parked over the Buy
+      // button "for minutes" with no way to clear it (usability sweep
+      // 2026-07-28); whatever kept re-arming the timer, the user should never
+      // be stuck looking at one. Bound once — showToast runs on every message.
+      if (!toastEl._dismissBound) {
+        toastEl._dismissBound = true;
+        toastEl.addEventListener("click", function () {
+          clearTimeout(toastTimer);
+          toastEl.classList.remove("show");
+        });
+      }
 
       // Update ARIA live region for screen readers. Errors go to the
       // assertive companion (#alertRegion) so they interrupt AT;
@@ -6340,6 +6389,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // caller's silent-retry path re-POSTs the generation (cheap: the
         // render is served from cache if the file survived).
         var unknownStreak = 0;
+        var _pollTick = 0;   // drives the backoff below
         (function tick() {
           if (Date.now() - started >= deadlineMs) {
             reject(new Error("Rendering timed out after " +
@@ -6356,13 +6406,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 reject(new Error("Server restarted mid-render (task lost) — request timed out"));
               } else {
                 if (data.status !== "unknown") unknownStreak = 0;
-                setTimeout(tick, 1500);
+                setTimeout(tick, _pollDelay(_pollTick++));
               }
             })
             .catch(function(err) {
               // Flaky link: one dropped poll shouldn't kill the job. Keep
               // polling until the deadline, then give up honestly.
-              if (Date.now() - started < deadlineMs) setTimeout(tick, 3000);
+              if (Date.now() - started < deadlineMs) setTimeout(tick, Math.max(3000, _pollDelay(_pollTick++)));
               else reject(err);
             });
         })();
@@ -10153,7 +10203,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (product.id === "wall_clock") {
         html += '<p class="variant-clock-note">Some options differ by hand color (white vs black).</p>';
       }
-      html += '<p class="variant-pick-hint">Tap <strong>Choose size &amp; colour</strong> above to change.</p>';
+      html += '<p class="variant-pick-hint">Use <strong>Choose size &amp; colour</strong> above to change.</p>';
       html += '</div>';
       panel.innerHTML = html;
 
