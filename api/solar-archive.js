@@ -1139,6 +1139,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // them through the deps registry now so every later drawProductMockup
     // call has its dependencies satisfied.
     initMockups({ solarCanvas: solarCanvas, renderCanvas: renderCanvas });
+    // Live clock hands: the wall_clock mockup draws the hands at the
+    // viewer's actual local time (mockups.js), so tick the live preview
+    // once a minute to keep them honest. refreshLivePreview() already
+    // no-ops when there's nothing to draw; only pay for the redraw when
+    // the tab is actually visible.
+    setInterval(function () {
+      if (state.selectedProduct === "wall_clock" && document.visibilityState === "visible") {
+        refreshLivePreview();
+      }
+    }, 60000);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible" && state.selectedProduct === "wall_clock") {
+        refreshLivePreview();
+      }
+    });
     // bundler.js (beta-mode .zip export) needs DOM refs + several helpers.
     // Function refs (renderCanvas, _solarTimeValue, showToast, _scrollToEl,
     // renderProducts) all hoist; vars (API_BASE, CITATIONS) are assigned
@@ -5912,6 +5927,63 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
       }
     }
+
+    // "The Sun right now" hero widget. Best-effort and fully optional —
+    // the hero renders fine without it. Deferred past window 'load' +
+    // idle so it never competes with anything on the critical path (same
+    // gating as _armPrime above), and the element only ever becomes
+    // visible on a successful image load, so a sleeping/unreachable
+    // backend just means the widget silently never appears.
+    (function _armHeroNow() {
+      var heroNow = document.getElementById("heroNow");
+      var heroNowImg = document.getElementById("heroNowImg");
+      var heroNowCaption = document.getElementById("heroNowCaption");
+      if (!heroNow || !heroNowImg || !heroNowCaption) return;
+      function _loadHeroNow() {
+        try {
+          // SDO latency + future-date guard: back off an hour, then floor
+          // to a 15-min bucket so concurrent visitors share one edge-cache
+          // key instead of each minting their own.
+          var t = new Date(Date.now() - 60 * 60 * 1000);
+          var bucketMin = Math.floor(t.getUTCMinutes() / 15) * 15;
+          var iso = t.getUTCFullYear() + "-" +
+            String(t.getUTCMonth() + 1).padStart(2, "0") + "-" +
+            String(t.getUTCDate()).padStart(2, "0") + "T" +
+            String(t.getUTCHours()).padStart(2, "0") + ":" +
+            String(bucketMin).padStart(2, "0") + ":00Z";
+          var url = API_BASE + "/api/helioviewer_thumb?date=" +
+            encodeURIComponent(iso) + "&wavelength=193&image_scale=12&size=256";
+          var probe = new Image();
+          probe.onload = function () {
+            heroNowImg.src = url;
+            var hh = String(t.getUTCHours()).padStart(2, "0");
+            var mm = String(bucketMin).padStart(2, "0");
+            heroNowCaption.textContent = "The Sun, right now (" + hh + ":" + mm + " UTC)";
+            heroNow.hidden = false;
+          };
+          probe.onerror = function () { /* backend asleep or offline — fine, stay hidden */ };
+          probe.src = url;
+        } catch (_e) { /* fine — widget just stays hidden */ }
+      }
+      var _armHero = function () {
+        (window.requestIdleCallback || function (cb) { setTimeout(cb, 1500); })(
+          _loadHeroNow, { timeout: 15000 }
+        );
+      };
+      if (document.readyState === "complete") _armHero();
+      else window.addEventListener("load", _armHero, { once: true });
+      heroNow.addEventListener("click", function () {
+        if (dateInput) {
+          // dateInput.max trails today by the HQ-pipeline lag (see the
+          // "7-day lag" comment near its setup below) — jump to the
+          // most recent date that's actually usable, not literal today,
+          // which the input just refuses as out of range.
+          dateInput.value = dateInput.max || new Date().toISOString().slice(0, 10);
+          dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+          dateInput.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    })();
 
     // Eager-render the product grid pre-image so users can browse the catalog
     // while a wavelength image is loading (or before they even pick one). The

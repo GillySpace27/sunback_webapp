@@ -775,12 +775,14 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
           mctx.restore();
         }
 
-        // Draw clock hands (10:10 display position — classic watch ad pose)
-        // Hour hand pointing to ~10 o'clock
-        var hourAngle = -Math.PI / 2 + (10 / 12) * Math.PI * 2; // 10 o'clock
+        // Draw clock hands at the viewer's actual local time.
+        var _now = new Date();
+        var _h = _now.getHours(), _m = _now.getMinutes(), _s = _now.getSeconds();
+        var hFrac = ((_h % 12) + _m / 60) / 12;
+        var mFrac = (_m + _s / 60) / 60;
+        var hourAngle = -Math.PI / 2 + hFrac * Math.PI * 2;
         var hourLen = 28;
-        // Minute hand pointing to ~2 o'clock
-        var minAngle = -Math.PI / 2 + (10 / 60) * Math.PI * 2; // 10 minutes past
+        var minAngle = -Math.PI / 2 + mFrac * Math.PI * 2;
         var minLen = 40;
 
         mctx.strokeStyle = handColor;

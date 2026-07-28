@@ -77,6 +77,14 @@
          derived imagery. Keep in sync with solar-archive.js
          CITATIONS.SDO_ACK (both use the full canonical phrasing). -->
     <p class="hero-credit">Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams. Not affiliated; no endorsement implied.</p>
+    <!-- "The Sun right now" — populated by JS only once the thumbnail
+         actually loads (api hit is optional/best-effort), so this stays
+         hidden and reserves no layout space until then. Fixed pixel size
+         on the image so there's no shift when it does appear. -->
+    <button type="button" class="hero-now" id="heroNow" hidden>
+      <img id="heroNowImg" alt="" width="72" height="72">
+      <span id="heroNowCaption"></span>
+    </button>
     <!-- Beta banner — shown only when BETA_MODE is on (the /store-config
          fetch sets the .beta-mode-active class on <body>, which un-hides
          this block via CSS). Orange so it reads as an advisory, not an
