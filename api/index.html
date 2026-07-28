@@ -141,10 +141,14 @@
        clipped to the left of the divider. -->
   <div class="section quality-strip-section" id="qualityStrip">
     <div class="compare-slider" id="compareSlider" style="--split:50%">
+      <!-- Eager, not lazy: the showcase sits at the fold boundary and
+           loading="lazy" was observed on prod never firing at all (currentSrc
+           stayed empty while a programmatic probe of the same URL loaded
+           fine). 89 KB total doesn't need deferring. -->
       <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
-           alt="The Sun after our sharpening step, revealing the faint outer glow." loading="lazy" decoding="async" />
+           alt="The Sun after our sharpening step, revealing the faint outer glow." decoding="async" />
       <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
-           alt="" aria-hidden="true" loading="lazy" decoding="async" />
+           alt="" aria-hidden="true" decoding="async" />
       <div class="compare-handle" role="slider" tabindex="0"
            aria-label="Drag to compare the original telescope photo with the sharpened version"
            aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
