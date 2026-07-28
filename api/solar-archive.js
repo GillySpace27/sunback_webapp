@@ -150,6 +150,35 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (isFileProtocol) return "";  // no backend when viewing from file without ?api=
       return window.location.origin;
     })();
+    // ── Shareable deep links: phase 1 (early) ────────────────────
+    // Read-only parse, stashed for the real hydration pass later (once
+    // dateInput/wlGrid/_activateVibe etc. exist). The ONE thing that must
+    // happen this early: state.selectedProduct, because
+    // _normalizeStepWithState() (a few dozen lines down) demotes any
+    // non-"product" step back to "product" whenever selectedProduct is
+    // unset — which is exactly what silently threw away a shared #editor
+    // link before hydration ever got a chance to run. Everything else
+    // (date/time/wavelength/vibe) is inert until phase 2 actually acts on
+    // it, so it's safe to just stash and move on.
+    var _shareParams = (function () {
+      try {
+        var q = new URLSearchParams(window.location.search);
+        return {
+          p: q.get("p") || "",
+          d: q.get("d") || "",
+          t: q.get("t") || "",
+          wl: q.get("wl") || "",
+          vibe: q.get("vibe") || "",
+        };
+      } catch (_e) {
+        return { p: "", d: "", t: "", wl: "", vibe: "" };
+      }
+    })();
+    if (_shareParams.p) {
+      var _sharedProduct = PRODUCTS.filter(function (p) { return p.id === _shareParams.p; })[0];
+      if (_sharedProduct) state.selectedProduct = _sharedProduct.id;
+    }
+
     var HEALTH_TIMEOUT_MS = 12000;    // 12s to allow cold start
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
@@ -1136,6 +1165,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // assignments don't.
     var _productPriceCache = {};   // productId -> formatted "$X.XX" string
     var _cheapestCostsPromise = null;
+    // Same early-hoist reason as _productPriceCache just above:
+    // getSelectedVariantForProduct() (via renderProducts()'s eager pre-
+    // image grid render, and other early synchronous callers) reads
+    // variantCache before this file's normal declaration point further
+    // down would have run. A share-link's product param can make
+    // state.selectedProduct truthy this early too, which drives those
+    // early callers down the variant-lookup branch instead of the
+    // no-product-yet skip they normally take.
+    var variantCache = {};        // keyed by "blueprintId_printProviderId" → variant array
+    var variantFetchInFlight = {}; // deduplication: same key → shared in-flight Promise
+    var variantPricingCache = {}; // keyed by "blueprintId_printProviderId" → { variantId: { cost, price } }
+    var variantPricingFetchInFlight = {};
     var checkoutProgress = $("#checkoutProgress");
     var btnBuyInEditor = $("#btnBuyInEditor");
     var orderStatus = $("#orderStatus");
@@ -3256,7 +3297,163 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // connector at index i sits between step i and step i+1.
         c.classList.toggle("completed", i < maxReadyIdx);
       });
+      // Compare-with-Original availability tracks the same readiness state
+      // this function already recomputes on every tier/status change.
+      if (typeof _syncCompareBtn === "function") _syncCompareBtn();
+      if (typeof _syncShareImageStepBtn === "function") _syncShareImageStepBtn();
     }
+
+    // ── Compare with Original (editor wipe) ─────────────────────
+    // The landing slider's hands-on comparison, on the user's OWN image.
+    // Two frozen snapshots — Original (raw tier) and the current tier —
+    // composited with a vertical clip driven by pointer x. Both snapshots
+    // come out of renderCanvas itself, so they inherit every bit of live
+    // geometry (pan, zoom, product ratio, the 1.22× jpg plate-scale fix)
+    // and are co-registered by construction. renderCanvas exits compare
+    // at its entry, so ANY real repaint (tier landing, slider, product
+    // change, export) tears the mode down before painting truth.
+    var _cmpImgA = null;   // Original snapshot
+    var _cmpImgB = null;   // current-tier snapshot
+    var _cmpX = 0;         // divider, canvas px
+    var _cmpRaf = null;
+    function _cmpSnapshotCanvas() {
+      var c = document.createElement("canvas");
+      c.width = solarCanvas.width;
+      c.height = solarCanvas.height;
+      c.getContext("2d").drawImage(solarCanvas, 0, 0);
+      return c;
+    }
+    function _syncCompareBtn() {
+      var btn = document.getElementById("btnCompareOriginal");
+      if (!btn) return;
+      var usable = !!state.originalImage &&
+                   typeof _filterIsReady === "function" && _filterIsReady("raw") &&
+                   state.editorFilter !== "raw";
+      btn.classList.toggle("hidden", !usable && !state._compareActive);
+      if (!usable && state._compareActive) exitCompareMode(false);
+    }
+    function enterCompareMode() {
+      if (state._compareActive) return;
+      if (!state.originalImage || state.editorFilter === "raw") return;
+      var cur = state.editorFilter;
+      // Snapshot the CURRENT tier first (canvas already shows truth)…
+      _cmpImgB = _cmpSnapshotCanvas();
+      // …then render Original and snapshot it. Canvas dimensions can differ
+      // between tiers (HQ resolution bump) — _cmpDraw scales both snapshots
+      // to the live canvas rect, and the shared ref-space geometry keeps the
+      // disks aligned.
+      state.editorFilter = "raw";
+      renderCanvas();
+      _cmpImgA = _cmpSnapshotCanvas();
+      state.editorFilter = cur;
+      renderCanvas();
+      state._compareActive = true;
+      _cmpX = solarCanvas.width / 2;
+      var ov = document.getElementById("compareCanvasOverlay");
+      if (ov) ov.classList.remove("hidden");
+      var btn = document.getElementById("btnCompareOriginal");
+      if (btn) { btn.classList.add("is-active"); btn.setAttribute("aria-pressed", "true"); }
+      _cmpDraw();
+    }
+    function exitCompareMode(skipRender) {
+      state._compareActive = false;
+      _cmpImgA = _cmpImgB = null;
+      if (_cmpRaf) { cancelAnimationFrame(_cmpRaf); _cmpRaf = null; }
+      var ov = document.getElementById("compareCanvasOverlay");
+      if (ov) ov.classList.add("hidden");
+      var btn = document.getElementById("btnCompareOriginal");
+      if (btn) { btn.classList.remove("is-active"); btn.setAttribute("aria-pressed", "false"); }
+      if (!skipRender) {
+        renderCanvas();
+        if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+      }
+    }
+    function _cmpDraw() {
+      if (!state._compareActive || !_cmpImgA || !_cmpImgB) return;
+      var ctx = solarCanvas.getContext("2d");
+      var cw = solarCanvas.width, ch = solarCanvas.height;
+      var x = Math.max(0, Math.min(cw, _cmpX));
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.drawImage(_cmpImgB, 0, 0, _cmpImgB.width, _cmpImgB.height, 0, 0, cw, ch);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, x, ch);
+      ctx.clip();
+      ctx.drawImage(_cmpImgA, 0, 0, _cmpImgA.width, _cmpImgA.height, 0, 0, cw, ch);
+      ctx.restore();
+      // Divider + corner labels, scaled to canvas resolution.
+      ctx.save();
+      var lw = Math.max(2, cw * 0.003);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(x - lw / 2, 0, lw, ch);
+      var fs = Math.max(11, Math.round(cw * 0.02));
+      ctx.font = "600 " + fs + "px 'Outfit', sans-serif";
+      ctx.textBaseline = "middle";
+      function _chip(txt, rightAlign) {
+        var pad = fs * 0.6;
+        var w = ctx.measureText(txt).width + pad * 2;
+        var h = fs * 1.9;
+        var cx0 = rightAlign ? cw - w - fs : fs;
+        ctx.fillStyle = "rgba(10,9,17,0.65)";
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(cx0, fs, w, h, h / 2);
+        else ctx.rect(cx0, fs, w, h);
+        ctx.fill();
+        ctx.fillStyle = "#d0c8d8";
+        ctx.textAlign = rightAlign ? "right" : "left";
+        ctx.fillText(txt, rightAlign ? cw - fs - pad : fs + pad, fs + h / 2);
+      }
+      _chip("Original", false);
+      _chip("Filtered", true);
+      ctx.restore();
+    }
+    (function _wireCompareMode() {
+      var btn = document.getElementById("btnCompareOriginal");
+      var ov = document.getElementById("compareCanvasOverlay");
+      if (!btn || !ov) return;
+      btn.addEventListener("click", function () {
+        if (state._compareActive) exitCompareMode(false);
+        else enterCompareMode();
+      });
+      // Arrow keys nudge the divider by 5% while the button has focus.
+      btn.addEventListener("keydown", function (e) {
+        if (!state._compareActive) return;
+        var step = solarCanvas.width * 0.05;
+        if (e.key === "ArrowLeft") _cmpX -= step;
+        else if (e.key === "ArrowRight") _cmpX += step;
+        else return;
+        e.preventDefault();
+        _cmpDraw();
+      });
+      function _fromPointer(e) {
+        var r = solarCanvas.getBoundingClientRect();
+        return (e.clientX - r.left) * (solarCanvas.width / r.width);
+      }
+      var dragging = false;
+      ov.addEventListener("pointerdown", function (e) {
+        dragging = true;
+        try { ov.setPointerCapture(e.pointerId); } catch (_e) {}
+        _cmpX = _fromPointer(e);
+        _cmpDraw();
+        e.preventDefault();
+      });
+      ov.addEventListener("pointermove", function (e) {
+        if (!dragging || !state._compareActive) return;
+        _cmpX = _fromPointer(e);
+        if (_cmpRaf) return;   // coalesce to one draw per frame
+        _cmpRaf = requestAnimationFrame(function () {
+          _cmpRaf = null;
+          _cmpDraw();
+        });
+      });
+      function _up(e) {
+        dragging = false;
+        try { ov.releasePointerCapture(e.pointerId); } catch (_e) {}
+      }
+      ov.addEventListener("pointerup", _up);
+      ov.addEventListener("pointercancel", _up);
+    })();
+
     // Backwards-compat: existing call sites pass the *intended* filter value
     // and expect us to redraw the toggle to match. Do NOT mutate
     // state.editorFilter here — applyFilterInstant() short-circuits when
@@ -5401,6 +5598,135 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
     _wireVibeGrid();
 
+    // ── Shareable deep links: phase 2 (full hydration) ────────────
+    // Runs once the vibe grid + date/wavelength/time inputs are wired, so it
+    // can drive the exact same pipeline a real click would — this is the
+    // SAME code path _bdaySubmit and a vibe-card click use, not a shadow
+    // implementation of it. URL params win over the localStorage snapshot
+    // restored later in bootstrap: a shared link must show the SENDER's
+    // Sun, not the recipient's last session.
+    function _hydrateFromUrlParams() {
+      try {
+        if (_shareParams.vibe) {
+          // Curated slug — the card already carries its own date/wl/time via
+          // static HTML attributes, so this is exactly a vibe-card click.
+          var vCard = document.querySelector(
+            '.vibe-card[data-vibe-slug="' + _shareParams.vibe.replace(/[^a-z0-9_]/gi, "") + '"]'
+          );
+          if (vCard) { _activateVibe(vCard); return; }
+          // Unknown/mistyped slug — fall through to the bare date path below
+          // rather than stranding the visitor on a dead link.
+        }
+        if (!_shareParams.d || !/^\d{4}-\d{2}-\d{2}$/.test(_shareParams.d)) return;
+        var bdayInput = document.getElementById("vibeBirthdayInput");
+        var bdayCard = bdayInput && bdayInput.closest(".vibe-card");
+        if (!bdayInput || !bdayCard) return;
+        if ((bdayInput.min && _shareParams.d < bdayInput.min) ||
+            (bdayInput.max && _shareParams.d > bdayInput.max)) {
+          // Out of range (e.g. an old link from before the mission started,
+          // or a clock-skewed "future" date). Land on a clean page rather
+          // than surface the sender's date with an error banner attached.
+          return;
+        }
+        var t = /^\d{2}:\d{2}$/.test(_shareParams.t) ? _shareParams.t : "";
+        var wlNum = parseInt(_shareParams.wl, 10);
+        var hasWl = !isNaN(wlNum) && !!(wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + wlNum + '"]'));
+        bdayInput.value = _shareParams.d;
+        bdayInput.dispatchEvent(new Event("change", { bubbles: true }));
+        bdayCard.setAttribute("data-vibe-date", _shareParams.d);
+        bdayCard.setAttribute("data-vibe-time", t);
+        // A wavelength in the link means "the sender already chose this" —
+        // skip the HEK-suggestion auto-pick and go straight to it, same as
+        // a curated vibe card. No wl → let HEK suggest + auto-advance, same
+        // as a normal birthday-card submit.
+        bdayCard.setAttribute("data-vibe-wl", hasWl ? String(wlNum) : "");
+        if (!hasWl && typeof _armAutoSun === "function") _armAutoSun();
+        _activateVibe(bdayCard, { fromBirthday: true });
+      } catch (_e) {}
+    }
+    // Deferred to a fresh task: _activateVibe() (called synchronously from
+    // here for curated/date params) kicks off image install work whose
+    // callbacks assume the module has finished its top-level pass (e.g.
+    // variantCache, declared further down this file, must exist). Calling
+    // this inline can run that chain before the rest of the script — and
+    // its later declarations — have executed.
+    setTimeout(_hydrateFromUrlParams, 0);
+
+    // ── Shareable deep links: write-back ──────────────────────────
+    // Keeps the address bar in sync with the live selection so (a) hitting
+    // refresh mid-edit reloads the SAME Sun instead of landing back on a
+    // blank step "product" — the demote guard in phase 1 needs state.
+    // selectedProduct set before it runs, which only works if the URL
+    // already carries `p` — and (b) the Share button can just read
+    // location.href instead of re-deriving params. Piggybacks
+    // _persistEditorState()'s existing cadence (5 s while editing +
+    // beforeunload) rather than adding a new timer. Only ever touches its
+    // own keys — ?api=/?debug=/?operator=/?legacy-canvas= pass through
+    // untouched.
+    function _syncUrlParams() {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        function setOrClear(key, val) {
+          if (val) params.set(key, val); else params.delete(key);
+        }
+        setOrClear("p", state.selectedProduct || "");
+        var slug = (state.activeVibeSlug && state.activeVibeSlug !== "birthday") ? state.activeVibeSlug : "";
+        setOrClear("vibe", slug);
+        if (slug) {
+          // The vibe slug already implies date/wl/time — don't carry
+          // redundant (and potentially stale, if the user nudged the
+          // wavelength afterward) raw params alongside it.
+          params.delete("d"); params.delete("t"); params.delete("wl");
+        } else {
+          setOrClear("d", (dateInput && dateInput.value) || "");
+          setOrClear("t", (timeInput && _userTouchedTime && timeInput.value) || "");
+          setOrClear("wl", state.wavelength || "");
+        }
+        var qs = params.toString();
+        var newSearch = qs ? "?" + qs : "";
+        if (newSearch !== window.location.search) {
+          history.replaceState(history.state, "", location.pathname + newSearch + location.hash);
+        }
+      } catch (_e) {}
+    }
+
+    // ── Share button ───────────────────────────────────────────────
+    function _shareCurrentSun() {
+      _syncUrlParams();
+      var url = location.href;
+      var dateTxt = (dateInput && dateInput.value) || "";
+      var title = "My Heliograph" + (dateTxt ? " — the Sun on " + dateTxt : "");
+      if (navigator.share) {
+        // Fire-and-forget: a user-cancelled share is not an error worth
+        // surfacing, and most browsers reject the promise on cancel.
+        navigator.share({ title: title, url: url }).catch(function () {});
+        return;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          showToast("Link copied — this exact Sun, shareable.");
+        }).catch(function () { _shareFallbackPrompt(url); });
+        return;
+      }
+      _shareFallbackPrompt(url);
+    }
+    function _shareFallbackPrompt(url) {
+      try { window.prompt("Copy this link:", url); } catch (_e) {}
+    }
+    (function _wireShareButtons() {
+      ["btnShareSun", "btnShareSunImageStep"].forEach(function (id) {
+        var btn = document.getElementById(id);
+        if (btn) btn.addEventListener("click", _shareCurrentSun);
+      });
+    })();
+    // Show the image-step Share button once there's actually a Sun loaded.
+    // Reuses the same readiness hook the compare-mode button syncs from
+    // (updateFilterTimelineUI already runs on every tier/status change).
+    function _syncShareImageStepBtn() {
+      var btn = document.getElementById("btnShareSunImageStep");
+      if (btn) btn.classList.toggle("hidden", !state.originalImage);
+    }
+
     // Expose for debugging / future callers (e.g. the birthday CTA).
     try { window.SolarArchive = window.SolarArchive || {}; window.SolarArchive.fetchHEKBestTime = fetchHEKEvents; window.SolarArchive.fetchHEKEvents = fetchHEKEvents; } catch (_e) {}
 
@@ -5572,8 +5898,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // loaded!" toast and (b) advance the step machine to "image"
         // before the user picked a product. The image now loads only
         // when the user clicks a vibe card.
+        // Shareable deep links: a URL with p/d/wl/vibe params also parks
+        // currentStep off "product" this early (so the demote guard
+        // doesn't strand it) — but _hydrateFromUrlParams (deferred to
+        // after this script finishes) is what actually loads the right
+        // image. Firing this legacy 193 Å default-load in the meantime
+        // races it with stale/pre-hydration inputs (wrong date, no
+        // product's variant data loaded yet) and crashes downstream.
         if (typeof loadHelioviewerPreview === "function" &&
-            state.currentStep !== "product") {
+            state.currentStep !== "product" &&
+            !(_shareParams.p || _shareParams.d || _shareParams.vibe)) {
           loadHelioviewerPreview(193, dateInput.value);
         }
       }
@@ -5589,6 +5923,109 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       productSection.classList.remove("hidden");
       if (typeof renderProducts === "function") renderProducts();
     }
+
+    // ── Landing before/after compare slider ─────────────────────
+    // The static diptych was the single best-understood element in usability
+    // testing; this makes that comparison hands-on (Gilly's ask, 2026-07-25).
+    // Self-contained: pointer + keyboard drive the --split custom property;
+    // if either co-registered webp fails to load we swap back to the static
+    // quality_strip.webp, so the showcase can never render broken.
+    (function _wireCompareSlider() {
+      var el = document.getElementById("compareSlider");
+      if (!el) return;
+      var over = el.querySelector(".compare-over");
+      var under = el.querySelector(".compare-under");
+      var handle = el.querySelector(".compare-handle");
+      if (!over || !under || !handle) return;
+
+      var teased = false;
+      var teaseRaf = null;
+      function _cancelTease() {
+        teased = true;
+        if (teaseRaf) { cancelAnimationFrame(teaseRaf); teaseRaf = null; }
+      }
+
+      function _fallbackStatic() {
+        var img = document.createElement("img");
+        img.src = "/asset/default/quality_strip.webp";
+        img.alt = under.alt || "The Sun before and after processing.";
+        img.loading = "lazy";
+        el.replaceWith(img);
+      }
+      over.addEventListener("error", _fallbackStatic);
+      under.addEventListener("error", _fallbackStatic);
+
+      function _split() {
+        var v = parseFloat(el.style.getPropertyValue("--split"));
+        return isNaN(v) ? 50 : v;
+      }
+      function _set(pct) {
+        pct = Math.max(0, Math.min(100, pct));
+        el.style.setProperty("--split", pct + "%");
+        var r = Math.round(pct);
+        handle.setAttribute("aria-valuenow", String(r));
+        handle.setAttribute("aria-valuetext", r + "% original, " + (100 - r) + "% filtered");
+      }
+
+      var dragging = false;
+      function _fromEvent(e) {
+        var r = el.getBoundingClientRect();
+        return ((e.clientX - r.left) / r.width) * 100;
+      }
+      el.addEventListener("pointerdown", function (e) {
+        dragging = true;
+        _cancelTease();
+        try { el.setPointerCapture(e.pointerId); } catch (_e) {}
+        _set(_fromEvent(e));
+        e.preventDefault();
+      });
+      el.addEventListener("pointermove", function (e) {
+        if (dragging) _set(_fromEvent(e));
+      });
+      function _endDrag(e) {
+        dragging = false;
+        try { el.releasePointerCapture(e.pointerId); } catch (_e) {}
+      }
+      el.addEventListener("pointerup", _endDrag);
+      // pointercancel fires when touch-action: pan-y hands a vertical drag
+      // back to the browser for scrolling — exactly the mobile case.
+      el.addEventListener("pointercancel", _endDrag);
+
+      handle.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowLeft")       { _cancelTease(); _set(_split() - 5); }
+        else if (e.key === "ArrowRight") { _cancelTease(); _set(_split() + 5); }
+        else if (e.key === "Home")       { _cancelTease(); _set(0); }
+        else if (e.key === "End")        { _cancelTease(); _set(100); }
+        else return;
+        e.preventDefault();
+      });
+
+      // One-time "this is draggable" tease on first scroll-into-view:
+      // 50 → 35 → 50 over 1.2 s. Skipped under prefers-reduced-motion —
+      // the slider stays a static 50/50 split, fully draggable. (The plan
+      // sketch said "reduced = show Filtered only", but a static 50/50
+      // communicates the comparison better and animates nothing.)
+      var reduced = (typeof _prefersReducedMotion === "function") && _prefersReducedMotion();
+      if (!reduced && "IntersectionObserver" in window) {
+        var io = new IntersectionObserver(function (entries) {
+          if (teased) { io.disconnect(); return; }
+          var hit = entries.some(function (en) { return en.isIntersecting; });
+          if (!hit) return;
+          io.disconnect();
+          teased = true;
+          var t0 = null, DUR = 1200;
+          function frame(ts) {
+            if (t0 === null) t0 = ts;
+            var p = Math.min(1, (ts - t0) / DUR);
+            _set(50 - 15 * Math.sin(p * Math.PI));
+            if (p < 1) teaseRaf = requestAnimationFrame(frame);
+            else teaseRaf = null;
+          }
+          teaseRaf = requestAnimationFrame(frame);
+        }, { threshold: 0.4 });
+        io.observe(el);
+      }
+    })();
 
     // ── Toast ────────────────────────────────────────────────────
     var toastTimer = null;
@@ -6646,6 +7083,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // JPG / Raw / RHEF keeps the same crop and overlay; other images are drawn scaled to cover.
     function renderCanvas() {
       if (!state.originalImage) return;
+      // Compare mode is a temporary composite painted OVER the canvas from
+      // frozen snapshots. Any real render request means the world changed
+      // (tier landed, slider moved, product swapped, export started) — the
+      // snapshots are stale, so compare exits FIRST and this render then
+      // paints truth. Hooked here, at the single funnel every render path
+      // goes through, precisely so no individual caller needs to know
+      // compare exists. exitCompareMode(true) never re-enters renderCanvas.
+      if (typeof exitCompareMode === "function" && state._compareActive) {
+        exitCompareMode(true);
+      }
       // Re-entry guard. renderCanvas ends with refreshLivePreview(), which can
       // call drawProductMockup() → getCleanCanvasSnapshot() → renderCanvas()
       // recursively. That cascade was the reason slider drags bogged down to
@@ -9432,10 +9879,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
 
     // ── Variant info panel ───────────────────────────────────────
-    var variantCache = {};        // keyed by "blueprintId_printProviderId" → variant array
-    var variantFetchInFlight = {}; // deduplication: same key → shared in-flight Promise
-    var variantPricingCache = {}; // keyed by "blueprintId_printProviderId" → { variantId: { cost, price } }
-    var variantPricingFetchInFlight = {};
+    // variantCache & friends are declared earlier in the file now (see
+    // the comment near _productPriceCache) — early bootstrap callers
+    // need them before this point would otherwise run.
 
     /**
      * Fetch real per-variant cost data from the backend, which scans the
@@ -10607,6 +11053,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // name}" so they can rewind.
       if (typeof setStep === "function") setStep("image");
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
+      // Eager sync (don't wait for the 5s persist tick): a refresh in the
+      // few seconds right after picking a product, before anything else
+      // happened, should still come back to this product rather than
+      // demoting to step "product" for want of a `p` param.
+      if (typeof _syncUrlParams === "function") _syncUrlParams();
     }
 
     // NEEDS-FIX (workflow wx5fi2brl, editor-state-persistence):
@@ -10644,6 +11095,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         };
         localStorage.setItem(_STATE_PERSIST_KEY, JSON.stringify(snap));
       } catch (_e) {}
+      // Piggyback the URL write-back on this function's existing cadence
+      // (5 s while editing + beforeunload) instead of adding a new timer —
+      // beforeunload firing right before a refresh is what makes "refresh
+      // mid-edit" actually survive, since the reload reads back whatever
+      // the address bar says.
+      if (typeof _syncUrlParams === "function") _syncUrlParams();
     }
     function _restoreEditorState() {
       try {

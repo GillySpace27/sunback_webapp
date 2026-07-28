@@ -129,11 +129,35 @@
        "product" and CSS body.step-product hides the other sections.
        Visibility on later steps is also driven by body.step-{name}
        rules in solar-archive.css. -->
-  <!-- Quality showcase: the same solar frame at each processing step, so the
-       RHEF filter reads as the core innovation (not just a print-time detail).
-       Static edge asset (~0.37 MB WebP); zero backend. -->
+  <!-- Quality showcase: interactive before/after wipe slider — the SAME solar
+       frame, Original under the left of the divider, Filtered under the right.
+       The static diptych tested as the single best-understood element on the
+       page; the slider makes that comparison hands-on (Gilly's ask,
+       2026-07-25). Both webps are co-registered edge-static assets (~89 KB
+       total, make_compare_pair.py); zero backend. JS enhances it — if either
+       image 404s the block is swapped back to the static quality_strip.webp,
+       and with no JS at all the CSS default --split shows a meaningful 50/50.
+       compare-under = Filtered (right side visible), compare-over = Original
+       clipped to the left of the divider. -->
   <div class="section quality-strip-section" id="qualityStrip">
-    <img src="/asset/default/quality_strip.webp" alt="The same Sun shown before and after processing: the original telescope photo, and the sharpened version that brings out the faint outer atmosphere." loading="lazy" />
+    <div class="compare-slider" id="compareSlider" style="--split:50%">
+      <!-- Eager, not lazy: the showcase sits at the fold boundary and
+           loading="lazy" was observed on prod never firing at all (currentSrc
+           stayed empty while a programmatic probe of the same URL loaded
+           fine). 89 KB total doesn't need deferring. -->
+      <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
+           alt="The Sun after our sharpening step, revealing the faint outer glow." decoding="async" />
+      <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
+           alt="" aria-hidden="true" decoding="async" />
+      <div class="compare-handle" role="slider" tabindex="0"
+           aria-label="Drag to compare the original telescope photo with the sharpened version"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+           aria-valuetext="50% original, 50% filtered">
+        <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
+      </div>
+      <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
+      <span class="compare-label compare-label-right" aria-hidden="true">Filtered</span>
+    </div>
     <!-- Plain language first, science second. This caption is the second thing
          on the page, above the shop, and a non-technical tester hit four
          unknown words in one sentence here (RHEF, corona, multi-frame stack,
@@ -141,7 +165,7 @@
          before/after image was the ONE thing every tester understood instantly,
          so the caption now just explains the picture; the method + citation
          moved to the quiet line beneath. (Usability sweep, 2026-07-28.) -->
-    <p class="quality-strip-caption">Left is the raw telescope photo. Right is the same moment after our sharpening step, which lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the version on the right.</strong></p>
+    <p class="quality-strip-caption">Drag the handle. Left of it is the raw telescope photo; right is the same moment after our sharpening step, which lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the sharpened version.</strong></p>
     <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (Gilly et al. 2025), not a filter preset. Prints are rendered at full 4K.</p>
   </div>
 
@@ -218,6 +242,9 @@
     <div class="section-header">
       <div class="step-badge">2</div>
       <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
+      <button type="button" class="edit-btn edit-btn-nav share-image-step-btn hidden" id="btnShareSunImageStep" title="Copy a link to this exact Sun">
+        <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
+      </button>
     </div>
 
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
@@ -602,6 +629,10 @@
       <div class="image-stage" id="imageStage">
         <img id="solarImg" alt="Solar image" crossorigin="anonymous">
         <canvas id="solarCanvas"></canvas>
+        <!-- Compare-mode input surface. Sits over the canvas ONLY while
+             compare is active, so divider drags can't fight the pan/text
+             drag handlers bound to solarCanvas itself. -->
+        <div class="compare-canvas-overlay hidden" id="compareCanvasOverlay" aria-hidden="true"></div>
         <div class="crop-overlay hidden" id="cropOverlay"></div>
       </div>
 
@@ -651,6 +682,15 @@
             <input type="radio" name="editorFilter" value="hq_rhef" aria-label="HQ Filtered quality">
           </div>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
+          <!-- Compare mode: wipe the ORIGINAL against the current tier right
+               on the editor canvas. Hidden until the Original tier is ready
+               and a sharper tier is active (_syncCompareBtn). Arrow keys move
+               the divider while the button has focus. -->
+          <button type="button" class="compare-toggle-btn hidden" id="btnCompareOriginal"
+                  title="Drag across the image to compare the original telescope photo with the sharpened version. Arrow keys work too."
+                  aria-pressed="false">
+            <i class="fas fa-arrows-left-right" aria-hidden="true"></i> Compare with Original
+          </button>
         </div>
         <div class="edit-toolbar-nav-group">
           <button type="button" class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change time &amp; wavelength">
@@ -661,6 +701,11 @@
           </button>
           <button type="button" class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
             <i class="fas fa-swatchbook" aria-hidden="true"></i> Change size / colour
+          </button>
+          <!-- Deep link to this exact date/wavelength/product, so a
+               refresh — or someone else's browser — lands on the same Sun. -->
+          <button type="button" class="edit-btn edit-btn-nav" id="btnShareSun" title="Copy a link to this exact Sun">
+            <i class="fas fa-share-nodes" aria-hidden="true"></i> Share this Sun
           </button>
         </div>
       </div>
