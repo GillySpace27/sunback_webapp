@@ -7101,11 +7101,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
 
       // ── Text overlay (live preview, not burned in) ────────────
-      if (!(state.textOverlay && state.textOverlay.text) && state._textOverflow) {
-        // Text gone (cleared input, not just "Remove text") — drop the warning.
-        state._textOverflow = false;
-        if (typeof _syncTextOverflowWarning === "function") _syncTextOverflowWarning();
-      }
       if (state.textOverlay && state.textOverlay.text) {
         var tov = state.textOverlay;
         // Resolve normalised position/size into pixel coords for THIS
@@ -7127,38 +7122,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           ctx.shadowOffsetX = tov.shadow.offsetX;
           ctx.shadowOffsetY = tov.shadow.offsetY;
         }
-
-        // ── Print-safety check ────────────────────────────────
-        // A tester typed "Happy Birthday Dave", it ran off both edges of the
-        // clock, nothing warned her, and she said she'd have ORDERED it that
-        // way (usability sweep 2026-07-28). Measure here, where the real
-        // canvas geometry and font are known, and let the text panel surface
-        // it. Round products are the harsh case: anything outside the
-        // inscribed circle is clipped away entirely.
-        try {
-          var _tw = ctx.measureText(tov.text).width;
-          var _halfW = _tw / 2, _halfH = tov._pixelSize * 0.6;
-          var _pad = Math.max(2, cw * 0.01);
-          var _over = (tov._pixelX - _halfW) < _pad ||
-                      (tov._pixelX + _halfW) > (cw - _pad) ||
-                      (tov._pixelY - _halfH) < _pad ||
-                      (tov._pixelY + _halfH) > (ch - _pad);
-          if (!_over && isCircularProduct) {
-            // Farthest text corner must stay inside the printable circle.
-            var _r = Math.min(cw, ch) / 2 - _pad;
-            var _dx = Math.max(Math.abs(tov._pixelX - cw / 2) + _halfW, 0);
-            var _dy = Math.max(Math.abs(tov._pixelY - ch / 2) + _halfH, 0);
-            _over = Math.sqrt(_dx * _dx + _dy * _dy) > _r;
-          }
-          // Sync UNCONDITIONALLY, not just on change. Gating on a change of
-          // state._textOverflow left the warning stuck on-screen after the
-          // user shrank the text back to a size that fits — verified on prod
-          // at the minimum size — because more than one render path writes
-          // this flag and they can disagree about who "changed" it. The sync
-          // is idempotent and cheap, so just make it authoritative.
-          state._textOverflow = _over;
-          if (typeof _syncTextOverflowWarning === "function") _syncTextOverflowWarning();
-        } catch (_e) { /* measurement is advisory only */ }
 
         if (tov.arc && tov.arc.enabled) {
           // ── Arc/Curved text ──
@@ -8343,33 +8306,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function exitTextMode() {
       state.textMode = false;
       state.textOverlay = null;
-      state._textOverflow = false;
-      if (typeof _syncTextOverflowWarning === "function") _syncTextOverflowWarning();
       document.querySelector('[data-tool="text"]').classList.remove("active");
       textToolPanel.classList.add("hidden");
       solarCanvas.classList.remove("text-dragging");
       renderCanvas();
-    }
-
-    // Visible, persistent warning when the caption would print off the edge.
-    // Deliberately NOT a toast: toasts vanish, and the failure mode here is a
-    // customer paying for a clipped keepsake. Lives in the text panel, right
-    // under the controls that cause it.
-    function _syncTextOverflowWarning() {
-      var panel = document.getElementById("textToolPanel");
-      if (!panel) return;
-      var el = document.getElementById("textOverflowWarning");
-      if (!state._textOverflow) { if (el) el.remove(); return; }
-      if (!el) {
-        el = document.createElement("p");
-        el.id = "textOverflowWarning";
-        el.className = "text-overflow-warning";
-        el.setAttribute("role", "status");
-        panel.appendChild(el);
-      }
-      el.innerHTML = '<i class="fas fa-exclamation-triangle" aria-hidden="true"></i> ' +
-        'Your text runs past the printable area &mdash; the ends will be cut off. ' +
-        'Shorten it, or make it smaller with the size slider.';
     }
 
     // Live-update text overlay as the user types / changes controls.

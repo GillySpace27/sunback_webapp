@@ -6360,16 +6360,4 @@ body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
   .product-grid { gap: 8px; }
 }
 
-/* Print-safety warning under the text controls. A tester's caption ran off
-   both edges of a wall clock with no warning and she'd have ordered it —
-   so this is a persistent inline warning, not a toast. */
-.text-overflow-warning {
-  margin: 10px 0 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(245, 166, 35, 0.12);
-  border: 1px solid rgba(245, 166, 35, 0.45);
-  color: var(--accent-sun, #f5a623);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
+
