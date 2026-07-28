@@ -7101,6 +7101,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
 
       // ── Text overlay (live preview, not burned in) ────────────
+      if (!(state.textOverlay && state.textOverlay.text) && state._textOverflow) {
+        // Text gone (cleared input, not just "Remove text") — drop the warning.
+        state._textOverflow = false;
+        if (typeof _syncTextOverflowWarning === "function") _syncTextOverflowWarning();
+      }
       if (state.textOverlay && state.textOverlay.text) {
         var tov = state.textOverlay;
         // Resolve normalised position/size into pixel coords for THIS
@@ -7145,10 +7150,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var _dy = Math.max(Math.abs(tov._pixelY - ch / 2) + _halfH, 0);
             _over = Math.sqrt(_dx * _dx + _dy * _dy) > _r;
           }
-          if (state._textOverflow !== _over) {
-            state._textOverflow = _over;
-            if (typeof _syncTextOverflowWarning === "function") _syncTextOverflowWarning();
-          }
+          // Sync UNCONDITIONALLY, not just on change. Gating on a change of
+          // state._textOverflow left the warning stuck on-screen after the
+          // user shrank the text back to a size that fits — verified on prod
+          // at the minimum size — because more than one render path writes
+          // this flag and they can disagree about who "changed" it. The sync
+          // is idempotent and cheap, so just make it authoritative.
+          state._textOverflow = _over;
+          if (typeof _syncTextOverflowWarning === "function") _syncTextOverflowWarning();
         } catch (_e) { /* measurement is advisory only */ }
 
         if (tov.arc && tov.arc.enabled) {
