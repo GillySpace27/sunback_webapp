@@ -6483,3 +6483,7 @@ body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
   z-index: 5;
 }
 .compare-canvas-overlay.hidden { display: none; }
+
+/* Share button riding in the vibe-grid section header. */
+.share-image-step-btn { margin-left: auto; }
+.share-image-step-btn.hidden { display: none; }

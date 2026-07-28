@@ -150,6 +150,35 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (isFileProtocol) return "";  // no backend when viewing from file without ?api=
       return window.location.origin;
     })();
+    // ── Shareable deep links: phase 1 (early) ────────────────────
+    // Read-only parse, stashed for the real hydration pass later (once
+    // dateInput/wlGrid/_activateVibe etc. exist). The ONE thing that must
+    // happen this early: state.selectedProduct, because
+    // _normalizeStepWithState() (a few dozen lines down) demotes any
+    // non-"product" step back to "product" whenever selectedProduct is
+    // unset — which is exactly what silently threw away a shared #editor
+    // link before hydration ever got a chance to run. Everything else
+    // (date/time/wavelength/vibe) is inert until phase 2 actually acts on
+    // it, so it's safe to just stash and move on.
+    var _shareParams = (function () {
+      try {
+        var q = new URLSearchParams(window.location.search);
+        return {
+          p: q.get("p") || "",
+          d: q.get("d") || "",
+          t: q.get("t") || "",
+          wl: q.get("wl") || "",
+          vibe: q.get("vibe") || "",
+        };
+      } catch (_e) {
+        return { p: "", d: "", t: "", wl: "", vibe: "" };
+      }
+    })();
+    if (_shareParams.p) {
+      var _sharedProduct = PRODUCTS.filter(function (p) { return p.id === _shareParams.p; })[0];
+      if (_sharedProduct) state.selectedProduct = _sharedProduct.id;
+    }
+
     var HEALTH_TIMEOUT_MS = 12000;    // 12s to allow cold start
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
@@ -3259,6 +3288,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Compare-with-Original availability tracks the same readiness state
       // this function already recomputes on every tier/status change.
       if (typeof _syncCompareBtn === "function") _syncCompareBtn();
+      if (typeof _syncShareImageStepBtn === "function") _syncShareImageStepBtn();
     }
 
     // ── Compare with Original (editor wipe) ─────────────────────
@@ -5555,6 +5585,129 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       card.appendChild(pop);
     }
     _wireVibeGrid();
+
+    // ── Shareable deep links: phase 2 (full hydration) ────────────
+    // Runs once the vibe grid + date/wavelength/time inputs are wired, so it
+    // can drive the exact same pipeline a real click would — this is the
+    // SAME code path _bdaySubmit and a vibe-card click use, not a shadow
+    // implementation of it. URL params win over the localStorage snapshot
+    // restored later in bootstrap: a shared link must show the SENDER's
+    // Sun, not the recipient's last session.
+    function _hydrateFromUrlParams() {
+      try {
+        if (_shareParams.vibe) {
+          // Curated slug — the card already carries its own date/wl/time via
+          // static HTML attributes, so this is exactly a vibe-card click.
+          var vCard = document.querySelector(
+            '.vibe-card[data-vibe-slug="' + _shareParams.vibe.replace(/[^a-z0-9_]/gi, "") + '"]'
+          );
+          if (vCard) { _activateVibe(vCard); return; }
+          // Unknown/mistyped slug — fall through to the bare date path below
+          // rather than stranding the visitor on a dead link.
+        }
+        if (!_shareParams.d || !/^\d{4}-\d{2}-\d{2}$/.test(_shareParams.d)) return;
+        var bdayInput = document.getElementById("vibeBirthdayInput");
+        var bdayCard = bdayInput && bdayInput.closest(".vibe-card");
+        if (!bdayInput || !bdayCard) return;
+        if ((bdayInput.min && _shareParams.d < bdayInput.min) ||
+            (bdayInput.max && _shareParams.d > bdayInput.max)) {
+          // Out of range (e.g. an old link from before the mission started,
+          // or a clock-skewed "future" date). Land on a clean page rather
+          // than surface the sender's date with an error banner attached.
+          return;
+        }
+        var t = /^\d{2}:\d{2}$/.test(_shareParams.t) ? _shareParams.t : "";
+        var wlNum = parseInt(_shareParams.wl, 10);
+        var hasWl = !isNaN(wlNum) && !!(wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + wlNum + '"]'));
+        bdayInput.value = _shareParams.d;
+        bdayInput.dispatchEvent(new Event("change", { bubbles: true }));
+        bdayCard.setAttribute("data-vibe-date", _shareParams.d);
+        bdayCard.setAttribute("data-vibe-time", t);
+        // A wavelength in the link means "the sender already chose this" —
+        // skip the HEK-suggestion auto-pick and go straight to it, same as
+        // a curated vibe card. No wl → let HEK suggest + auto-advance, same
+        // as a normal birthday-card submit.
+        bdayCard.setAttribute("data-vibe-wl", hasWl ? String(wlNum) : "");
+        if (!hasWl && typeof _armAutoSun === "function") _armAutoSun();
+        _activateVibe(bdayCard, { fromBirthday: true });
+      } catch (_e) {}
+    }
+    _hydrateFromUrlParams();
+
+    // ── Shareable deep links: write-back ──────────────────────────
+    // Keeps the address bar in sync with the live selection so (a) hitting
+    // refresh mid-edit reloads the SAME Sun instead of landing back on a
+    // blank step "product" — the demote guard in phase 1 needs state.
+    // selectedProduct set before it runs, which only works if the URL
+    // already carries `p` — and (b) the Share button can just read
+    // location.href instead of re-deriving params. Piggybacks
+    // _persistEditorState()'s existing cadence (5 s while editing +
+    // beforeunload) rather than adding a new timer. Only ever touches its
+    // own keys — ?api=/?debug=/?operator=/?legacy-canvas= pass through
+    // untouched.
+    function _syncUrlParams() {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        function setOrClear(key, val) {
+          if (val) params.set(key, val); else params.delete(key);
+        }
+        setOrClear("p", state.selectedProduct || "");
+        var slug = (state.activeVibeSlug && state.activeVibeSlug !== "birthday") ? state.activeVibeSlug : "";
+        setOrClear("vibe", slug);
+        if (slug) {
+          // The vibe slug already implies date/wl/time — don't carry
+          // redundant (and potentially stale, if the user nudged the
+          // wavelength afterward) raw params alongside it.
+          params.delete("d"); params.delete("t"); params.delete("wl");
+        } else {
+          setOrClear("d", (dateInput && dateInput.value) || "");
+          setOrClear("t", (timeInput && _userTouchedTime && timeInput.value) || "");
+          setOrClear("wl", state.wavelength || "");
+        }
+        var qs = params.toString();
+        var newSearch = qs ? "?" + qs : "";
+        if (newSearch !== window.location.search) {
+          history.replaceState(history.state, "", location.pathname + newSearch + location.hash);
+        }
+      } catch (_e) {}
+    }
+
+    // ── Share button ───────────────────────────────────────────────
+    function _shareCurrentSun() {
+      _syncUrlParams();
+      var url = location.href;
+      var dateTxt = (dateInput && dateInput.value) || "";
+      var title = "My Heliograph" + (dateTxt ? " — the Sun on " + dateTxt : "");
+      if (navigator.share) {
+        // Fire-and-forget: a user-cancelled share is not an error worth
+        // surfacing, and most browsers reject the promise on cancel.
+        navigator.share({ title: title, url: url }).catch(function () {});
+        return;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          showToast("Link copied — this exact Sun, shareable.");
+        }).catch(function () { _shareFallbackPrompt(url); });
+        return;
+      }
+      _shareFallbackPrompt(url);
+    }
+    function _shareFallbackPrompt(url) {
+      try { window.prompt("Copy this link:", url); } catch (_e) {}
+    }
+    (function _wireShareButtons() {
+      ["btnShareSun", "btnShareSunImageStep"].forEach(function (id) {
+        var btn = document.getElementById(id);
+        if (btn) btn.addEventListener("click", _shareCurrentSun);
+      });
+    })();
+    // Show the image-step Share button once there's actually a Sun loaded.
+    // Reuses the same readiness hook the compare-mode button syncs from
+    // (updateFilterTimelineUI already runs on every tier/status change).
+    function _syncShareImageStepBtn() {
+      var btn = document.getElementById("btnShareSunImageStep");
+      if (btn) btn.classList.toggle("hidden", !state.originalImage);
+    }
 
     // Expose for debugging / future callers (e.g. the birthday CTA).
     try { window.SolarArchive = window.SolarArchive || {}; window.SolarArchive.fetchHEKBestTime = fetchHEKEvents; window.SolarArchive.fetchHEKEvents = fetchHEKEvents; } catch (_e) {}
@@ -10875,6 +11028,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // name}" so they can rewind.
       if (typeof setStep === "function") setStep("image");
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
+      // Eager sync (don't wait for the 5s persist tick): a refresh in the
+      // few seconds right after picking a product, before anything else
+      // happened, should still come back to this product rather than
+      // demoting to step "product" for want of a `p` param.
+      if (typeof _syncUrlParams === "function") _syncUrlParams();
     }
 
     // NEEDS-FIX (workflow wx5fi2brl, editor-state-persistence):
@@ -10912,6 +11070,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         };
         localStorage.setItem(_STATE_PERSIST_KEY, JSON.stringify(snap));
       } catch (_e) {}
+      // Piggyback the URL write-back on this function's existing cadence
+      // (5 s while editing + beforeunload) instead of adding a new timer —
+      // beforeunload firing right before a refresh is what makes "refresh
+      // mid-edit" actually survive, since the reload reads back whatever
+      // the address bar says.
+      if (typeof _syncUrlParams === "function") _syncUrlParams();
     }
     function _restoreEditorState() {
       try {

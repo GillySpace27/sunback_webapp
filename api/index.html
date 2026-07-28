@@ -242,6 +242,9 @@
     <div class="section-header">
       <div class="step-badge">2</div>
       <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
+      <button type="button" class="edit-btn edit-btn-nav share-image-step-btn hidden" id="btnShareSunImageStep" title="Copy a link to this exact Sun">
+        <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
+      </button>
     </div>
 
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
@@ -698,6 +701,11 @@
           </button>
           <button type="button" class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
             <i class="fas fa-swatchbook" aria-hidden="true"></i> Change size / colour
+          </button>
+          <!-- Deep link to this exact date/wavelength/product, so a
+               refresh — or someone else's browser — lands on the same Sun. -->
+          <button type="button" class="edit-btn edit-btn-nav" id="btnShareSun" title="Copy a link to this exact Sun">
+            <i class="fas fa-share-nodes" aria-hidden="true"></i> Share this Sun
           </button>
         </div>
       </div>
