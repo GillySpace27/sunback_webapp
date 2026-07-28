@@ -2330,7 +2330,11 @@ body.modal-open .feedback-fab-group { display: none !important; }
   justify-content: center;
   margin: 4px 0 18px;
 }
-.vibe-reveal-cta.hidden { display: none; }
+/* !important: #vibeRevealCta and body.step-image both set display with
+   !important, which silently overrode this and left a JS-"hidden" element
+   painted on top of the workflow breadcrumb, swallowing clicks on the only
+   back control (usability sweep, 2026-07-28). "hidden" must always win. */
+.vibe-reveal-cta.hidden { display: none !important; }
 .vibe-reveal-cta.is-dismissed { opacity: 0; pointer-events: none; transition: opacity 600ms ease-out; }
 .vibe-reveal-btn {
   display: inline-flex;
@@ -2454,7 +2458,11 @@ body.step-editor #configSection {
 }
 /* On step "image" the master toggle sits below the breadcrumb. */
 body.step-image #vibeRevealCta {
-  top: max(52px, calc(env(safe-area-inset-top, 0px) + 44px));
+  /* !important so the blanket `#vibeRevealCta { top: 8px !important }` below
+     can't collapse this back onto the breadcrumb. Higher specificity than
+     that rule, so this wins on desktop; the max-width:749px override later
+     still wins on mobile, where the breadcrumb is hidden anyway. */
+  top: max(52px, calc(env(safe-area-inset-top, 0px) + 44px)) !important;
 }
 /* Mobile: the breadcrumb + master-toggle stack ate ~100px of the
    viewport's top chrome on a 390x844 iPhone (persona-sweep finding).
@@ -2480,7 +2488,7 @@ body.step-image #selectedProductPreview {
   display: none !important;
 }
 .workflow-breadcrumb > * { pointer-events: auto; }
-.workflow-breadcrumb.hidden { display: none; }
+.workflow-breadcrumb.hidden { display: none !important; }
 .workflow-breadcrumb-pills {
   display: inline-flex;
   align-items: center;
@@ -2533,7 +2541,7 @@ body.step-image #selectedProductPreview {
   border: 1px solid rgba(255,179,71,0.30);
   gap: 2px;
 }
-.vibe-master-toggle.hidden { display: none; }
+.vibe-master-toggle.hidden { display: none !important; }
 /* Floating placement. position:fixed escapes the .section parent and
    pins to the viewport so the toggle stays visible while the user
    scrolls from the vibe-card section down into the product picker.

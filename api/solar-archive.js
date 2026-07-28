@@ -1500,12 +1500,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       // Purchase framing (launch review B2): the CTA reads as a normal
       // buy action, not an internal "create a product" publishing step.
-      // Price intentionally omitted — it lives in the preview pane.
+      //
+      // The price used to be omitted here on the assumption that it "lives in
+      // the preview pane" — it does not. Two independent usability testers
+      // (2026-07-28) reached the pre-purchase screen and found no dollar
+      // amount anywhere on it (`innerText.match(/\$\d+\.\d\d/g)` → []), and
+      // BOTH said they would not press an orange Buy button without knowing
+      // the charge. Show the real price for the selected variant on the CTA.
       // In beta mode the button is a local "Download Your Design" — leave
       // the label untouched and let _applyBetaModeUI() reassert it.
       var buyLabel = document.getElementById("btnBuyLabel");
       if (buyLabel && !BETA_MODE) {
-        buyLabel.textContent = "Buy now";
+        var _buyPrice = "";
+        try {
+          var _bv = (typeof getSelectedVariantForProduct === "function")
+            ? getSelectedVariantForProduct(product.id) : null;
+          _buyPrice = (typeof priceForVariantDisplay === "function")
+            ? (priceForVariantDisplay(product, _bv) || "") : "";
+          if (!_buyPrice) _buyPrice = product.price || "";
+        } catch (_e) { _buyPrice = product.price || ""; }
+        buyLabel.textContent = _buyPrice ? ("Buy now · " + _buyPrice) : "Buy now";
       }
       if (BETA_MODE && typeof _applyBetaModeUI === "function") _applyBetaModeUI();
 
@@ -2273,6 +2287,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         c.classList.remove("is-suggested");
       });
       card.classList.add("selected");
+      // The user chose a wavelength themselves — stand down the auto-pick.
+      if (typeof _cancelAutoSun === "function") _cancelAutoSun();
       // Latch so the suggester doesn't re-add an orange ring on the next
       // HEK refresh (e.g. when the date is auto-loaded after this click).
       _userTouchedWavelength = true;
@@ -3598,6 +3614,45 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       return { wl: 193, why: "193 Å is the default photogenic corona view" };
     }
 
+    // ── "See the Sun" auto-advance ───────────────────────────────
+    // The birthday/custom-date flow used to expand the fine-tune panel and
+    // WAIT for the user to click a wavelength tile. Nothing said to do that,
+    // and the panel is literally headed "Fine-tune time & wavelength
+    // (optional)" — so the only way forward was marked optional. Two
+    // independent usability testers (2026-07-28) both dead-ended here: the
+    // product preview and Buy button were gone and the page ran straight into
+    // the footer. Both would have abandoned the purchase.
+    //
+    // "See the Sun" now keeps its promise: once HEK names the day's best
+    // moment we click the suggested wavelength ourselves, which runs the
+    // normal image pipeline and lands the user in the editor. The fine-tune
+    // panel stays open behind them, so choosing a different tile still works.
+    var _autoSunPending = false;
+    var _autoSunTimer = null;
+    function _armAutoSun() {
+      _autoSunPending = true;
+      clearTimeout(_autoSunTimer);
+      // Safety net: never strand the user if HEK is slow or never answers.
+      // 193 Å is the default photogenic corona view (see _suggestWavelengthFor).
+      _autoSunTimer = setTimeout(function () { _fireAutoSun(193); }, 6000);
+    }
+    function _cancelAutoSun() {
+      _autoSunPending = false;
+      clearTimeout(_autoSunTimer);
+      _autoSunTimer = null;
+    }
+    function _fireAutoSun(wl) {
+      if (!_autoSunPending) return;
+      _cancelAutoSun();
+      if (!wlGrid) return;
+      var tile = wlGrid.querySelector('.wl-card[data-wl="' + (wl || 193) + '"]') ||
+                 wlGrid.querySelector('.wl-card[data-wl="193"]') ||
+                 wlGrid.querySelector('.wl-card');
+      // Don't fight a user who got there first.
+      if (!tile || wlGrid.querySelector('.wl-card.selected')) return;
+      tile.click();
+    }
+
     var _lastSuggestionKey = "";  // dedup aria-live announcements
     function _applyWavelengthSuggestion(event) {
       var s = _suggestWavelengthFor(event);
@@ -4062,9 +4117,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             if (pickedTile) pickedTile.setAttribute("aria-checked", "true");
             _hekSelectedRank = pickedRank;
             if (!_userTouchedWavelength) _applyWavelengthSuggestion(picked);
+            // "See the Sun" is waiting on us — show the Sun.
+            if (_autoSunPending) {
+              var _sw = _suggestWavelengthFor(picked);
+              _fireAutoSun(_sw && _sw.wl);
+            }
           } else if (timeInput) {
             // No events at all (edge case) — just update the display.
             _updateCustomTimeDisplay(timeInput.value || "12:00");
+            if (_autoSunPending) _fireAutoSun(193);
           }
         })
         .catch(function () {
@@ -4076,6 +4137,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             event_type: "Noon UTC", event_code: null, family: null, tier: 4,
             fallback: true,
           }] }, dateStr);
+          // A failed event lookup must not cost the user their Sun — the
+          // date is still perfectly renderable at noon.
+          if (_autoSunPending) _fireAutoSun(193);
         });
     }
 
@@ -4853,6 +4917,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           card.setAttribute("data-vibe-time", t);  // "" → HEK auto-fill / noon
           card.setAttribute("data-vibe-wl", "");    // let HEK suggest
           _cancelVibeTierRamp();
+          // Show the Sun once HEK names the day's best moment, instead of
+          // stranding the user in the "(optional)" fine-tune panel.
+          _armAutoSun();
           _activateVibe(card, { fromBirthday: true });
         }
         if (bdaySubmitBtn) bdaySubmitBtn.addEventListener("click", _bdaySubmit);
