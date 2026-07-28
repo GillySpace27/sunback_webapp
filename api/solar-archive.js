@@ -1165,6 +1165,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // assignments don't.
     var _productPriceCache = {};   // productId -> formatted "$X.XX" string
     var _cheapestCostsPromise = null;
+    // Same early-hoist reason as _productPriceCache just above:
+    // getSelectedVariantForProduct() (via renderProducts()'s eager pre-
+    // image grid render, and other early synchronous callers) reads
+    // variantCache before this file's normal declaration point further
+    // down would have run. A share-link's product param can make
+    // state.selectedProduct truthy this early too, which drives those
+    // early callers down the variant-lookup branch instead of the
+    // no-product-yet skip they normally take.
+    var variantCache = {};        // keyed by "blueprintId_printProviderId" → variant array
+    var variantFetchInFlight = {}; // deduplication: same key → shared in-flight Promise
+    var variantPricingCache = {}; // keyed by "blueprintId_printProviderId" → { variantId: { cost, price } }
+    var variantPricingFetchInFlight = {};
     var checkoutProgress = $("#checkoutProgress");
     var btnBuyInEditor = $("#btnBuyInEditor");
     var orderStatus = $("#orderStatus");
@@ -5632,7 +5644,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         _activateVibe(bdayCard, { fromBirthday: true });
       } catch (_e) {}
     }
-    _hydrateFromUrlParams();
+    // Deferred to a fresh task: _activateVibe() (called synchronously from
+    // here for curated/date params) kicks off image install work whose
+    // callbacks assume the module has finished its top-level pass (e.g.
+    // variantCache, declared further down this file, must exist). Calling
+    // this inline can run that chain before the rest of the script — and
+    // its later declarations — have executed.
+    setTimeout(_hydrateFromUrlParams, 0);
 
     // ── Shareable deep links: write-back ──────────────────────────
     // Keeps the address bar in sync with the live selection so (a) hitting
@@ -5880,8 +5898,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // loaded!" toast and (b) advance the step machine to "image"
         // before the user picked a product. The image now loads only
         // when the user clicks a vibe card.
+        // Shareable deep links: a URL with p/d/wl/vibe params also parks
+        // currentStep off "product" this early (so the demote guard
+        // doesn't strand it) — but _hydrateFromUrlParams (deferred to
+        // after this script finishes) is what actually loads the right
+        // image. Firing this legacy 193 Å default-load in the meantime
+        // races it with stale/pre-hydration inputs (wrong date, no
+        // product's variant data loaded yet) and crashes downstream.
         if (typeof loadHelioviewerPreview === "function" &&
-            state.currentStep !== "product") {
+            state.currentStep !== "product" &&
+            !(_shareParams.p || _shareParams.d || _shareParams.vibe)) {
           loadHelioviewerPreview(193, dateInput.value);
         }
       }
@@ -9853,10 +9879,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
 
     // ── Variant info panel ───────────────────────────────────────
-    var variantCache = {};        // keyed by "blueprintId_printProviderId" → variant array
-    var variantFetchInFlight = {}; // deduplication: same key → shared in-flight Promise
-    var variantPricingCache = {}; // keyed by "blueprintId_printProviderId" → { variantId: { cost, price } }
-    var variantPricingFetchInFlight = {};
+    // variantCache & friends are declared earlier in the file now (see
+    // the comment near _productPriceCache) — early bootstrap callers
+    // need them before this point would otherwise run.
 
     /**
      * Fetch real per-variant cost data from the backend, which scans the
