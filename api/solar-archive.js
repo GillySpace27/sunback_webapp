@@ -1218,7 +1218,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and head to checkout.";
       } else {
         title.textContent = "Choose your product";
-        intro.innerHTML = "Click <strong>Pick a variant</strong>, choose your size/color, then pick the Sun image you want printed.";
+        intro.innerHTML = "Click <strong>Choose size &amp; colour</strong>, then pick the Sun image you want printed.";
       }
     }
 
@@ -2712,7 +2712,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               // landed (JPG/Raw) stays usable, and the timeline drops back
               // to a clickable state so the user can retry a tier.
               if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
-              showToast("Science data failed: " + ((err && err.message) || err) + " — tap a quality step to retry.", "error");
+              showToast("Couldn't load the sharper version: " + ((err && err.message) || err) + " — tap a quality step to try again.", "error");
               updateFilterStatusLine("", "");
             });
           })();
@@ -3814,7 +3814,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       } else if (event.ar_number) {
         metaHtml = '<span class="hek-tile-meta">NOAA AR ' + escapeHtml(String(event.ar_number)) + '</span>';
       } else if (event.fallback) {
-        metaHtml = '<span class="hek-tile-meta">No notable events catalogued</span>';
+        metaHtml = '<span class="hek-tile-meta">A calm, quiet Sun that day</span>';
       }
       // Roving tabindex per WAI-ARIA radiogroup pattern: only the first
       // (or currently-checked) radio is tabbable; the rest are tabindex=-1
@@ -3892,7 +3892,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var sub = document.getElementById("hekPickerSub");
       if (sub) {
         if (!_hekCurrentEvents.length || (_hekCurrentEvents.length === 1 && _hekCurrentEvents[0].fallback)) {
-          sub.textContent = "No notable events catalogued for " + dateStr + ". Use noon UTC or set a custom time.";
+          sub.textContent = "The Sun was calm on " + dateStr + " — a clean, quiet portrait. We'll use midday, or pick your own time below.";
         } else {
           sub.textContent = "Top " + _hekCurrentEvents.length +
             " event" + (_hekCurrentEvents.length === 1 ? "" : "s") +
@@ -9652,7 +9652,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       var labelSpan = btn.querySelector(".product-select-btn-label");
       if (labelSpan) {
-        labelSpan.textContent = open ? "Hide variants" : "Pick a variant";
+        labelSpan.textContent = open ? "Hide sizes" : "Choose size & colour";
       }
     }
 
@@ -10153,7 +10153,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (product.id === "wall_clock") {
         html += '<p class="variant-clock-note">Some options differ by hand color (white vs black).</p>';
       }
-      html += '<p class="variant-pick-hint">Tap <strong>Pick a variant</strong> above to change.</p>';
+      html += '<p class="variant-pick-hint">Tap <strong>Choose size &amp; colour</strong> above to change.</p>';
       html += '</div>';
       panel.innerHTML = html;
 
@@ -12669,8 +12669,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (titleEl) titleEl.textContent = product.name;
       if (subEl) {
         subEl.textContent = product._isUserRequested
-          ? "Your request (pending review). Tap a variant, then continue to your image."
-          : "Tap a variant to preview, then pick your image.";
+          ? "Your request (pending review). Choose a size and colour, then continue to your image."
+          : "Choose a size and colour, then pick your image.";
       }
 
       function _variantsList() {

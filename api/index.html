@@ -133,8 +133,16 @@
        RHEF filter reads as the core innovation (not just a print-time detail).
        Static edge asset (~0.37 MB WebP); zero backend. -->
   <div class="section quality-strip-section" id="qualityStrip">
-    <img src="/asset/default/quality_strip.webp" alt="The same Sun shown before and after processing: Original (raw telescope data) and Filtered (the RHEF algorithm revealing the corona)." loading="lazy" />
-    <p class="quality-strip-caption">Every print runs through our <strong>RHEF filter</strong> — the algorithm that pulls the faint corona out of raw telescope data. The <strong>HQ</strong> version is a multi-frame stack rendered at full 4K for your print.</p>
+    <img src="/asset/default/quality_strip.webp" alt="The same Sun shown before and after processing: the original telescope photo, and the sharpened version that brings out the faint outer atmosphere." loading="lazy" />
+    <!-- Plain language first, science second. This caption is the second thing
+         on the page, above the shop, and a non-technical tester hit four
+         unknown words in one sentence here (RHEF, corona, multi-frame stack,
+         4K) and said she thought she'd landed on a university site. The
+         before/after image was the ONE thing every tester understood instantly,
+         so the caption now just explains the picture; the method + citation
+         moved to the quiet line beneath. (Usability sweep, 2026-07-28.) -->
+    <p class="quality-strip-caption">Left is the raw telescope photo. Right is the same moment after our sharpening step, which lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the version on the right.</strong></p>
+    <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (Gilly et al. 2025), not a filter preset. Prints are rendered at full 4K.</p>
   </div>
 
   <div class="section" id="productSection">
@@ -144,7 +152,7 @@
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      Every preview is a real Printify mockup. The orange Sun is a sample &mdash; pick a product and you'll choose your own Sun image next.
+      These are real product photos. The Sun shown is just an example &mdash; pick a product and you&rsquo;ll choose your own Sun image next.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -233,7 +241,7 @@
                user can't pick a future date. min is SDO/AIA first light. -->
           <input type="date" id="vibeBirthdayInput" class="vibe-birthday-input"
                  min="2010-05-15" aria-describedby="vibeBirthdayHint">
-          <label for="vibeBirthdayTime" class="vibe-birthday-label">Time — UTC (optional)</label>
+          <label for="vibeBirthdayTime" class="vibe-birthday-label">Time of day (optional)</label>
           <input type="time" id="vibeBirthdayTime" class="vibe-birthday-input"
                  aria-describedby="vibeBirthdayHint">
           <button type="button" id="vibeBirthdaySubmit" class="vibe-birthday-submit">
@@ -519,50 +527,50 @@
          children are decorative duplicates of the aria-label and
          carry aria-hidden so screen readers don't read them twice. -->
     <div class="wavelength-grid hidden" id="wlGrid" role="group" aria-label="Wavelength selector">
-      <button type="button" class="wl-card" data-wl="94" aria-label="94 angstrom, green, hot flaring plasma">
+      <button type="button" class="wl-card" data-wl="94" aria-label="green — flare hotspots, 94 angstrom">
         <div class="wl-thumb" data-wl="94" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">94 Å</div>
-        <div class="wl-label" aria-hidden="true">Green · 6.3MK<br>Hot flaring plasma</div>
+        <div class="wl-value" aria-hidden="true">Green</div>
+        <div class="wl-label" aria-hidden="true">Flare hotspots<br><span class="wl-sci">94 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="131" aria-label="131 angstrom, teal, flares and transition region">
+      <button type="button" class="wl-card" data-wl="131" aria-label="teal — flare flashes, 131 angstrom">
         <div class="wl-thumb" data-wl="131" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">131 Å</div>
-        <div class="wl-label" aria-hidden="true">Teal · 10MK<br>Flares / transition</div>
+        <div class="wl-value" aria-hidden="true">Teal</div>
+        <div class="wl-label" aria-hidden="true">Flare flashes<br><span class="wl-sci">131 Å</span></div>
       </button>
-      <button type="button" class="wl-card selected" data-wl="171" aria-label="171 angstrom, golden, quiet corona with loops">
+      <button type="button" class="wl-card selected" data-wl="171" aria-label="gold — feathery arcs, 171 angstrom">
         <div class="wl-thumb" data-wl="171" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">171 Å</div>
-        <div class="wl-label" aria-hidden="true">Golden · 0.8MK<br>Quiet corona, loops</div>
+        <div class="wl-value" aria-hidden="true">Gold</div>
+        <div class="wl-label" aria-hidden="true">Feathery arcs<br><span class="wl-sci">171 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="193" aria-label="193 angstrom, amber, corona and flares">
+      <button type="button" class="wl-card" data-wl="193" aria-label="amber — the classic Sun, 193 angstrom">
         <div class="wl-thumb" data-wl="193" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">193 Å</div>
-        <div class="wl-label" aria-hidden="true">Amber · 1.5MK<br>Corona / flares</div>
+        <div class="wl-value" aria-hidden="true">Amber</div>
+        <div class="wl-label" aria-hidden="true">The classic Sun<br><span class="wl-sci">193 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="211" aria-label="211 angstrom, purple, active regions">
+      <button type="button" class="wl-card" data-wl="211" aria-label="purple — storm regions, 211 angstrom">
         <div class="wl-thumb" data-wl="211" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">211 Å</div>
-        <div class="wl-label" aria-hidden="true">Purple · 2.0MK<br>Active regions</div>
+        <div class="wl-value" aria-hidden="true">Purple</div>
+        <div class="wl-label" aria-hidden="true">Storm regions<br><span class="wl-sci">211 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="304" aria-label="304 angstrom, red, chromosphere">
+      <button type="button" class="wl-card" data-wl="304" aria-label="red — fiery rim and arcs, 304 angstrom">
         <div class="wl-thumb" data-wl="304" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">304 Å</div>
-        <div class="wl-label" aria-hidden="true">Red · 0.05MK<br>Chromosphere</div>
+        <div class="wl-value" aria-hidden="true">Red</div>
+        <div class="wl-label" aria-hidden="true">Fiery rim &amp; arcs<br><span class="wl-sci">304 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="335" aria-label="335 angstrom, blue, active regions">
+      <button type="button" class="wl-card" data-wl="335" aria-label="blue — magnetic hotspots, 335 angstrom">
         <div class="wl-thumb" data-wl="335" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">335 Å</div>
-        <div class="wl-label" aria-hidden="true">Blue · 2.5MK<br>Active regions</div>
+        <div class="wl-value" aria-hidden="true">Blue</div>
+        <div class="wl-label" aria-hidden="true">Magnetic hotspots<br><span class="wl-sci">335 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="1600" aria-label="1600 angstrom, ultraviolet, transition region">
+      <button type="button" class="wl-card" data-wl="1600" aria-label="ultraviolet — surface hotspots, 1600 angstrom">
         <div class="wl-thumb" data-wl="1600" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">1600 Å</div>
-        <div class="wl-label" aria-hidden="true">UV · 0.1MK<br>Transition region</div>
+        <div class="wl-value" aria-hidden="true">UV</div>
+        <div class="wl-label" aria-hidden="true">Surface hotspots<br><span class="wl-sci">1600 Å</span></div>
       </button>
-      <button type="button" class="wl-card" data-wl="1700" aria-label="1700 angstrom, ultraviolet, photosphere">
+      <button type="button" class="wl-card" data-wl="1700" aria-label="ultraviolet — the visible surface, 1700 angstrom">
         <div class="wl-thumb" data-wl="1700" aria-hidden="true"></div>
-        <div class="wl-value" aria-hidden="true">1700 Å</div>
-        <div class="wl-label" aria-hidden="true">UV · 5000K<br>Photosphere</div>
+        <div class="wl-value" aria-hidden="true">UV</div>
+        <div class="wl-label" aria-hidden="true">The visible surface<br><span class="wl-sci">1700 Å</span></div>
       </button>
     </div>
     </div><!-- /#configSectionBody -->
@@ -652,7 +660,7 @@
             <i class="fas fa-shapes" aria-hidden="true"></i> Change product
           </button>
           <button type="button" class="edit-btn edit-btn-nav" id="btnChangeVariant" title="Open the variant picker for the current product (size / color / etc.)">
-            <i class="fas fa-swatchbook" aria-hidden="true"></i> Change variant
+            <i class="fas fa-swatchbook" aria-hidden="true"></i> Change size / colour
           </button>
         </div>
       </div>
@@ -1139,7 +1147,7 @@
   <div class="confirm-modal-panel">
     <button class="confirm-modal-close" id="confirmSelectClose" type="button" aria-label="Close">&#x2715;</button>
     <h2 class="confirm-modal-title" id="confirmSelectTitle">Choose your size &amp; options</h2>
-    <p class="confirm-modal-sub" id="confirmSelectSub">Tap a variant to preview, then pick your image.</p>
+    <p class="confirm-modal-sub" id="confirmSelectSub">Choose a size and colour, then pick your image.</p>
     <div class="confirm-mockup" id="confirmSelectMockup" aria-hidden="true"></div>
     <div class="confirm-variant-summary" id="confirmSelectSummary"></div>
     <!-- Colour-swatch row: rendered only when this product's variants

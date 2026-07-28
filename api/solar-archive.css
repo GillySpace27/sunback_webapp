@@ -268,6 +268,15 @@ body::before {
   line-height: 1.45;
 }
 .quality-strip-caption strong { color: var(--accent-sun, #f5a623); font-weight: 600; }
+/* The method + citation, demoted below the plain-language caption. */
+.quality-strip-fineprint {
+  max-width: 760px;
+  margin: 6px auto 0;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  opacity: 0.62;
+}
 
 /* Backend status banner removed from the UI — the landing is zero-backend
    and warms in the background, so "checking/online" was pure noise. Hidden
@@ -903,7 +912,7 @@ select:focus-visible {
   vertical-align: middle;
 }
 .filter-step-status[data-status="locked"]::before {
-  content: "\f023 Locked";
+  content: "\f017 Not ready yet";
   font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
   font-weight: 900;
   /* Removed letter-spacing: 0.4em — the wide-tracked uppercase-feeling
@@ -1110,10 +1119,21 @@ select:focus-visible {
   to { transform: rotate(360deg); }
 }
 
+/* Colour name now leads the tile (was the raw "94 Å"). Two usability testers
+   (2026-07-28) independently called nine angstrom numbers unreadable; one
+   asked for "Green / Golden / Amber with a one-word mood". The wavelength is
+   still on the tile, demoted to .wl-sci. */
 .wl-value {
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+/* The science, kept but quiet. */
+.wl-sci {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.1rem;
-  font-weight: 500;
+  font-size: 0.68em;
+  opacity: 0.6;
 }
 
 .wl-label {
