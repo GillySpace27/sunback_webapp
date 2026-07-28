@@ -3648,8 +3648,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var tile = wlGrid.querySelector('.wl-card[data-wl="' + (wl || 193) + '"]') ||
                  wlGrid.querySelector('.wl-card[data-wl="193"]') ||
                  wlGrid.querySelector('.wl-card');
-      // Don't fight a user who got there first.
-      if (!tile || wlGrid.querySelector('.wl-card.selected')) return;
+      if (!tile) return;
+      // Don't fight a user who got there first — but test the USER-INTENT
+      // latch, not `.selected`. A tile can already carry `.selected` from the
+      // landing default (193 A), and guarding on that made this a silent
+      // no-op: the tile looked chosen, yet loadHelioviewerPreview never ran,
+      // so no main-canvas image was ever requested and the editor never
+      // opened. Verified on prod: tile-grid thumbs loaded, zero size=512
+      // requests.
+      if (_userTouchedWavelength) return;
       tile.click();
     }
 
