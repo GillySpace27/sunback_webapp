@@ -3256,7 +3256,162 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // connector at index i sits between step i and step i+1.
         c.classList.toggle("completed", i < maxReadyIdx);
       });
+      // Compare-with-Original availability tracks the same readiness state
+      // this function already recomputes on every tier/status change.
+      if (typeof _syncCompareBtn === "function") _syncCompareBtn();
     }
+
+    // ── Compare with Original (editor wipe) ─────────────────────
+    // The landing slider's hands-on comparison, on the user's OWN image.
+    // Two frozen snapshots — Original (raw tier) and the current tier —
+    // composited with a vertical clip driven by pointer x. Both snapshots
+    // come out of renderCanvas itself, so they inherit every bit of live
+    // geometry (pan, zoom, product ratio, the 1.22× jpg plate-scale fix)
+    // and are co-registered by construction. renderCanvas exits compare
+    // at its entry, so ANY real repaint (tier landing, slider, product
+    // change, export) tears the mode down before painting truth.
+    var _cmpImgA = null;   // Original snapshot
+    var _cmpImgB = null;   // current-tier snapshot
+    var _cmpX = 0;         // divider, canvas px
+    var _cmpRaf = null;
+    function _cmpSnapshotCanvas() {
+      var c = document.createElement("canvas");
+      c.width = solarCanvas.width;
+      c.height = solarCanvas.height;
+      c.getContext("2d").drawImage(solarCanvas, 0, 0);
+      return c;
+    }
+    function _syncCompareBtn() {
+      var btn = document.getElementById("btnCompareOriginal");
+      if (!btn) return;
+      var usable = !!state.originalImage &&
+                   typeof _filterIsReady === "function" && _filterIsReady("raw") &&
+                   state.editorFilter !== "raw";
+      btn.classList.toggle("hidden", !usable && !state._compareActive);
+      if (!usable && state._compareActive) exitCompareMode(false);
+    }
+    function enterCompareMode() {
+      if (state._compareActive) return;
+      if (!state.originalImage || state.editorFilter === "raw") return;
+      var cur = state.editorFilter;
+      // Snapshot the CURRENT tier first (canvas already shows truth)…
+      _cmpImgB = _cmpSnapshotCanvas();
+      // …then render Original and snapshot it. Canvas dimensions can differ
+      // between tiers (HQ resolution bump) — _cmpDraw scales both snapshots
+      // to the live canvas rect, and the shared ref-space geometry keeps the
+      // disks aligned.
+      state.editorFilter = "raw";
+      renderCanvas();
+      _cmpImgA = _cmpSnapshotCanvas();
+      state.editorFilter = cur;
+      renderCanvas();
+      state._compareActive = true;
+      _cmpX = solarCanvas.width / 2;
+      var ov = document.getElementById("compareCanvasOverlay");
+      if (ov) ov.classList.remove("hidden");
+      var btn = document.getElementById("btnCompareOriginal");
+      if (btn) { btn.classList.add("is-active"); btn.setAttribute("aria-pressed", "true"); }
+      _cmpDraw();
+    }
+    function exitCompareMode(skipRender) {
+      state._compareActive = false;
+      _cmpImgA = _cmpImgB = null;
+      if (_cmpRaf) { cancelAnimationFrame(_cmpRaf); _cmpRaf = null; }
+      var ov = document.getElementById("compareCanvasOverlay");
+      if (ov) ov.classList.add("hidden");
+      var btn = document.getElementById("btnCompareOriginal");
+      if (btn) { btn.classList.remove("is-active"); btn.setAttribute("aria-pressed", "false"); }
+      if (!skipRender) {
+        renderCanvas();
+        if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+      }
+    }
+    function _cmpDraw() {
+      if (!state._compareActive || !_cmpImgA || !_cmpImgB) return;
+      var ctx = solarCanvas.getContext("2d");
+      var cw = solarCanvas.width, ch = solarCanvas.height;
+      var x = Math.max(0, Math.min(cw, _cmpX));
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.drawImage(_cmpImgB, 0, 0, _cmpImgB.width, _cmpImgB.height, 0, 0, cw, ch);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, x, ch);
+      ctx.clip();
+      ctx.drawImage(_cmpImgA, 0, 0, _cmpImgA.width, _cmpImgA.height, 0, 0, cw, ch);
+      ctx.restore();
+      // Divider + corner labels, scaled to canvas resolution.
+      ctx.save();
+      var lw = Math.max(2, cw * 0.003);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(x - lw / 2, 0, lw, ch);
+      var fs = Math.max(11, Math.round(cw * 0.02));
+      ctx.font = "600 " + fs + "px 'Outfit', sans-serif";
+      ctx.textBaseline = "middle";
+      function _chip(txt, rightAlign) {
+        var pad = fs * 0.6;
+        var w = ctx.measureText(txt).width + pad * 2;
+        var h = fs * 1.9;
+        var cx0 = rightAlign ? cw - w - fs : fs;
+        ctx.fillStyle = "rgba(10,9,17,0.65)";
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(cx0, fs, w, h, h / 2);
+        else ctx.rect(cx0, fs, w, h);
+        ctx.fill();
+        ctx.fillStyle = "#d0c8d8";
+        ctx.textAlign = rightAlign ? "right" : "left";
+        ctx.fillText(txt, rightAlign ? cw - fs - pad : fs + pad, fs + h / 2);
+      }
+      _chip("Original", false);
+      _chip("Filtered", true);
+      ctx.restore();
+    }
+    (function _wireCompareMode() {
+      var btn = document.getElementById("btnCompareOriginal");
+      var ov = document.getElementById("compareCanvasOverlay");
+      if (!btn || !ov) return;
+      btn.addEventListener("click", function () {
+        if (state._compareActive) exitCompareMode(false);
+        else enterCompareMode();
+      });
+      // Arrow keys nudge the divider by 5% while the button has focus.
+      btn.addEventListener("keydown", function (e) {
+        if (!state._compareActive) return;
+        var step = solarCanvas.width * 0.05;
+        if (e.key === "ArrowLeft") _cmpX -= step;
+        else if (e.key === "ArrowRight") _cmpX += step;
+        else return;
+        e.preventDefault();
+        _cmpDraw();
+      });
+      function _fromPointer(e) {
+        var r = solarCanvas.getBoundingClientRect();
+        return (e.clientX - r.left) * (solarCanvas.width / r.width);
+      }
+      var dragging = false;
+      ov.addEventListener("pointerdown", function (e) {
+        dragging = true;
+        try { ov.setPointerCapture(e.pointerId); } catch (_e) {}
+        _cmpX = _fromPointer(e);
+        _cmpDraw();
+        e.preventDefault();
+      });
+      ov.addEventListener("pointermove", function (e) {
+        if (!dragging || !state._compareActive) return;
+        _cmpX = _fromPointer(e);
+        if (_cmpRaf) return;   // coalesce to one draw per frame
+        _cmpRaf = requestAnimationFrame(function () {
+          _cmpRaf = null;
+          _cmpDraw();
+        });
+      });
+      function _up(e) {
+        dragging = false;
+        try { ov.releasePointerCapture(e.pointerId); } catch (_e) {}
+      }
+      ov.addEventListener("pointerup", _up);
+      ov.addEventListener("pointercancel", _up);
+    })();
+
     // Backwards-compat: existing call sites pass the *intended* filter value
     // and expect us to redraw the toggle to match. Do NOT mutate
     // state.editorFilter here — applyFilterInstant() short-circuits when
@@ -6749,6 +6904,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // JPG / Raw / RHEF keeps the same crop and overlay; other images are drawn scaled to cover.
     function renderCanvas() {
       if (!state.originalImage) return;
+      // Compare mode is a temporary composite painted OVER the canvas from
+      // frozen snapshots. Any real render request means the world changed
+      // (tier landed, slider moved, product swapped, export started) — the
+      // snapshots are stale, so compare exits FIRST and this render then
+      // paints truth. Hooked here, at the single funnel every render path
+      // goes through, precisely so no individual caller needs to know
+      // compare exists. exitCompareMode(true) never re-enters renderCanvas.
+      if (typeof exitCompareMode === "function" && state._compareActive) {
+        exitCompareMode(true);
+      }
       // Re-entry guard. renderCanvas ends with refreshLivePreview(), which can
       // call drawProductMockup() → getCleanCanvasSnapshot() → renderCanvas()
       // recursively. That cascade was the reason slider drags bogged down to

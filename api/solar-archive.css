@@ -6449,3 +6449,37 @@ body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
 }
 
 
+
+/* ── Editor Compare-with-Original ─────────────────────────────── */
+.compare-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #2a2a44);
+  background: transparent;
+  color: var(--text-secondary, #d0c8d8);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.compare-toggle-btn:hover { border-color: var(--accent-sun, #f5a623); color: #fff; }
+.compare-toggle-btn.is-active {
+  border-color: var(--accent-sun, #f5a623);
+  color: var(--accent-sun, #f5a623);
+  background: rgba(245,166,35,0.10);
+}
+.compare-toggle-btn.hidden { display: none; }
+/* Input surface over the canvas while comparing — keeps divider drags away
+   from the pan/text handlers bound to solarCanvas. */
+.compare-canvas-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: ew-resize;
+  touch-action: pan-y;
+  z-index: 5;
+}
+.compare-canvas-overlay.hidden { display: none; }
