@@ -260,6 +260,94 @@ body::before {
   margin: 0 auto;
   box-shadow: 0 6px 24px rgba(0,0,0,0.35);
 }
+/* ── Before/after compare slider (landing showcase) ─────────────
+   Two co-registered images; the over (Original) layer is clipped to the
+   left of the divider via --split. Pure CSS default --split:50% means the
+   comparison reads even with JS disabled. touch-action: pan-y keeps
+   vertical page scrolling alive on mobile while horizontal drags come to
+   the pointer handlers. */
+.compare-slider {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: ew-resize;
+}
+/* Override the generic .quality-strip-section img treatment inside the
+   slider — these two stack, they don't flow. */
+.compare-slider img {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+.compare-over {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 calc(100% - var(--split)) 0 0);
+}
+.compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split);
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255,255,255,0.85);
+}
+/* Fat invisible hit target around the 2px bar. */
+.compare-handle::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -16px; right: -16px;
+}
+.compare-handle:focus-visible {
+  outline: 2px solid var(--accent-sun, #f5a623);
+  outline-offset: 2px;
+}
+.compare-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(15,17,30,0.85);
+  border: 1.5px solid rgba(255,255,255,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+.compare-label {
+  position: absolute;
+  top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(10,9,17,0.65);
+  color: #d0c8d8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.compare-label-left  { left: 10px; }
+.compare-label-right { right: 10px; }
+
 .quality-strip-caption {
   max-width: 760px;
   margin: 12px auto 0;

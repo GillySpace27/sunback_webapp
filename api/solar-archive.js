@@ -5590,6 +5590,109 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof renderProducts === "function") renderProducts();
     }
 
+    // ── Landing before/after compare slider ─────────────────────
+    // The static diptych was the single best-understood element in usability
+    // testing; this makes that comparison hands-on (Gilly's ask, 2026-07-25).
+    // Self-contained: pointer + keyboard drive the --split custom property;
+    // if either co-registered webp fails to load we swap back to the static
+    // quality_strip.webp, so the showcase can never render broken.
+    (function _wireCompareSlider() {
+      var el = document.getElementById("compareSlider");
+      if (!el) return;
+      var over = el.querySelector(".compare-over");
+      var under = el.querySelector(".compare-under");
+      var handle = el.querySelector(".compare-handle");
+      if (!over || !under || !handle) return;
+
+      var teased = false;
+      var teaseRaf = null;
+      function _cancelTease() {
+        teased = true;
+        if (teaseRaf) { cancelAnimationFrame(teaseRaf); teaseRaf = null; }
+      }
+
+      function _fallbackStatic() {
+        var img = document.createElement("img");
+        img.src = "/asset/default/quality_strip.webp";
+        img.alt = under.alt || "The Sun before and after processing.";
+        img.loading = "lazy";
+        el.replaceWith(img);
+      }
+      over.addEventListener("error", _fallbackStatic);
+      under.addEventListener("error", _fallbackStatic);
+
+      function _split() {
+        var v = parseFloat(el.style.getPropertyValue("--split"));
+        return isNaN(v) ? 50 : v;
+      }
+      function _set(pct) {
+        pct = Math.max(0, Math.min(100, pct));
+        el.style.setProperty("--split", pct + "%");
+        var r = Math.round(pct);
+        handle.setAttribute("aria-valuenow", String(r));
+        handle.setAttribute("aria-valuetext", r + "% original, " + (100 - r) + "% filtered");
+      }
+
+      var dragging = false;
+      function _fromEvent(e) {
+        var r = el.getBoundingClientRect();
+        return ((e.clientX - r.left) / r.width) * 100;
+      }
+      el.addEventListener("pointerdown", function (e) {
+        dragging = true;
+        _cancelTease();
+        try { el.setPointerCapture(e.pointerId); } catch (_e) {}
+        _set(_fromEvent(e));
+        e.preventDefault();
+      });
+      el.addEventListener("pointermove", function (e) {
+        if (dragging) _set(_fromEvent(e));
+      });
+      function _endDrag(e) {
+        dragging = false;
+        try { el.releasePointerCapture(e.pointerId); } catch (_e) {}
+      }
+      el.addEventListener("pointerup", _endDrag);
+      // pointercancel fires when touch-action: pan-y hands a vertical drag
+      // back to the browser for scrolling — exactly the mobile case.
+      el.addEventListener("pointercancel", _endDrag);
+
+      handle.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowLeft")       { _cancelTease(); _set(_split() - 5); }
+        else if (e.key === "ArrowRight") { _cancelTease(); _set(_split() + 5); }
+        else if (e.key === "Home")       { _cancelTease(); _set(0); }
+        else if (e.key === "End")        { _cancelTease(); _set(100); }
+        else return;
+        e.preventDefault();
+      });
+
+      // One-time "this is draggable" tease on first scroll-into-view:
+      // 50 → 35 → 50 over 1.2 s. Skipped under prefers-reduced-motion —
+      // the slider stays a static 50/50 split, fully draggable. (The plan
+      // sketch said "reduced = show Filtered only", but a static 50/50
+      // communicates the comparison better and animates nothing.)
+      var reduced = (typeof _prefersReducedMotion === "function") && _prefersReducedMotion();
+      if (!reduced && "IntersectionObserver" in window) {
+        var io = new IntersectionObserver(function (entries) {
+          if (teased) { io.disconnect(); return; }
+          var hit = entries.some(function (en) { return en.isIntersecting; });
+          if (!hit) return;
+          io.disconnect();
+          teased = true;
+          var t0 = null, DUR = 1200;
+          function frame(ts) {
+            if (t0 === null) t0 = ts;
+            var p = Math.min(1, (ts - t0) / DUR);
+            _set(50 - 15 * Math.sin(p * Math.PI));
+            if (p < 1) teaseRaf = requestAnimationFrame(frame);
+            else teaseRaf = null;
+          }
+          teaseRaf = requestAnimationFrame(frame);
+        }, { threshold: 0.4 });
+        io.observe(el);
+      }
+    })();
+
     // ── Toast ────────────────────────────────────────────────────
     var toastTimer = null;
     function showToast(msg, type) {
