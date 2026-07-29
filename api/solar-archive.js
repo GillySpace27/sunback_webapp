@@ -1368,6 +1368,39 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // without any DOM churn.
     var livePreviewCanvas = null;
 
+    // Single source of truth for the primary CTA's label.
+    //
+    // Honest CTA: this click does NOT charge. It uploads the print file,
+    // creates the Printify product, publishes it to Shopify, and then hands
+    // the user a SEPARATE "Complete Purchase on Shopify" button where money
+    // actually changes hands. "Buy now" implied an order was being submitted.
+    //
+    // It also has to be re-runnable: BETA_MODE starts fail-secure `true` and
+    // only flips when /store-config answers. On a deep link the product is
+    // selected before that fetch resolves, so the beta label gets painted —
+    // and _applyBetaModeUI early-returns once BETA_MODE is false, so nothing
+    // put the real label back. Result: an orange CTA reading "Download your
+    // design" that actually started a real checkout. loadStoreConfig now
+    // calls this on resolve.
+    function _syncBuyLabel() {
+      var lbl = document.getElementById("btnBuyLabel");
+      if (!lbl) return;
+      if (BETA_MODE) { lbl.textContent = "Download your design"; return; }
+      var product = (typeof _currentSelectedProductObj === "function")
+        ? _currentSelectedProductObj() : null;
+      var price = "";
+      try {
+        if (product) {
+          var v = (typeof getSelectedVariantForProduct === "function")
+            ? getSelectedVariantForProduct(product.id) : null;
+          price = (typeof priceForVariantDisplay === "function")
+            ? (priceForVariantDisplay(product, v) || "") : "";
+          if (!price) price = product.price || "";
+        }
+      } catch (_e) { price = (product && product.price) || ""; }
+      lbl.textContent = price ? ("Continue to checkout · " + price) : "Continue to checkout";
+    }
+
     // Called once when the user selects a product: sets labels and creates
     // the persistent canvas inside the preview pane.
     function updateSelectedProductPreview(product) {
@@ -1403,18 +1436,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // the charge. Show the real price for the selected variant on the CTA.
       // In beta mode the button is a local "Download Your Design" — leave
       // the label untouched and let _applyBetaModeUI() reassert it.
-      var buyLabel = document.getElementById("btnBuyLabel");
-      if (buyLabel && !BETA_MODE) {
-        var _buyPrice = "";
-        try {
-          var _bv = (typeof getSelectedVariantForProduct === "function")
-            ? getSelectedVariantForProduct(product.id) : null;
-          _buyPrice = (typeof priceForVariantDisplay === "function")
-            ? (priceForVariantDisplay(product, _bv) || "") : "";
-          if (!_buyPrice) _buyPrice = product.price || "";
-        } catch (_e) { _buyPrice = product.price || ""; }
-        buyLabel.textContent = _buyPrice ? ("Buy now · " + _buyPrice) : "Buy now";
-      }
+      _syncBuyLabel();
       if (BETA_MODE && typeof _applyBetaModeUI === "function") _applyBetaModeUI();
 
       // Create (or reuse) the persistent preview canvas.
@@ -11171,8 +11193,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       btnBuyInEditor.disabled = !ready;
       btnBuyInEditor.classList.toggle("buy-locked", !ready);
       btnBuyInEditor.title = hasMock
-        ? "Buy now — secure checkout on Shopify."
-        : "Buy now — secure checkout on Shopify. Tip: 'See it on the real product' shows the finished item first.";
+        ? "Prepares your custom product, then takes you to Shopify's secure checkout. Nothing is charged until you pay there."
+        : "Prepares your custom product, then takes you to Shopify's secure checkout. Nothing is charged until you pay there. Tip: 'See it on the real product' shows the finished item first.";
       // Inline hint — tooltip alone is invisible on touch devices, so
       // render a visible one-liner (persona-sweep finding). Now a SOFT
       // tip (B3): checkout is never locked behind the mockup, we just
@@ -11898,6 +11920,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             betaConfirmed = true;  // definitive — the badge may now show
             if (typeof updateBuyButtonState === "function") updateBuyButtonState();
             if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+            // Repaint the CTA label for the now-known mode — _applyBetaModeUI
+            // early-returns when beta is off, so it can't undo the fail-secure
+            // beta label it painted before the answer arrived.
+            if (typeof _syncBuyLabel === "function") _syncBuyLabel();
             if (typeof renderProducts === "function") renderProducts();
             return;  // definitive answer — stop retrying
           }
@@ -11974,8 +12000,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         : "";
 
       showModal(
-        "Buy " + product.name,
-        "You'll finish payment on Shopify's secure checkout with your custom <strong>" + product.name + "</strong> and selected variant already locked in — no need to re-pick the product, size, or color.<br><br>" +
+        "Set up your " + product.name,
+        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + product.name + "</strong> and hand you a secure Shopify checkout link with your size and colour already locked in — you pay there, not here.<br><br>" +
           hqNote + mockNote +
           // Delivery window = production 2–7 + US transit 3–6 business
           // days; keep in sync with /shipping and the trust bar.
@@ -12009,7 +12035,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             requestAnimationFrame(function() { setTimeout(resolve, 650); });
           });
         },
-        "Buy now",
+        "Continue to checkout",
         "Preparing your print\u2026"
       );
     }
@@ -12129,7 +12155,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 '</button>' +
               '</div>' +
             '</div>';
-          showToast("Product ready — click Complete Purchase when you're ready.");
+          showToast("Your product is ready — click Complete Purchase on Shopify to pay.");
           // Auto-redirect removed: beta testers reported the previous 1.5s
           // redirect felt "instant" and hid the completed status indicator.
           // The user now clicks the prominent Complete Purchase button when
