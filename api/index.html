@@ -955,6 +955,10 @@
         <span class="field-label-sm">Text</span>
         <input type="text" id="textInput" placeholder="Your text here..." value="">
       </div>
+      <p class="text-overflow-warn hidden" id="textOverflowWarn" aria-live="polite">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        This text may get clipped at print size — try shrinking it or shortening the text.
+      </p>
       <div class="field-row">
         <span class="field-label-sm">Size</span>
         <input type="range" id="textSizeSlider" min="12" max="200" value="48" style="flex:1;">
