@@ -629,10 +629,6 @@
       <div class="image-stage" id="imageStage">
         <img id="solarImg" alt="Solar image" crossorigin="anonymous">
         <canvas id="solarCanvas"></canvas>
-        <!-- Compare-mode input surface. Sits over the canvas ONLY while
-             compare is active, so divider drags can't fight the pan/text
-             drag handlers bound to solarCanvas itself. -->
-        <div class="compare-canvas-overlay hidden" id="compareCanvasOverlay" aria-hidden="true"></div>
         <div class="crop-overlay hidden" id="cropOverlay"></div>
       </div>
 
@@ -682,15 +678,6 @@
             <input type="radio" name="editorFilter" value="hq_rhef" aria-label="HQ Filtered quality">
           </div>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
-          <!-- Compare mode: wipe the ORIGINAL against the current tier right
-               on the editor canvas. Hidden until the Original tier is ready
-               and a sharper tier is active (_syncCompareBtn). Arrow keys move
-               the divider while the button has focus. -->
-          <button type="button" class="compare-toggle-btn hidden" id="btnCompareOriginal"
-                  title="Drag across the image to compare the original telescope photo with the sharpened version. Arrow keys work too."
-                  aria-pressed="false">
-            <i class="fas fa-arrows-left-right" aria-hidden="true"></i> Compare with Original
-          </button>
         </div>
         <div class="edit-toolbar-nav-group">
           <button type="button" class="edit-btn edit-btn-nav" id="btnChangeWavelength" title="Scroll back up to change time &amp; wavelength">
