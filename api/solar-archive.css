@@ -267,14 +267,17 @@ body::before {
    comparison reads even with JS disabled. touch-action: pan-y keeps
    vertical page scrolling alive on mobile while horizontal drags come to
    the pointer handlers. */
-/* ✕ back to the static side-by-side. Sits opposite the "Filtered" label
-   (top-left, since that label is top-right) so it never covers either
-   caption. Higher z-index than the handle so it stays clickable while
-   the divider sits under it. Bumped to a 44px target on touch. */
+/* ✕ back to the static side-by-side. BOTTOM-right: the entire top row is
+   taken by the two corner captions (.compare-label-left / -right are both
+   top:10px), and putting the button top-left landed it directly on top of
+   the "ORIGINAL" pill. The bottom row has no other children — only the
+   full-height divider crosses it, and this sits above that (z-index) and
+   stops propagation, so it stays clickable even when the divider is
+   dragged underneath. Bumped to a 44px target on touch. */
 .compare-close-btn {
   position: absolute;
-  top: 8px;
-  left: 10px;
+  bottom: 10px;
+  right: 10px;
   z-index: 4;
   background: rgba(0,0,0,0.45);
   border: 1px solid rgba(255,255,255,0.18);
