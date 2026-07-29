@@ -4078,6 +4078,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                  ' step="60" value="' + escapeHtml(display) + '"' +
                  ' aria-label="Pick an exact time of day">' +
              '</div>' +
+             '<div class="hek-time-scrub">' +
+               '<label for="hekTimeScrub" class="hek-time-exact-label">Or scan the day:</label>' +
+               '<div class="hek-time-scrub-row">' +
+                 '<input type="range" id="hekTimeScrub" class="hek-time-scrub-input"' +
+                   ' min="0" max="23" step="1" value="' + escapeHtml(display.slice(0, 2)) + '"' +
+                   ' aria-label="Scan hours of the day, 0 to 23 UTC">' +
+                 '<div class="hek-time-scrub-well" id="hekTimeScrubWell" aria-hidden="true"></div>' +
+               '</div>' +
+             '</div>' +
              '<span class="hek-tile-meta">UTC</span>' +
              '</div>';
     }
@@ -4096,6 +4105,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
         '<div class="hek-tile is-skeleton" aria-hidden="true"></div>' +
         _customTileHTML(timeInput ? timeInput.value : "12:00");
+      if (typeof _wireTimeScrubber === "function") _wireTimeScrubber();
     }
 
     function _renderHekTiles(payload, dateStr) {
@@ -4107,6 +4117,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }).join("");
       html += _customTileHTML(timeInput ? timeInput.value : "12:00");
       hekTileGrid.innerHTML = html;
+      if (typeof _wireTimeScrubber === "function") _wireTimeScrubber();
       _hekSelectedRank = null;
       // Update subhead per state
       var sub = document.getElementById("hekPickerSub");
@@ -4460,6 +4471,104 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var first = _thumbCache.keys().next().value;
         _thumbCache.delete(first);
       }
+    }
+
+    // ── Time-of-day scrubber (fine-tune tile) ──────────────────────
+    // A 0–23 hour range input for quickly scanning a day's images. Shares
+    // the _thumbCache LRU above so scrubbing back over an hour already
+    // seen (or already idle-prefetched) is instant. Idle-prefetches the
+    // neighbouring ±1 hour so the common "nudge one hour either way"
+    // motion feels instant too, capped well under the backend's 60/min/IP
+    // limit — every URL is a durable 30-day edge key, so this amortizes
+    // across all visitors, not just this session.
+    var _scrubDebounceTimer = null;
+    var _scrubPrefetchInFlight = 0;
+    var _scrubPrefetchTimes = [];
+    var _scrubRateLimited = false;
+    function _scrubThumbUrl(hour) {
+      var d = dateInput && dateInput.value;
+      if (!d) return null;
+      var hh = String(hour).padStart(2, "0");
+      return API_BASE + "/api/helioviewer_thumb?date=" +
+        encodeURIComponent(d + "T" + hh + ":00:00Z") +
+        "&wavelength=" + encodeURIComponent(state.wavelength || 171) +
+        "&image_scale=12&size=256";
+    }
+    function _scrubShowHour(hour) {
+      var well = document.getElementById("hekTimeScrubWell");
+      var url = _scrubThumbUrl(hour);
+      if (!well || !url) return;
+      var cached = _thumbCacheGet(url);
+      if (cached) {
+        well.classList.remove("is-loading");
+        well.innerHTML = "";
+        well.appendChild(cached.cloneNode(false));
+        return;
+      }
+      well.classList.add("is-loading");
+      var img = new Image();
+      img.alt = "";
+      img.onload = function () {
+        _thumbCacheSet(url, img);
+        well.classList.remove("is-loading");
+        well.innerHTML = "";
+        well.appendChild(img);
+      };
+      img.onerror = function () { well.classList.remove("is-loading"); };
+      img.src = url;
+    }
+    function _scrubPrefetchHour(hour) {
+      if (_scrubRateLimited || hour < 0 || hour > 23) return;
+      var url = _scrubThumbUrl(hour);
+      if (!url || _thumbCacheGet(url) || _scrubPrefetchInFlight >= 2) return;
+      var now = Date.now();
+      _scrubPrefetchTimes = _scrubPrefetchTimes.filter(function (t) { return now - t < 60000; });
+      if (_scrubPrefetchTimes.length >= 12) return;
+      _scrubPrefetchTimes.push(now);
+      _scrubPrefetchInFlight++;
+      fetch(url).then(function (r) {
+        _scrubPrefetchInFlight--;
+        if (r.status === 429) {
+          _scrubRateLimited = true;
+          if (typeof showToast === "function") {
+            showToast("Scrubbing too fast — pausing hour previews for a bit.");
+          }
+          return;
+        }
+        if (!r.ok) return null;
+        return r.blob();
+      }).then(function (blob) {
+        if (!blob) return;
+        var img = new Image();
+        img.onload = function () { _thumbCacheSet(url, img); };
+        img.src = URL.createObjectURL(blob);
+      }).catch(function () { _scrubPrefetchInFlight = Math.max(0, _scrubPrefetchInFlight - 1); });
+    }
+    function _wireTimeScrubber() {
+      var scrub = document.getElementById("hekTimeScrub");
+      if (!scrub) return;
+      scrub.addEventListener("input", function () {
+        var hour = parseInt(scrub.value, 10);
+        clearTimeout(_scrubDebounceTimer);
+        _scrubDebounceTimer = setTimeout(function () {
+          _scrubShowHour(hour);
+          // A bare requestIdleCallback (no timeout) never fires on a page
+          // that's continuously busy — this editor polls HQ generation
+          // status while active, so genuine idle gaps can be rare. Cap
+          // the wait so the ±1h prefetch still happens promptly.
+          (window.requestIdleCallback || function (cb) { setTimeout(cb, 200); })(function () {
+            _scrubPrefetchHour(hour - 1);
+            _scrubPrefetchHour(hour + 1);
+          }, { timeout: 2000 });
+        }, 150);
+      });
+      scrub.addEventListener("change", function () {
+        if (!timeInput) return;
+        var hour = parseInt(scrub.value, 10);
+        var hhmm = String(hour).padStart(2, "0") + ":00";
+        timeInput.value = hhmm;
+        timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      });
     }
 
     // Pick the thumb URL for a vibe CARD and tier. Falls back to the
