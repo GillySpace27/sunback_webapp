@@ -1,12 +1,30 @@
 :root {
-  --bg-deep: #0a0a12;
-  --bg-surface: #12121e;
-  --bg-card: #1a1a2e;
-  --bg-elevated: #22223a;
-  --accent-sun: #f7a825;
-  --accent-flare: #ff5e3a;
-  --accent-corona: #7b61ff;
-  --accent-cool: #38bdf8;
+  /* ── Brand palette: gilly.space "Heliostatic" dark twin ──────────
+     Unified 2026-07-29 so gilly.space, myheliograph.com and the Shopify
+     storefront read as one brand. Source of truth is gilly.space's
+     assets/site.css `:root.dark` block: warm black #1a1814, warm cream
+     #e8e2d0, single gold accent #d9a91a.
+
+     We stay DARK (gilly.space is light-first with this dark twin) because
+     solar imagery and an image editor both need it — matching its dark
+     side rather than its light side keeps the product legible while making
+     the identity one thing. The change from the old palette is cool→warm:
+     the blue-black backgrounds became warm blacks, and the corona purple
+     (#7b61ff, the single most off-brand element) became a light gold so
+     the whole surface runs on one hue family like gilly.space does.
+
+     Values are retokenized here ONLY — every call site follows, so there
+     is no per-rule churn. Contrasts re-verified against the new
+     backgrounds; see the per-token notes below. */
+  --bg-deep: #141210;       /* page ground, a step under the site bg  */
+  --bg-surface: #1a1814;    /* gilly.space --bg (dark)                */
+  --bg-card: #25221c;       /* gilly.space --card-bg                  */
+  --bg-elevated: #302b23;   /* one step above card                    */
+  --accent-sun: #d9a91a;    /* gilly.space --accent (the gold)        */
+  --accent-flare: #e8663a;  /* warmed from #ff5e3a; semantic alerts   */
+  --accent-corona: #f0c75e; /* was #7b61ff purple — now light gold    */
+  --accent-cool: #7fb0d4;   /* muted, desaturated: info states still
+                               need a hue that isn't gold             */
   /* BETA-mode advisory orange (Lex P2 round-2: BETA badge + beta-
      banner were three near-duplicate orange literals drifting
      independently; locked behind one token). Softer + lighter than
@@ -15,29 +33,26 @@
   --beta-orange: #ffb74d;
   --beta-orange-bg: rgba(255, 152, 0, 0.14);
   --beta-orange-border: rgba(255, 152, 0, 0.48);
-  --text-primary: #eeeef6;
-  --text-secondary: #9898b8;
-  /* WCAG 1.4.3 AA requires 4.5:1 contrast for normal text. The old
-     value (#5e5e80) computed to ~3.0:1 against the .section / panel
-     backgrounds (#1a1a2e), which a beta accessibility audit flagged.
-     #8e8eab measures ~4.6:1 against #1a1a2e — comfortable AA pass. */
-  --text-dim: #8e8eab;
-  /* `--accent-corona-text` is a brightened variant of --accent-corona
-     (#7b61ff, ~3.7:1 on #1a1a2e — sub-AA for normal text) intended
-     ONLY for places the purple is used as text on a dark background.
-     Decorative usages (borders, focus rings, gradients) keep the
-     original --accent-corona. #a48dff measures ~6.0:1 against the
-     same dark panel — comfortable AA pass for body and small text. */
-  --accent-corona-text: #a48dff;
-  --border: #2a2a44;
-  --border-active: #7b61ff;
-  --glow-sun: rgba(247,168,37,0.25);
-  --glow-corona: rgba(123,97,255,0.2);
+  --text-primary: #e8e2d0;   /* gilly.space --text (dark). 12.3:1 on card */
+  --text-secondary: #a8a094; /* gilly.space --muted.       6.1:1 on card */
+  /* WCAG 1.4.3 AA requires 4.5:1 for normal text. The previous value
+     (#8e8eab) measured 5.37:1 on the old #1a1a2e card; #a8a094 measures
+     6.13:1 on the new #25221c card, so the AA margin improved. */
+  --text-dim: #a8a094;
+  /* Brightened --accent-corona for use AS TEXT on dark backgrounds
+     (decorative uses — borders, focus rings, gradients — keep
+     --accent-corona itself). 10.9:1 on the card: comfortable AA. */
+  --accent-corona-text: #f3d385;
+  --border: #3a362c;         /* gilly.space --card-border */
+  --border-active: #d9a91a;  /* focus rings are gold now, not purple */
+  --glow-sun: rgba(217,169,26,0.25);
+  --glow-corona: rgba(240,199,94,0.20);
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --transition: 0.3s cubic-bezier(0.4,0,0.2,1);
 }
+
 
 /* Default color-scheme tells the browser to render its OWN chrome
    (scrollbar, autofill, native form controls, mobile address-bar
@@ -50,28 +65,33 @@ html { color-scheme: light dark; background: var(--bg-deep); }
 html.dark { color-scheme: dark; }
 
 html:not(.dark) {
-  --bg-deep: #f0eff5;
-  --bg-surface: #faf9fe;
-  --bg-card: #ffffff;
-  --bg-elevated: #eeedf5;
-  /* On light backgrounds, the original --accent-corona (#7b61ff)
-     reads fine (~5.5:1 against white). Hold the same value so
-     light-mode borders/focus/text all stay in sync; dark-mode
-     drops to the brightened variant defined in :root above. */
-  --accent-corona-text: #6a4eff;
-  --text-primary: #1a1a2e;
-  --text-secondary: #5e5e80;
-  /* Old value #9898b8 on white = ~3.9:1, fails AA. #6a6a8a measures
-     ~6.0:1 against white — comfortable AA pass. */
-  --text-dim: #6a6a8a;
+  /* Light mode = gilly.space's DEFAULT palette (assets/site.css :root):
+     warm paper #faf8f3, ink-navy #1a2a5a, one gold accent. Where gold is
+     used as TEXT it drops to a darkened gold, exactly as gilly.space does
+     with its --accent-text, because the #d9a91a decorative gold is far
+     below AA on paper. */
+  --bg-deep: #f2efe7;
+  --bg-surface: #faf8f3;    /* gilly.space --bg (light)   */
+  --bg-card: #ffffff;       /* gilly.space --card-bg      */
+  --bg-elevated: #f2efe7;
+  /* Darkened gold for gold-as-text on light. #8a6a00 (gilly.space's own
+     --accent-text) measures 4.41:1 on --bg-elevated — just under AA — so
+     we go one step darker: #806200 clears 4.5:1 on paper, card AND
+     elevated (5.40 / 5.73 / 4.99). */
+  --accent-corona-text: #806200;
+  --text-primary: #1a2a5a;  /* gilly.space --text (ink-navy) */
+  --text-secondary: #555555;/* gilly.space --muted           */
+  /* Warm-neutral dim. Old #6a6a8a measured 5.20:1 on white; #5f5a52
+     measures 6.84:1 — AA margin improved while joining the warm ramp. */
+  --text-dim: #5f5a52;
   /* #38bdf8 on the light surfaces is ~2:1 — fails AA for the footer
      legal links that use --accent-cool as text (launch review #7c).
      #0369a1 measures ~5.9:1 on white. */
   --accent-cool: #0369a1;
-  --border: #d8d8e8;
-  --border-active: #7b61ff;
-  --glow-sun: rgba(247,168,37,0.15);
-  --glow-corona: rgba(123,97,255,0.1);
+  --border: #e4ddcf;        /* gilly.space --rule */
+  --border-active: #806200;
+  --glow-sun: rgba(217,169,26,0.15);
+  --glow-corona: rgba(217,169,26,0.10);
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -574,7 +594,7 @@ body.beta-mode-active .beta-banner {
   background: linear-gradient(135deg,
     rgba(247, 168, 37, 0.16) 0%,
     rgba(255, 94, 58, 0.12) 50%,
-    rgba(123, 97, 255, 0.16) 100%);
+    rgba(217, 169, 26, 0.16) 100%);
   border: 1px solid rgba(247, 168, 37, 0.32);
   border-radius: var(--radius-md);
 }
@@ -624,7 +644,7 @@ body.beta-mode-active .beta-banner {
 }
 .birthday-cta-input:focus {
   border-color: var(--accent-corona);
-  box-shadow: 0 0 0 3px rgba(123, 97, 255, 0.2);
+  box-shadow: 0 0 0 3px rgba(217, 169, 26, 0.2);
 }
 .birthday-cta-btn {
   padding: 10px 18px;
@@ -698,7 +718,7 @@ body.beta-mode-active .beta-banner {
   --text-primary:   #e9eaf5;
   --text-secondary: #a8a8c8;
   --text-dim:       #8e8eab;
-  --accent-corona-text: #a48dff;
+  --accent-corona-text: #f3d385;
   border: 1px solid rgba(255, 152, 0, 0.35);
   border-radius: 12px;
   padding: 28px 28px 24px;
@@ -753,12 +773,12 @@ body.beta-mode-active .beta-banner {
   transition: transform 0.06s ease, box-shadow 0.15s ease;
 }
 .beta-thanks-btn-primary {
-  background: linear-gradient(135deg, #7b61ff, #c06bff);
+  background: linear-gradient(135deg, #d9a91a, #f0c75e);
   color: #fff;
 }
 .beta-thanks-btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(123, 97, 255, 0.4);
+  box-shadow: 0 6px 16px rgba(217, 169, 26, 0.4);
 }
 
 /* Sections / Steps */
@@ -1126,15 +1146,15 @@ select:focus-visible {
   content: "";
   width: 8px;
   height: 8px;
-  border: 1.5px solid rgba(123, 97, 255, 0.35);
-  border-top-color: var(--accent-corona, #7b61ff);
+  border: 1.5px solid rgba(217, 169, 26, 0.35);
+  border-top-color: var(--accent-corona, #d9a91a);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   margin-right: 4px;
 }
 .filter-step-status[data-status="loading"]::after {
   content: "Loading…";
-  color: var(--accent-corona, #7b61ff);
+  color: var(--accent-corona, #d9a91a);
 }
 .filter-step-status[data-status="ready"]::before {
   content: "\f00c Ready";
@@ -1159,7 +1179,7 @@ select:focus-visible {
   cursor: progress;
 }
 .filter-step.ready:hover {
-  background: rgba(123, 97, 255, 0.08);
+  background: rgba(217, 169, 26, 0.08);
   color: var(--text-primary);
 }
 .filter-step.ready .filter-step-num {
@@ -1167,11 +1187,11 @@ select:focus-visible {
   color: #3ddc84;
 }
 .filter-step.loading .filter-step-num {
-  background: rgba(123, 97, 255, 0.18);
-  color: var(--accent-corona, #7b61ff);
+  background: rgba(217, 169, 26, 0.18);
+  color: var(--accent-corona, #d9a91a);
 }
 .filter-step.active {
-  background: var(--accent-corona, #7b61ff);
+  background: var(--accent-corona, #d9a91a);
   color: #fff;
   font-weight: 700;
 }
@@ -1190,7 +1210,7 @@ select:focus-visible {
   transition: background-color 0.18s ease;
 }
 .filter-step-connector.completed {
-  background: linear-gradient(90deg, #3ddc84, var(--accent-corona, #7b61ff));
+  background: linear-gradient(90deg, #3ddc84, var(--accent-corona, #d9a91a));
 }
 
 /* Defensive: hide any leftover old-markup labels on caches that haven't
@@ -1266,7 +1286,7 @@ select:focus-visible {
 
 .wl-card.selected {
   border-color: var(--accent-corona);
-  background: rgba(123,97,255,0.08);
+  background: rgba(217, 169, 26,0.08);
   box-shadow: 0 0 16px var(--glow-corona);
 }
 
@@ -1566,7 +1586,7 @@ html.dark .image-stage.image-stage--checker {
   height: 56px;
   margin: -28px 0 0 -28px;
   border: 4px solid rgba(255, 255, 255, 0.16);
-  border-top-color: var(--accent-corona, #7b61ff);
+  border-top-color: var(--accent-corona, #d9a91a);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   z-index: 5;
@@ -1673,7 +1693,7 @@ html.dark .image-stage.image-stage--checker {
      the visual identity is unchanged. */
   color: var(--accent-corona-text);
   border-color: var(--accent-corona);
-  background: rgba(123,97,255,0.08);
+  background: rgba(217, 169, 26,0.08);
   font-weight: 600;
 }
 
@@ -1718,8 +1738,8 @@ html.dark .image-stage.image-stage--checker {
   margin-top: 6px;
   padding: 12px 14px;
   border-radius: var(--radius-sm, 8px);
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.06), rgba(192, 107, 255, 0.06));
-  border: 1px dashed rgba(123, 97, 255, 0.18);
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.06), rgba(192, 107, 255, 0.06));
+  border: 1px dashed rgba(217, 169, 26, 0.18);
   color: var(--text-secondary, #9898b8);
   font-size: 0.82rem;
   display: flex;
@@ -1747,8 +1767,8 @@ html.dark .image-stage.image-stage--checker {
   transition: all var(--transition);
 }
 
-.edit-btn:hover { border-color: var(--accent-corona); background: rgba(123,97,255,0.06); }
-.edit-btn.active { border-color: var(--accent-corona); background: rgba(123,97,255,0.12); color: var(--accent-corona); }
+.edit-btn:hover { border-color: var(--accent-corona); background: rgba(217, 169, 26,0.06); }
+.edit-btn.active { border-color: var(--accent-corona); background: rgba(217, 169, 26,0.12); color: var(--accent-corona); }
 
 .edit-btn i { font-size: 0.85rem; }
 
@@ -1810,11 +1830,11 @@ html.dark .image-stage.image-stage--checker {
 .timestamp-pos-cell input[type="radio"] { display: none; }
 .timestamp-pos-cell:hover {
   color: var(--text-primary, #e9eaf5);
-  background: rgba(123, 97, 255, 0.1);
+  background: rgba(217, 169, 26, 0.1);
 }
 .timestamp-pos-cell:has(input:checked) {
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.35), rgba(192, 107, 255, 0.35));
-  border-color: rgba(123, 97, 255, 0.6);
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.35), rgba(192, 107, 255, 0.35));
+  border-color: rgba(217, 169, 26, 0.6);
   color: #fff;
 }
 
@@ -2400,7 +2420,7 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
   gap: 8px;
   margin-top: 12px;
   padding: 10px 14px;
-  background: rgba(123,97,255,0.06);
+  background: rgba(217, 169, 26,0.06);
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--accent-corona);
 }
@@ -2960,7 +2980,7 @@ body.step-editor .vibe-reveal-btn {
 .vibe-info-close:hover { color: var(--text-primary, #fff); }
 
 /* "Your day" birthday card — no thumb; date input + hint only. */
-.vibe-card-birthday { background: linear-gradient(135deg, rgba(255,179,71,0.06), rgba(123,97,255,0.06)); border-color: rgba(255,179,71,0.20); }
+.vibe-card-birthday { background: linear-gradient(135deg, rgba(255,179,71,0.06), rgba(217, 169, 26,0.06)); border-color: rgba(255,179,71,0.20); }
 .vibe-birthday-inner {
   display: flex;
   flex-direction: column;
@@ -3281,7 +3301,7 @@ body.step-editor .vibe-reveal-btn {
   padding: 6px 10px;
   font-size: 0.78rem;
   color: var(--text-secondary, #d0c8d8);
-  background: rgba(123,97,255,0.06);
+  background: rgba(217, 169, 26,0.06);
   border-left: 3px solid var(--accent-corona, #ffb347);
   border-radius: var(--radius-sm, 8px);
 }
@@ -3331,7 +3351,7 @@ body.step-editor .vibe-reveal-btn {
 .crop-overlay {
   position: absolute;
   border: 2px dashed rgba(255,255,255,0.7);
-  background: rgba(123,97,255,0.1);
+  background: rgba(217, 169, 26,0.1);
   pointer-events: none;
   z-index: 5;
 }
@@ -3525,7 +3545,7 @@ body.step-editor .vibe-reveal-btn {
 }
 .cookie-banner-body strong { color: var(--text-primary, #eeeef6); display: block; margin-bottom: 4px; font-size: 0.92rem; }
 .cookie-banner-body p { margin: 0; }
-.cookie-banner-body a { color: var(--accent-corona-text, #a48dff); }
+.cookie-banner-body a { color: var(--accent-corona-text, #f3d385); }
 .cookie-banner-actions {
   display: flex;
   gap: 8px;
@@ -3543,14 +3563,14 @@ body.step-editor .vibe-reveal-btn {
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
-.cookie-banner-btn:hover { background: rgba(123, 97, 255, 0.10); color: var(--text-primary, #eeeef6); border-color: var(--accent-corona, #7b61ff); }
+.cookie-banner-btn:hover { background: rgba(217, 169, 26, 0.10); color: var(--text-primary, #eeeef6); border-color: var(--accent-corona, #d9a91a); }
 .cookie-banner-btn-accept {
-  background: var(--accent-corona, #7b61ff);
+  background: var(--accent-corona, #d9a91a);
   color: #fff;
-  border-color: var(--accent-corona, #7b61ff);
+  border-color: var(--accent-corona, #d9a91a);
 }
 .cookie-banner-btn-accept:hover {
-  background: #6a4eff;
+  background: #806200;
   color: #fff;
 }
 
@@ -3828,8 +3848,8 @@ body.step-editor .toast { bottom: 104px; }
 }
 
 .variant-color {
-  background: rgba(123,97,255,0.08);
-  border-color: rgba(123,97,255,0.2);
+  background: rgba(217, 169, 26,0.08);
+  border-color: rgba(217, 169, 26,0.2);
 }
 
 .variant-more {
@@ -3876,7 +3896,7 @@ body.step-editor .toast { bottom: 104px; }
 
 .variant-row.confirmed {
   border-color: var(--accent-cool);
-  background: rgba(123, 97, 255, 0.15);
+  background: rgba(217, 169, 26, 0.15);
   font-weight: 600;
 }
 
@@ -4471,11 +4491,11 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   font-weight: 500;
   background-color: var(--bg-deep);
   /* Inline SVG chevron — no font-awesome dependency, scales cleanly. */
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%237b61ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l5 5 5-5'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%23d9a91a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l5 5 5-5'/></svg>");
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 12px 8px;
-  border: 1.5px solid var(--accent-corona, #7b61ff);
+  border: 1.5px solid var(--accent-corona, #d9a91a);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   cursor: pointer;
@@ -4485,11 +4505,11 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .selected-product-preview .preview-variant-wrap select:hover {
-  background-color: rgba(123, 97, 255, 0.08);
+  background-color: rgba(217, 169, 26, 0.08);
 }
 .selected-product-preview .preview-variant-wrap select:focus {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(123, 97, 255, 0.3);
+  box-shadow: 0 0 0 2px rgba(217, 169, 26, 0.3);
 }
 .selected-product-preview .preview-variant-note {
   font-size: 0.7rem;
@@ -4530,7 +4550,7 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 .selected-product-preview .preview-layout-opt:hover {
-  background-color: rgba(123, 97, 255, 0.08);
+  background-color: rgba(217, 169, 26, 0.08);
 }
 .selected-product-preview .preview-layout-opt input[type="radio"] {
   /* Hide the native input; the label itself becomes the chip. */
@@ -4539,8 +4559,8 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   pointer-events: none;
 }
 .selected-product-preview .preview-layout-opt:has(input:checked) {
-  background-color: rgba(123, 97, 255, 0.18);
-  border-color: var(--accent-corona, #7b61ff);
+  background-color: rgba(217, 169, 26, 0.18);
+  border-color: var(--accent-corona, #d9a91a);
 }
 
 /* Generate-real-mockup button — styled the same way whether it
@@ -4901,14 +4921,14 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
 }
 .feedback-fab-request {
   /* Warmer gradient so the "request" CTA reads as the action-y one */
-  background: linear-gradient(135deg, #ff8a3d, #c06bff);
+  background: linear-gradient(135deg, #ff8a3d, #f0c75e);
 }
 .feedback-fab-comment {
-  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
+  background: linear-gradient(135deg, var(--accent-corona, #d9a91a), #f0c75e);
 }
 .feedback-fab:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(123, 97, 255, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(217, 169, 26, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 .feedback-fab:active { transform: translateY(0); }
 .feedback-fab i { font-size: 1rem; }
@@ -5003,7 +5023,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   --text-primary:   #e9eaf5;
   --text-secondary: #a8a8c8;
   --text-dim:       #8e8eab;
-  --accent-corona-text: #a48dff;
+  --accent-corona-text: #f3d385;
   color: var(--text-primary);
 }
 .feedback-close-btn {
@@ -5058,7 +5078,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-tab:hover { color: var(--text-primary, #e9eaf5); }
 .feedback-tab.active {
   color: #fff;
-  border-bottom-color: var(--accent-corona, #7b61ff);
+  border-bottom-color: var(--accent-corona, #d9a91a);
 }
 .feedback-tab i { margin-right: 6px; }
 
@@ -5121,7 +5141,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-modal textarea:focus,
 .feedback-modal input:focus,
 .feedback-modal select:focus {
-  border-color: var(--accent-corona, #7b61ff);
+  border-color: var(--accent-corona, #d9a91a);
   background: #12152a;
 }
 .feedback-field-error {
@@ -5139,13 +5159,13 @@ body.step-editor .feedback-fab { padding: 11px; }
   gap: 8px;
   margin-top: 8px;
   padding: 8px 10px;
-  background: rgba(123, 97, 255, 0.08);
+  background: rgba(217, 169, 26, 0.08);
   border-radius: 6px;
   font-size: 0.72rem;
   color: var(--text-secondary, #9898b8);
   line-height: 1.4;
 }
-.feedback-context-note i { color: var(--accent-corona, #7b61ff); margin-top: 2px; }
+.feedback-context-note i { color: var(--accent-corona, #d9a91a); margin-top: 2px; }
 
 /* Include-canvas opt-out — checked by default. Looks like a regular
    checkbox row, sits above the submit button. Sized to match the
@@ -5164,7 +5184,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   width: 14px;
   height: 14px;
   cursor: pointer;
-  accent-color: var(--accent-corona, #7b61ff);
+  accent-color: var(--accent-corona, #d9a91a);
 }
 .feedback-include-canvas:hover { color: var(--text-primary, #e9eaf5); }
 
@@ -5174,7 +5194,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   padding: 11px 16px;
   border: 0;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
+  background: linear-gradient(135deg, var(--accent-corona, #d9a91a), #f0c75e);
   color: #fff;
   font-size: 0.9rem;
   font-weight: 600;
@@ -5223,12 +5243,12 @@ body.step-editor .feedback-fab { padding: 11px; }
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .feedback-category-chip:hover {
-  background: rgba(123, 97, 255, 0.08);
+  background: rgba(217, 169, 26, 0.08);
   color: var(--text-primary, #e9eaf5);
 }
 .feedback-category-chip.active {
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.18), rgba(192, 107, 255, 0.18));
-  border-color: rgba(123, 97, 255, 0.5);
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.18), rgba(192, 107, 255, 0.18));
+  border-color: rgba(217, 169, 26, 0.5);
   color: #fff;
 }
 .feedback-category-chip i { font-size: 0.78rem; }
@@ -5271,7 +5291,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 }
 .feedback-product-hit:hover {
   background: #151832;
-  border-color: rgba(123, 97, 255, 0.3);
+  border-color: rgba(217, 169, 26, 0.3);
 }
 .feedback-product-hit-thumb {
   width: 36px;
@@ -5314,7 +5334,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-product-hit-price {
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--accent-corona, #7b61ff);
+  color: var(--accent-corona, #d9a91a);
   white-space: nowrap;
 }
 .feedback-product-hit-price-empty {
@@ -5331,7 +5351,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   width: 200px;
   height: 200px;
   background: #08091a;
-  border: 1px solid rgba(123, 97, 255, 0.3);
+  border: 1px solid rgba(217, 169, 26, 0.3);
   border-radius: 8px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
   padding: 4px;
@@ -5359,8 +5379,8 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-provider-auto {
   margin-top: 10px;
   padding: 8px 10px;
-  background: rgba(123, 97, 255, 0.06);
-  border: 1px dashed rgba(123, 97, 255, 0.18);
+  background: rgba(217, 169, 26, 0.06);
+  border: 1px dashed rgba(217, 169, 26, 0.18);
   border-radius: 6px;
   font-size: 0.78rem;
   color: var(--text-secondary, #9898b8);
@@ -5396,8 +5416,8 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-shape-opt input[type="radio"] { display: none; }
 .feedback-shape-opt:hover { color: var(--text-primary, #e9eaf5); }
 .feedback-shape-opt:has(input:checked) {
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.18), rgba(192, 107, 255, 0.18));
-  border-color: rgba(123, 97, 255, 0.5);
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.18), rgba(192, 107, 255, 0.18));
+  border-color: rgba(217, 169, 26, 0.5);
   color: #fff;
 }
 .feedback-shape-opt i { font-size: 0.72rem; opacity: 0.85; }
@@ -5431,8 +5451,8 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-product-chosen {
   margin-top: 14px;
   padding: 12px;
-  background: rgba(123, 97, 255, 0.06);
-  border: 1px solid rgba(123, 97, 255, 0.2);
+  background: rgba(217, 169, 26, 0.06);
+  border: 1px solid rgba(217, 169, 26, 0.2);
   border-radius: 8px;
 }
 .feedback-product-chosen.hidden { display: none; }
@@ -5569,13 +5589,13 @@ body.step-editor .feedback-fab { padding: 11px; }
   transition: border-color 0.15s ease, transform 0.1s ease;
 }
 .color-chooser-tile:hover,
-.color-chooser-tile:focus-visible { border-color: var(--border-active, #7b61ff); }
+.color-chooser-tile:focus-visible { border-color: var(--border-active, #d9a91a); }
 .color-chooser-tile:active { transform: translateY(1px); }
 /* "You picked this" confirmation flash — ~220ms window between click
    and modal-close so the user sees their selection register. */
 .color-chooser-tile.is-picking {
-  border-color: var(--accent-corona, #7b61ff);
-  box-shadow: 0 0 0 4px rgba(123, 97, 255, 0.35);
+  border-color: var(--accent-corona, #d9a91a);
+  box-shadow: 0 0 0 4px rgba(217, 169, 26, 0.35);
   transform: scale(0.98);
 }
 .color-chooser-tile.is-picking::after {
@@ -5586,7 +5606,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   top: 8px; right: 10px;
   width: 26px; height: 26px;
   border-radius: 50%;
-  background: var(--accent-corona, #7b61ff);
+  background: var(--accent-corona, #d9a91a);
   color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem;
@@ -5651,7 +5671,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   --text-primary:   #e9eaf5;
   --text-secondary: #a8a8c8;
   --text-dim:       #8e8eab;
-  --accent-corona-text: #a48dff;
+  --accent-corona-text: #f3d385;
   color: var(--text-primary);
   overflow-y: auto;
   /* iOS momentum scrolling — without this the user has to drag-
@@ -5832,7 +5852,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   transition: transform 0.12s ease, opacity 0.15s ease;
 }
 .confirm-modal-btn-primary {
-  background: linear-gradient(135deg, var(--accent-corona, #7b61ff), #c06bff);
+  background: linear-gradient(135deg, var(--accent-corona, #d9a91a), #f0c75e);
   color: #fff;
 }
 .confirm-modal-btn-primary:hover { transform: translateY(-1px); }
@@ -5865,9 +5885,9 @@ body.step-editor .feedback-fab { padding: 11px; }
 .confirm-variant-summary .confirm-summary-dot { opacity: 0.5; }
 .confirm-variant-summary .confirm-summary-price {
   /* Brightened purple variant — see `--accent-corona-text` in :root.
-     The original #7b61ff measured ~3.7:1 against #1a1a2e (sub-AA);
+     The original #d9a91a measured ~3.7:1 against #1a1a2e (sub-AA);
      `--accent-corona-text` lands at ~6:1. */
-  color: var(--accent-corona-text, #a48dff);
+  color: var(--accent-corona-text, #f3d385);
   font-weight: 600;
 }
 
@@ -5911,7 +5931,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 }
 .confirm-color-swatch.active {
   border-color: var(--accent-corona, #b692ff);
-  box-shadow: 0 0 0 2px var(--accent-corona, #b692ff), 0 0 0 4px rgba(123, 97, 255, 0.25);
+  box-shadow: 0 0 0 2px var(--accent-corona, #b692ff), 0 0 0 4px rgba(217, 169, 26, 0.25);
 }
 /* When the resolved hex is very dark, ring the swatch with a subtle
    light line so it doesn't disappear into the modal background. */
@@ -5960,11 +5980,11 @@ body.step-editor .feedback-fab { padding: 11px; }
 .confirm-size-chip.active .confirm-size-chip-price { opacity: 0.9; }
 .confirm-size-chip:hover {
   color: var(--text-primary, #e9eaf5);
-  background: rgba(123, 97, 255, 0.12);
+  background: rgba(217, 169, 26, 0.12);
 }
 .confirm-size-chip.active {
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.35), rgba(192, 107, 255, 0.35));
-  border-color: rgba(123, 97, 255, 0.6);
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.35), rgba(192, 107, 255, 0.35));
+  border-color: rgba(217, 169, 26, 0.6);
   color: #fff;
 }
 /* Size chips that are unavailable in the currently-selected color
@@ -6028,13 +6048,13 @@ body.step-editor .feedback-fab { padding: 11px; }
   transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
 }
 .confirm-variant-tile:hover {
-  border-color: rgba(123, 97, 255, 0.55);
+  border-color: rgba(217, 169, 26, 0.55);
   background: rgba(40, 30, 70, 0.55);
 }
 .confirm-variant-tile.active {
-  border-color: var(--accent-corona, #7b61ff);
-  background: rgba(123, 97, 255, 0.16);
-  box-shadow: 0 0 0 1px var(--accent-corona, #7b61ff) inset;
+  border-color: var(--accent-corona, #d9a91a);
+  background: rgba(217, 169, 26, 0.16);
+  box-shadow: 0 0 0 1px var(--accent-corona, #d9a91a) inset;
 }
 .confirm-variant-tile:active { transform: scale(0.98); }
 .confirm-variant-tile-label {
@@ -6050,7 +6070,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   color: var(--text-secondary, #9898b8);
   font-family: 'JetBrains Mono', monospace;
 }
-.confirm-variant-tile.active .confirm-variant-tile-price { color: var(--accent-corona, #7b61ff); }
+.confirm-variant-tile.active .confirm-variant-tile-price { color: var(--accent-corona, #d9a91a); }
 .confirm-variant-tile-dims {
   font-size: 0.7rem;
   color: var(--text-dim, #6b6b85);
@@ -6096,15 +6116,15 @@ body.step-editor .feedback-fab { padding: 11px; }
   color: var(--text-secondary, #9898b8);
 }
 .product-card.product-card-requested {
-  border-color: rgba(123, 97, 255, 0.3);
+  border-color: rgba(217, 169, 26, 0.3);
 }
 .product-card-requested .product-name::before {
   content: "Requested";
   display: inline-block;
   margin-right: 6px;
   padding: 1px 6px;
-  background: rgba(123, 97, 255, 0.15);
-  border: 1px solid rgba(123, 97, 255, 0.35);
+  background: rgba(217, 169, 26, 0.15);
+  border: 1px solid rgba(217, 169, 26, 0.35);
   border-radius: 4px;
   font-size: 0.6rem;
   font-weight: 700;
@@ -6443,11 +6463,11 @@ body.step-editor .feedback-fab { padding: 11px; }
     background:
       linear-gradient(135deg,
         transparent 0 38%,
-        var(--accent-corona, #7b61ff) 38% 46%,
+        var(--accent-corona, #d9a91a) 38% 46%,
         transparent 46% 56%,
-        var(--accent-corona, #7b61ff) 56% 64%,
+        var(--accent-corona, #d9a91a) 56% 64%,
         transparent 64% 74%,
-        var(--accent-corona, #7b61ff) 74% 82%,
+        var(--accent-corona, #d9a91a) 74% 82%,
         transparent 82% 100%);
     opacity: 0.65;
     transition: opacity 0.15s ease;
