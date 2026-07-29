@@ -1668,6 +1668,21 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // collapses editor grid to single column). Called from every
     // entry/exit point that could change those conditions.
     var _LEFT_RAIL_BREAKPOINT = 1100;
+    // Rail mode is OFF. The fixed, body-hoisted preview rail produced four
+    // separate failure modes in real use: it stayed pinned over the hero /
+    // vibe grid / product grid / footer when you scrolled away from the
+    // editor, it squeezed the editor into ~40% of the viewport (512px of
+    // preview vs 513px of actual controls at 1280), it overlapped editor
+    // controls, and it flickered on engage/disengage. The docked layout —
+    // which every viewport under 1100px already uses, and which needs none
+    // of this machinery — has none of those problems, so use it at all
+    // widths. Flipping this one flag disables the whole feature because
+    // every rail CSS rule is gated on body.left-rail-preview, which is only
+    // ever added below.
+    // ponytail: one flag beats unpicking the hoist/re-parent/observer code
+    // tonight; the now-unreachable `body.left-rail-preview` CSS and the
+    // _rail* plumbing can be deleted in a follow-up once this is confirmed.
+    var _RAIL_MODE_ENABLED = false;
     // Remember the pane's original parent + next-sibling so we can
     // put it back when rail mode disengages. The pane is normally a
     // child of .editor-with-preview inside #editSection, but any
@@ -1695,7 +1710,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var single = body.classList.contains("single-preview-mode");
       var popped = body.classList.contains("preview-popped-out");
       var visible = !pane.classList.contains("hidden");
-      var shouldRail = wide && single && !popped && visible && _editorInView;
+      var shouldRail = _RAIL_MODE_ENABLED && wide && single && !popped && visible && _editorInView;
       var isRail = body.classList.contains("left-rail-preview");
       if (shouldRail && !isRail) {
         // Engage: remember original DOM slot, hoist to body.
