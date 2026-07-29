@@ -9103,7 +9103,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // by product aspect ratio (no free-crop tool any more), so
     // pan is the only direct-on-canvas gesture the user needs.
     //
-    // Excludes: resize handle, pop-out button, close button, and
+    // Excludes: close button, close button, and
     // every other interactive child (buttons / selects / inputs /
     // sliders) so their own pointer handlers stay reachable.
     var _mobilePanDragging = false;

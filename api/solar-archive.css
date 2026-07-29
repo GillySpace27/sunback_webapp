@@ -2588,14 +2588,9 @@ body.step-image #vibeRevealCta {
     top: max(8px, env(safe-area-inset-top, 0px)) !important;
   }
 }
-/* Force-clear the rail-mode pane when leaving the editor. Friction
-   agent 4 reported the editor's left-rail preview canvas, title, and
-   aspect-ratio label leaked into the product picker after browser back —
-   the rail-mode JS toggle re-evaluates on scroll but not on step
-   transitions, so the leftover preview overlay sat there until the
-   user scrolled. Override visibility from CSS so the leak can't happen
-   regardless of JS class timing. The body class itself is cleared in
-   _applyStep (solar-archive.js). */
+/* Backstop: hard-hide the preview pane on the product/image steps so
+   it can never leak into them after browser-back, regardless of JS
+   class timing (single-preview-mode is cleared in _applyStep). */
 body.step-product #selectedProductPreview,
 body.step-image #selectedProductPreview {
   display: none !important;
@@ -4049,7 +4044,7 @@ body.step-editor .toast { bottom: 104px; }
   gap: 20px 20px;
   align-items: start;
 }
-/* STRESS-002: at tablet widths below the rail breakpoint (1100 px) the
+/* STRESS-002: at tablet widths below the two-column breakpoint (1100 px) the
    two-column grid was squeezing the toolbar column down to ~150 px,
    below the toolbar's intrinsic content width — friction agent 4
    reported the entire toolbar disappeared with a phantom black gutter
@@ -6215,9 +6210,6 @@ body.step-editor .feedback-fab { padding: 11px; }
      The "Generate real mockup" button already toggles back to the
      live canvas when re-pressed, so the back-out flow is built in. */
   .editor-with-preview .image-stage,
-  .editor-with-preview .image-stage-placeholder {
-    display: none !important;
-  }
   /* Hide the editor canvas's resize handle (it lives inside
      image-stage but renders absolutely outside on some browsers). */
   .editor-resize-handle { display: none !important; }
