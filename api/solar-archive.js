@@ -5981,20 +5981,23 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           probe.crossOrigin = "anonymous";
           probe.onload = function () {
             try {
+              // Populate hqCache ONLY. This handler fires whenever a 13 MB
+              // download happens to finish — by which time the user has very
+              // likely already picked a different date/wavelength. It used to
+              // also write state.hqReady/hqImageUrl/hqFilterImage/hqFormat and
+              // call _hqApplyUpgrade("rhef"), with no selection guard, so it
+              // slammed this AR 2192 193 Å image over whatever the user had
+              // actually chosen (and poisoned state.hqImageUrl, which
+              // _getCheckoutImageBase64 uploads as the print source — a
+              // customer could be shown their Sun and shipped AR 2192).
+              // The cache write alone is this function's entire purpose:
+              // startHqFilterGeneration looks up this exact key and then sets
+              // state through its own _selStale-guarded path, which is correct
+              // for the one visitor who really is on the untouched default.
               if (typeof hqCache !== "undefined") {
                 var cacheKey = "2014-10-24T12:00_193_hq_rhef";
                 hqCache[cacheKey] = { url: defaultUrl, imageObj: probe };
               }
-              state.hqReady = true;
-              state.hqImageUrl = defaultUrl;
-              state.hqFilterImage = probe;
-              state.hqFormat = "rhef";
-              if (typeof _hqApplyUpgrade === "function") {
-                try { _hqApplyUpgrade("rhef"); } catch (_e) {}
-              }
-              if (typeof renderProducts === "function") renderProducts();
-              if (typeof updateSendToPrintifyButton === "function") updateSendToPrintifyButton();
-              if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
             } catch (_e) { /* prime failed; cold path still works */ }
           };
           probe.onerror = function () { /* not cached yet — fine */ };
