@@ -7842,6 +7842,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             syncCropRatioUI();
           }
           renderCanvas();
+          if (typeof _checkTextOverflow === "function") _checkTextOverflow();
         }
       } else if (tool === "invert") {
         state.inverted = !state.inverted;
@@ -8820,6 +8821,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       solarCanvas.classList.add("text-dragging");
       renderCanvas();
+      if (typeof _checkTextOverflow === "function") _checkTextOverflow();
     }
 
     function exitTextMode() {
@@ -8829,6 +8831,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       textToolPanel.classList.add("hidden");
       solarCanvas.classList.remove("text-dragging");
       renderCanvas();
+      if (typeof _checkTextOverflow === "function") _checkTextOverflow();
     }
 
     // Live-update text overlay as the user types / changes controls.
@@ -8847,6 +8850,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.textOverlay.strokeColor = textStrokePicker.value;
       state.textOverlay.strokeWidth = parseInt(textStrokeWidthSlider.value, 10);
       scheduleCanvasRender();
+      if (typeof _checkTextOverflow === "function") _checkTextOverflow();
     }
 
     textInput.addEventListener("input", syncTextOverlay);
@@ -9268,6 +9272,61 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       tov._pixelX = tov.xNorm * cw;
       tov._pixelY = tov.yNorm * ch;
       tov._pixelSize = Math.max(4, tov.sizeNorm * refMin);
+    }
+
+    // ── Print-safety text-overflow warning ──────────────────────
+    // Canvas-independent by design. The previous attempt (removed in
+    // PR #27) measured against the live editor canvas from inside
+    // renderCanvas, which is re-entrant from several paths — two
+    // renders racing each other raced the warning flag too, and it
+    // failed live verification twice. This version never touches
+    // solarCanvas: it measures on a dedicated 1x1 offscreen canvas
+    // using the SAME normalised ref-size math _resolveTextPx uses
+    // (sizeNorm × _TEXT_REF_SIZE), so it moves in lockstep with the
+    // actual print size at any resolution without depending on
+    // whatever happens to be painted right now.
+    var _textOverflowCtx = null;
+    function _textOverflowMeasureWidth(text, font, pixelSize) {
+      if (!_textOverflowCtx) {
+        var c = document.createElement("canvas");
+        c.width = 1;
+        c.height = 1;
+        _textOverflowCtx = c.getContext("2d");
+      }
+      // Mirror the real render's font string exactly (line ~7633) so a
+      // measurement mismatch never makes the warning lie.
+      _textOverflowCtx.font = "bold " + pixelSize + "px '" + font + "', sans-serif";
+      return _textOverflowCtx.measureText(text).width;
+    }
+    function _checkTextOverflow() {
+      var warnEl = document.getElementById("textOverflowWarn");
+      if (!warnEl) return;
+      var tov = state.textOverlay;
+      var show = false;
+      if (tov && tov.text) {
+        var product = (typeof _currentSelectedProductObj === "function") ? _currentSelectedProductObj() : null;
+        var ar = (product && typeof getEffectiveAspectRatio === "function" && getEffectiveAspectRatio(product)) || { w: 1, h: 1 };
+        var refMin = _TEXT_REF_SIZE;
+        var refW = (ar.w >= ar.h) ? refMin * (ar.w / ar.h) : refMin;
+        var isCircle = !!(product && (product.id === "wall_clock" || product.printShape === "circle"));
+        var sizeNorm = tov.sizeNorm != null ? tov.sizeNorm : (tov.size != null ? tov.size : 48) / _TEXT_REF_SIZE;
+        var pixelSize = Math.max(4, sizeNorm * refMin);
+        var textWidth = _textOverflowMeasureWidth(tov.text, tov.font || "Inter", pixelSize);
+        var safeWidth;
+        if (isCircle) {
+          // Chord width of the inscribed circle at the text's vertical
+          // offset from center — text further from the vertical middle
+          // has less horizontal room before it crosses the disk edge.
+          var dyNorm = Math.abs((tov.yNorm != null ? tov.yNorm : 0.5) - 0.5);
+          var dy = dyNorm * refMin;
+          var radius = refMin * 0.46; // inscribed radius minus a small print margin
+          safeWidth = 2 * Math.sqrt(Math.max(0, radius * radius - dy * dy));
+        } else {
+          safeWidth = refW * 0.92; // ~8% total side margin
+        }
+        show = textWidth > safeWidth;
+      }
+      warnEl.classList.toggle("hidden", !show);
     }
 
     function isInsideText(canvasX, canvasY) {
@@ -11108,6 +11167,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (effectiveAR && effectiveAR.w && effectiveAR.h) {
         state.cropRatio = effectiveAR.w + ":" + effectiveAR.h;
       }
+      if (typeof _checkTextOverflow === "function") _checkTextOverflow();
       productGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
       var userReqGrid = document.getElementById("userRequestsGrid");
       if (userReqGrid) userReqGrid.querySelectorAll(".product-card").forEach(function(c) { c.classList.remove("selected"); });
