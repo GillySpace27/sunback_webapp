@@ -309,47 +309,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         });
         body.classList.add("step-" + name);
         // Editor-only body classes leak into the product / image step
-        // when the user navigates back (friction-audit agent 4: rail
-        // preview canvas + title overlay showed through the product
-        // picker after browser-back from editor). Force-clear them
-        // here so the step machine owns the lifecycle.
+        // when the user navigates back. Force-clear here so the step
+        // machine owns the lifecycle (STRESS-011).
         if (name !== "editor") {
-          body.classList.remove("left-rail-preview");
-          body.classList.remove("preview-popped-out");
-          // STRESS-011: single-preview-mode also belongs to the editor
-          // lifecycle; clearing it on non-editor steps keeps body classes
-          // honest (verify-agent flagged this lingering class as a
-          // hygiene smell even though it's not user-visible).
           body.classList.remove("single-preview-mode");
-          // Restore the selectedProductPreview pane to its original
-          // DOM slot if it was hoisted to <body> for rail mode.
-          var pane = document.getElementById("selectedProductPreview");
-          if (pane && pane.parentElement === body && typeof _railOriginalParent !== "undefined" && _railOriginalParent && _railOriginalParent.isConnected) {
-            try {
-              if (typeof _railOriginalNextSibling !== "undefined" && _railOriginalNextSibling && _railOriginalNextSibling.isConnected) {
-                _railOriginalParent.insertBefore(pane, _railOriginalNextSibling);
-              } else {
-                _railOriginalParent.appendChild(pane);
-              }
-            } catch (_e) {}
-          }
-          // Reviewer M12: also clear .preview-pinned + inline left/top/
-          // width so a re-entry to the editor doesn't briefly apply the
-          // stale pinned geometry to the natural-grid pane before the
-          // next scroll event recomputes.
-          if (pane) {
-            pane.classList.remove("preview-pinned");
-            pane.style.left = "";
-            pane.style.top = "";
-            pane.style.width = "";
-          }
-        }
-        // Also re-evaluate editor-in-view so the rail-mode JS rule
-        // recomputes immediately rather than waiting for the next
-        // scroll event. _onEditorVisibilityChanged is wired during
-        // editor init; call it lazily once available.
-        if (typeof _onEditorVisibilityChanged === "function") {
-          try { _onEditorVisibilityChanged(); } catch (_e) {}
         }
       }
       // STRESS-009: scroll-position reset on step transitions. Before
@@ -1405,135 +1368,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // without any DOM churn.
     var livePreviewCanvas = null;
 
-    // ── Preview pane: extend sticky tracking past the editor row ──
-    // .selected-product-preview uses position: sticky inside the
-    // flex row .editor-with-preview. Once the row has fully scrolled
-    // past its sticky range, the pane releases and scrolls away —
-    // but the user wants to keep seeing it as they continue down
-    // the page (into the product picker, footer, etc.). When the
-    // sticky range is exhausted we add .preview-pinned to switch to
-    // position: fixed, with explicit left/width captured from the
-    // pane's last natural rect so it stays in its column. Going back
-    // up reverses the switch.
-    var _previewPaneNaturalGeom = null;
-    var _previewPaneRaf = 0;
-    function _updatePreviewPanePinning() {
-      var preview = document.getElementById("selectedProductPreview");
-      if (!preview) return;
-      // Embedded mode (Shopify iframe): CSS drops the pane to position:
-      // (Embedded-mode short-circuit removed alongside the iframe
-      // scaffolding — no longer reachable.)
-      // Hidden / not selected → reset and bail.
-      if (preview.classList.contains("hidden")) {
-        preview.classList.remove("preview-pinned");
-        preview.style.left = "";
-        preview.style.width = "";
-        preview.style.top = "";
-        _previewPaneNaturalGeom = null;
-        return;
-      }
-      // Popped-out floating mode owns its own positioning (bottom-
-      // right anchor via CSS, optional drag-to-move via the move
-      // handler). Same goes for the two-column left-rail mode —
-      // the pane is fixed to the left edge of the viewport by CSS
-      // and already follows scroll naturally. Skip pinning in
-      // either case to avoid stepping on those layouts.
-      if (document.body.classList.contains("preview-popped-out")) {
-        return;
-      }
-      if (document.body.classList.contains("left-rail-preview")) {
-        // Clear any previously-set sticky-pinning so the pane is
-        // clean for the CSS-driven rail rule to take over.
-        preview.classList.remove("preview-pinned");
-        preview.style.left = "";
-        preview.style.top = "";
-        preview.style.width = "";
-        return;
-      }
-      // Below the left-rail breakpoint, single-preview-mode's grid is
-      // ALWAYS a single stacked column (preview / toolbar / actions —
-      // see body.single-preview-mode .editor-with-preview in CSS).
-      // Pin-on-scroll assumes "past the row" means unrelated content
-      // below, but in the stacked layout that's the quality timeline
-      // and Buy button in the SAME column — pinning floated the
-      // preview pane fixed directly on top of them (reported bug:
-      // everything overlapping in the ~741-1099px gap between the
-      // mobile stack breakpoint and the left-rail breakpoint). Only
-      // pin at/above the rail breakpoint; left-rail-preview itself
-      // (checked above) owns pinning from there via CSS, so this is
-      // now mostly a safety-net no-op.
-      if (window.innerWidth < _LEFT_RAIL_BREAKPOINT) {
-        preview.classList.remove("preview-pinned");
-        preview.style.left = "";
-        preview.style.width = "";
-        preview.style.top = "";
-        return;
-      }
-      var parent = preview.parentElement;  // .editor-with-preview
-      if (!parent) return;
-      var parentRect = parent.getBoundingClientRect();
-      var paneHeight = preview.offsetHeight;
-      var TOP_GAP = 20;  // matches the CSS top: 20px
-
-      // Sticky is still doing its job while the parent's bottom edge
-      // is below where the pane's top would land if pinned.
-      var stickyValid = (parentRect.bottom >= TOP_GAP + paneHeight);
-
-      if (stickyValid) {
-        // Capture the pane's natural geometry every frame so we know
-        // where to anchor when sticky eventually releases.
-        var rect = preview.getBoundingClientRect();
-        // Width / left only meaningful when not in pinned mode.
-        if (!preview.classList.contains("preview-pinned")) {
-          _previewPaneNaturalGeom = { left: rect.left, width: rect.width };
-        }
-        preview.classList.remove("preview-pinned");
-        preview.style.left = "";
-        preview.style.width = "";
-        preview.style.top = "";
-      } else if (_previewPaneNaturalGeom) {
-        // Past the sticky parent — pin to viewport with captured geom.
-        // Clamp the top so the pane doesn't run over the footer; once
-        // we'd overlap, allow it to ride up so its bottom touches the
-        // footer's top (then scrolls off-screen with the page).
-        var top = TOP_GAP;
-        var footer = document.querySelector(".app-footer");
-        if (footer) {
-          var footerRect = footer.getBoundingClientRect();
-          var maxTop = footerRect.top - paneHeight - 10;
-          if (top > maxTop) top = maxTop;
-        }
-        preview.classList.add("preview-pinned");
-        preview.style.top = top + "px";
-        preview.style.left = _previewPaneNaturalGeom.left + "px";
-        preview.style.width = _previewPaneNaturalGeom.width + "px";
-      }
-    }
-    function _schedulePreviewPanePin() {
-      if (_previewPaneRaf) return;
-      _previewPaneRaf = requestAnimationFrame(function() {
-        _previewPaneRaf = 0;
-        _updatePreviewPanePinning();
-      });
-    }
-    window.addEventListener("scroll", _schedulePreviewPanePin, { passive: true });
-    // On resize, force a geom recapture before re-pinning — otherwise a
-    // pane that's already in `.preview-pinned` mode keeps stale left/
-    // width from the pre-resize layout, clipping or overlapping the
-    // dashboard when the user drags the divider narrower. (Reviewer M3)
-    window.addEventListener("resize", function () {
-      _previewPaneNaturalGeom = null;
-      _schedulePreviewPanePin();
-    });
-    // Layout-changing events that affect the natural slot's geometry:
-    // wait one frame so flex has reflowed, then resync.
-    function _resyncPreviewPaneSoon() {
-      requestAnimationFrame(function() {
-        _previewPaneNaturalGeom = null;
-        _updatePreviewPanePinning();
-      });
-    }
-
     // Called once when the user selects a product: sets labels and creates
     // the persistent canvas inside the preview pane.
     function updateSelectedProductPreview(product) {
@@ -1548,14 +1382,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         previewPane.classList.add("hidden");
         if (actionBar) actionBar.classList.add("hidden");
         livePreviewCanvas = null;
-        if (typeof _resyncPreviewPaneSoon === "function") _resyncPreviewPaneSoon();
         return;
       }
       previewPane.classList.remove("hidden");
       if (actionBar) actionBar.classList.remove("hidden");
-      // Pane just became visible — re-measure its natural geometry on
-      // the next frame so pinning has the right left/width to capture.
-      if (typeof _resyncPreviewPaneSoon === "function") _resyncPreviewPaneSoon();
       previewPane.querySelector(".preview-product-name").textContent = product.name;
       var ar = getEffectiveAspectRatio(product);
       var arSimple = ar ? simplifyAspectRatio(ar.w, ar.h) : null;
@@ -1640,16 +1470,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       livePreviewCanvas = existing;
 
-      // ── Preview-pane control affordances ────────────────────────
-      // Inject the resize handle + pop-out button once per pane.
-      // (single-preview-mode body class is set up-front near the pw
-      // calculation above so the very first canvas backing-store
-      // size reflects the mode.)
-      if (typeof _installPreviewPaneControls === "function") {
-        _installPreviewPaneControls(previewPane);
-      }
-      // Recompute two-column rail-mode now that the pane is visible.
-      if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
 
       // Variant selector: load variants and show dropdown so user can override in place
       updatePreviewVariantSelector(product);
@@ -1660,261 +1480,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       updatePreviewPaneMockupState();
     }
 
-    // ── Two-column desktop layout (left rail + dashboard) ─────────
-    // Toggles body.left-rail-preview when single-preview-mode is on,
-    // a product is selected, popout is off, and the viewport is
-    // ≥1100 px. CSS does the rest (fixes pane to left edge as a
-    // viewport rail, shifts .app-container right with margin-left,
-    // collapses editor grid to single column). Called from every
-    // entry/exit point that could change those conditions.
-    var _LEFT_RAIL_BREAKPOINT = 1100;
-    // Rail mode is OFF. The fixed, body-hoisted preview rail produced four
-    // separate failure modes in real use: it stayed pinned over the hero /
-    // vibe grid / product grid / footer when you scrolled away from the
-    // editor, it squeezed the editor into ~40% of the viewport (512px of
-    // preview vs 513px of actual controls at 1280), it overlapped editor
-    // controls, and it flickered on engage/disengage. The docked layout —
-    // which every viewport under 1100px already uses, and which needs none
-    // of this machinery — has none of those problems, so use it at all
-    // widths. Flipping this one flag disables the whole feature because
-    // every rail CSS rule is gated on body.left-rail-preview, which is only
-    // ever added below.
-    // ponytail: one flag beats unpicking the hoist/re-parent/observer code
-    // tonight; the now-unreachable `body.left-rail-preview` CSS and the
-    // _rail* plumbing can be deleted in a follow-up once this is confirmed.
-    var _RAIL_MODE_ENABLED = false;
-    // Remember the pane's original parent + next-sibling so we can
-    // put it back when rail mode disengages. The pane is normally a
-    // child of .editor-with-preview inside #editSection, but any
-    // ancestor with a CSS transform (e.g. .section's fadeInUp
-    // animation) breaks position:fixed — fixed becomes relative to
-    // that transformed ancestor instead of the viewport. To make
-    // the rail truly viewport-anchored we hoist the pane up to be
-    // a direct child of <body> while rail mode is active.
-    var _railOriginalParent = null;
-    var _railOriginalNextSibling = null;
-    // Set to true by an IntersectionObserver on #editSection. The
-    // rail only engages when the editor (step 3) is actually in
-    // view — the earlier sections (vibe cards, wavelength picker,
-    // product grid) don't benefit from the preview rail and
-    // shouldn't have the dashboard squeezed into a narrow column
-    // while the user is still browsing the catalog. Initialised
-    // false so the rail starts off; set up by the observer below
-    // the moment editSection exists.
-    var _editorInView = false;
-    function _updateLeftRailMode() {
-      var body = document.body;
-      var pane = document.getElementById("selectedProductPreview");
-      if (!pane) return;
-      var wide = window.innerWidth >= _LEFT_RAIL_BREAKPOINT;
-      var single = body.classList.contains("single-preview-mode");
-      var popped = body.classList.contains("preview-popped-out");
-      var visible = !pane.classList.contains("hidden");
-      var shouldRail = _RAIL_MODE_ENABLED && wide && single && !popped && visible && _editorInView;
-      var isRail = body.classList.contains("left-rail-preview");
-      if (shouldRail && !isRail) {
-        // Engage: remember original DOM slot, hoist to body.
-        _railOriginalParent = pane.parentElement;
-        _railOriginalNextSibling = pane.nextSibling;
-        body.appendChild(pane);
-        body.classList.add("left-rail-preview");
-      } else if (!shouldRail && isRail) {
-        // Disengage: put the pane back where it came from so the
-        // docked layout (sticky inside .editor-with-preview grid)
-        // works normally. Also clear any inline left/top set by
-        // the rail's CSS-vars resolver so the docked layout starts
-        // from a clean slate.
-        if (_railOriginalParent && _railOriginalParent.isConnected) {
-          if (_railOriginalNextSibling && _railOriginalNextSibling.isConnected) {
-            _railOriginalParent.insertBefore(pane, _railOriginalNextSibling);
-          } else {
-            _railOriginalParent.appendChild(pane);
-          }
-        }
-        body.classList.remove("left-rail-preview");
-      }
-    }
-    // Compute _editorInView from scroll position. IntersectionObserver
-    // would be the ideal mechanism but it doesn't reliably tick in
-    // every embedding context (e.g. some preview iframes don't
-    // dispatch IO callbacks until the page is focused). A scroll-
-    // event listener with a getBoundingClientRect check works
-    // everywhere and is cheap (rAF-debounced). The check: editor
-    // section is "in view" if any part of it overlaps the visible
-    // viewport AND it isn't .hidden.
-    function _recomputeEditorInView() {
-      var ed = document.getElementById("editSection");
-      if (!ed) { _editorInView = false; return; }
-      if (ed.classList.contains("hidden")) { _editorInView = false; return; }
-      var rect = ed.getBoundingClientRect();
-      var vh = window.innerHeight || document.documentElement.clientHeight;
-      // 80-px buffer at the top so the rail engages just as the
-      // editor scrolls into view, not after the user is already
-      // half-way down it. Mirror buffer at the bottom so the rail
-      // releases just as the editor leaves the bottom of the
-      // viewport on a scroll-up rather than the moment the very
-      // last pixel disappears.
-      _editorInView = (rect.bottom > 80) && (rect.top < vh - 80);
-    }
-    // Synchronous on every scroll. The body of _recomputeEditorInView
-    // is one getBoundingClientRect + a couple of comparisons — cheap
-    // enough not to need rAF batching. (We tried rAF batching but
-    // some embedding contexts — preview iframes especially — throttle
-    // or pause rAF when not focused, so the rail never updated.)
-    function _onScrollOrResize() {
-      var prev = _editorInView;
-      _recomputeEditorInView();
-      if (prev !== _editorInView) _updateLeftRailMode();
-    }
-    window.addEventListener("scroll", _onScrollOrResize, { passive: true });
-    window.addEventListener("resize", _onScrollOrResize);
-    // Initial measurement — also called whenever the editor is
-    // revealed (commitProductSelection un-hides editSection then
-    // calls _scrollToEl, which triggers the scroll handler — but
-    // explicit invocation here covers the case where the editor
-    // becomes visible without a scroll, e.g. when the user is
-    // already at the bottom of the page).
-    function _onEditorVisibilityChanged() {
-      _recomputeEditorInView();
-      _updateLeftRailMode();
-    }
-    // Re-evaluate on viewport resize. Debounced via rAF so a drag-
-    // resize of the window doesn't spam class-toggles.
-    var _leftRailResizeRaf = 0;
-    window.addEventListener("resize", function () {
-      if (_leftRailResizeRaf) return;
-      _leftRailResizeRaf = requestAnimationFrame(function () {
-        _leftRailResizeRaf = 0;
-        _updateLeftRailMode();
-      });
-    });
-
-    // ── Preview pane controls: resize handle + pop-out button ────────
-    // Injected once per pane (idempotent). The pane already has a
-    // ✕ deselect button (top-right); we add:
-    //   • ⤢ pop-out button (top-left) → toggles body.preview-popped-out
-    //     so CSS detaches the pane into a draggable floating panel
-    //   • ↘ resize handle (bottom-right) → drag to grow/shrink the
-    //     pane's CSS width (--popout-w in float mode, inline width in
-    //     docked mode). Persisted across sessions via localStorage.
-    var _PREVIEW_PANE_SIZE_KEY = "sa_preview_pane_size_v1";
-    function _installPreviewPaneControls(previewPane) {
-      if (!previewPane || previewPane.dataset.controlsInstalled === "1") return;
-      previewPane.dataset.controlsInstalled = "1";
-
-      // Pop-out toggle. Lives at top-left so it doesn't crash into
-      // the existing ✕ at top-right.
-      var popBtn = document.createElement("button");
-      popBtn.type = "button";
-      popBtn.className = "preview-popout-btn";
-      popBtn.setAttribute("aria-label", "Toggle floating preview");
-      popBtn.title = "Pop out as a floating preview / dock back";
-      popBtn.innerHTML = "&#x2922;";  // ⤢ NORTH-WEST AND SOUTH-EAST ARROW
-      popBtn.addEventListener("click", function () {
-        var nowPopped = !document.body.classList.contains("preview-popped-out");
-        document.body.classList.toggle("preview-popped-out", nowPopped);
-        // The scroll-driven .preview-pinned handler also manages inline
-        // left/top/width on this pane; in popout mode those compete
-        // with our fixed-position bottom-right anchor. When popping
-        // out, strip .preview-pinned + its inline geometry so our CSS
-        // owns positioning. When docking back, clear our own inline
-        // overrides so the grid cell + scroll handler can reclaim it.
-        previewPane.classList.remove("preview-pinned");
-        previewPane.style.left = "";
-        previewPane.style.top = "";
-        previewPane.style.right = "";
-        previewPane.style.bottom = "";
-        // In docked mode, also clear width so the grid cell governs.
-        if (!nowPopped) {
-          previewPane.style.width = "";
-          previewPane.style.maxWidth = "";
-        }
-        // Apply remembered popout width in case the user resized.
-        try {
-          var saved = localStorage.getItem(_PREVIEW_PANE_SIZE_KEY);
-          if (saved && nowPopped) {
-            previewPane.style.setProperty("--popout-w", saved + "px");
-          }
-        } catch (_e) {}
-        // Rail mode shouldn't engage while popped out (popout owns
-        // positioning); re-evaluate so the body class flips off.
-        if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
-      });
-      previewPane.appendChild(popBtn);
-
-      // Resize handle (bottom-right corner). Pointer-events drive a
-      // width-only resize. Width persists across sessions.
-      var resize = document.createElement("div");
-      resize.className = "preview-pane-resize-handle";
-      resize.setAttribute("aria-label", "Resize preview pane (drag)");
-      resize.title = "Drag to resize the preview";
-      previewPane.appendChild(resize);
-      // Restore saved width.
-      try {
-        var savedW = localStorage.getItem(_PREVIEW_PANE_SIZE_KEY);
-        if (savedW) previewPane.style.setProperty("--popout-w", savedW + "px");
-      } catch (_e) {}
-      var _dragging = false, _startX = 0, _startY = 0, _startW = 0, _startH = 0;
-      resize.addEventListener("pointerdown", function (e) {
-        _dragging = true;
-        _startX = e.clientX; _startY = e.clientY;
-        var rect = previewPane.getBoundingClientRect();
-        _startW = rect.width; _startH = rect.height;
-        resize.setPointerCapture(e.pointerId);
-        e.preventDefault();
-      });
-      resize.addEventListener("pointermove", function (e) {
-        if (!_dragging) return;
-        var newW = Math.max(220, Math.min(900, _startW + (e.clientX - _startX)));
-        // In popout mode, drive --popout-w (CSS var); in docked mode,
-        // set inline width directly so the grid cell grows visibly.
-        if (document.body.classList.contains("preview-popped-out")) {
-          previewPane.style.setProperty("--popout-w", newW + "px");
-        } else {
-          previewPane.style.width = newW + "px";
-          previewPane.style.maxWidth = newW + "px";
-        }
-        try { localStorage.setItem(_PREVIEW_PANE_SIZE_KEY, String(Math.round(newW))); } catch (_e) {}
-      });
-      resize.addEventListener("pointerup", function (e) {
-        _dragging = false;
-        try { resize.releasePointerCapture(e.pointerId); } catch (_e) {}
-      });
-
-      // Drag-to-move when popped out. Mouse-down anywhere on the
-      // pane (except buttons / canvas / inputs) starts a drag.
-      var _moveDragging = false, _moveStartX = 0, _moveStartY = 0, _moveStartLeft = 0, _moveStartTop = 0;
-      previewPane.addEventListener("pointerdown", function (e) {
-        if (!document.body.classList.contains("preview-popped-out")) return;
-        // Ignore interactive children
-        if (e.target.closest("button, input, select, .preview-pane-resize-handle, canvas, label")) return;
-        _moveDragging = true;
-        _moveStartX = e.clientX;
-        _moveStartY = e.clientY;
-        var rect = previewPane.getBoundingClientRect();
-        _moveStartLeft = rect.left;
-        _moveStartTop = rect.top;
-        previewPane.setPointerCapture(e.pointerId);
-        e.preventDefault();
-      });
-      previewPane.addEventListener("pointermove", function (e) {
-        if (!_moveDragging) return;
-        var nx = _moveStartLeft + (e.clientX - _moveStartX);
-        var ny = _moveStartTop + (e.clientY - _moveStartY);
-        // Clamp inside viewport with a small margin so the pane can't
-        // be dragged off-screen and become unreachable.
-        nx = Math.max(8, Math.min(window.innerWidth - 60, nx));
-        ny = Math.max(8, Math.min(window.innerHeight - 60, ny));
-        previewPane.style.left = nx + "px";
-        previewPane.style.top  = ny + "px";
-        previewPane.style.right = "auto";
-        previewPane.style.bottom = "auto";
-      });
-      previewPane.addEventListener("pointerup", function (e) {
-        _moveDragging = false;
-        try { previewPane.releasePointerCapture(e.pointerId); } catch (_e) {}
-      });
-    }
 
     // Redraw the preview pane fake mockup: same product shape as grid cards (with variant), scaled to fit.
     function refreshLivePreview() {
@@ -2062,39 +1627,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var btnDeselectProduct = document.getElementById("btnDeselectProduct");
     if (btnDeselectProduct) {
       btnDeselectProduct.addEventListener("click", function() {
-        // Repurposed 2026-05-25: this is the floating-preview "close /
-        // dock" button now — clicking it docks a popped-out preview
-        // back into the editor grid. Deselect-the-product is owned by
-        // the "Change product" CTA, so the X no longer triggers it.
-        // In single-preview-mode the docked X is hidden via CSS, so
-        // this handler effectively only fires in the popped-out case.
-        if (document.body.classList.contains("preview-popped-out")) {
-          document.body.classList.remove("preview-popped-out");
-          // Clear inline left/top set by the move-drag + the scroll
-          // handler's .preview-pinned width so the pane re-attaches
-          // cleanly to its grid cell instead of carrying the
-          // floating coords back into docked mode.
-          var previewPanel = document.getElementById("selectedProductPreview");
-          if (previewPanel) {
-            previewPanel.classList.remove("preview-pinned");
-            previewPanel.style.left = "";
-            previewPanel.style.top = "";
-            previewPanel.style.right = "";
-            previewPanel.style.bottom = "";
-            previewPanel.style.width = "";
-            previewPanel.style.maxWidth = "";
-          }
-          // Re-evaluate rail mode: popout is off now; if conditions
-          // hold (wide viewport + single-preview + product), the
-          // rail should re-engage so the preview docks back into
-          // the left rail rather than the editor grid.
-          if (typeof _updateLeftRailMode === "function") _updateLeftRailMode();
-          return;
-        }
-        // Legacy non-single-preview path: hide pane + editor (the
-        // original deselect behaviour). Only reachable via
-        // ?legacy-canvas=1 since the X is CSS-hidden in single-
-        // preview-mode.
+        // Only reachable via ?legacy-canvas=1 — the X is CSS-hidden in
+        // single-preview-mode. Classic deselect: hide pane + editor.
         state.selectedProduct = null;
         state.uploadedPrintifyId = null;
         state.uploadedPrintifyIdRaw = null;
@@ -2108,9 +1642,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         updateProductSectionHeader();
         var productSection = document.getElementById("productSection");
         if (productSection) _scrollToEl(productSection, "start");
-        // Editor hidden → recompute _editorInView (will be false)
-        // and rail mode → off.
-        if (typeof _onEditorVisibilityChanged === "function") _onEditorVisibilityChanged();
       });
     }
 
@@ -11380,9 +10911,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (!product) return;
       updateSelectedProductPreview(product);
       editSection.classList.remove("hidden");
-      // Editor just became reachable — recompute rail-mode gating
-      // (the rail only engages when the editor is in view).
-      if (typeof _onEditorVisibilityChanged === "function") _onEditorVisibilityChanged();
       syncCropRatioUI();
       // Transition the step machine FIRST so body.step-editor is
       // applied before _continueOpenEditor scrolls. Without this, the

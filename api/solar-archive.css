@@ -2643,8 +2643,8 @@ body.step-image #selectedProductPreview {
    to the top of the viewport so the user can flip tiers while scrolled
    into the product picker — the original placement at the vibe-grid
    header was off-screen by the time the products were visible. Hidden
-   once the editor engages (body.left-rail-preview) since the editor
-   has its own Quality timeline. */
+   once the editor engages since the editor has its own Quality
+   timeline. */
 .vibe-master-toggle {
   display: inline-flex;
   background: rgba(0,0,0,0.55);
@@ -4089,28 +4089,44 @@ body.step-editor .toast { bottom: 104px; }
 body.single-preview-mode .editor-with-preview .image-stage {
   display: none;
 }
-body.single-preview-mode .editor-with-preview {
-  grid-template-columns: 1fr;
-  grid-template-areas:
-    "preview"
-    "toolbar"
-    "actions";
-}
+/* The pane previously spanned the full dashboard width with a 72vh
+   height cap and default-visible overflow: the ratio caption and
+   variant rows spilled past the pane border straight over the tip
+   bar below it, and the controls landed under the fold. A bounded
+   preview column beside the controls + natural pane height fixes
+   both, and stacks back to one column under 1100px. */
 body.single-preview-mode .editor-with-preview .selected-product-preview {
-  max-width: none;
-  flex: 1 0 auto;
-  /* Big square slot keyed off viewport so the preview reads as the
-     dominant content surface, not a sidekick. Capped at 720 px so on
-     very wide monitors it doesn't dwarf the toolbar. */
   width: 100%;
-  max-height: min(72vh, 720px);
+  max-width: none;
 }
 body.single-preview-mode .editor-with-preview .selected-product-preview .preview-mockup {
   /* Square aspect (matches the underlying canvas backing store),
-     centered, fills available width. */
+     centered, fills the preview column. */
   aspect-ratio: 1 / 1;
-  max-width: min(72vh, 720px);
+  max-width: 100%;
   margin: 0 auto;
+}
+@media (min-width: 1100px) {
+  body.single-preview-mode .editor-with-preview {
+    grid-template-columns: minmax(300px, 430px) 1fr;
+    grid-template-areas:
+      "preview toolbar"
+      "actions actions";
+  }
+}
+@media (max-width: 1099px) {
+  body.single-preview-mode .editor-with-preview {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "preview"
+      "toolbar"
+      "actions";
+  }
+  body.single-preview-mode .editor-with-preview .selected-product-preview {
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+  }
 }
 body.single-preview-mode .editor-with-preview .selected-product-preview canvas.live-preview-canvas {
   /* Display at full container width; backing-store resolution is
@@ -4129,168 +4145,11 @@ body.single-preview-mode .editor-with-preview .selected-product-preview canvas.l
   cursor: grabbing;
 }
 
-/* Resize handle (bottom-right corner). Drag to shrink/grow the
-   preview pane. Stores --user-preview-size on the pane element so
-   the choice persists for the session. */
-.preview-pane-resize-handle {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 18px;
-  height: 18px;
-  cursor: nwse-resize;
-  background:
-    linear-gradient(135deg, transparent 0 35%, rgba(255,255,255,0.4) 35% 45%, transparent 45% 60%, rgba(255,255,255,0.4) 60% 70%, transparent 70%);
-  z-index: 4;
-  border-radius: 3px;
-  opacity: 0.5;
-  transition: opacity 0.15s ease;
-}
-.preview-pane-resize-handle:hover { opacity: 0.95; }
-
-/* Pop-out toggle button (top-left, mirrors the close button). When
-   active, the preview pane detaches into a draggable floating panel
-   (position: fixed, body.preview-popped-out). */
-.preview-popout-btn {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 3;
-  background: rgba(0,0,0,0.35);
-  color: var(--text-primary, #e9eaf5);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.preview-popout-btn:hover { background: rgba(0,0,0,0.55); }
-
-/* Popped-out floating mode — preview detaches from grid, hovers in
-   the bottom-right corner, draggable by its chrome (not the canvas;
-   the canvas is reserved for the source-image pan gesture). */
-body.preview-popped-out .selected-product-preview {
-  position: fixed !important;
-  bottom: 24px;
-  right: 24px;
-  top: auto !important;
-  left: auto !important;
-  width: var(--popout-w, 360px);
-  max-width: 90vw;
-  max-height: 80vh;
-  z-index: 9000;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-  border-color: rgba(255,255,255,0.25);
-  cursor: grab;
-}
-body.preview-popped-out .selected-product-preview:active { cursor: grabbing; }
-body.preview-popped-out .selected-product-preview .preview-mockup {
-  /* Constrain the floating-mode preview so the canvas doesn't push
-     the whole panel beyond viewport. */
-  max-width: 100%;
-  max-height: 60vh;
-}
-
-/* X / close button repurposed (2026-05-25): used to deselect the
-   product, which conflicted with the dedicated "Change product"
-   CTA. Now it docks a popped-out preview back into the editor grid.
-   In docked single-preview-mode there's nothing to "close" — hide
-   it so the chrome isn't misleading. The popout button (top-left)
-   is the way to re-detach when docked. */
-body.single-preview-mode:not(.preview-popped-out) .selected-product-preview .preview-close-btn {
+/* In single-preview-mode there's nothing to "close" — deselect is
+   owned by the "Change product" CTA — so hide the X. Only the
+   ?legacy-canvas=1 escape hatch still shows/uses it. */
+body.single-preview-mode .selected-product-preview .preview-close-btn {
   display: none;
-}
-
-/* ── Two-column desktop layout: preview rail + dashboard ────────
-   On wide-enough viewports (≥1100 px), when single-preview-mode
-   is active and a product is selected, the preview pane leaves
-   the editor's internal grid and becomes a fixed-position left
-   rail that follows the user as they scroll. The rest of the page
-   (vibe cards, wavelength picker, product grid, editor controls)
-   shifts right and right-justifies inside its column. Gilly's
-   ask 2026-05-25: "two columns, preview floats and follows as
-   the user scrolls, dashboard right-justified."
-
-   The toggle gate is `body.left-rail-preview`, set by JS on
-   viewport-resize when:
-     - body.single-preview-mode is on, AND
-     - a product is selected (preview pane not .hidden), AND
-     - body is NOT .preview-popped-out (floating mode owns its
-       own positioning; rail layout would fight it), AND
-     - window.innerWidth >= 1100.
-   The popout button and X button update this state so toggling
-   modes plays nice with the rail. */
-body.left-rail-preview {
-  /* Centered two-column composition. Both rail + dashboard get
-     sized as a single block, then centered in the viewport via
-     `--left-edge`. Matches the pattern Gilly likes from the
-     Pixelated Enso layout: balanced columns with comfortable
-     margins on both sides, not edge-pinned. Below the breakpoint
-     (1100 px) this whole rule set is skipped and we fall back to
-     the single-column docked layout. */
-  --rail-w: clamp(340px, 40vw, 560px);
-  --dashboard-w: clamp(420px, 44vw, 680px);
-  --rail-gap: 32px;
-  --total-w: calc(var(--rail-w) + var(--rail-gap) + var(--dashboard-w));
-  /* Half the empty space outside the total block — applied as the
-     left margin of the rail and the right margin of the dashboard
-     so the whole composition reads as one centered group. */
-  --left-edge: max(24px, calc((100vw - var(--total-w)) / 2));
-}
-body.left-rail-preview .app-container {
-  /* Dashboard sits in the right half of the centered block. */
-  margin-left: calc(var(--left-edge) + var(--rail-w) + var(--rail-gap));
-  margin-right: var(--left-edge);
-  max-width: var(--dashboard-w);
-  padding-left: 0;
-  padding-right: 0;
-}
-body.left-rail-preview .selected-product-preview {
-  /* Fixed-position left rail, anchored to the same `--left-edge` so
-     it shares a centered axis with the dashboard. Follows scroll
-     automatically because position:fixed pins to viewport coords. */
-  position: fixed !important;
-  top: 24px;
-  left: var(--left-edge);
-  right: auto !important;
-  bottom: auto !important;
-  width: var(--rail-w);
-  max-width: var(--rail-w);
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-  z-index: 20;
-}
-body.left-rail-preview .editor-with-preview {
-  /* Preview hoisted to the rail; editor grid collapses to a
-     single column (toolbar then actions). */
-  grid-template-columns: 1fr;
-  grid-template-areas:
-    "toolbar"
-    "actions";
-}
-body.left-rail-preview .editor-with-preview .selected-product-preview {
-  /* Override the grid-area from the docked layout — the pane is
-     no longer inside this grid visually, but it's still a DOM
-     descendant so we have to neutralize the grid-area assignment. */
-  grid-area: unset;
-}
-/* Override the rail mode's positioning when the user pops the
-   preview out into floating mode. The popped-out CSS already
-   pins to bottom-right; the .left-rail-preview rule above would
-   otherwise pin it top-left and override the float. */
-body.left-rail-preview.preview-popped-out .selected-product-preview {
-  position: fixed !important;
-  top: auto !important;
-  left: auto !important;
-  bottom: 24px;
-  right: 24px;
-  width: var(--popout-w, 360px);
-  max-width: 90vw;
-  max-height: 80vh;
 }
 
 /* Sticky editor canvas — see header comment for rationale. The cap
@@ -4366,17 +4225,6 @@ body.left-rail-preview.preview-popped-out .selected-product-preview {
   /* sticky on scroll; also acts as containing block for the absolute close button */
   position: sticky;
   top: 20px;
-}
-
-/* Once the user has scrolled past the editor row entirely, sticky
-   releases the preview and it scrolls away with the page. We want
-   the preview to keep tracking the viewport — JS adds .preview-
-   pinned and inline left/width/top so the pane stays anchored in
-   its column all the way to the footer. */
-.editor-with-preview .selected-product-preview.preview-pinned {
-  position: fixed;
-  z-index: 10;
-  /* left, top, and width are set inline by the scroll handler */
 }
 
 /* ✕ close / deselect button in the product preview panel */
@@ -4926,17 +4774,6 @@ body.left-rail-preview.preview-popped-out .selected-product-preview {
 .feedback-fab:active { transform: translateY(0); }
 .feedback-fab i { font-size: 1rem; }
 
-/* When the editor is engaged (rail mode active), the editor's sticky
-   "Download your design" / "Create on Shopify" CTA bar sits in the
-   bottom-right too. Friction audit found the feedback pills crash on
-   top of it. Shrink the group to icon-only and shift it left of the
-   CTA bar so both remain reachable. */
-body.left-rail-preview .feedback-fab-group {
-  right: 18px;
-  bottom: 88px;  /* clear the ~64px CTA bar */
-}
-body.left-rail-preview .feedback-fab-label { display: none; }
-body.left-rail-preview .feedback-fab { padding: 11px; }
 /* STRESS-004: same treatment on step "product" — agent 1 reported the
    two pills covered the third-column product cards' title / price /
    "Pick a variant" button on the top product row at desktop, and
@@ -4953,22 +4790,19 @@ body.step-product .feedback-fab { padding: 11px; }
    bottom-0 CTA bar (.editor-action-bar — Generate real mockup / Buy
    now), same as the rail and product-picker cases above, but this
    one was never given the clearance fix — the fixed FAB pills sat
-   permanently on top of the Buy button any time the rail layout
-   wasn't active (i.e. below the 1100px left-rail breakpoint, which
-   is most of the time on real devices). Mirror the same shrink +
-   shift treatment. :not(.left-rail-preview) so this doesn't fight
-   the rail's own positioning above. */
-body.step-editor:not(.left-rail-preview) .feedback-fab-group {
+   permanently on top of the Buy button. Shrink to icon-only and
+   shift clear of the CTA bar on the editor step. */
+body.step-editor .feedback-fab-group {
   right: 18px;
   bottom: 88px;
 }
-body.step-editor:not(.left-rail-preview) .feedback-fab-label { display: none; }
-body.step-editor:not(.left-rail-preview) .feedback-fab { padding: 11px; }
+body.step-editor .feedback-fab-label { display: none; }
+body.step-editor .feedback-fab { padding: 11px; }
 @media (max-width: 740px) {
   /* .editor-action-bar switches to flex-direction:column here (two
      stacked buttons instead of one row) and grows to roughly double
      the height — clear that taller bar instead of the desktop 88px. */
-  body.step-editor:not(.left-rail-preview) .feedback-fab-group {
+  body.step-editor .feedback-fab-group {
     bottom: 148px;
   }
 }
