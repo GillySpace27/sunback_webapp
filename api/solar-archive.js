@@ -6596,6 +6596,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // April 2026" vs "April 21, 2026"). · = mid-dot separator.
       return day + " " + monthName + " " + year + " · 12:00 UTC · " + wl + " Å";
     }
+
+    function renderCanvas() {
+      if (!state.originalImage) return;
       // Re-entry guard. renderCanvas ends with refreshLivePreview(), which can
       // call drawProductMockup() → getCleanCanvasSnapshot() → renderCanvas()
       // recursively. That cascade was the reason slider drags bogged down to
