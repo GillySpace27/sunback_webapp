@@ -5465,14 +5465,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof renderProducts === "function") renderProducts();
     }
 
-    // ── Landing before/after compare slider ─────────────────────
-    // The static diptych was the single best-understood element in usability
-    // testing; this makes that comparison hands-on (Gilly's ask, 2026-07-25).
-    // Self-contained: pointer + keyboard drive the --split custom property;
-    // if either co-registered webp fails to load we swap back to the static
-    // quality_strip.webp, so the showcase can never render broken.
+    // ── Landing showcase: diptych by default, slider on demand ──
+    // The static diptych is the default because it tested as the single
+    // best-understood element on the page and needs no interaction to land.
+    // Clicking it upgrades IN PLACE to this wipe slider for anyone who wants
+    // to explore. Self-contained: pointer + keyboard drive the --split custom
+    // property; if either co-registered webp fails to load we swap the whole
+    // showcase for the baked quality_strip.webp so it can never render broken.
     (function _wireCompareSlider() {
       var el = document.getElementById("compareSlider");
+      var diptych = document.getElementById("qualityDiptych");
       if (!el) return;
       var over = el.querySelector(".compare-over");
       var under = el.querySelector(".compare-under");
@@ -5486,15 +5488,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (teaseRaf) { cancelAnimationFrame(teaseRaf); teaseRaf = null; }
       }
 
+      var _fellBack = false;
       function _fallbackStatic() {
+        if (_fellBack) return;   // both images can error; only swap once
+        _fellBack = true;
         var img = document.createElement("img");
         img.src = "/asset/default/quality_strip.webp";
         img.alt = under.alt || "The Sun before and after processing.";
+        img.className = "quality-strip-fallback";
         img.loading = "lazy";
+        // Replace the whole showcase, not just the slider — the diptych uses
+        // the same two webps, so if one is missing it is broken too.
+        if (diptych) diptych.remove();
         el.replaceWith(img);
       }
       over.addEventListener("error", _fallbackStatic);
       under.addEventListener("error", _fallbackStatic);
+      if (diptych) {
+        diptych.querySelectorAll(".diptych-img").forEach(function (im) {
+          im.addEventListener("error", _fallbackStatic);
+        });
+      }
 
       function _split() {
         var v = parseFloat(el.style.getPropertyValue("--split"));
@@ -5541,31 +5555,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         e.preventDefault();
       });
 
-      // One-time "this is draggable" tease on first scroll-into-view:
-      // 50 → 35 → 50 over 1.2 s. Skipped under prefers-reduced-motion —
-      // the slider stays a static 50/50 split, fully draggable. (The plan
-      // sketch said "reduced = show Filtered only", but a static 50/50
-      // communicates the comparison better and animates nothing.)
-      var reduced = (typeof _prefersReducedMotion === "function") && _prefersReducedMotion();
-      if (!reduced && "IntersectionObserver" in window) {
-        var io = new IntersectionObserver(function (entries) {
-          if (teased) { io.disconnect(); return; }
-          var hit = entries.some(function (en) { return en.isIntersecting; });
-          if (!hit) return;
-          io.disconnect();
-          teased = true;
-          var t0 = null, DUR = 1200;
-          function frame(ts) {
-            if (t0 === null) t0 = ts;
-            var p = Math.min(1, (ts - t0) / DUR);
-            _set(50 - 15 * Math.sin(p * Math.PI));
-            if (p < 1) teaseRaf = requestAnimationFrame(frame);
-            else teaseRaf = null;
-          }
-          teaseRaf = requestAnimationFrame(frame);
-        }, { threshold: 0.4 });
-        io.observe(el);
+      // Activation: swap the diptych out for this slider, in place. The tease
+      // (50 → 35 → 50 over 1.2 s) now runs HERE rather than on scroll-into-
+      // view — the user has just opted in, so it reads as "here is the handle"
+      // instead of an unexplained twitch on a static image. Skipped under
+      // prefers-reduced-motion, which leaves a fully-draggable static 50/50.
+      function _activateSlider() {
+        if (diptych) diptych.classList.add("hidden");
+        el.classList.remove("hidden");
+        try { handle.focus({ preventScroll: true }); } catch (_e) {}
+        var reduced = (typeof _prefersReducedMotion === "function") && _prefersReducedMotion();
+        if (reduced || teased) return;
+        teased = true;
+        var t0 = null, DUR = 1200;
+        function frame(ts) {
+          if (t0 === null) t0 = ts;
+          var p = Math.min(1, (ts - t0) / DUR);
+          _set(50 - 15 * Math.sin(p * Math.PI));
+          if (p < 1) teaseRaf = requestAnimationFrame(frame);
+          else teaseRaf = null;
+        }
+        teaseRaf = requestAnimationFrame(frame);
       }
+      if (diptych) diptych.addEventListener("click", _activateSlider);
     })();
 
     // ── Toast ────────────────────────────────────────────────────

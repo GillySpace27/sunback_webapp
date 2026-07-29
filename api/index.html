@@ -129,22 +129,43 @@
        "product" and CSS body.step-product hides the other sections.
        Visibility on later steps is also driven by body.step-{name}
        rules in solar-archive.css. -->
-  <!-- Quality showcase: interactive before/after wipe slider — the SAME solar
-       frame, Original under the left of the divider, Filtered under the right.
-       The static diptych tested as the single best-understood element on the
-       page; the slider makes that comparison hands-on (Gilly's ask,
-       2026-07-25). Both webps are co-registered edge-static assets (~89 KB
-       total, make_compare_pair.py); zero backend. JS enhances it — if either
-       image 404s the block is swapped back to the static quality_strip.webp,
-       and with no JS at all the CSS default --split shows a meaningful 50/50.
-       compare-under = Filtered (right side visible), compare-over = Original
-       clipped to the left of the divider. -->
+  <!-- Quality showcase. DEFAULT = static side-by-side diptych: it tested as
+       the single best-understood element on the page, it compares like-for-
+       like (the whole disk in both states, rather than the wipe's left-half-
+       raw / right-half-filtered which shows two different regions of an
+       asymmetric Sun), it delivers its whole argument with zero interaction,
+       and it survives being screenshotted into an ad.
+       Click/Enter/Space upgrades it IN PLACE to the interactive wipe slider
+       for anyone who wants to explore — progressive disclosure rather than a
+       toggle, so a visitor is never asked to choose a presentation format.
+       Both webps are co-registered edge-static assets (~89 KB total,
+       make_compare_pair.py); zero backend. If either 404s, the whole block is
+       swapped for the baked quality_strip.webp so it can never render broken. -->
   <div class="section quality-strip-section" id="qualityStrip">
-    <div class="compare-slider" id="compareSlider" style="--split:50%">
-      <!-- Eager, not lazy: the showcase sits at the fold boundary and
-           loading="lazy" was observed on prod never firing at all (currentSrc
-           stayed empty while a programmatic probe of the same URL loaded
-           fine). 89 KB total doesn't need deferring. -->
+    <button type="button" class="quality-diptych" id="qualityDiptych"
+            aria-label="The Sun before and after our sharpening step, side by side. Activate to compare them hands-on with a draggable slider.">
+      <span class="diptych-pane">
+        <span class="diptych-label">Original</span>
+        <span class="diptych-sub">raw telescope data</span>
+        <img class="diptych-img" src="/asset/default/compare_raw.webp" width="900" height="900"
+             alt="The Sun as the telescope recorded it — the faint outer atmosphere is lost in the dark."
+             decoding="async" />
+      </span>
+      <span class="diptych-pane">
+        <span class="diptych-label">Filtered</span>
+        <span class="diptych-sub">RHEF reveals the corona</span>
+        <img class="diptych-img" src="/asset/default/compare_rhef.webp" width="900" height="900"
+             alt="The same moment after our sharpening step — the Sun's faint outer glow is now visible."
+             decoding="async" />
+      </span>
+      <span class="diptych-hint" aria-hidden="true">
+        <i class="fas fa-arrows-left-right"></i> Tap to compare hands-on
+      </span>
+    </button>
+
+    <!-- Interactive upgrade, revealed only on activation. compare-under =
+         Filtered (right of divider), compare-over = Original clipped left. -->
+    <div class="compare-slider hidden" id="compareSlider" style="--split:50%">
       <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
            alt="The Sun after our sharpening step, revealing the faint outer glow." decoding="async" />
       <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
@@ -158,14 +179,7 @@
       <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
       <span class="compare-label compare-label-right" aria-hidden="true">Filtered</span>
     </div>
-    <!-- Plain language first, science second. This caption is the second thing
-         on the page, above the shop, and a non-technical tester hit four
-         unknown words in one sentence here (RHEF, corona, multi-frame stack,
-         4K) and said she thought she'd landed on a university site. The
-         before/after image was the ONE thing every tester understood instantly,
-         so the caption now just explains the picture; the method + citation
-         moved to the quiet line beneath. (Usability sweep, 2026-07-28.) -->
-    <p class="quality-strip-caption">Drag the handle. Left of it is the raw telescope photo; right is the same moment after our sharpening step, which lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the sharpened version.</strong></p>
+    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, our sharpening step lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the sharpened version.</strong></p>
     <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (Gilly et al. 2025), not a filter preset. Prints are rendered at full 4K.</p>
   </div>
 
