@@ -1507,6 +1507,12 @@ html.dark .image-stage.image-stage--checker {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  /* Flex item of .edit-toolbar. Without this floor it keeps
+     min-width:auto and holds its min-content width (~640px), so it
+     punches straight out of the editor's toolbar column no matter
+     how narrow that column gets — nothing nested inside can shrink
+     past an ancestor that refuses to. */
+  min-width: 0;
 }
 
 .edit-toolbar-break {
@@ -4103,7 +4109,13 @@ body.single-preview-mode .editor-with-preview .selected-product-preview .preview
 }
 @media (min-width: 1100px) {
   body.single-preview-mode .editor-with-preview {
-    grid-template-columns: minmax(300px, 430px) 1fr;
+    /* minmax(0, 1fr), NOT 1fr: a bare `1fr` track has an automatic
+       minimum of min-content, so the toolbar column refuses to shrink
+       below its widest row and the whole grid overflows the section to
+       the right (reported: the QUALITY panel spilling past the card
+       edge). Flooring the min at 0 lets the track shrink and the
+       toolbar's own flex rows wrap instead. */
+    grid-template-columns: minmax(300px, 430px) minmax(0, 1fr);
     grid-template-areas:
       "preview toolbar"
       "actions actions";
@@ -4111,7 +4123,7 @@ body.single-preview-mode .editor-with-preview .selected-product-preview .preview
 }
 @media (max-width: 1099px) {
   body.single-preview-mode .editor-with-preview {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "preview"
       "toolbar"
@@ -4123,6 +4135,26 @@ body.single-preview-mode .editor-with-preview .selected-product-preview .preview
     margin-right: auto;
   }
 }
+/* Un-stick the preview in the stacked band. The base rule sticks the
+   pane at top:20px, which is right in the two-column layout (the pane
+   tracks the viewport beside a taller control column, in its own
+   track, so it can't touch anything). Stacked, it's actively wrong:
+   the pane pins itself over the toolbar row directly beneath it and
+   the controls scroll underneath an opaque box (reported: QUALITY and
+   the tab bar visible on either side of a floating preview).
+   Scoped to ≥750px so the deliberate mobile design below — sticky
+   top:0 WITH an opaque background, z-index and a 70vh cap, where the
+   preview is the primary canvas — is left intact. */
+@media (min-width: 750px) and (max-width: 1099px) {
+  body.single-preview-mode .editor-with-preview .selected-product-preview {
+    position: static;
+  }
+}
+/* Both toolbar rows are flex items; without an explicit floor they
+   inherit min-width:auto and shove the grid track wider than the
+   card. (.edit-toolbar-nav-group sets its own above; the timeline
+   only had this inside the ≤749px block, so desktop overflowed.) */
+.edit-toolbar-row > .filter-timeline { min-width: 0; }
 body.single-preview-mode .editor-with-preview .selected-product-preview canvas.live-preview-canvas {
   /* Display at full container width; backing-store resolution is
      bumped in updateSelectedProductPreview so this upscale doesn't
