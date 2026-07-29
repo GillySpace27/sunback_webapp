@@ -6040,7 +6040,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
     }
 
-    // "The Sun right now" hero widget. Best-effort and fully optional —
+    // "The Sun, latest image" hero widget. Best-effort and fully optional —
     // the hero renders fine without it. Deferred past window 'load' +
     // idle so it never competes with anything on the critical path (same
     // gating as _armPrime above), and the element only ever becomes
@@ -6070,7 +6070,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             heroNowImg.src = url;
             var hh = String(t.getUTCHours()).padStart(2, "0");
             var mm = String(bucketMin).padStart(2, "0");
-            heroNowCaption.textContent = "The Sun, right now (" + hh + ":" + mm + " UTC)";
+            heroNowCaption.textContent = "The Sun, latest image (" + hh + ":" + mm + " UTC)";
             heroNow.hidden = false;
           };
           probe.onerror = function () { /* backend asleep or offline — fine, stay hidden */ };

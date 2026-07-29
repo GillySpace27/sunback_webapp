@@ -210,7 +210,7 @@ body::before {
   50% { box-shadow: 0 0 60px var(--glow-sun), 0 0 120px rgba(255,94,58,0.25); transform: scale(1.05); }
 }
 
-/* "The Sun right now" — hidden until JS confirms the thumbnail loaded. */
+/* "The Sun, latest image" — hidden until JS confirms the thumbnail loaded. */
 .hero-now {
   display: flex;
   align-items: center;
