@@ -6092,8 +6092,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // which the input just refuses as out of range.
           dateInput.value = dateInput.max || new Date().toISOString().slice(0, 10);
           dateInput.dispatchEvent(new Event("change", { bubbles: true }));
-          dateInput.scrollIntoView({ behavior: "smooth", block: "center" });
         }
+        // #solarDate is a display:none/aria-hidden state-holder, not the
+        // visible picker — scrolling to IT is a guaranteed no-op (no client
+        // rects), so the click used to do nothing the user could see. Scroll
+        // to whichever picker surface is actually on screen for the current
+        // step: the vibe grid once a product is chosen, otherwise the product
+        // grid, which IS the real next action on the landing page.
+        var target = [".vibe-grid-section", "#configSection", "#productSection"]
+          .map(function (sel) { return document.querySelector(sel); })
+          .filter(function (el) { return el && el.offsetParent !== null; })[0];
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     })();
 
