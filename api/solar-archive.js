@@ -5577,6 +5577,36 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         teaseRaf = requestAnimationFrame(frame);
       }
+      // Back out to the static side-by-side. Restores the default view and
+      // returns focus to the diptych button that opened the slider, so a
+      // keyboard user isn't dumped at the top of the document.
+      function _deactivateSlider() {
+        if (teaseRaf) { cancelAnimationFrame(teaseRaf); teaseRaf = null; }
+        _set(50);                       // hand it back at a clean 50/50
+        el.classList.add("hidden");
+        if (diptych) {
+          diptych.classList.remove("hidden");
+          try { diptych.focus({ preventScroll: true }); } catch (_e) {}
+        }
+      }
+      var closeBtn = document.getElementById("compareCloseBtn");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", function (e) {
+          // The slider's own pointerdown handler sets the split from click x;
+          // stop it so hitting ✕ doesn't yank the divider first.
+          e.stopPropagation();
+          _deactivateSlider();
+        });
+        // Don't let the ✕ start a divider drag either.
+        closeBtn.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+      }
+      // Escape is the expected way out of a mode once it has focus.
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" || e.key === "Esc") {
+          e.preventDefault();
+          _deactivateSlider();
+        }
+      });
       if (diptych) diptych.addEventListener("click", _activateSlider);
     })();
 

@@ -267,6 +267,44 @@ body::before {
    comparison reads even with JS disabled. touch-action: pan-y keeps
    vertical page scrolling alive on mobile while horizontal drags come to
    the pointer handlers. */
+/* ✕ back to the static side-by-side. Sits opposite the "Filtered" label
+   (top-left, since that label is top-right) so it never covers either
+   caption. Higher z-index than the handle so it stays clickable while
+   the divider sits under it. Bumped to a 44px target on touch. */
+.compare-close-btn {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 4;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--text-secondary, #d0c8d8);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm, 6px);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.compare-close-btn:hover,
+.compare-close-btn:focus-visible {
+  color: #fff;
+  background: rgba(255,94,58,0.28);
+  border-color: var(--accent-flare, #ff5e3a);
+}
+@media (pointer: coarse) {
+  .compare-close-btn {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .compare-close-btn { transition: none; }
+}
+
 /* ── Landing showcase: static diptych (default) ──────────────────
    Side-by-side beats the wipe as the DEFAULT because it compares the
    whole disk in both states — like-for-like — and needs no interaction.
