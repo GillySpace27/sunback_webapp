@@ -210,32 +210,6 @@ body::before {
   50% { box-shadow: 0 0 60px var(--glow-sun), 0 0 120px rgba(255,94,58,0.25); transform: scale(1.05); }
 }
 
-/* "The Sun, latest image" — hidden until JS confirms the thumbnail loaded. */
-.hero-now {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 16px auto 0;
-  padding: 6px 14px 6px 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.04);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.hero-now:hover, .hero-now:focus-visible {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.22);
-}
-.hero-now img {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-  box-shadow: 0 0 12px var(--glow-sun);
-}
 
 .hero h1 {
   font-size: 2rem;
