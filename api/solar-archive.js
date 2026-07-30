@@ -5696,6 +5696,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
         var closed = false;
         function closeOnce() { if (!closed) { closed = true; overlay.remove(); } }
+        // Hard failsafe: this modal sits in front of checkout — a stuck
+        // overlay here doesn't just look broken, it hides a checkout that
+        // may have ALREADY SUCCEEDED behind it (found live: a completed,
+        // ready-to-pay Shopify link rendered underneath while this overlay
+        // — still showing its disabled "Preparing…" button — blocked all
+        // pointer events to it, indefinitely). Whatever the reason a normal
+        // close signal didn't arrive, never let the overlay outlive it by
+        // more than a few seconds.
+        setTimeout(closeOnce, 8000);
 
         var result;
         try {
@@ -5709,9 +5718,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         } else {
           // Legacy sync callback: let the browser paint the spinner frame,
           // then hold briefly so the state change is visible before close.
-          requestAnimationFrame(function() {
-            setTimeout(closeOnce, 350);
-          });
+          // Plain setTimeout, not requestAnimationFrame — rAF is suspended
+          // indefinitely on a backgrounded/hidden tab (confirmed live: a
+          // tab with document.visibilityState "hidden" never ran a queued
+          // rAF callback), so gating a modal-close on it can leave the
+          // modal open forever even though the work behind it finished.
+          // setTimeout still fires (throttled, not frozen) in that case.
+          setTimeout(closeOnce, 350);
         }
       });
     }
@@ -12075,10 +12088,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // status-list progress, with no blank moment in between.
           doCheckout(product);
           return new Promise(function(resolve) {
-            // One frame for the spinner to paint, then a hold long enough
-            // for checkoutProgress to scroll into view and ckStep1's spinner
-            // to start animating. ~650ms feels responsive without flashing.
-            requestAnimationFrame(function() { setTimeout(resolve, 650); });
+            // A hold long enough for checkoutProgress to scroll into view
+            // and ckStep1's spinner to start animating before this modal
+            // closes. Plain setTimeout, not requestAnimationFrame — rAF is
+            // suspended indefinitely on a backgrounded/hidden tab (a real
+            // user can plausibly switch away right after tapping Buy,
+            // especially on mobile), which left this exact modal stuck
+            // open — disabled button reading "Preparing your print…" —
+            // while the checkout it was guarding finished successfully and
+            // rendered a live, ready-to-pay Shopify link UNREACHABLE
+            // underneath it. setTimeout still fires (throttled, not
+            // frozen) in a hidden tab, and showModal's own 8s failsafe
+            // (see closeOnce there) is the second line of defense.
+            setTimeout(resolve, 650);
           });
         },
         "Continue to checkout",
