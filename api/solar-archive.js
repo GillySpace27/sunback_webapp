@@ -2284,14 +2284,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           state.rhefImage = cachedEntry.rhef;
           state.rawBackendImage = cachedEntry.rawBackend || null;
           state.jpgImage = cachedEntry.jpg || null;
-          setTimeout(function() {
-            if (_selStale(tok)) return;
-            // Cached tiers (raw/rhef/jpg) are already in state above — the
-            // forced quality cycle stages Preview → Original → Filtered from
-            // them, so don't jump straight to Filtered here. Just kick off HQ
-            // generation so hq_rhef can upgrade the canvas later.
-            startHqFilterGeneration(dateVal, wl, "rhef", 1, tok);
-          }, 100);
+          // HQ is NOT auto-started here. It used to fire on every editor
+          // entry, which is what put a "HQ RENDER ~2M 00S" countdown in front
+          // of a user who only wanted to look at their Sun. It is now
+          // on-demand: clicking the "HQ Filtered" tier starts it (see the
+          // hq_rhef branch in the filter-step handler).
+          //
+          // This does not touch print quality. Checkout resolves its own
+          // print source via _ensureIntegratedHqUrl(), which is separately
+          // pre-warmed fire-and-forget by _prewarmIntegratedHq() on editor
+          // entry — so the 4K render still happens off the interactive path
+          // and is cached by the time the user reaches checkout.
         } else {
           // Background prefetch — warm the backend cache without blocking the UI.
           // Store results so the filter toggle can use them instantly later.
@@ -2324,7 +2327,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               var entry = thumbCache[String(wl)] || {};
               entry.rhef = state.rhefImage; entry.rawBackend = state.rawBackendImage; entry.jpg = state.jpgImage;
               thumbCache[String(wl)] = entry;
-              updateFilterStatusLine("Science data ready! Generating HQ\u2026", "loading");
+              updateFilterStatusLine("Science data ready!", "ready");
               // Tiers just landed. The forced quality cycle (started on editor
               // entry) stages Preview → Original → Filtered as each becomes
               // ready — don't jump straight to Filtered here; just repaint. If
@@ -2332,9 +2335,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
               // maybeAutoAdvanceFilter below promotes to the best ready tier.
               renderCanvas();
               if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
-              // RHEF preview is ready — kick off HQ generation in the background.
-              // The HQ image will auto-upgrade the canvas to hq_rhef when it arrives.
-              startHqFilterGeneration(dateVal, wl, "rhef", 1, tok);
+              // Deliberately NOT starting HQ here — see the note at the
+              // cached-tier branch above. Filtered is the interactive
+              // destination; HQ is on-demand, and the print render is
+              // pre-warmed separately by _prewarmIntegratedHq().
             }).catch(function(err) {
               console.warn("[Prefetch] RHE prefetch failed (non-blocking):", err);
               if (_selStale(tok)) return;
