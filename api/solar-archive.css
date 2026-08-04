@@ -3514,7 +3514,7 @@ body.step-editor .vibe-reveal-btn {
      covering the "Accept" button (usability sweep, 2026-07-28). A consent
      gate should always win the stacking contest. */
   z-index: 9995;
-  background: rgba(15, 17, 30, 0.96);
+  background: var(--bg-card);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border, #2a2a44);
   border-radius: 14px;
