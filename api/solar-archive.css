@@ -4345,6 +4345,22 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.35);
 }
+/* At the two-column desktop breakpoint the whole single-preview-mode
+   card is only ~650px tall — shorter than most desktop viewports —
+   so the sticky bar was never actually needed there; it only ever
+   spent ~100px of scroll "catching up" to its resting spot, and
+   during that catch-up it slid on top of .edit-tab-bar above it
+   (reported: sticky bar overlapping the edit tabs mid-scroll).
+   Static removes the overlap with no loss of visibility: measured
+   live, the buttons already sit inside the viewport the moment the
+   card scrolls into view. Left sticky below 1100px, where the
+   stacked single-column layout can genuinely run taller than the
+   viewport and a pinned CTA earns its keep. */
+@media (min-width: 1100px) {
+  body.single-preview-mode .editor-action-bar {
+    position: static;
+  }
+}
 .editor-action-bar.hidden { display: none; }
 .editor-action-bar > button {
   flex: 1 1 0;
@@ -5657,7 +5673,7 @@ body.step-editor .feedback-fab { padding: 11px; }
      gets miscalculated and the scrollbar never appears. Plain
      block + overflow-y: auto always works. */
   display: block;
-  background: #17192a;
+  background: var(--bg-card);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   padding: 26px 22px 20px;
@@ -5667,10 +5683,13 @@ body.step-editor .feedback-fab { padding: 11px; }
      to light values regardless of the user's OS theme. The panel
      has a hardcoded dark background; the document-level variables
      flip to dark in light system mode and renders the variant
-     labels black-on-black — the report behind this fix. */
-  --text-primary:   #e9eaf5;
-  --text-secondary: #a8a8c8;
-  --text-dim:       #8e8eab;
+     labels black-on-black — the report behind this fix. Values are
+     the dark-mode palette's own tokens (kept as literals, not a
+     var() reference, since :root.dark's values are exactly what a
+     forced-dark panel needs regardless of the OS scheme). */
+  --text-primary:   #e8e2d0;
+  --text-secondary: #a8a094;
+  --text-dim:       #a8a094;
   --accent-corona-text: #f3d385;
   color: var(--text-primary);
   overflow-y: auto;
@@ -5797,6 +5816,9 @@ body.step-editor .feedback-fab { padding: 11px; }
   font-size: 0.86rem;
   color: var(--text-primary, #e9eaf5);
   font-weight: 500;
+}
+.confirm-modal-note a {
+  color: var(--accent-corona-text);
 }
 .confirm-modal-note {
   margin: 0 0 14px;
