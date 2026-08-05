@@ -496,7 +496,7 @@ body::before {
   color: var(--text-secondary);
   font-size: 0.72rem;
   line-height: 1.45;
-  opacity: 0.62;
+  /* was opacity:0.62 — diluted #555 below 4.5:1 on the light card (axe). */
 }
 
 /* Backend status banner removed from the UI — the landing is zero-backend
@@ -3494,8 +3494,8 @@ body.step-editor .vibe-reveal-btn {
    WCAG finding (was 0.5 opacity). */
 .footer-build-tag {
   font-family: 'JetBrains Mono', monospace;
-  opacity: 0.82;
   font-size: 0.72rem;
+  /* was opacity:0.82 — pushed --text-dim under 4.5:1 on cream (axe). */
 }
 
 /* ── Cookie consent banner (GDPR/ePrivacy minimum) ────────────────
@@ -3566,7 +3566,7 @@ body.step-editor .vibe-reveal-btn {
 .cookie-banner-btn:hover { background: rgba(217, 169, 26, 0.10); color: var(--text-primary, #eeeef6); border-color: var(--accent-corona, #d9a91a); }
 .cookie-banner-btn-accept {
   background: var(--accent-corona, #d9a91a);
-  color: #fff;
+  color: #141210;  /* ink on light gold: 9.9:1 (white was 1.7:1) */
   border-color: var(--accent-corona, #d9a91a);
 }
 .cookie-banner-btn-accept:hover {
@@ -6555,4 +6555,11 @@ html:not(.dark) .confirm-variant-tile.active {
   border-color: var(--accent-corona-text, #806200);
   background: rgba(217, 169, 26, 0.16);
   box-shadow: 0 0 0 1px var(--accent-corona-text, #806200) inset;
+}
+
+/* Citation link in the hero fineprint: inherit the fineprint gray
+   (default UA blue looked unstyled and off-palette). */
+.quality-strip-fineprint a {
+  color: inherit;
+  text-decoration: underline;
 }
