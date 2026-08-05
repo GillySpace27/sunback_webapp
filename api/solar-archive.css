@@ -1768,7 +1768,7 @@ html.dark .image-stage.image-stage--checker {
 }
 
 .edit-btn:hover { border-color: var(--accent-corona); background: rgba(217, 169, 26,0.06); }
-.edit-btn.active { border-color: var(--accent-corona); background: rgba(217, 169, 26,0.12); color: var(--accent-corona); }
+.edit-btn.active { border-color: var(--accent-corona); background: rgba(217, 169, 26,0.12); color: var(--accent-corona-text, #f3d385); }
 
 .edit-btn i { font-size: 0.85rem; }
 
@@ -3393,7 +3393,7 @@ body.step-editor .vibe-reveal-btn {
 .backend-banner.waking {
   background: rgba(247,168,37,0.08);
   border: 1px solid rgba(247,168,37,0.3);
-  color: var(--accent-sun);
+  color: var(--accent-corona-text, #f3d385);
 }
 
 .backend-banner .banner-icon {
@@ -3648,20 +3648,20 @@ body.step-editor .toast { bottom: 104px; }
 
 .crop-ratio-btn:hover, .crop-ratio-btn.active {
   border-color: var(--accent-corona);
-  color: var(--accent-corona);
+  color: var(--accent-corona-text, #f3d385);
 }
 
 .product-crop-btn {
   background: rgba(255,150,50,0.1);
   border-color: var(--accent-sun);
-  color: var(--accent-sun);
+  color: var(--accent-corona-text, #f3d385);
   font-size: 0.72rem;
 }
 
 .product-crop-btn.active {
   background: rgba(255,150,50,0.2);
   border-color: var(--accent-corona);
-  color: var(--accent-corona);
+  color: var(--accent-corona-text, #f3d385);
 }
 
 /* Text tool panel */
