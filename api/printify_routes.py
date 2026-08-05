@@ -28,6 +28,7 @@ import logging
 
 from api.shopify_storefront import (
     cart_permalink,
+    ensure_pod_product_config,
     lookup_variant_id_by_sku,
     storefront_configured,
 )
@@ -1459,6 +1460,10 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
 
     slug = slug_only(handle) or slug_only(external_id)
     if slug:
+        # Per-order products arrive from Printify with DENY inventory and
+        # no headless-channel publication; patch both before the buyer
+        # reaches Shopify (no-op without SHOPIFY_ADMIN_ACCESS_TOKEN).
+        ensure_pod_product_config(slug)
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{slug}"}
     return {"status": "pending"}
 
@@ -1570,6 +1575,10 @@ def _build_cart_url_sync(printify_product_id: str, variant_id: int) -> dict:
     handle = _shopify_handle_from_printify(product)
     if not handle:
         return {"status": "pending"}
+    # Same post-publish patch as _fetch_shopify_url_sync: fix inventory
+    # policy and headless publication before building the cart link, so
+    # the Storefront lookup below can actually see the product.
+    ensure_pod_product_config(handle)
     product_page_url = f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"
     fallback = {
         "status": "ready",

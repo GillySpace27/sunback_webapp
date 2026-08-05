@@ -203,7 +203,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     //               of source format.
     //   AIA_PAPER — Lemen 2012 AIA instrument paper. Cite when
     //               the product describes the AIA instrument.
-    //   RHEF_PAPER — Gilly et al. 2025, Sol. Phys. 300:174 — the
+    //   RHEF_PAPER — Gilly & Cranmer 2025, Sol. Phys. 300:174 — the
     //                radial histogram equalization filter method
     //                paper. Cite on the RHEF / HQ RHEF tier
     //                descriptions.
@@ -5049,71 +5049,71 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         title: "AR 2192 — October 24, 2014",
         body: 'Active Region 2192 was the largest sunspot group since November 1990. ' +
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012 (Sol. Phys. 275, 17). ' +
-              'RHEF tier: Gilly et al. 2025 (Sol. Phys. 300, 174).'
+              'RHEF tier: Gilly & Cranmer 2025 (Sol. Phys. 300, 174).'
       },
       x93_flare: {
         title: "X9.3 flare — September 6, 2017",
         body: 'Solar Cycle 24\'s largest X-ray flare. Peak GOES class X9.3 at 11:53 UTC. ' +
               'Shown at 211 Å (Fe XIV ~2 MK) rather than 131 Å, which saturates at flare peaks. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       mothers_day_storm: {
         title: "Mother's Day storm — May 10, 2024",
         body: 'G5 geomagnetic storm from active region 13664, the strongest since 2003. ' +
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
-              'RHEF tier: Gilly et al. 2025.'
+              'RHEF tier: Gilly & Cranmer 2025.'
       },
       limb_x82_flare: {
         title: "Limb X8.2 flare — September 10, 2017",
         body: 'Off-limb X8.2 flare, four days after the X9.3 on the same active region (12673). ' +
               'The post-flare arcade off the limb is one of the most iconic images of the SDO era. ' +
               'Shown at 211 Å to avoid 131 Å saturation. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       monster_prominence: {
         title: "Monster prominence — August 31, 2012",
         body: 'Iconic prominence eruption captured in 304 Å He II — sometimes called the ' +
-              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       pre_x93_powderkeg: {
         title: "AR 12673 brewing — September 4, 2017",
         body: 'Active Region 12673 two days before its X9.3 flare. The hottest coronal loops ' +
               '(6 MK Fe XVIII) glow in 94 Å, foreshadowing what was coming. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       post_flare_arcade: {
         title: "Post-flare arcade — July 19, 2012",
         body: 'M7.7 limb event with the textbook post-flare arcade — magnetic loops reconnecting ' +
               'and cooling into the 131 Å Fe XXI band (~10 MK). One of the most-shared SDO ' +
               'images from cycle 24\'s rising phase. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       great_sympathetic_eruption: {
         title: "Great sympathetic eruption — August 1, 2010",
         body: 'Schrijver & Title (2011) called this "the great connected eruption" — a cascade ' +
               'of filament lifts and CMEs across the entire visible disk, linked by long-range ' +
               'magnetic connections. 171 Å reveals the warm-corona loop network that carried the cascade. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       ar13664_emergence: {
         title: "AR 13664 emerges — May 8, 2024",
         body: 'Active region 13664 two days before it caused the Mother\'s Day G5 geomagnetic ' +
               'storm. Shown at 335 Å (Fe XVI, ~2.5 MK) which catches the active-region core ' +
-              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       x16_flare_ribbons: {
         title: "X1.6 flare ribbons — September 10, 2014",
         body: 'The X1.6 flare from AR 12158 with textbook two-ribbon structure in the ' +
               'chromospheric 1600 Å band. Flare ribbons trace footprints of the reconnection ' +
               'sheet where magnetic energy is released. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       ar2192_photosphere: {
         title: "AR 2192 in deep UV — October 24, 2014",
         body: 'The same monster sunspot as the AR 2192 card, seen in 1700 Å (UV continuum from ' +
               'the temperature-minimum region, ~5000 K). Where 193 Å shows the corona above, ' +
               '1700 Å shows the photospheric sunspot itself. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       }
     };
     function _toggleVibeInfo(card, btn) {
@@ -6162,7 +6162,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var VSO   = L("https://virtualsolar.org/", "Virtual Solar Observatory");
       var HV    = L("https://www.helioviewer.org/", "Helioviewer Project");
       var LEMEN = L("https://ui.adsabs.harvard.edu/abs/2012SoPh..275...17L/abstract", "Lemen et al. 2012");
-      var GILLY = L("https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G/abstract", "Gilly et al. 2025");
+      var GILLY = L("https://doi.org/10.1007/s11207-025-02578-x", "Gilly & Cranmer 2025");
       return '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
           (lead ? '<p style="margin-bottom:14px;">' + lead + '</p>' : '') +
           '<p style="margin-bottom:6px;"><strong>The Sun, observed</strong></p>' +
@@ -10412,10 +10412,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
         card.className = "product-card";
         card.dataset.productId = p.id;
-        card.setAttribute("role", "button");
-        card.setAttribute("tabindex", "0");
-        var priceAriaText = _productPriceCache[p.id] || "price loading";
-        card.setAttribute("aria-label", p.name + " - " + p.desc + ". " + priceAriaText + (canSelect ? " Select to edit" : ""));
+        // a11y (launch audit §6.3): the card is a plain container, NOT a
+        // role=button — wrapping the real <button> below in a focusable
+        // role=button was axe "nested-interactive" ×24 (double focus stops,
+        // button-inside-button announcements). Mouse click-anywhere still
+        // works via the grid's delegated click handler; keyboard users get
+        // the one real button, whose Enter/Space the grid keydown handler
+        // routes to the same picker.
         // Card layout: preview → info text → action button → collapsible variant pane.
         // The variant pane lives BELOW the button so clicking the button reads as
         // "expand this to see variants." Each variant row carries its own

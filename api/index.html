@@ -16,14 +16,14 @@
   <!-- Open Graph + Twitter Card for share previews. -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="My Heliograph — Your day, written in sunlight.">
-  <meta property="og:description" content="The real Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
+  <meta property="og:description" content="Real NASA/SDO images of the Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
   <meta property="og:url" content="https://myheliograph.com/">
   <meta property="og:image" content="https://myheliograph.com/asset/default/og_card.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="My Heliograph — Your day, written in sunlight.">
-  <meta name="twitter:description" content="The real Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
+  <meta name="twitter:description" content="Real NASA/SDO images of the Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
   <meta name="twitter:image" content="https://myheliograph.com/asset/default/og_card.jpg">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg">
@@ -71,7 +71,7 @@
     <div class="hero-icon"></div>
     <h1 id="appTitle">My Heliograph</h1>
     <p class="hero-tagline">Your day, written in sunlight</p>
-    <p>Pick any date since 2010 and see the real Sun from that day — yours as a print, poster, or canvas.</p>
+    <p>Pick any date since 2010: real NASA/SDO observations of the Sun from that day, enhanced with a published algorithm to reveal coronal structure the raw data hides. Yours as a print, poster, or canvas.</p>
     <!-- NASA SDO rules-of-the-road acknowledgement, surfaced prominently
          at the top (moved up from the footer). Required on any SDO-
          derived imagery. Keep in sync with solar-archive.js
@@ -183,7 +183,7 @@
               title="Back to side-by-side">&#x2715;</button>
     </div>
     <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, our sharpening step lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the sharpened version.</strong></p>
-    <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (Gilly et al. 2025), not a filter preset. Prints are rendered at full 4K.</p>
+    <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
   </div>
 
   <div class="section" id="productSection">
@@ -251,7 +251,7 @@
       <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
               title="The conventional NASA SDO look — what astronomers see published.">Original</button>
       <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
-              title="Our sharpening step — brings out the Sun's faint outer glow. Published research (Gilly et al. 2025).">Filtered</button>
+              title="Our sharpening step — brings out the Sun's faint outer glow. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
     </div>
   </div>
 
@@ -521,9 +521,9 @@
          reference #solarDate / #solarTime / #missionSelect still work.
          `display:none !important` overrides .controls-grid's `display:grid`. -->
     <div class="controls-grid" aria-hidden="true" style="display:none !important;">
-      <input type="date" id="solarDate">
-      <input type="time" id="solarTime" value="12:00" step="60">
-      <select id="missionSelect">
+      <input type="date" id="solarDate" aria-label="Observation date">
+      <input type="time" id="solarTime" value="12:00" step="60" aria-label="Observation time (UTC)">
+      <select id="missionSelect" aria-label="Mission">
         <option value="SDO">SDO / AIA (2010–present)</option>
       </select>
     </div>
@@ -677,7 +677,7 @@
             <input type="radio" name="editorFilter" value="raw" checked aria-label="Original quality">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="rhef" title="Our sharpening step — brings out the Sun's faint outer glow, invisible in the original. Published research: Gilly et al. 2025 (Sol. Phys. 300, 174).">
+          <div class="filter-step" data-filter="rhef" title="Our sharpening step — brings out the Sun's faint outer glow, invisible in the original. Published research: Gilly &amp; Cranmer 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Filtered</span>
@@ -948,7 +948,7 @@
     <!-- Text Tool Panel -->
     <div class="text-tool-panel hidden" id="textToolPanel">
       <div class="field-row">
-        <span class="field-label-sm">Text</span>
+        <label class="field-label-sm" for="textInput">Text</label>
         <input type="text" id="textInput" placeholder="Your text here..." value="">
       </div>
       <p class="text-overflow-warn hidden" id="textOverflowWarn" aria-live="polite">
@@ -1077,7 +1077,7 @@
              references #previewVariantWrap / #previewVariantSelect
              degrades gracefully (no-op). -->
         <div class="preview-variant-wrap hidden" id="previewVariantWrap" hidden>
-          <select id="previewVariantSelect" hidden></select>
+          <select id="previewVariantSelect" hidden aria-label="Product variant"></select>
           <p class="preview-variant-note hidden" id="previewVariantClockNote" hidden></p>
         </div>
         <!-- Dual-panel layout toggle. Shown only for products whose
@@ -1130,15 +1130,14 @@
     <!-- Buy button lives in the preview pane (see #selectedProductPreview); no inline editor CTAs here. -->
   </div>
 
-  </main>
-
   <!-- Trust bar — reassurance near the end of the funnel (secure checkout,
        fulfilment, defect coverage). Wording matches the Refund policy
-       (no change-of-mind refunds, but defects/damage replaced or refunded). -->
+       (no change-of-mind refunds, but defects/damage replaced or refunded).
+       Inside <main> so it lives in a landmark (axe "region", audit §6.3). -->
   <div class="trust-bar" role="note" aria-label="Purchase reassurance">
     <span><i class="fas fa-lock" aria-hidden="true"></i> Secure checkout via Shopify</span>
     <span aria-hidden="true">·</span>
-    <span><i class="fas fa-box-open" aria-hidden="true"></i> Made to order &amp; shipped worldwide by Printify</span>
+    <span><i class="fas fa-box-open" aria-hidden="true"></i> Made to order &amp; shipped to the US, Canada, EU &amp; UK by Printify</span>
     <span aria-hidden="true">·</span>
     <!-- Window = production (2–7 business days) + US transit (3–6),
          matching /shipping — keep the three in sync. -->
@@ -1146,6 +1145,8 @@
     <span aria-hidden="true">·</span>
     <span><i class="fas fa-shield-heart" aria-hidden="true"></i> Misprinted or damaged? Replaced or refunded</span>
   </div>
+
+  </main>
 
   <footer class="app-footer" role="contentinfo">
     <nav class="footer-legal-nav" aria-label="Legal">

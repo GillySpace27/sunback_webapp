@@ -386,7 +386,7 @@ body::before {
 .quality-diptych:hover .diptych-hint,
 .quality-diptych:focus-visible .diptych-hint {
   opacity: 1;
-  color: var(--accent-sun);
+  color: var(--accent-corona-text, #f3d385);
 }
 @media (prefers-reduced-motion: reduce) {
   .diptych-hint { transition: none; }
@@ -488,7 +488,7 @@ body::before {
   font-size: 0.85rem;
   line-height: 1.45;
 }
-.quality-strip-caption strong { color: var(--accent-sun, #f5a623); font-weight: 600; }
+.quality-strip-caption strong { color: var(--accent-corona-text, #f3d385); font-weight: 600; }
 /* The method + citation, demoted below the plain-language caption. */
 .quality-strip-fineprint {
   max-width: 760px;
@@ -510,7 +510,7 @@ body::before {
 .hero p.hero-tagline {
   font-size: 1.5rem;
   font-weight: 400;
-  color: var(--accent-sun, #f5a623);
+  color: var(--accent-corona-text, #f3d385);
   margin-top: 4px;
   letter-spacing: 0.01em;
 }
@@ -1228,7 +1228,7 @@ select:focus-visible {
 }
 .filter-status-line.loading {
   background: rgba(255, 165, 0, 0.12);
-  color: var(--accent-sun, #ffa500);
+  color: var(--accent-corona-text, #f3d385);
 }
 .filter-status-line.success {
   background: rgba(61, 220, 132, 0.12);
@@ -2266,7 +2266,7 @@ input[type="range"]::-moz-range-thumb {
 .product-price {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 500;
-  color: var(--accent-sun);
+  color: var(--accent-corona-text, #f3d385);
   margin-top: 6px;
 }
 
@@ -6519,3 +6519,40 @@ body.step-editor .feedback-fab { padding: 11px; }
 /* Share button riding in the vibe-grid section header. */
 .share-image-step-btn { margin-left: auto; }
 .share-image-step-btn.hidden { display: none; }
+
+/* ── Light-mode contrast repairs (launch audit §6.2) ─────────────────
+   The confirm/size modal's chips + tiles were styled with white-based
+   translucency that assumes a dark surface; on the light (paper) theme
+   the selected chip rendered near-white text on a near-white wash — the
+   selected state read WORSE than the unselected ones. Gold-as-text call
+   sites now use --accent-corona-text (10.9:1 dark / #806200 light), and
+   the blocks below re-ground the modal surfaces for light mode. */
+html:not(.dark) .confirm-size-chip {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+html:not(.dark) .confirm-size-chip:hover {
+  color: var(--text-primary);
+}
+html:not(.dark) .confirm-size-chip.active {
+  background: rgba(217, 169, 26, 0.22);
+  border-color: var(--accent-corona-text, #806200);
+  color: var(--text-primary);
+}
+html:not(.dark) .confirm-variant-picker {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+html:not(.dark) .confirm-variant-tile {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.15);
+}
+html:not(.dark) .confirm-variant-tile:hover {
+  background: rgba(217, 169, 26, 0.10);
+}
+html:not(.dark) .confirm-variant-tile.active {
+  border-color: var(--accent-corona-text, #806200);
+  background: rgba(217, 169, 26, 0.16);
+  box-shadow: 0 0 0 1px var(--accent-corona-text, #806200) inset;
+}

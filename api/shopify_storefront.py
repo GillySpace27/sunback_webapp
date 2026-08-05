@@ -143,3 +143,167 @@ def storefront_configured() -> bool:
     """Convenience check the routes use to fail loud when the
     operator hasn't set up the Storefront token yet."""
     return bool(SHOPIFY_STOREFRONT_ACCESS_TOKEN)
+
+
+# ────────────────────────────────────────────────────────────────
+# Admin API: post-publish patch for per-order products
+# ────────────────────────────────────────────────────────────────
+# Printify's publish-to-Shopify creates every per-order product with
+# inventoryPolicy DENY + tracked inventory (the setting that cancelled
+# order #1001 with cancelReason INVENTORY) and publishes it only to the
+# Online Store channel, which the headless Storefront API token cannot
+# see — so the one-tap cart permalink silently degrades to the
+# product-page fallback. Both are fixed here, right after publish,
+# via the Admin API.
+#
+# Env:
+# - SHOPIFY_ADMIN_ACCESS_TOKEN — Admin API token from a custom app
+#   (Shopify Admin → Apps → Develop apps). Scopes: read_products,
+#   write_products, write_inventory, write_publications.
+#   If unset, this is a no-op and checkout keeps working exactly as
+#   before (DENY inventory, product-page fallback) — same graceful
+#   pattern as the Storefront token above.
+SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv("SHOPIFY_ADMIN_ACCESS_TOKEN")
+SHOPIFY_ADMIN_API_VERSION = os.getenv("SHOPIFY_ADMIN_API_VERSION", "2024-10")
+# ponytail: shop-specific publication GIDs as defaults ("Solar Archive
+# Headless" + "…02"); override via env if the store's channels change.
+SHOPIFY_HEADLESS_PUBLICATION_IDS = [
+    p.strip()
+    for p in os.getenv(
+        "SHOPIFY_HEADLESS_PUBLICATION_IDS",
+        "gid://shopify/Publication/356457185649,"
+        "gid://shopify/Publication/356474061169",
+    ).split(",")
+    if p.strip()
+]
+
+# Handles already patched this process lifetime — the patch is called
+# from a polling loop, so skip repeat work. Failures are NOT recorded,
+# so the next poll retries them.
+_pod_patched_handles: set = set()
+
+
+def _admin_graphql(query: str, variables: dict) -> Optional[dict]:
+    """One Admin API GraphQL call. Returns the 'data' dict or None."""
+    try:
+        resp = requests.post(
+            f"https://{SHOPIFY_STORE_DOMAIN}"
+            f"/admin/api/{SHOPIFY_ADMIN_API_VERSION}/graphql.json",
+            json={"query": query, "variables": variables},
+            headers={
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
+            },
+            timeout=_STOREFRONT_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return None
+    if resp.status_code != 200:
+        return None
+    body = resp.json()
+    if not isinstance(body, dict) or body.get("errors"):
+        return None
+    return body.get("data")
+
+
+def ensure_pod_product_config(handle: str) -> None:
+    """Idempotent, best-effort post-publish patch: set every variant to
+    inventoryPolicy CONTINUE + untracked, and publish the product to the
+    headless publication(s) so the Storefront API can build the one-tap
+    cart permalink. Safe to call repeatedly; no-op without the admin
+    token. Never raises."""
+    if not SHOPIFY_ADMIN_ACCESS_TOKEN or not handle:
+        return
+    if handle in _pod_patched_handles:
+        return
+    try:
+        data = _admin_graphql(
+            """
+            query ($handle: String!) {
+              productByHandle(handle: $handle) {
+                id
+                variants(first: 100) {
+                  edges { node { id inventoryPolicy inventoryItem { tracked } } }
+                }
+              }
+            }
+            """,
+            {"handle": handle},
+        )
+        product = (data or {}).get("productByHandle")
+        if not product:
+            return
+        product_id = product["id"]
+
+        bad = [
+            n["id"]
+            for n in (
+                e.get("node") or {}
+                for e in (product.get("variants") or {}).get("edges") or []
+            )
+            if n.get("inventoryPolicy") != "CONTINUE"
+            or (n.get("inventoryItem") or {}).get("tracked") is not False
+        ]
+        ok = True
+        if bad:
+            fixed = _admin_graphql(
+                """
+                mutation ($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    userErrors { message }
+                  }
+                }
+                """,
+                {
+                    "productId": product_id,
+                    "variants": [
+                        {
+                            "id": vid,
+                            "inventoryPolicy": "CONTINUE",
+                            # 0.20 lb, not Printify's 0.22 default: 0.22 sits
+                            # exactly on the shipping-band boundary, so a
+                            # single-item cart matches two bands and the buyer
+                            # sees two identically-named rates at different
+                            # prices. 0.20×n stays strictly inside band n for
+                            # n ≤ 10, so banded multi-item pricing still works.
+                            "inventoryItem": {
+                                "tracked": False,
+                                "measurement": {
+                                    "weight": {"value": 0.2, "unit": "POUNDS"}
+                                },
+                            },
+                        }
+                        for vid in bad
+                    ],
+                },
+            )
+            ok = bool(fixed) and not (
+                fixed.get("productVariantsBulkUpdate") or {}
+            ).get("userErrors")
+
+        if SHOPIFY_HEADLESS_PUBLICATION_IDS:
+            published = _admin_graphql(
+                """
+                mutation ($id: ID!, $input: [PublicationInput!]!) {
+                  publishablePublish(id: $id, input: $input) {
+                    userErrors { message }
+                  }
+                }
+                """,
+                {
+                    "id": product_id,
+                    "input": [
+                        {"publicationId": p}
+                        for p in SHOPIFY_HEADLESS_PUBLICATION_IDS
+                    ],
+                },
+            )
+            ok = ok and bool(published) and not (
+                published.get("publishablePublish") or {}
+            ).get("userErrors")
+
+        if ok:
+            _pod_patched_handles.add(handle)
+    except Exception:
+        # Best-effort: checkout must never break because of this patch.
+        return
