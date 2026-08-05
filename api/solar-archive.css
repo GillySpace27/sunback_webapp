@@ -6290,7 +6290,7 @@ body.step-editor .feedback-fab { padding: 11px; }
          badge already, so the third repetition is pure occupy. */
   .hero h1 { font-size: 1.4rem; line-height: 1.1; margin-bottom: 4px; }
   .hero p { font-size: 0.78rem; line-height: 1.25; margin-bottom: 6px; }
-  .hero-credit { font-size: 0.62rem; opacity: 0.7; margin-top: 2px; }
+  .hero-credit { font-size: 0.62rem; margin-top: 2px; } /* opacity:0.7 broke AA on cream */
   .hero-icon { width: 36px; height: 36px; margin-bottom: 6px; }
   body.step-product .beta-banner { display: none; }
   /* Product section: trim header padding so the first card lands
