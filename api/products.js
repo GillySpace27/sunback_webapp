@@ -140,7 +140,9 @@ export const PRODUCTS = [
   { id: "coaster_set",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $23.99", checkoutPrice: 2399, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front", aspectRatio: { w: 1, h: 1 } },
   // ── Accessories & Stationery ──
   { id: "sticker_kiss",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: { w: 1, h: 1 },
-    sizePricing: { 45748: "$2.99", 45750: "$3.99", 45752: "$4.99", 45754: "$7.99" } },
+    // Fallback-only (the live cost ladder wins when pricing is warm);
+    // synced 2026-08-08 to the ladder: $1-steps up from the anchor.
+    sizePricing: { 45748: "$2.99", 45750: "$3.99", 45752: "$4.99", 45754: "$5.99" } },
   // Hardcover journal panel is 4065×2850 — back cover + spine +
   // front cover laid flat. Editor canvas uses the single front-cover
   // aspect 2032×2850 (panel halved); dualPanel concatenation paints
@@ -155,4 +157,30 @@ export const PRODUCTS = [
   // Re-enable once we have a panel-picker UI to drive multi-placeholder
   // products.
   // { id: "backpack",             name: "Backpack",            desc: "All-over print, padded straps",             icon: "fa-bag-shopping", price: "From $44.99", checkoutPrice: 4499, blueprintId: 347,  printProviderId: 14,  variantId: 44419, position: "front", aspectRatio: null }
+
+  // ── Added 2026-08-08 (Gilly: popular-category expansion) ──
+  // Costs discovered per blueprint via the reference-product backfill the
+  // same day; anchors set at ~1.7-2.4x the cheapest cost, checked against
+  // typical retail for each category. Ladder pricing handles the rest.
+  // Ornament: cost $6.22 flat across all four shapes. Default = Circle.
+  { id: "ornament_ceramic",     name: "Ceramic Ornament",    desc: "Your Sun on the tree — circle, star, heart, or snowflake", icon: "fa-snowflake", price: "From $14.99", checkoutPrice: 1499, blueprintId: 531,  printProviderId: 59,  variantId: 69370, position: "front", aspectRatio: { w: 1, h: 1 } },
+  // Tote: cost $18.89 both colors (The Print Bar). Front placeholder only.
+  { id: "tote_bag",             name: "Canvas Tote Bag",     desc: "Heavy canvas tote — black or cream",        icon: "fa-shopping-bag", price: "From $34.99", checkoutPrice: 3499, blueprintId: 553,  printProviderId: 34,  variantId: 70603, position: "front", aspectRatio: { w: 2835, h: 3425 } },
+  // Cards: 1-pc $2.91 / 10-pc $15.99 (Duplium); the pack sizes ARE the variants.
+  { id: "greeting_cards",       name: "Greeting Cards",      desc: "Fold-out cards with your Sun — single or 10-pack", icon: "fa-envelope-open-text", price: "From $6.99", checkoutPrice: 699, blueprintId: 785, printProviderId: 41, variantId: 74934, position: "front", aspectRatio: { w: 1860, h: 2460 } },
+  // Bodysuit: cost $13.56 across colors/sizes (Printify Choice).
+  { id: "baby_bodysuit",        name: "Baby Bodysuit",       desc: "Born under this Sun — soft short-sleeve onesie", icon: "fa-baby",    price: "From $23.99", checkoutPrice: 2399, blueprintId: 568,  printProviderId: 99,  variantId: 71076, position: "front", aspectRatio: { w: 1500, h: 1714 } },
+  // Towel: 30x60 $23.29 / 36x72 $29.79 (Printify Choice).
+  { id: "beach_towel",          name: "Beach Towel",         desc: "Full-bleed print, two sizes",               icon: "fa-umbrella-beach", price: "From $39.99", checkoutPrice: 3999, blueprintId: 352,  printProviderId: 99,  variantId: 44444, position: "front", aspectRatio: { w: 18900, h: 9900 } },
+  // Socks: $11.27-12.08 (ArtsAdd). Two leg placeholders (front_left_leg /
+  // front_right_leg) — checkout's _expand_print_areas mirrors the design
+  // onto both, same mechanism that already exists for this blueprint family.
+  { id: "crew_socks",           name: "Crew Socks",          desc: "All-over print socks — three lengths",      icon: "fa-socks",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 365,  printProviderId: 14,  variantId: 44906, position: "front", aspectRatio: { w: 1358, h: 5551 } },
+  // Magnets: die-cut, $4.83 (2") to $8.86 (6") (Printed Simply).
+  { id: "magnet_diecut",        name: "Die-Cut Magnets",     desc: "Fridge-ready Sun, 2″ to 6″",                icon: "fa-magnet",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 851,  printProviderId: 73,  variantId: 76775, position: "front", aspectRatio: { w: 1, h: 1 } },
+  // Candle: Lumient 9oz soy — flat $13.29 cost across all nine scents, so
+  // one price everywhere (bp 727 was rejected: its cost bucket has a hidden
+  // cheaper variant that would skew the "From $" card below any pickable
+  // scent). Front label 900x600.
+  { id: "candle_soy",           name: "Scented Candle",      desc: "9oz soy candle, nine scents",               icon: "fa-fire",         price: "From $27.99", checkoutPrice: 2799, blueprintId: 1048, printProviderId: 219, variantId: 80301, position: "front", aspectRatio: { w: 900, h: 600 } },
 ];
