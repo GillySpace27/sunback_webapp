@@ -46,7 +46,15 @@ export const PRODUCTS = [
     // composes the selection so 3 bases × 2 hands = 6 variants
     // become two compact selectors instead of a 6-tile list.
     colorAxes: [ { key: "hands", label: "Hand color", keyPattern: "^hands?$" } ] },
+  // Added 2026-08-08 (Gilly: circular wall pieces). Costs discovered via the
+  // reference-product backfill: 8″ round $24.88, 10.75″ $28.28. Round-only
+  // via variantFilter — the square variant would dilute the circular pitch.
+  { id: "wall_clock_acrylic",   name: "Acrylic Wall Clock",  desc: "Glass-look round acrylic clock",            icon: "fa-clock",        price: "From $48.99", checkoutPrice: 4899, blueprintId: 1305, printProviderId: 104, variantId: 98941, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle",
+    variantFilter: { sizes: ["Round"] } },
   { id: "tapestry",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front", aspectRatio: { w: 4350, h: 5850 } },
+  // Cost $76.49 (single 60″ round variant, MWW On Demand — same provider as
+  // the tapestry, so delivery profiles already exist for the region set).
+  { id: "rug_round",            name: "Round Rug — 60″",     desc: "The Sun underfoot — 60″ round area rug",    icon: "fa-record-vinyl", price: "From $129.99", checkoutPrice: 12999, blueprintId: 1083, printProviderId: 10,  variantId: 81470, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle" },
   // ── Drinkware ──
   // NOTE: Printify splits mug color across separate blueprints rather than
   // exposing color as a variant. White lives at BP 425; black lives at BP 1152.
