@@ -599,6 +599,17 @@ _DEFAULT_MOCKUP_PRODUCTS = [
     {"id": "sticker_kiss",         "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
     {"id": "journal_hardcover",    "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
     {"id": "backpack",             "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
+    # 2026-08-08 additions — keep in sync with api/products.js.
+    {"id": "wall_clock_acrylic",   "blueprintId": 1305, "printProviderId": 104, "variantId": 98941, "position": "front"},
+    {"id": "rug_round",            "blueprintId": 1083, "printProviderId": 10,  "variantId": 81470, "position": "front"},
+    {"id": "ornament_ceramic",     "blueprintId": 531,  "printProviderId": 59,  "variantId": 69370, "position": "front"},
+    {"id": "tote_bag",             "blueprintId": 553,  "printProviderId": 34,  "variantId": 70603, "position": "front"},
+    {"id": "greeting_cards",       "blueprintId": 785,  "printProviderId": 41,  "variantId": 74934, "position": "front"},
+    {"id": "baby_bodysuit",        "blueprintId": 568,  "printProviderId": 99,  "variantId": 71076, "position": "front"},
+    {"id": "beach_towel",          "blueprintId": 352,  "printProviderId": 99,  "variantId": 44444, "position": "front"},
+    {"id": "crew_socks",           "blueprintId": 365,  "printProviderId": 14,  "variantId": 44906, "position": "front"},
+    {"id": "magnet_diecut",        "blueprintId": 851,  "printProviderId": 73,  "variantId": 76775, "position": "front"},
+    {"id": "candle_soy",           "blueprintId": 1048, "printProviderId": 219, "variantId": 80301, "position": "front"},
 ]
 
 # Vibe-grid landing tiles — pre-rendered HQ pairs (raw + RHEF) for the

@@ -41,6 +41,11 @@
        trips on 4G mobile). Priya Iyer (round-2 perf audit). -->
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <link rel="preconnect" href="https://myheliograph.com" crossorigin>
+  <!-- Hero before/after pair: preload at high priority. On a cold edge
+       cache the Filtered panel painted seconds after the Original,
+       leaving the value-prop demo as a blank box (UX pass 2026-08-08). -->
+  <link rel="preload" as="image" href="/asset/default/compare_raw.webp" fetchpriority="high">
+  <link rel="preload" as="image" href="/asset/default/compare_rhef.webp" fetchpriority="high">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
 </head>
