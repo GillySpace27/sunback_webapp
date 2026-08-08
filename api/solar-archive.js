@@ -9917,19 +9917,58 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * Returns null if nothing usable is available — callers render an
      * empty pill rather than a misleading number.
      */
+    // Proportional-markup ladder (2026-08-08 repricing). MUST stay in
+    // lockstep with _ladder_prices in api/printify_routes.py — the charged
+    // price is recomputed server-side with the same rule, and charged must
+    // equal displayed:
+    //   mult    = max(1, anchor / minCost)
+    //   flat    = max(0, anchor - minCost)
+    //   raw     = max(cost * mult, cost + flat)
+    //   price   = raw rounded UP to the next .99
+    //   ladder  = distinct cost tiers ascending, forced >= $1.00 apart
+    // Memoized per bucket+anchor; cleared implicitly on reload (pricing
+    // cache itself only changes with a page-lifetime fetch).
+    var _ladderCache = {};
+    function _ceil99(cents) {
+      var p = Math.floor(cents / 100) * 100 + 99;
+      return p >= cents ? p : p + 100;
+    }
+    function _ladderFor(key, bucket, anchor) {
+      var ck = key + "|" + anchor;
+      if (_ladderCache[ck]) return _ladderCache[ck];
+      var costs = [];
+      for (var k in bucket) {
+        if (bucket[k] && bucket[k].cost != null && costs.indexOf(bucket[k].cost) === -1) {
+          costs.push(bucket[k].cost);
+        }
+      }
+      costs.sort(function(a, b) { return a - b; });
+      var out = {};
+      if (!costs.length) { _ladderCache[ck] = out; return out; }
+      var minCost = costs[0];
+      var flat = Math.max(0, anchor - minCost);
+      var mult = (anchor > 0 && minCost > 0) ? Math.max(1, anchor / minCost) : 1;
+      var prev = null;
+      for (var i = 0; i < costs.length; i++) {
+        var c = costs[i];
+        var raw = Math.max(Math.round(c * mult), c + flat);
+        var p = _ceil99(raw);
+        if (prev !== null && i > 0 && p < prev + 100) p = prev + 100;
+        out[c] = p;
+        prev = p;
+      }
+      _ladderCache[ck] = out;
+      return out;
+    }
     function priceForVariantDisplay(product, variant) {
       if (!product || !variant) return null;
       var key = product.blueprintId + "_" + product.printProviderId;
       var bucket = variantPricingCache[key];
       if (bucket && bucket[variant.id] && bucket[variant.id].cost != null) {
-        var costs = [];
-        for (var k in bucket) {
-          if (bucket[k] && bucket[k].cost != null) costs.push(bucket[k].cost);
-        }
-        var minCost = costs.length ? Math.min.apply(null, costs) : bucket[variant.id].cost;
         var anchor = product.checkoutPrice != null ? product.checkoutPrice : 0;
-        var markup = Math.max(0, anchor - minCost);
-        return formatCents(bucket[variant.id].cost + markup);
+        var ladder = _ladderFor(key, bucket, anchor);
+        var price = ladder[bucket[variant.id].cost];
+        if (price != null) return formatCents(price);
       }
       var manual = getVariantPrice(product, variant);
       if (manual) return manual;
@@ -9974,7 +10013,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var trueCost = costs[p.blueprintId];
             // Blueprint absent from the index (shop has never sold it) —
             // fall back to the advertised price rather than spinning forever.
-            var cents = trueCost != null ? Math.max(trueCost, p.checkoutPrice || 0) : p.checkoutPrice;
+            // _ceil99 so the card matches the picker's cheapest ladder price
+            // when Printify's cost drifted above the advertised anchor.
+            var cents = trueCost != null ? _ceil99(Math.max(trueCost, p.checkoutPrice || 0)) : p.checkoutPrice;
             var html = "From " + (formatCents(cents) || p.price);
             _productPriceCache[p.id] = html;
             _updateProductPriceDom(p.id, html);
