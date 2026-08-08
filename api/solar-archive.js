@@ -10904,10 +10904,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
       // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
       // data-credits modal) live in _continueOpenEditor below.
-      // requestAnimationFrame defers it one paint so the body-class swap
-      // can flush, the editor section becomes visible, and the scroll
-      // lands on real layout instead of an invisible target.
-      requestAnimationFrame(function () {
+      // setTimeout(0), NOT requestAnimationFrame: rAF is suspended on
+      // hidden tabs (same class as the PR #48 checkout-modal deadlock), so
+      // a deep link opened in a background tab never ran the editor-open
+      // side effects — no MQ render, no HQ prewarm — until foregrounded.
+      // The one-tick defer still lets the body-class swap flush before the
+      // scroll measures layout.
+      setTimeout(function () {
         _continueOpenEditor(product);
         // Belt-and-suspenders: force a quality-timeline repaint right
         // when the editor opens, so the bar matches whatever tier the
