@@ -4751,9 +4751,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.hqReady = false;
       state.hqImageUrl = null;
       state.hqFormat = null;
-      var _cachedHqDisplay = cachedHq || cachedRhef;
-      if (_cachedHqDisplay) {
-        state.hqFilterImage = _cachedHqDisplay;
+      // Only a GENUINE stacked rHQ lights the HQ tier. The old fallback
+      // (cachedRhef) made "HQ Filtered" byte-identical to "Filtered" for
+      // vibes not yet re-warmed with Option-A artifacts — the owner's
+      // "HQ vs Filtered are confusing" report (UX pass 2026-08-08). The
+      // PRINT source (hqImageUrl) keeps its fallback: a same-image print
+      // is fine, a same-image "upgrade" button is a lie.
+      if (cachedHq && entry.rhq_2048_url) {
+        state.hqFilterImage = cachedHq;
         state.hqFormat = "rhef";
         state.hqReady = true;
         state.hqImageUrl = entry.hq_4096_url || entry.rhef_full_url || null;
@@ -4804,10 +4809,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // "Filtered" (MQ) = the single-frame rhef_full. No longer aliased to HQ.
       _preload(entry.rhef_full_url, slug + ":rhef", function (img) { state.rhefImage = img; });
       // "HQ Filtered" = the STACKED rHQ_2048 (clean corona) — a genuinely
-      // different, better image than Filtered. Fallback to rhef_full for
-      // vibes not yet re-warmed. hqImageUrl → the 4096 print source that the
-      // checkout composites the user's edits onto (loadImage handles WebP).
-      _preload(entry.rhq_2048_url || entry.rhef_full_url, slug + ":hq", function (img) {
+      // different, better image than Filtered. NO rhef_full fallback here
+      // (see the aliasing note above): a vibe without Option-A artifacts
+      // keeps the HQ tier locked rather than "upgrading" to the same image.
+      // hqImageUrl → the 4096 print source that the checkout composites
+      // the user's edits onto (loadImage handles WebP).
+      if (entry.rhq_2048_url) _preload(entry.rhq_2048_url, slug + ":hq", function (img) {
         state.hqFilterImage = img;
         state.hqFormat = "rhef";
         state.hqReady = true;
@@ -8827,19 +8834,30 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var sizeNorm = tov.sizeNorm != null ? tov.sizeNorm : (tov.size != null ? tov.size : 48) / _TEXT_REF_SIZE;
         var pixelSize = Math.max(4, sizeNorm * refMin);
         var textWidth = _textOverflowMeasureWidth(tov.text, tov.font || "Inter", pixelSize);
-        var safeWidth;
+        // Text is drawn CENTER-ANCHORED at (xNorm, yNorm) — the check must
+        // account for position, not just width. The old width-only check
+        // never read xNorm at all, so a short caption dragged to the edge
+        // hung half off the print with no warning (UX pass 2026-08-08).
+        var cxN = tov.xNorm != null ? tov.xNorm : 0.5;
+        var cyN = tov.yNorm != null ? tov.yNorm : 0.5;
         if (isCircle) {
-          // Chord width of the inscribed circle at the text's vertical
-          // offset from center — text further from the vertical middle
-          // has less horizontal room before it crosses the disk edge.
-          var dyNorm = Math.abs((tov.yNorm != null ? tov.yNorm : 0.5) - 0.5);
-          var dy = dyNorm * refMin;
-          var radius = refMin * 0.46; // inscribed radius minus a small print margin
-          safeWidth = 2 * Math.sqrt(Math.max(0, radius * radius - dy * dy));
+          // Distance from disk center to the farthest corner of the text's
+          // bounding box must stay inside the print-safe radius. 0.406, not
+          // 0.46: the wall-clock mockup clips at arc(80,80,65) = 0.406·W,
+          // and the old constant was ~13% too permissive against it.
+          var radius = refMin * 0.406;
+          var dxC = Math.abs(cxN - 0.5) * refMin + textWidth / 2;
+          var dyC = Math.abs(cyN - 0.5) * refMin + pixelSize / 2;
+          show = Math.sqrt(dxC * dxC + dyC * dyC) > radius;
         } else {
-          safeWidth = refW * 0.92; // ~8% total side margin
+          var margin = 0.04; // 4% print-safe margin per side
+          var left   = cxN * refW - textWidth / 2;
+          var right  = cxN * refW + textWidth / 2;
+          var top    = cyN * refMin - pixelSize / 2;
+          var bottom = cyN * refMin + pixelSize / 2;
+          show = left < refW * margin || right > refW * (1 - margin) ||
+                 top < refMin * margin || bottom > refMin * (1 - margin);
         }
-        show = textWidth > safeWidth;
       }
       warnEl.classList.toggle("hidden", !show);
     }
@@ -8955,6 +8973,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var _ch = solarCanvas.height || 1;
         state.textOverlay.xNorm = newX / _cw;
         state.textOverlay.yNorm = newY / _ch;
+        // Dragging is the ONE path that can push text out of the safe
+        // area positionally — and was the one path that never re-checked
+        // the overflow warning (UX pass 2026-08-08).
+        if (typeof _checkTextOverflow === "function") _checkTextOverflow();
         scheduleCanvasRender();
         return;
       }
@@ -10935,6 +10957,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // cached (no second wait). No-op for warm vibes / missing date.
       if (typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
 
+      // Also start the display-tier HQ render so the "HQ Filtered" step in
+      // the Quality timeline lights up (and auto-advances) on its own.
+      // Without this the tier was structurally unreachable for custom dates
+      // except by clicking it — the owner's "HQ never triggers on its own"
+      // report (UX pass 2026-08-08). Dedup/caching inside
+      // startHqFilterGeneration makes repeat editor opens free.
+      try {
+        if ((!state.activeVibeSlug || state.activeVibeSlug === "birthday") &&
+            !state.hqReady && !state.hqFetching &&
+            typeof dateInput !== "undefined" && dateInput && dateInput.value && state.wavelength) {
+          startHqFilterGeneration(dateInput.value, state.wavelength, "rhef");
+        }
+      } catch (_e) {}
+
       // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
       // vignette so the print area is covered completely the moment the
       // editor opens. Earlier we used "Full" (fits the whole source inside
@@ -11192,8 +11228,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _printQualityState() {
       if (!state.originalImage) return "no_image";
       if (state.hqReady) return "hq_ready";
+      // The print upload composites onto the time-integrated 4096 render,
+      // which _prewarmIntegratedHq kicks off at editor open. If that render
+      // has RESOLVED, the print is genuinely HQ regardless of which display
+      // tier the user is looking at — gating on state.hqReady alone made the
+      // "still cooking" modal fire on every custom-date checkout, claiming a
+      // render that (pre-2026-08-08) had never even been started (UX pass).
+      if (_integratedHqReadyForCurrentSelection()) return "hq_ready";
       if (state.rhefImage || state.rawBackendImage) return "mq_ready";
       return "jpg_only";
+    }
+    function _integratedHqCacheKeyForSelection() {
+      var dateStr = (typeof dateInput !== "undefined" && dateInput && dateInput.value) ? dateInput.value : "";
+      if (!dateStr || !state.wavelength) return null;
+      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength;
+    }
+    function _integratedHqReadyForCurrentSelection() {
+      try {
+        var k = _integratedHqCacheKeyForSelection();
+        return !!(k && _integratedHqCache[k] && _integratedHqCache[k].url);
+      } catch (_e) { return false; }
     }
 
     // Promote the editor's active filter to the highest available
@@ -11267,8 +11321,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           "Submit at MQ anyway",
           "Submitting…"
         );
-        // showModal's default close-on-cancel handles the "wait" path
-        // — we just don't fire confirmFn for the cancel button.
+        // showModal's default close-on-cancel handles the "wait" path —
+        // we just don't fire confirmFn for the cancel button. Make the
+        // wait ACTIONABLE: the modal's claim is only true if the print
+        // render is actually in flight, so (a) kick it if it somehow
+        // isn't, and (b) toast when it lands so the user knows to hit
+        // checkout again instead of waiting on a signal that never
+        // came (the pre-2026-08-08 deadlock).
+        try {
+          var _k = _integratedHqCacheKeyForSelection();
+          if (_k) {
+            if (!_integratedHqCache[_k] && typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
+            var _e2 = _integratedHqCache[_k];
+            if (_e2 && _e2.promise && !_e2._toastArmed) {
+              _e2._toastArmed = true;
+              _e2.promise.then(function (url) {
+                if (url) showToast("Print-quality render finished — checkout will now use it.", "success");
+              });
+            }
+          }
+        } catch (_e) {}
         return;
       }
       // hq_ready — promote to HQ if not already there, then pass.

@@ -4437,9 +4437,13 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   flex: 1 1 0;
   min-width: 0;
   justify-content: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Was nowrap+ellipsis — but text-overflow can't elide inside a flex
+     button (icon + text node are flex items, not a block's inline run),
+     so labels hard-clipped: "Change time & wavelengt|" (UX pass
+     2026-08-08). Wrap to a second line instead; nothing gets cut. */
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
 }
 
 /* Navigation-style edit-btn (Change Wavelength etc.) */
