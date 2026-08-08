@@ -9496,13 +9496,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Collect all option values into a single lower-case string for flexible matching
         var optStr = Object.keys(opts).map(function(k) { return String(opts[k]); }).join(" ").toLowerCase();
         var titleStr = (v.title || "").toLowerCase();
-        var combined = optStr + " " + titleStr;
+        // Printify mixes straight quotes and double-primes for inches
+        // ('9" x 11"' vs '11″ x 14″') — normalize so size tokens match both.
+        var combined = (optStr + " " + titleStr).replace(/[″”]/g, '"');
 
         // Size check: must match one of the allowed sizes
         var sizeOk = !f.sizes || f.sizes.length === 0;
         if (!sizeOk) {
           sizeOk = f.sizes.some(function(s) {
-            var sl = s.toLowerCase();
+            var sl = s.toLowerCase().replace(/[″”]/g, '"');
             // Use word-boundary-style check: the size must appear as a whole token
             // e.g. "xl" should match "xl" but not "2xl" or "xxl"
             return new RegExp("(?:^|[^a-z0-9])" + sl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:$|[^a-z0-9])", "i").test(combined);

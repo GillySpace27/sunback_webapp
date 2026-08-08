@@ -32,7 +32,12 @@ export const PRODUCTS = [
   { id: "canvas_stretched",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 2400, h: 3000 } },
   { id: "metal_sign",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front", aspectRatio: { w: 2250, h: 1650 } },
   { id: "acrylic_print",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front", aspectRatio: { w: 2250, h: 1650 } },
-  { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 } },
+  // Curated from 46 catalog sizes to 8 (Gilly, 2026-08-08): square-biased
+  // because the Sun is round — five squares, the two classic portrait
+  // sizes (9×11 must stay: it's the whole-bucket cheapest that pins the
+  // "From $9.99" anchor in BOTH pricing paths), and one large-format hero.
+  { id: "poster_matte",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 },
+    variantFilter: { sizes: ["9″ x 11″", "10″ x 10″", "12″ x 12″", "16″ x 16″", "20″ x 20″", "24″ x 24″", "11″ x 14″", "24″ x 36″"] } },
   { id: "framed_poster",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $51.99", checkoutPrice: 5199, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front", aspectRatio: { w: 11, h: 14 } },
   { id: "wall_clock",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $48.99", checkoutPrice: 4899, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 },
     // Two color axes: base (auto-detected via variantColorOption,
