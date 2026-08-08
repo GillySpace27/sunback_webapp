@@ -704,21 +704,16 @@ body.beta-mode-active .beta-banner {
 .beta-thanks-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(8, 9, 26, 0.72);
+  background: rgba(12, 11, 9, 0.72);
   backdrop-filter: blur(2px);
 }
 .beta-thanks-panel {
   position: relative;
-  /* Pinned background instead of var(--bg-elevated) — that variable
-     flips white in light system mode, and the box-shadow + light-on-
-     light text would be illegible. Scope a dark colour and the
-     light text variables so the panel reads correctly regardless of
-     OS theme (same fix as the feedback / confirm modal panels). */
-  background: #1a1a2e;
-  --text-primary:   #e9eaf5;
-  --text-secondary: #a8a8c8;
-  --text-dim:       #8e8eab;
-  --accent-corona-text: #f3d385;
+  /* Theme-aware (2026-08-08 palette sweep): the old pinned-dark +
+     forced-light-text scope predated a working light palette and
+     rendered off-brand navy in dark mode. var(--bg-card) + document
+     tokens are correct in both themes now. */
+  background: var(--bg-card);
   border: 1px solid rgba(255, 152, 0, 0.35);
   border-radius: 12px;
   padding: 28px 28px 24px;
@@ -1551,12 +1546,12 @@ html.dark .image-stage {
   background-position: 0 0, 0 8px, 8px -8px, -8px 8px;
 }
 html.dark .image-stage.image-stage--checker {
-  background-color: #1a1a2e;
+  background-color: #1a1814;
   background-image:
-    linear-gradient(45deg, #2a2a44 25%, transparent 25%),
-    linear-gradient(-45deg, #2a2a44 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #2a2a44 75%),
-    linear-gradient(-45deg, transparent 75%, #2a2a44 75%);
+    linear-gradient(45deg, #3a362c 25%, transparent 25%),
+    linear-gradient(-45deg, #3a362c 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #3a362c 75%),
+    linear-gradient(-45deg, transparent 75%, #3a362c 75%);
 }
 
 .image-stage.empty {
@@ -1738,7 +1733,7 @@ html.dark .image-stage.image-stage--checker {
   margin-top: 6px;
   padding: 12px 14px;
   border-radius: var(--radius-sm, 8px);
-  background: linear-gradient(135deg, rgba(217, 169, 26, 0.06), rgba(192, 107, 255, 0.06));
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.06), rgba(240, 199, 94, 0.06));
   border: 1px dashed rgba(217, 169, 26, 0.18);
   color: var(--text-secondary, #9898b8);
   font-size: 0.82rem;
@@ -1833,7 +1828,7 @@ html.dark .image-stage.image-stage--checker {
   background: rgba(217, 169, 26, 0.1);
 }
 .timestamp-pos-cell:has(input:checked) {
-  background: linear-gradient(135deg, rgba(217, 169, 26, 0.35), rgba(192, 107, 255, 0.35));
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.35), rgba(240, 199, 94, 0.35));
   border-color: rgba(217, 169, 26, 0.6);
   color: #fff;
 }
@@ -4340,7 +4335,7 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
     to top,
     var(--bg-card, #1a1a2e) 0%,
     var(--bg-card, #1a1a2e) 70%,
-    rgba(26, 26, 46, 0.92) 100%
+    rgba(37, 34, 28, 0.92) 100%
   );
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.35);
@@ -5029,21 +5024,13 @@ body.step-editor .feedback-fab { padding: 11px; }
   max-height: calc(100vh - 40px);
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
-  background: #17192a;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* Theme-aware (2026-08-08 palette sweep) — see the confirm-modal
+     note: the forced-dark scope predated the light palette. */
+  background: var(--bg-card);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 14px;
   padding: 28px 24px 24px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  /* The panel has a hardcoded dark background, so it can't follow
-     the document-level `--text-*` variables — those flip to dark
-     values in light system mode and the panel goes black-on-black.
-     Redefine the variables scoped to the panel so every descendant
-     using `var(--text-primary)` / `--text-secondary` / `--text-dim`
-     resolves to a light value regardless of the user's OS theme. */
-  --text-primary:   #e9eaf5;
-  --text-secondary: #a8a8c8;
-  --text-dim:       #8e8eab;
-  --accent-corona-text: #f3d385;
   color: var(--text-primary);
 }
 .feedback-close-btn {
@@ -5124,8 +5111,8 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-modal select {
   width: 100%;
   box-sizing: border-box;
-  background: #0f1120;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-deep);
+  border: 1px solid rgba(128, 128, 128, 0.25);
   border-radius: 8px;
   padding: 10px 12px;
   /* Same "black-on-black if system is in light mode" bug — the
@@ -5133,7 +5120,7 @@ body.step-editor .feedback-fab { padding: 11px; }
      text colour to a light tone too. `!important` defends against
      Shopify storefront themes that might cascade `input { color:
      black }` over our embedded iframe. */
-  color: #e9eaf5 !important;
+  color: var(--text-primary, #e9eaf5) !important;
   /* iOS Safari auto-zooms when any focused input is < 16px. The page
      was zooming in every time the feedback modal opened on mobile —
      visually jarring and made the input field jump out of view.
@@ -5267,7 +5254,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   color: var(--text-primary, #e9eaf5);
 }
 .feedback-category-chip.active {
-  background: linear-gradient(135deg, rgba(217, 169, 26, 0.18), rgba(192, 107, 255, 0.18));
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.18), rgba(240, 199, 94, 0.18));
   border-color: rgba(217, 169, 26, 0.5);
   color: #fff;
 }
@@ -5300,8 +5287,8 @@ body.step-editor .feedback-fab { padding: 11px; }
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: #0f1120;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-deep);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 6px;
   color: var(--text-primary, #e9eaf5);
   font-size: 0.85rem;
@@ -5436,7 +5423,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-shape-opt input[type="radio"] { display: none; }
 .feedback-shape-opt:hover { color: var(--text-primary, #e9eaf5); }
 .feedback-shape-opt:has(input:checked) {
-  background: linear-gradient(135deg, rgba(217, 169, 26, 0.18), rgba(192, 107, 255, 0.18));
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.18), rgba(240, 199, 94, 0.18));
   border-color: rgba(217, 169, 26, 0.5);
   color: #fff;
 }
@@ -5572,12 +5559,12 @@ body.step-editor .feedback-fab { padding: 11px; }
   max-width: 460px;
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
-  background: #17192a;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-card);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 14px;
   padding: 24px 22px 22px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  color: #e9eaf5;
+  color: var(--text-primary, #e9eaf5);
 }
 .color-chooser-close {
   position: absolute;
@@ -5585,12 +5572,12 @@ body.step-editor .feedback-fab { padding: 11px; }
   width: 30px; height: 30px;
   border-radius: 50%;
   background: transparent;
-  color: #a8a8c8;
+  color: var(--text-secondary, #a8a8c8);
   border: 0; cursor: pointer;
 }
-.color-chooser-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.color-chooser-close:hover { background: rgba(128,128,128,0.15); color: var(--text-primary, #fff); }
 .color-chooser-title { margin: 0 0 4px; font-size: 1.1rem; font-weight: 700; }
-.color-chooser-sub { margin: 0 0 16px; font-size: 0.85rem; color: #a8a8c8; }
+.color-chooser-sub { margin: 0 0 16px; font-size: 0.85rem; color: var(--text-secondary, #a8a8c8); }
 .color-chooser-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -5644,7 +5631,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 .color-chooser-preview canvas { max-width: 100%; max-height: 100%; }
 .color-chooser-label {
   display: inline-flex; align-items: center; gap: 7px;
-  font-size: 0.95rem; font-weight: 600; color: #e9eaf5;
+  font-size: 0.95rem; font-weight: 600; color: var(--text-primary, #e9eaf5);
 }
 .color-chooser-swatch {
   width: 16px; height: 16px;
@@ -5736,8 +5723,8 @@ body.step-editor .feedback-fab { padding: 11px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0f1120;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-deep);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -5794,8 +5781,8 @@ body.step-editor .feedback-fab { padding: 11px; }
 .confirm-metadata {
   margin: 0 0 14px;
   padding: 12px 14px;
-  background: #0f1120;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-deep);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 8px;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -6005,7 +5992,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   background: rgba(217, 169, 26, 0.12);
 }
 .confirm-size-chip.active {
-  background: linear-gradient(135deg, rgba(217, 169, 26, 0.35), rgba(192, 107, 255, 0.35));
+  background: linear-gradient(135deg, rgba(217, 169, 26, 0.35), rgba(240, 199, 94, 0.35));
   border-color: rgba(217, 169, 26, 0.6);
   color: #fff;
 }
@@ -6060,7 +6047,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   padding: 10px 12px;
   border: 1.5px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: rgba(20, 22, 36, 0.6);
+  background: rgba(26, 24, 20, 0.6);
   color: var(--text-primary, #e9eaf5);
   cursor: pointer;
   text-align: left;
@@ -6071,7 +6058,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 }
 .confirm-variant-tile:hover {
   border-color: rgba(217, 169, 26, 0.55);
-  background: rgba(40, 30, 70, 0.55);
+  background: rgba(48, 43, 35, 0.55);
 }
 .confirm-variant-tile.active {
   border-color: var(--accent-corona, #d9a91a);

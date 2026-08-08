@@ -324,7 +324,7 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
 
     function drawProductMockup(mctx, productId, sw, sh, variant, opts) {
       var W = 160, H = 160;
-      mctx.fillStyle = "#1a1a2e";
+      mctx.fillStyle = "#25221c";  // warm card, not pre-rebrand navy (palette sweep)
       mctx.fillRect(0, 0, W, H);
 
       // Source routing: the currently-edited product mirrors the live editor
