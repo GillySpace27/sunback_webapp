@@ -11,7 +11,7 @@
    =============================================================== */
 
 import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.js";
-import { PRODUCTS } from "./products.js";
+import { PRODUCTS, FEATURED_PRODUCT_IDS, PRODUCT_CATEGORY_ORDER } from "./products.js";
 import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
 import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mockups.js";
 import { setupFeedback } from "./feedback.js";
@@ -10432,6 +10432,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var userRequestsSection = document.getElementById("userRequestsSection");
       if (userRequestsGrid) userRequestsGrid.innerHTML = "";
       var hasUserRequested = false;
+      // Curated top row + category groups (Gilly, 2026-08-08): the flat
+      // popularity grid had grown to 35 cards / ~8,900px. Cards render
+      // through the same machinery; only the append target changes.
+      productGrid.classList.add("product-grid-grouped");
+      var _groupEls = {};
+      function _mkGroup(key, label) {
+        var wrap = document.createElement("div");
+        wrap.className = "product-group";
+        wrap.dataset.group = key;
+        var h = document.createElement("h3");
+        h.className = "product-group-header";
+        h.textContent = label;
+        var inner = document.createElement("div");
+        inner.className = "product-grid product-grid-inner";
+        wrap.appendChild(h);
+        wrap.appendChild(inner);
+        productGrid.appendChild(wrap);
+        _groupEls[key] = { wrap: wrap, inner: inner };
+      }
+      _mkGroup("_featured", "Most popular");
+      PRODUCT_CATEGORY_ORDER.forEach(function (c) { _mkGroup(c.key, c.label); });
+      var _lastGroupKey = PRODUCT_CATEGORY_ORDER[PRODUCT_CATEGORY_ORDER.length - 1].key;
+      function _targetGridFor(p) {
+        if (FEATURED_PRODUCT_IDS.indexOf(p.id) !== -1) return _groupEls._featured.inner;
+        var g = _groupEls[p.category] || _groupEls[_lastGroupKey];
+        return g.inner;
+      }
       // Iterate in popularity order (buys, then non-converting clicks) so
       // the grid surfaces the most-wanted products first. Per-product
       // routing to the user-requested grid below is unchanged.
@@ -10645,8 +10672,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (userRequestsGrid) userRequestsGrid.appendChild(card);
           hasUserRequested = true;
         } else {
-          productGrid.appendChild(card);
+          _targetGridFor(p).appendChild(card);
         }
+      });
+
+      // Drop any category group that ended up empty (all members hidden,
+      // featured, or routed to the requests grid) so no orphan headers show.
+      Object.keys(_groupEls).forEach(function (k) {
+        if (!_groupEls[k].inner.firstChild) _groupEls[k].wrap.remove();
       });
 
       // Show/hide the Your Requests section based on whether the session has

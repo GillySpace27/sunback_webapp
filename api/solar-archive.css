@@ -6567,3 +6567,22 @@ html:not(.dark) .confirm-variant-tile.active {
   color: inherit;
   text-decoration: underline;
 }
+
+/* ── Grouped landing grid (curated top row + categories) ─────────── */
+#productGrid.product-grid-grouped {
+  display: block;
+}
+.product-group + .product-group {
+  margin-top: 30px;
+}
+.product-group-header {
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  padding-bottom: 6px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+.product-group[data-group="_featured"] .product-group-header {
+  color: var(--accent-corona-text, #f3d385);
+}
