@@ -1275,13 +1275,45 @@ def _do_checkout_sync(
     variant_ids = priced_variant_ids
 
     _log(f"[checkout] Step 1: uploading image ({len(image_base64)} chars)")
-    upload_resp = _printify_request(
-        "POST",
-        f"{PRINTIFY_BASE}/uploads/images.json",
-        headers=_headers(),
-        json={"file_name": file_name, "contents": image_base64},
-        timeout=120,
-    )
+    # Printify's base64 `contents` upload 413s ("The POST data is too
+    # large") somewhere above ~35 MB — hit live 2026-08-08 with a
+    # 41.7 MB HQ acrylic print file (the HQ auto-start made 4096-px
+    # PNG exports the norm at checkout). For big payloads, stage the
+    # PNG under OUTPUT_DIR (served at /asset/) and hand Printify a URL
+    # instead — their URL ingester takes files the POST body can't.
+    _URL_UPLOAD_THRESHOLD = 20 * 1024 * 1024  # b64 chars; ~15 MB binary
+    _staged_upload_path = None
+    if len(image_base64) > _URL_UPLOAD_THRESHOLD:
+        import base64 as _b64
+        import uuid as _uuid
+        from api.main import OUTPUT_DIR  # runtime import; no cycle at import time
+        _updir = os.path.join(OUTPUT_DIR, "print_uploads")
+        os.makedirs(_updir, exist_ok=True)
+        _staged_name = f"{_uuid.uuid4().hex}.png"
+        _staged_upload_path = os.path.join(_updir, _staged_name)
+        with open(_staged_upload_path, "wb") as _fh:
+            _fh.write(_b64.b64decode(image_base64))
+        _staged_url = f"{_public_base_url()}/asset/print_uploads/{_staged_name}"
+        _log(f"[checkout] Large print file — staging for URL upload: {_staged_url}")
+        upload_json = {"file_name": file_name, "url": _staged_url}
+    else:
+        upload_json = {"file_name": file_name, "contents": image_base64}
+    try:
+        upload_resp = _printify_request(
+            "POST",
+            f"{PRINTIFY_BASE}/uploads/images.json",
+            headers=_headers(),
+            json=upload_json,
+            timeout=180,
+        )
+    finally:
+        # Printify ingests the URL during the POST, so the staged file is
+        # disposable as soon as the call returns (success or not).
+        if _staged_upload_path:
+            try:
+                os.remove(_staged_upload_path)
+            except OSError:
+                pass
     if upload_resp.status_code not in (200, 201):
         raise Exception(f"Image upload failed ({upload_resp.status_code}): {upload_resp.text[:300]}")
 
