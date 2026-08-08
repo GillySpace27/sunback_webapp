@@ -5682,19 +5682,13 @@ body.step-editor .feedback-fab { padding: 11px; }
   border-radius: 14px;
   padding: 26px 22px 20px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  /* Re-scope the text colour variables so descendants (variant
-     tiles, summary, sub, note, size chips, swatches) all resolve
-     to light values regardless of the user's OS theme. The panel
-     has a hardcoded dark background; the document-level variables
-     flip to dark in light system mode and renders the variant
-     labels black-on-black — the report behind this fix. Values are
-     the dark-mode palette's own tokens (kept as literals, not a
-     var() reference, since :root.dark's values are exactly what a
-     forced-dark panel needs regardless of the OS scheme). */
-  --text-primary:   #e8e2d0;
-  --text-secondary: #a8a094;
-  --text-dim:       #a8a094;
-  --accent-corona-text: #f3d385;
+  /* NO local token re-scope here (removed 2026-08-08). The old
+     dark-literal override dated from when this panel had a
+     hardcoded dark background; PR #49 retokenized the background
+     to var(--bg-card) — white in light mode — which made the
+     still-forced dark text illegible (cream on white, the light-
+     mode report). Theme tokens now flow through untouched:
+     navy-on-white in light, cream-on-dark-card in dark. */
   color: var(--text-primary);
   overflow-y: auto;
   /* iOS momentum scrolling — without this the user has to drag-
@@ -5715,7 +5709,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   font-size: 0.95rem;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.confirm-modal-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.confirm-modal-close:hover { background: rgba(128, 128, 128, 0.15); color: var(--text-primary, #fff); }
 .confirm-modal-title {
   margin: 0 0 4px;
   font-size: 1.1rem;
@@ -5850,7 +5844,9 @@ body.step-editor .feedback-fab { padding: 11px; }
      instead of half-tiles being chopped off. Beta-tester crew
      filed: on mobile the previous 12-px box-shadow wasn't enough,
      so "16.0\" tall" text leaked out from underneath the button. */
-  background: #17192a;
+  /* var(--bg-card), not the old hardcoded navy #17192a — the strip
+     must match the panel it's stuck to in BOTH themes. */
+  background: var(--bg-card);
   padding-top: 14px;
   margin-top: 4px;
 }
@@ -5865,7 +5861,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   bottom: 100%;
   height: 28px;
   pointer-events: none;
-  background: linear-gradient(to bottom, rgba(23, 25, 42, 0) 0%, #17192a 100%);
+  background: linear-gradient(to bottom, transparent 0%, var(--bg-card) 100%);
 }
 .confirm-modal-btn {
   flex: 1;
@@ -6096,7 +6092,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   color: var(--text-secondary, #9898b8);
   font-family: 'JetBrains Mono', monospace;
 }
-.confirm-variant-tile.active .confirm-variant-tile-price { color: var(--accent-corona, #d9a91a); }
+.confirm-variant-tile.active .confirm-variant-tile-price { color: var(--accent-corona-text, #f3d385); }
 .confirm-variant-tile-dims {
   font-size: 0.7rem;
   color: var(--text-dim, #6b6b85);
