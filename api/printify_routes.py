@@ -28,6 +28,7 @@ import logging
 
 from api.shopify_storefront import (
     cart_permalink,
+    ensure_pod_product_config,
     lookup_variant_id_by_sku,
     storefront_configured,
 )
@@ -1022,15 +1023,21 @@ def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client
          anchor (operator sells below cost), and a single clamp-up overcharges
          the cheapest size. Per-variant pricing is the only correct fix.
 
-    The model mirrors the editor's priceForVariantDisplay (api/solar-archive.js
-    :9189) exactly, so the customer is charged what they were shown:
+    The model mirrors the editor's priceForVariantDisplay (api/solar-archive.js)
+    exactly, so the customer is charged what they were shown. 2026-08-08
+    repricing (Gilly): proportional markup + merchandised ladder instead of the
+    old flat markup (which made a 46-size poster step by pennies and gave the
+    largest size the same dollar margin as the smallest):
 
-        markup        = max(0, anchor - cheapest_enabled_cost)
-        variant_price = variant_cost + markup            (always >= cost)
+        mult    = max(1, anchor / min_cost)
+        flat    = max(0, anchor - min_cost)
+        raw_v   = max(cost_v * mult, cost_v + flat)   (never less than before)
+        price_v = raw_v rounded UP to the next .99
+        ladder  = distinct cost tiers, ascending, forced >= $1.00 apart
 
     `anchor` is the product.checkoutPrice the client sent (the advertised
-    "From $X"). Using it only as the markup anchor means a tampered low anchor
-    can at worst drive margin to zero — it can never push a price below cost.
+    "From $X"). A tampered low anchor floors mult at 1 and flat at 0, so it
+    can at worst drive margin toward zero — never push a price below cost.
 
     Returns {variant_id: price_cents} for every variant we could price from the
     catalog. Variants the catalog has no cost for are omitted (caller refuses
@@ -1063,19 +1070,47 @@ def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client
     # previous enabled-subset min produced a smaller markup than the editor
     # showed whenever the filtered set excluded the cheapest variant, so the
     # buyer was charged slightly less than displayed.)
-    all_costs = [
-        e["cost"] for e in bucket.values() if e.get("cost") is not None
-    ]
-    min_cost = min(all_costs) if all_costs else 0
     anchor = int(client_anchor) if isinstance(client_anchor, int) and client_anchor > 0 else 0
-    markup = max(0, anchor - min_cost)
+    price_by_cost = _ladder_prices(bucket, anchor)
     prices = {}
     for v in variant_ids:
         vid = int(v)
         entry = bucket.get(vid)
         if entry and entry.get("cost") is not None:
-            prices[vid] = int(entry["cost"]) + markup
+            prices[vid] = price_by_cost[int(entry["cost"])]
     return prices
+
+
+def _ceil99(cents: int) -> int:
+    """Round up to the next X.99 (in cents). Never below the input."""
+    p = (cents // 100) * 100 + 99
+    return p if p >= cents else p + 100
+
+
+def _ladder_prices(bucket: dict, anchor: int) -> dict:
+    """{cost_cents: price_cents} for every distinct cost in the bucket,
+    using the proportional-markup + merchandised-ladder rule documented in
+    _compute_variant_prices. MUST stay in lockstep with the editor's
+    _ladderFor (solar-archive.js priceForVariantDisplay) — charged price
+    must equal displayed price."""
+    costs = sorted({int(e["cost"]) for e in bucket.values() if e.get("cost") is not None})
+    if not costs:
+        return {}
+    min_cost = costs[0]
+    flat = max(0, anchor - min_cost)
+    mult = max(1.0, anchor / min_cost) if (anchor > 0 and min_cost > 0) else 1.0
+    out = {}
+    prev = None
+    for c in costs:
+        # int(x + 0.5) == JS Math.round for positive x (Python's round()
+        # banker's-rounds, which would drift from the display).
+        raw = max(int(c * mult + 0.5), c + flat)
+        p = _ceil99(raw)
+        if prev is not None and c != costs[0] and p < prev + 100:
+            p = prev + 100
+        out[c] = p
+        prev = p
+    return out
 
 
 @router.get("/blueprints/cheapest_costs")
@@ -1459,6 +1494,10 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
 
     slug = slug_only(handle) or slug_only(external_id)
     if slug:
+        # Per-order products arrive from Printify with DENY inventory and
+        # no headless-channel publication; patch both before the buyer
+        # reaches Shopify (no-op without SHOPIFY_ADMIN_ACCESS_TOKEN).
+        ensure_pod_product_config(slug)
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{slug}"}
     return {"status": "pending"}
 
@@ -1570,6 +1609,10 @@ def _build_cart_url_sync(printify_product_id: str, variant_id: int) -> dict:
     handle = _shopify_handle_from_printify(product)
     if not handle:
         return {"status": "pending"}
+    # Same post-publish patch as _fetch_shopify_url_sync: fix inventory
+    # policy and headless publication before building the cart link, so
+    # the Storefront lookup below can actually see the product.
+    ensure_pod_product_config(handle)
     product_page_url = f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"
     fallback = {
         "status": "ready",

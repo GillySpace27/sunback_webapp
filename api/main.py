@@ -573,32 +573,43 @@ DEFAULT_MOCKUPS_MANIFEST = DEFAULT_CACHE_DIR / "default_mockups.json"
 # Black mug sibling — those are surfaced via the colour-chooser, not as
 # their own grid tile.)
 _DEFAULT_MOCKUP_PRODUCTS = [
-    {"id": "canvas_stretched",     "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
-    {"id": "metal_sign",           "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
-    {"id": "acrylic_print",        "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
-    {"id": "poster_matte",         "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
-    {"id": "framed_poster",        "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
-    {"id": "wall_clock",           "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
-    {"id": "tapestry",             "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
-    {"id": "mug_15oz",             "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
-    {"id": "tumbler_20oz",         "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
-    {"id": "tshirt_unisex",        "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
-    {"id": "hoodie_pullover",      "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
-    {"id": "crewneck_sweatshirt",  "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
-    {"id": "phone_case_apple",     "blueprintId": 269,  "printProviderId": 1,   "variantId": 112814, "position": "front"},
-    {"id": "phone_case_samsung",   "blueprintId": 269,  "printProviderId": 1,   "variantId": 125531, "position": "front"},
-    {"id": "phone_case_pixel",     "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
-    {"id": "laptop_sleeve",        "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
-    {"id": "mouse_pad",            "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
-    {"id": "desk_mat",             "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
-    {"id": "throw_pillow",         "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
-    {"id": "sherpa_blanket",       "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
-    {"id": "shower_curtain",       "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
-    {"id": "puzzle_1000",          "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
-    {"id": "coaster_set",          "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
-    {"id": "sticker_kiss",         "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
-    {"id": "journal_hardcover",    "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
-    {"id": "backpack",             "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
+    {"id": "canvas_stretched",     "vibe": "great_sympathetic_eruption", "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
+    {"id": "metal_sign",           "vibe": "x93_flare", "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
+    {"id": "acrylic_print",        "vibe": "post_flare_arcade", "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
+    {"id": "poster_matte",         "vibe": "ar2192", "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
+    {"id": "framed_poster",        "vibe": "ar13664_emergence", "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
+    {"id": "wall_clock",           "vibe": "ar2192", "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
+    {"id": "tapestry",             "vibe": "great_sympathetic_eruption", "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
+    {"id": "mug_15oz",             "vibe": "monster_prominence", "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
+    {"id": "tumbler_20oz",         "vibe": "pre_x93_powderkeg", "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
+    {"id": "tshirt_unisex",        "vibe": "x93_flare", "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
+    {"id": "hoodie_pullover",      "vibe": "post_flare_arcade", "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
+    {"id": "crewneck_sweatshirt",  "vibe": "ar13664_emergence", "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
+    {"id": "phone_case_apple",     "vibe": "limb_x82_flare", "blueprintId": 269,  "printProviderId": 1,   "variantId": 112814, "position": "front"},
+    {"id": "phone_case_samsung",   "vibe": "monster_prominence", "blueprintId": 269,  "printProviderId": 1,   "variantId": 125531, "position": "front"},
+    {"id": "phone_case_pixel",     "vibe": "post_flare_arcade", "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
+    {"id": "laptop_sleeve",        "vibe": "great_sympathetic_eruption", "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
+    {"id": "mouse_pad",            "vibe": "pre_x93_powderkeg", "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
+    {"id": "desk_mat",             "vibe": "ar13664_emergence", "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
+    {"id": "throw_pillow",         "vibe": "monster_prominence", "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
+    {"id": "sherpa_blanket",       "vibe": "great_sympathetic_eruption", "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
+    {"id": "shower_curtain",       "vibe": "post_flare_arcade", "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
+    {"id": "puzzle_1000",          "vibe": "ar2192_photosphere", "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
+    {"id": "coaster_set",          "vibe": "pre_x93_powderkeg", "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
+    {"id": "sticker_kiss",         "vibe": "monster_prominence", "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
+    {"id": "journal_hardcover",    "vibe": "ar13664_emergence", "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
+    {"id": "backpack",             "vibe": "post_flare_arcade", "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
+    # 2026-08-08 additions — keep in sync with api/products.js.
+    {"id": "wall_clock_acrylic",   "vibe": "x16_flare_ribbons", "blueprintId": 1305, "printProviderId": 104, "variantId": 98941, "position": "front"},
+    {"id": "rug_round",            "vibe": "monster_prominence", "blueprintId": 1083, "printProviderId": 10,  "variantId": 81470, "position": "front"},
+    {"id": "ornament_ceramic",     "vibe": "limb_x82_flare", "blueprintId": 531,  "printProviderId": 59,  "variantId": 69370, "position": "front"},
+    {"id": "tote_bag",             "vibe": "x16_flare_ribbons", "blueprintId": 553,  "printProviderId": 34,  "variantId": 70603, "position": "front"},
+    {"id": "greeting_cards",       "vibe": "x93_flare", "blueprintId": 785,  "printProviderId": 41,  "variantId": 74934, "position": "front"},
+    {"id": "baby_bodysuit",        "vibe": "mothers_day_storm", "blueprintId": 568,  "printProviderId": 99,  "variantId": 71076, "position": "front"},
+    {"id": "beach_towel",          "vibe": "great_sympathetic_eruption", "blueprintId": 352,  "printProviderId": 99,  "variantId": 44444, "position": "front"},
+    {"id": "crew_socks",           "blueprintId": 365,  "printProviderId": 14,  "variantId": 44906, "position": "front"},
+    {"id": "magnet_diecut",        "vibe": "mothers_day_storm", "blueprintId": 851,  "printProviderId": 73,  "variantId": 76775, "position": "front"},
+    {"id": "candle_soy",           "vibe": "monster_prominence", "blueprintId": 1048, "printProviderId": 219, "variantId": 80301, "position": "front"},
 ]
 
 # Vibe-grid landing tiles — pre-rendered HQ pairs (raw + RHEF) for the
@@ -2220,12 +2231,23 @@ def _phase_b_load_default_image_b64():
 
 def _phase_b_pick_mockup_url(product_json):
     """Pick the primary mockup URL from a Printify product-create response.
-    Prefers the first image marked `is_default: true`, then the first front
-    image, then the first image overall. Returns None if there are no
-    usable mockup images."""
+
+    Preference order (Gilly, 2026-08-08): the in-context lifestyle camera
+    first — Printify tags every mockup URL with ?camera_label=…, and the
+    'context*' shots (product hung on a wall, held in hands in front of a
+    tree, on a desk) sell far better on the landing grid than the flat
+    catalog shot. Falls back to is_default → front → anything, which is
+    the pre-2026-08-08 behavior, for blueprints with no context camera."""
     imgs = (product_json or {}).get("images") or []
     if not imgs:
         return None
+    import re as _re
+    def _cam(img):
+        m = _re.search(r"camera_label=([A-Za-z0-9_-]+)", img.get("src") or "")
+        return (m.group(1) if m else "").lower()
+    for img in imgs:
+        if img.get("src") and _cam(img).startswith("context"):
+            return img["src"]
     for img in imgs:
         if img.get("is_default") and img.get("src"):
             return img["src"]
@@ -2359,15 +2381,22 @@ def _ensure_mockup_thumb(pid: str, manifest: dict) -> bool:
     return True
 
 
-def _phase_b_warm(image_id_cache):
+def _phase_b_warm(image_id_cache, force=False):
     """Synchronously pre-render + cache real Printify mockups for every
     product in `_DEFAULT_MOCKUP_PRODUCTS`. Idempotent: skips products
-    whose mockup file already exists on disk. Per-product try/except so
+    whose mockup file already exists on disk (unless `force`, which
+    regenerates everything — used when the selection logic or the
+    per-product source images change). Per-product try/except so
     one failure doesn't break the batch.
 
-    `image_id_cache` is a one-item list used as a lazy holder for the
-    uploaded image id — uploaded only when at least one product actually
-    needs to be rendered.
+    Source images: each product entry may carry a `vibe` slug — its
+    pre-warmed rhef_full.png becomes the mockup art, giving the landing
+    grid a spread of dates and wavelength palettes instead of one image
+    everywhere (Gilly, 2026-08-08). Products without a slug (or with the
+    artifact missing on disk) fall back to the Phase A default HQ.
+
+    `image_id_cache` is a dict cache {source_key: uploaded_image_id} —
+    each distinct source uploads at most once per run.
 
     Returns a summary dict with counts + per-product status + the
     written manifest path."""
@@ -2385,21 +2414,42 @@ def _phase_b_warm(image_id_cache):
         except Exception:
             manifest = {}
 
-    def _ensure_uploaded():
-        if image_id_cache[0]:
-            return image_id_cache[0]
-        b64 = _phase_b_load_default_image_b64()
-        body = {"file_name": DEFAULT_HQ_FILENAME, "contents": b64}
+    if not isinstance(image_id_cache, dict):
+        image_id_cache = {}
+
+    def _source_for(prod):
+        """(source_key, loader) for this product's mockup art: the vibe
+        slug's rhef_full.png when present on disk, else the default HQ."""
+        slug = prod.get("vibe")
+        if slug:
+            p = DEFAULT_CACHE_DIR / "vibe" / slug / "rhef_full.png"
+            if p.exists() and p.stat().st_size > 1000:
+                return slug, p
+        return "_default", None
+
+    def _ensure_uploaded(prod):
+        import base64
+        key, path = _source_for(prod)
+        if image_id_cache.get(key):
+            return image_id_cache[key]
+        if path is not None:
+            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+            fname = f"{key}_rhef_full.png"
+        else:
+            b64 = _phase_b_load_default_image_b64()
+            fname = DEFAULT_HQ_FILENAME
+        body = {"file_name": fname, "contents": b64}
         r = _printify_request(
             "POST", f"{PRINTIFY_BASE}/uploads/images.json",
             headers=_headers(), json=body, timeout=120,
         )
         if r.status_code >= 400:
             raise RuntimeError(f"Printify upload failed: {r.status_code} {r.text[:200]}")
-        image_id_cache[0] = r.json().get("id")
-        if not image_id_cache[0]:
+        image_id = r.json().get("id")
+        if not image_id:
             raise RuntimeError(f"Printify upload returned no id: {r.text[:200]}")
-        return image_id_cache[0]
+        image_id_cache[key] = image_id
+        return image_id
 
     created = 0
     skipped = 0
@@ -2422,7 +2472,7 @@ def _phase_b_warm(image_id_cache):
         mock_path = DEFAULT_MOCKUPS_DIR / f"{pid}.png"
         status = {"id": pid}
         # Idempotent skip: file on disk AND manifest entry → done.
-        if mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
+        if not force and mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
             skipped += 1
             status["status"] = "skipped_cached"
             # Backfill the WebP grid thumbnail even for cached mockups so a
@@ -2439,7 +2489,7 @@ def _phase_b_warm(image_id_cache):
         time.sleep(1.2)
 
         try:
-            image_id = _ensure_uploaded()
+            image_id = _ensure_uploaded(prod)
             payload = {
                 "title": f"[MOCKUP-WARM] Solar Archive default — {pid}",
                 "description": "Auto-generated default mockup; will be deleted.",
@@ -2626,7 +2676,8 @@ async def warm_default(request: Request):
     # a thread to avoid blocking the asyncio loop for the heavy Printify
     # orchestration.
     try:
-        phase_b_result = await asyncio.to_thread(_phase_b_warm, [None])
+        _force = str(request.query_params.get("force", "")).strip().lower() in ("1", "true", "yes")
+        phase_b_result = await asyncio.to_thread(_phase_b_warm, {}, _force)
     except Exception as e:
         # Phase B failed wholesale (likely Phase A image missing or
         # Printify creds). Return Phase A success + the B error so the

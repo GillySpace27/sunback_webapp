@@ -11,7 +11,7 @@
    =============================================================== */
 
 import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.js";
-import { PRODUCTS } from "./products.js";
+import { PRODUCTS, FEATURED_PRODUCT_IDS, PRODUCT_CATEGORY_ORDER } from "./products.js";
 import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
 import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mockups.js";
 import { setupFeedback } from "./feedback.js";
@@ -203,7 +203,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     //               of source format.
     //   AIA_PAPER — Lemen 2012 AIA instrument paper. Cite when
     //               the product describes the AIA instrument.
-    //   RHEF_PAPER — Gilly et al. 2025, Sol. Phys. 300:174 — the
+    //   RHEF_PAPER — Gilly & Cranmer 2025, Sol. Phys. 300:174 — the
     //                radial histogram equalization filter method
     //                paper. Cite on the RHEF / HQ RHEF tier
     //                descriptions.
@@ -4751,9 +4751,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.hqReady = false;
       state.hqImageUrl = null;
       state.hqFormat = null;
-      var _cachedHqDisplay = cachedHq || cachedRhef;
-      if (_cachedHqDisplay) {
-        state.hqFilterImage = _cachedHqDisplay;
+      // Only a GENUINE stacked rHQ lights the HQ tier. The old fallback
+      // (cachedRhef) made "HQ Filtered" byte-identical to "Filtered" for
+      // vibes not yet re-warmed with Option-A artifacts — the owner's
+      // "HQ vs Filtered are confusing" report (UX pass 2026-08-08). The
+      // PRINT source (hqImageUrl) keeps its fallback: a same-image print
+      // is fine, a same-image "upgrade" button is a lie.
+      if (cachedHq && entry.rhq_2048_url) {
+        state.hqFilterImage = cachedHq;
         state.hqFormat = "rhef";
         state.hqReady = true;
         state.hqImageUrl = entry.hq_4096_url || entry.rhef_full_url || null;
@@ -4804,10 +4809,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // "Filtered" (MQ) = the single-frame rhef_full. No longer aliased to HQ.
       _preload(entry.rhef_full_url, slug + ":rhef", function (img) { state.rhefImage = img; });
       // "HQ Filtered" = the STACKED rHQ_2048 (clean corona) — a genuinely
-      // different, better image than Filtered. Fallback to rhef_full for
-      // vibes not yet re-warmed. hqImageUrl → the 4096 print source that the
-      // checkout composites the user's edits onto (loadImage handles WebP).
-      _preload(entry.rhq_2048_url || entry.rhef_full_url, slug + ":hq", function (img) {
+      // different, better image than Filtered. NO rhef_full fallback here
+      // (see the aliasing note above): a vibe without Option-A artifacts
+      // keeps the HQ tier locked rather than "upgrading" to the same image.
+      // hqImageUrl → the 4096 print source that the checkout composites
+      // the user's edits onto (loadImage handles WebP).
+      if (entry.rhq_2048_url) _preload(entry.rhq_2048_url, slug + ":hq", function (img) {
         state.hqFilterImage = img;
         state.hqFormat = "rhef";
         state.hqReady = true;
@@ -5049,71 +5056,71 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         title: "AR 2192 — October 24, 2014",
         body: 'Active Region 2192 was the largest sunspot group since November 1990. ' +
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012 (Sol. Phys. 275, 17). ' +
-              'RHEF tier: Gilly et al. 2025 (Sol. Phys. 300, 174).'
+              'RHEF tier: Gilly & Cranmer 2025 (Sol. Phys. 300, 174).'
       },
       x93_flare: {
         title: "X9.3 flare — September 6, 2017",
         body: 'Solar Cycle 24\'s largest X-ray flare. Peak GOES class X9.3 at 11:53 UTC. ' +
               'Shown at 211 Å (Fe XIV ~2 MK) rather than 131 Å, which saturates at flare peaks. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       mothers_day_storm: {
         title: "Mother's Day storm — May 10, 2024",
         body: 'G5 geomagnetic storm from active region 13664, the strongest since 2003. ' +
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
-              'RHEF tier: Gilly et al. 2025.'
+              'RHEF tier: Gilly & Cranmer 2025.'
       },
       limb_x82_flare: {
         title: "Limb X8.2 flare — September 10, 2017",
         body: 'Off-limb X8.2 flare, four days after the X9.3 on the same active region (12673). ' +
               'The post-flare arcade off the limb is one of the most iconic images of the SDO era. ' +
               'Shown at 211 Å to avoid 131 Å saturation. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       monster_prominence: {
         title: "Monster prominence — August 31, 2012",
         body: 'Iconic prominence eruption captured in 304 Å He II — sometimes called the ' +
-              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       pre_x93_powderkeg: {
         title: "AR 12673 brewing — September 4, 2017",
         body: 'Active Region 12673 two days before its X9.3 flare. The hottest coronal loops ' +
               '(6 MK Fe XVIII) glow in 94 Å, foreshadowing what was coming. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       post_flare_arcade: {
         title: "Post-flare arcade — July 19, 2012",
         body: 'M7.7 limb event with the textbook post-flare arcade — magnetic loops reconnecting ' +
               'and cooling into the 131 Å Fe XXI band (~10 MK). One of the most-shared SDO ' +
               'images from cycle 24\'s rising phase. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       great_sympathetic_eruption: {
         title: "Great sympathetic eruption — August 1, 2010",
         body: 'Schrijver & Title (2011) called this "the great connected eruption" — a cascade ' +
               'of filament lifts and CMEs across the entire visible disk, linked by long-range ' +
               'magnetic connections. 171 Å reveals the warm-corona loop network that carried the cascade. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       ar13664_emergence: {
         title: "AR 13664 emerges — May 8, 2024",
         body: 'Active region 13664 two days before it caused the Mother\'s Day G5 geomagnetic ' +
               'storm. Shown at 335 Å (Fe XVI, ~2.5 MK) which catches the active-region core ' +
-              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       x16_flare_ribbons: {
         title: "X1.6 flare ribbons — September 10, 2014",
         body: 'The X1.6 flare from AR 12158 with textbook two-ribbon structure in the ' +
               'chromospheric 1600 Å band. Flare ribbons trace footprints of the reconnection ' +
               'sheet where magnetic energy is released. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       ar2192_photosphere: {
         title: "AR 2192 in deep UV — October 24, 2014",
         body: 'The same monster sunspot as the AR 2192 card, seen in 1700 Å (UV continuum from ' +
               'the temperature-minimum region, ~5000 K). Where 193 Å shows the corona above, ' +
               '1700 Å shows the photospheric sunspot itself. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       }
     };
     function _toggleVibeInfo(card, btn) {
@@ -6162,7 +6169,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var VSO   = L("https://virtualsolar.org/", "Virtual Solar Observatory");
       var HV    = L("https://www.helioviewer.org/", "Helioviewer Project");
       var LEMEN = L("https://ui.adsabs.harvard.edu/abs/2012SoPh..275...17L/abstract", "Lemen et al. 2012");
-      var GILLY = L("https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G/abstract", "Gilly et al. 2025");
+      var GILLY = L("https://doi.org/10.1007/s11207-025-02578-x", "Gilly & Cranmer 2025");
       return '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
           (lead ? '<p style="margin-bottom:14px;">' + lead + '</p>' : '') +
           '<p style="margin-bottom:6px;"><strong>The Sun, observed</strong></p>' +
@@ -8827,19 +8834,30 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var sizeNorm = tov.sizeNorm != null ? tov.sizeNorm : (tov.size != null ? tov.size : 48) / _TEXT_REF_SIZE;
         var pixelSize = Math.max(4, sizeNorm * refMin);
         var textWidth = _textOverflowMeasureWidth(tov.text, tov.font || "Inter", pixelSize);
-        var safeWidth;
+        // Text is drawn CENTER-ANCHORED at (xNorm, yNorm) — the check must
+        // account for position, not just width. The old width-only check
+        // never read xNorm at all, so a short caption dragged to the edge
+        // hung half off the print with no warning (UX pass 2026-08-08).
+        var cxN = tov.xNorm != null ? tov.xNorm : 0.5;
+        var cyN = tov.yNorm != null ? tov.yNorm : 0.5;
         if (isCircle) {
-          // Chord width of the inscribed circle at the text's vertical
-          // offset from center — text further from the vertical middle
-          // has less horizontal room before it crosses the disk edge.
-          var dyNorm = Math.abs((tov.yNorm != null ? tov.yNorm : 0.5) - 0.5);
-          var dy = dyNorm * refMin;
-          var radius = refMin * 0.46; // inscribed radius minus a small print margin
-          safeWidth = 2 * Math.sqrt(Math.max(0, radius * radius - dy * dy));
+          // Distance from disk center to the farthest corner of the text's
+          // bounding box must stay inside the print-safe radius. 0.406, not
+          // 0.46: the wall-clock mockup clips at arc(80,80,65) = 0.406·W,
+          // and the old constant was ~13% too permissive against it.
+          var radius = refMin * 0.406;
+          var dxC = Math.abs(cxN - 0.5) * refMin + textWidth / 2;
+          var dyC = Math.abs(cyN - 0.5) * refMin + pixelSize / 2;
+          show = Math.sqrt(dxC * dxC + dyC * dyC) > radius;
         } else {
-          safeWidth = refW * 0.92; // ~8% total side margin
+          var margin = 0.04; // 4% print-safe margin per side
+          var left   = cxN * refW - textWidth / 2;
+          var right  = cxN * refW + textWidth / 2;
+          var top    = cyN * refMin - pixelSize / 2;
+          var bottom = cyN * refMin + pixelSize / 2;
+          show = left < refW * margin || right > refW * (1 - margin) ||
+                 top < refMin * margin || bottom > refMin * (1 - margin);
         }
-        show = textWidth > safeWidth;
       }
       warnEl.classList.toggle("hidden", !show);
     }
@@ -8955,6 +8973,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var _ch = solarCanvas.height || 1;
         state.textOverlay.xNorm = newX / _cw;
         state.textOverlay.yNorm = newY / _ch;
+        // Dragging is the ONE path that can push text out of the safe
+        // area positionally — and was the one path that never re-checked
+        // the overflow warning (UX pass 2026-08-08).
+        if (typeof _checkTextOverflow === "function") _checkTextOverflow();
         scheduleCanvasRender();
         return;
       }
@@ -9496,13 +9518,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Collect all option values into a single lower-case string for flexible matching
         var optStr = Object.keys(opts).map(function(k) { return String(opts[k]); }).join(" ").toLowerCase();
         var titleStr = (v.title || "").toLowerCase();
-        var combined = optStr + " " + titleStr;
+        // Printify mixes straight quotes and double-primes for inches
+        // ('9" x 11"' vs '11″ x 14″') — normalize so size tokens match both.
+        var combined = (optStr + " " + titleStr).replace(/[″”]/g, '"');
 
         // Size check: must match one of the allowed sizes
         var sizeOk = !f.sizes || f.sizes.length === 0;
         if (!sizeOk) {
           sizeOk = f.sizes.some(function(s) {
-            var sl = s.toLowerCase();
+            var sl = s.toLowerCase().replace(/[″”]/g, '"');
             // Use word-boundary-style check: the size must appear as a whole token
             // e.g. "xl" should match "xl" but not "2xl" or "xxl"
             return new RegExp("(?:^|[^a-z0-9])" + sl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:$|[^a-z0-9])", "i").test(combined);
@@ -9917,19 +9941,58 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * Returns null if nothing usable is available — callers render an
      * empty pill rather than a misleading number.
      */
+    // Proportional-markup ladder (2026-08-08 repricing). MUST stay in
+    // lockstep with _ladder_prices in api/printify_routes.py — the charged
+    // price is recomputed server-side with the same rule, and charged must
+    // equal displayed:
+    //   mult    = max(1, anchor / minCost)
+    //   flat    = max(0, anchor - minCost)
+    //   raw     = max(cost * mult, cost + flat)
+    //   price   = raw rounded UP to the next .99
+    //   ladder  = distinct cost tiers ascending, forced >= $1.00 apart
+    // Memoized per bucket+anchor; cleared implicitly on reload (pricing
+    // cache itself only changes with a page-lifetime fetch).
+    var _ladderCache = {};
+    function _ceil99(cents) {
+      var p = Math.floor(cents / 100) * 100 + 99;
+      return p >= cents ? p : p + 100;
+    }
+    function _ladderFor(key, bucket, anchor) {
+      var ck = key + "|" + anchor;
+      if (_ladderCache[ck]) return _ladderCache[ck];
+      var costs = [];
+      for (var k in bucket) {
+        if (bucket[k] && bucket[k].cost != null && costs.indexOf(bucket[k].cost) === -1) {
+          costs.push(bucket[k].cost);
+        }
+      }
+      costs.sort(function(a, b) { return a - b; });
+      var out = {};
+      if (!costs.length) { _ladderCache[ck] = out; return out; }
+      var minCost = costs[0];
+      var flat = Math.max(0, anchor - minCost);
+      var mult = (anchor > 0 && minCost > 0) ? Math.max(1, anchor / minCost) : 1;
+      var prev = null;
+      for (var i = 0; i < costs.length; i++) {
+        var c = costs[i];
+        var raw = Math.max(Math.round(c * mult), c + flat);
+        var p = _ceil99(raw);
+        if (prev !== null && i > 0 && p < prev + 100) p = prev + 100;
+        out[c] = p;
+        prev = p;
+      }
+      _ladderCache[ck] = out;
+      return out;
+    }
     function priceForVariantDisplay(product, variant) {
       if (!product || !variant) return null;
       var key = product.blueprintId + "_" + product.printProviderId;
       var bucket = variantPricingCache[key];
       if (bucket && bucket[variant.id] && bucket[variant.id].cost != null) {
-        var costs = [];
-        for (var k in bucket) {
-          if (bucket[k] && bucket[k].cost != null) costs.push(bucket[k].cost);
-        }
-        var minCost = costs.length ? Math.min.apply(null, costs) : bucket[variant.id].cost;
         var anchor = product.checkoutPrice != null ? product.checkoutPrice : 0;
-        var markup = Math.max(0, anchor - minCost);
-        return formatCents(bucket[variant.id].cost + markup);
+        var ladder = _ladderFor(key, bucket, anchor);
+        var price = ladder[bucket[variant.id].cost];
+        if (price != null) return formatCents(price);
       }
       var manual = getVariantPrice(product, variant);
       if (manual) return manual;
@@ -9974,7 +10037,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var trueCost = costs[p.blueprintId];
             // Blueprint absent from the index (shop has never sold it) —
             // fall back to the advertised price rather than spinning forever.
-            var cents = trueCost != null ? Math.max(trueCost, p.checkoutPrice || 0) : p.checkoutPrice;
+            // _ceil99 so the card matches the picker's cheapest ladder price
+            // when Printify's cost drifted above the advertised anchor.
+            var cents = trueCost != null ? _ceil99(Math.max(trueCost, p.checkoutPrice || 0)) : p.checkoutPrice;
             var html = "From " + (formatCents(cents) || p.price);
             _productPriceCache[p.id] = html;
             _updateProductPriceDom(p.id, html);
@@ -10367,6 +10432,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var userRequestsSection = document.getElementById("userRequestsSection");
       if (userRequestsGrid) userRequestsGrid.innerHTML = "";
       var hasUserRequested = false;
+      // Curated top row + category groups (Gilly, 2026-08-08): the flat
+      // popularity grid had grown to 35 cards / ~8,900px. Cards render
+      // through the same machinery; only the append target changes.
+      productGrid.classList.add("product-grid-grouped");
+      var _groupEls = {};
+      function _mkGroup(key, label) {
+        var wrap = document.createElement("div");
+        wrap.className = "product-group";
+        wrap.dataset.group = key;
+        var h = document.createElement("h3");
+        h.className = "product-group-header";
+        h.textContent = label;
+        var inner = document.createElement("div");
+        inner.className = "product-grid product-grid-inner";
+        wrap.appendChild(h);
+        wrap.appendChild(inner);
+        productGrid.appendChild(wrap);
+        _groupEls[key] = { wrap: wrap, inner: inner };
+      }
+      _mkGroup("_featured", "Most popular");
+      PRODUCT_CATEGORY_ORDER.forEach(function (c) { _mkGroup(c.key, c.label); });
+      var _lastGroupKey = PRODUCT_CATEGORY_ORDER[PRODUCT_CATEGORY_ORDER.length - 1].key;
+      function _targetGridFor(p) {
+        if (FEATURED_PRODUCT_IDS.indexOf(p.id) !== -1) return _groupEls._featured.inner;
+        var g = _groupEls[p.category] || _groupEls[_lastGroupKey];
+        return g.inner;
+      }
       // Iterate in popularity order (buys, then non-converting clicks) so
       // the grid surfaces the most-wanted products first. Per-product
       // routing to the user-requested grid below is unchanged.
@@ -10412,10 +10504,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
         card.className = "product-card";
         card.dataset.productId = p.id;
-        card.setAttribute("role", "button");
-        card.setAttribute("tabindex", "0");
-        var priceAriaText = _productPriceCache[p.id] || "price loading";
-        card.setAttribute("aria-label", p.name + " - " + p.desc + ". " + priceAriaText + (canSelect ? " Select to edit" : ""));
+        // a11y (launch audit §6.3): the card is a plain container, NOT a
+        // role=button — wrapping the real <button> below in a focusable
+        // role=button was axe "nested-interactive" ×24 (double focus stops,
+        // button-inside-button announcements). Mouse click-anywhere still
+        // works via the grid's delegated click handler; keyboard users get
+        // the one real button, whose Enter/Space the grid keydown handler
+        // routes to the same picker.
         // Card layout: preview → info text → action button → collapsible variant pane.
         // The variant pane lives BELOW the button so clicking the button reads as
         // "expand this to see variants." Each variant row carries its own
@@ -10577,8 +10672,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (userRequestsGrid) userRequestsGrid.appendChild(card);
           hasUserRequested = true;
         } else {
-          productGrid.appendChild(card);
+          _targetGridFor(p).appendChild(card);
         }
+      });
+
+      // Drop any category group that ended up empty (all members hidden,
+      // featured, or routed to the requests grid) so no orphan headers show.
+      Object.keys(_groupEls).forEach(function (k) {
+        if (!_groupEls[k].inner.firstChild) _groupEls[k].wrap.remove();
       });
 
       // Show/hide the Your Requests section based on whether the session has
@@ -10836,10 +10937,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
       // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
       // data-credits modal) live in _continueOpenEditor below.
-      // requestAnimationFrame defers it one paint so the body-class swap
-      // can flush, the editor section becomes visible, and the scroll
-      // lands on real layout instead of an invisible target.
-      requestAnimationFrame(function () {
+      // setTimeout(0), NOT requestAnimationFrame: rAF is suspended on
+      // hidden tabs (same class as the PR #48 checkout-modal deadlock), so
+      // a deep link opened in a background tab never ran the editor-open
+      // side effects — no MQ render, no HQ prewarm — until foregrounded.
+      // The one-tick defer still lets the body-class swap flush before the
+      // scroll measures layout.
+      setTimeout(function () {
         _continueOpenEditor(product);
         // Belt-and-suspenders: force a quality-timeline repaint right
         // when the editor opens, so the bar matches whatever tier the
@@ -10888,6 +10992,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // time-integrated print render in the background so checkout finds it
       // cached (no second wait). No-op for warm vibes / missing date.
       if (typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
+
+      // Also start the display-tier HQ render so the "HQ Filtered" step in
+      // the Quality timeline lights up (and auto-advances) on its own.
+      // Without this the tier was structurally unreachable for custom dates
+      // except by clicking it — the owner's "HQ never triggers on its own"
+      // report (UX pass 2026-08-08). Dedup/caching inside
+      // startHqFilterGeneration makes repeat editor opens free.
+      try {
+        if ((!state.activeVibeSlug || state.activeVibeSlug === "birthday") &&
+            !state.hqReady && !state.hqFetching &&
+            typeof dateInput !== "undefined" && dateInput && dateInput.value && state.wavelength) {
+          startHqFilterGeneration(dateInput.value, state.wavelength, "rhef");
+        }
+      } catch (_e) {}
 
       // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
       // vignette so the print area is covered completely the moment the
@@ -11146,8 +11264,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _printQualityState() {
       if (!state.originalImage) return "no_image";
       if (state.hqReady) return "hq_ready";
+      // The print upload composites onto the time-integrated 4096 render,
+      // which _prewarmIntegratedHq kicks off at editor open. If that render
+      // has RESOLVED, the print is genuinely HQ regardless of which display
+      // tier the user is looking at — gating on state.hqReady alone made the
+      // "still cooking" modal fire on every custom-date checkout, claiming a
+      // render that (pre-2026-08-08) had never even been started (UX pass).
+      if (_integratedHqReadyForCurrentSelection()) return "hq_ready";
       if (state.rhefImage || state.rawBackendImage) return "mq_ready";
       return "jpg_only";
+    }
+    function _integratedHqCacheKeyForSelection() {
+      var dateStr = (typeof dateInput !== "undefined" && dateInput && dateInput.value) ? dateInput.value : "";
+      if (!dateStr || !state.wavelength) return null;
+      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength;
+    }
+    function _integratedHqReadyForCurrentSelection() {
+      try {
+        var k = _integratedHqCacheKeyForSelection();
+        return !!(k && _integratedHqCache[k] && _integratedHqCache[k].url);
+      } catch (_e) { return false; }
     }
 
     // Promote the editor's active filter to the highest available
@@ -11221,8 +11357,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           "Submit at MQ anyway",
           "Submitting…"
         );
-        // showModal's default close-on-cancel handles the "wait" path
-        // — we just don't fire confirmFn for the cancel button.
+        // showModal's default close-on-cancel handles the "wait" path —
+        // we just don't fire confirmFn for the cancel button. Make the
+        // wait ACTIONABLE: the modal's claim is only true if the print
+        // render is actually in flight, so (a) kick it if it somehow
+        // isn't, and (b) toast when it lands so the user knows to hit
+        // checkout again instead of waiting on a signal that never
+        // came (the pre-2026-08-08 deadlock).
+        try {
+          var _k = _integratedHqCacheKeyForSelection();
+          if (_k) {
+            if (!_integratedHqCache[_k] && typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
+            var _e2 = _integratedHqCache[_k];
+            if (_e2 && _e2.promise && !_e2._toastArmed) {
+              _e2._toastArmed = true;
+              _e2.promise.then(function (url) {
+                if (url) showToast("Print-quality render finished — checkout will now use it.", "success");
+              });
+            }
+          }
+        } catch (_e) {}
         return;
       }
       // hq_ready — promote to HQ if not already there, then pass.
