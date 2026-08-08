@@ -573,43 +573,43 @@ DEFAULT_MOCKUPS_MANIFEST = DEFAULT_CACHE_DIR / "default_mockups.json"
 # Black mug sibling — those are surfaced via the colour-chooser, not as
 # their own grid tile.)
 _DEFAULT_MOCKUP_PRODUCTS = [
-    {"id": "canvas_stretched",     "vibe": "great_sympathetic_eruption", "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
-    {"id": "metal_sign",           "vibe": "x93_flare", "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
-    {"id": "acrylic_print",        "vibe": "post_flare_arcade", "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
-    {"id": "poster_matte",         "vibe": "ar2192", "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
-    {"id": "framed_poster",        "vibe": "ar13664_emergence", "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
-    {"id": "wall_clock",           "vibe": "ar2192", "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
-    {"id": "tapestry",             "vibe": "great_sympathetic_eruption", "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
-    {"id": "mug_15oz",             "vibe": "monster_prominence", "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
-    {"id": "tumbler_20oz",         "vibe": "pre_x93_powderkeg", "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
-    {"id": "tshirt_unisex",        "vibe": "x93_flare", "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
-    {"id": "hoodie_pullover",      "vibe": "post_flare_arcade", "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
-    {"id": "crewneck_sweatshirt",  "vibe": "ar13664_emergence", "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
-    {"id": "phone_case_apple",     "vibe": "limb_x82_flare", "blueprintId": 269,  "printProviderId": 1,   "variantId": 112814, "position": "front"},
-    {"id": "phone_case_samsung",   "vibe": "monster_prominence", "blueprintId": 269,  "printProviderId": 1,   "variantId": 125531, "position": "front"},
-    {"id": "phone_case_pixel",     "vibe": "post_flare_arcade", "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
-    {"id": "laptop_sleeve",        "vibe": "great_sympathetic_eruption", "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
-    {"id": "mouse_pad",            "vibe": "pre_x93_powderkeg", "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
-    {"id": "desk_mat",             "vibe": "ar13664_emergence", "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
-    {"id": "throw_pillow",         "vibe": "monster_prominence", "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
-    {"id": "sherpa_blanket",       "vibe": "great_sympathetic_eruption", "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
-    {"id": "shower_curtain",       "vibe": "post_flare_arcade", "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
-    {"id": "puzzle_1000",          "vibe": "ar2192_photosphere", "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
-    {"id": "coaster_set",          "vibe": "pre_x93_powderkeg", "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
-    {"id": "sticker_kiss",         "vibe": "monster_prominence", "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
-    {"id": "journal_hardcover",    "vibe": "ar13664_emergence", "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
+    {"id": "canvas_stretched",     "vibe": "great_sympathetic_eruption", "ar": [2400, 3000], "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
+    {"id": "metal_sign",           "vibe": "x93_flare", "ar": [2250, 1650], "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
+    {"id": "acrylic_print",        "vibe": "post_flare_arcade", "ar": [2250, 1650], "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
+    {"id": "poster_matte",         "vibe": "ar2192", "ar": [11, 14], "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
+    {"id": "framed_poster",        "vibe": "ar13664_emergence", "ar": [11, 14], "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
+    {"id": "wall_clock",           "vibe": "ar2192", "ar": [1, 1], "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
+    {"id": "tapestry",             "vibe": "great_sympathetic_eruption", "ar": [4350, 5850], "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
+    {"id": "mug_15oz",             "vibe": "monster_prominence", "ar": [2790, 1219], "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
+    {"id": "tumbler_20oz",         "vibe": "pre_x93_powderkeg", "ar": [2795, 2100], "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
+    {"id": "tshirt_unisex",        "vibe": "x93_flare", "ar": [3319, 3761], "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
+    {"id": "hoodie_pullover",      "vibe": "post_flare_arcade", "ar": [3319, 3761], "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
+    {"id": "crewneck_sweatshirt",  "vibe": "ar13664_emergence", "ar": [3319, 3761], "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
+    {"id": "phone_case_apple",     "vibe": "limb_x82_flare", "ar": [1246, 2085], "blueprintId": 269,  "printProviderId": 1,   "variantId": 112814, "position": "front"},
+    {"id": "phone_case_samsung",   "vibe": "monster_prominence", "ar": [1251, 2097], "blueprintId": 269,  "printProviderId": 1,   "variantId": 125531, "position": "front"},
+    {"id": "phone_case_pixel",     "vibe": "post_flare_arcade", "ar": [1329, 2126], "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
+    {"id": "laptop_sleeve",        "vibe": "great_sympathetic_eruption", "ar": [4, 3], "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
+    {"id": "mouse_pad",            "vibe": "pre_x93_powderkeg", "ar": [1, 1], "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
+    {"id": "desk_mat",             "vibe": "ar13664_emergence", "ar": [5610, 3839], "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
+    {"id": "throw_pillow",         "vibe": "monster_prominence", "ar": [1, 1], "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
+    {"id": "sherpa_blanket",       "vibe": "great_sympathetic_eruption", "ar": [7875, 9375], "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
+    {"id": "shower_curtain",       "vibe": "post_flare_arcade", "ar": [7104, 7392], "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
+    {"id": "puzzle_1000",          "vibe": "ar2192_photosphere", "ar": [4200, 3300], "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
+    {"id": "coaster_set",          "vibe": "pre_x93_powderkeg", "ar": [1, 1], "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
+    {"id": "sticker_kiss",         "vibe": "monster_prominence", "ar": [1, 1], "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
+    {"id": "journal_hardcover",    "vibe": "ar13664_emergence", "ar": [2032, 2850], "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
     {"id": "backpack",             "vibe": "post_flare_arcade", "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
     # 2026-08-08 additions — keep in sync with api/products.js.
-    {"id": "wall_clock_acrylic",   "vibe": "x16_flare_ribbons", "blueprintId": 1305, "printProviderId": 104, "variantId": 98941, "position": "front"},
-    {"id": "rug_round",            "vibe": "monster_prominence", "blueprintId": 1083, "printProviderId": 10,  "variantId": 81470, "position": "front"},
-    {"id": "ornament_ceramic",     "vibe": "limb_x82_flare", "blueprintId": 531,  "printProviderId": 59,  "variantId": 69370, "position": "front"},
-    {"id": "tote_bag",             "vibe": "x16_flare_ribbons", "blueprintId": 553,  "printProviderId": 34,  "variantId": 70603, "position": "front"},
-    {"id": "greeting_cards",       "vibe": "x93_flare", "blueprintId": 785,  "printProviderId": 41,  "variantId": 74934, "position": "front"},
-    {"id": "baby_bodysuit",        "vibe": "mothers_day_storm", "blueprintId": 568,  "printProviderId": 99,  "variantId": 71076, "position": "front"},
-    {"id": "beach_towel",          "vibe": "great_sympathetic_eruption", "blueprintId": 352,  "printProviderId": 99,  "variantId": 44444, "position": "front"},
-    {"id": "crew_socks",           "blueprintId": 365,  "printProviderId": 14,  "variantId": 44906, "position": "front"},
-    {"id": "magnet_diecut",        "vibe": "mothers_day_storm", "blueprintId": 851,  "printProviderId": 73,  "variantId": 76775, "position": "front"},
-    {"id": "candle_soy",           "vibe": "monster_prominence", "blueprintId": 1048, "printProviderId": 219, "variantId": 80301, "position": "front"},
+    {"id": "wall_clock_acrylic",   "vibe": "x93_flare", "ar": [1, 1], "blueprintId": 1305, "printProviderId": 104, "variantId": 98941, "position": "front"},
+    {"id": "rug_round",            "vibe": "monster_prominence", "ar": [1, 1], "blueprintId": 1083, "printProviderId": 10,  "variantId": 81470, "position": "front"},
+    {"id": "ornament_ceramic",     "vibe": "limb_x82_flare", "ar": [1, 1], "blueprintId": 531,  "printProviderId": 59,  "variantId": 69370, "position": "front"},
+    {"id": "tote_bag",             "vibe": "great_sympathetic_eruption", "ar": [2835, 3425], "blueprintId": 553,  "printProviderId": 34,  "variantId": 70603, "position": "front"},
+    {"id": "greeting_cards",       "vibe": "x93_flare", "ar": [1860, 2460], "blueprintId": 785,  "printProviderId": 41,  "variantId": 74934, "position": "front"},
+    {"id": "baby_bodysuit",        "vibe": "mothers_day_storm", "ar": [1500, 1714], "blueprintId": 568,  "printProviderId": 99,  "variantId": 71076, "position": "front"},
+    {"id": "beach_towel",          "vibe": "great_sympathetic_eruption", "ar": [18900, 9900], "blueprintId": 352,  "printProviderId": 99,  "variantId": 44444, "position": "front"},
+    {"id": "crew_socks",           "vibe": "x93_flare", "ar": [1358, 5551], "blueprintId": 365,  "printProviderId": 14,  "variantId": 44906, "position": "front"},
+    {"id": "magnet_diecut",        "vibe": "mothers_day_storm", "ar": [1, 1], "blueprintId": 851,  "printProviderId": 73,  "variantId": 76775, "position": "front"},
+    {"id": "candle_soy",           "vibe": "monster_prominence", "ar": [900, 600], "blueprintId": 1048, "printProviderId": 219, "variantId": 80301, "position": "front"},
 ]
 
 # Vibe-grid landing tiles — pre-rendered HQ pairs (raw + RHEF) for the
@@ -2427,17 +2427,61 @@ def _phase_b_warm(image_id_cache, force=False):
                 return slug, p
         return "_default", None
 
+    def _pad_to_aspect(raw_bytes, ar):
+        """Pad (never crop) the square source to the product's print
+        aspect, filling with the image's own corner-average colour so the
+        extension reads as more corona-dark sky, not white paper. Cropping
+        was rejected: an 11:14 cover-crop of the square art would clip
+        ~20% off the Sun's disk. Returns PNG bytes; on any failure returns
+        the input unchanged (mockup then letterboxes, the old behavior)."""
+        try:
+            import io
+            from PIL import Image
+            ratio = float(ar[0]) / float(ar[1])
+            im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            w, h = im.size
+            if abs((w / h) - ratio) < 0.02:
+                return raw_bytes
+            if (w / h) < ratio:
+                new_w, new_h = int(round(h * ratio)), h
+            else:
+                new_w, new_h = w, int(round(w / ratio))
+            px = im.load()
+            k = max(2, min(w, h) // 50)
+            corners = [(0, 0), (w - k, 0), (0, h - k), (w - k, h - k)]
+            tot = [0, 0, 0]; n = 0
+            for cx, cy in corners:
+                for dx in range(0, k, 2):
+                    for dy in range(0, k, 2):
+                        p = px[cx + dx, cy + dy]
+                        tot[0] += p[0]; tot[1] += p[1]; tot[2] += p[2]; n += 1
+            fill = tuple(int(t / n) for t in tot)
+            canvas = Image.new("RGB", (new_w, new_h), fill)
+            canvas.paste(im, ((new_w - w) // 2, (new_h - h) // 2))
+            buf = io.BytesIO()
+            canvas.save(buf, "PNG")
+            return buf.getvalue()
+        except Exception as _e:
+            print(f"[warm_default][phase_b] pad_to_aspect failed (using original): {_e}", flush=True)
+            return raw_bytes
+
     def _ensure_uploaded(prod):
         import base64
         key, path = _source_for(prod)
-        if image_id_cache.get(key):
-            return image_id_cache[key]
+        ar = prod.get("ar")
+        # One upload per distinct (source, print-aspect) pair.
+        ckey = key + (f"_{ar[0]:g}x{ar[1]:g}" if ar else "")
+        if image_id_cache.get(ckey):
+            return image_id_cache[ckey]
         if path is not None:
-            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-            fname = f"{key}_rhef_full.png"
+            raw = path.read_bytes()
+            fname = f"{ckey}_rhef_full.png"
         else:
-            b64 = _phase_b_load_default_image_b64()
+            raw = base64.b64decode(_phase_b_load_default_image_b64())
             fname = DEFAULT_HQ_FILENAME
+        if ar:
+            raw = _pad_to_aspect(raw, ar)
+        b64 = base64.b64encode(raw).decode("ascii")
         body = {"file_name": fname, "contents": b64}
         r = _printify_request(
             "POST", f"{PRINTIFY_BASE}/uploads/images.json",
@@ -2448,7 +2492,7 @@ def _phase_b_warm(image_id_cache, force=False):
         image_id = r.json().get("id")
         if not image_id:
             raise RuntimeError(f"Printify upload returned no id: {r.text[:200]}")
-        image_id_cache[key] = image_id
+        image_id_cache[ckey] = image_id
         return image_id
 
     created = 0
