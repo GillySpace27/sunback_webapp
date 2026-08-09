@@ -193,12 +193,12 @@
 
   <div class="section" id="productSection">
     <div class="section-header">
-      <div class="step-badge">1</div>
+      <div class="step-badge">2</div>
       <h2 class="section-title" id="productSectionTitle">Pick your product</h2>
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      These are real product photos. The Sun shown is just an example &mdash; pick a product and you&rsquo;ll choose your own Sun image next.
+      These are real product photos. The Sun shown is an example &mdash; the one you picked (or pick next) is what gets printed.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -262,7 +262,7 @@
 
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
-      <div class="step-badge">2</div>
+      <div class="step-badge">1</div>
       <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
       <button type="button" class="edit-btn edit-btn-nav share-image-step-btn hidden" id="btnShareSunImageStep" title="Copy a link to this exact Sun">
         <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
@@ -1224,7 +1224,7 @@
     <div class="confirm-size-chips hidden" id="confirmSelectSizeChips" role="listbox" aria-label="Size"></div>
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">Prices in USD. Tax + shipping calculated at checkout. We ship to the US, Canada, EU, and UK — <a href="/shipping">details</a>.</p>
-    <p class="confirm-modal-note" style="font-size:0.78rem;margin-top:6px;">Pick your Sun image next, then fine-tune in the editor.</p>
+    <p class="confirm-modal-note" style="font-size:0.78rem;margin-top:6px;" id="confirmSelectNextNote">Pick your Sun image next, then fine-tune in the editor.</p>
     <div class="confirm-modal-actions">
       <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to image</button>
     </div>

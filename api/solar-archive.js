@@ -262,12 +262,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       // No step in the history state. Derive intent from the hash so
       // mashing the back button always lands us on the right step
-      // instead of leaving the body class stale (friction-audit P0:
-      // back-to-root left body.step-image when the user expected
-      // body.step-product). Empty hash = product; #image = image;
-      // #editor = editor; bogus hash = product.
+      // instead of leaving the body class stale. Empty hash = image
+      // (the first step since the 2026-08-09 date→image→product→size
+      // reorder); #product / #editor explicit; bogus hash = image.
       var hashStep = (location.hash || "").replace(/^#/, "").trim();
-      if (!_isValidStep(hashStep)) hashStep = "product";
+      if (!_isValidStep(hashStep)) hashStep = "image";
       _applyStep(hashStep, { fromPopstate: true });
     });
 
@@ -294,7 +293,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Commit 1 (this file): plumbing only. Default state.currentStep =
     // "image" preserves today's behaviour. CSS section-hiding rules
     // arrive in commit 3 (cold-default to "product").
-    var _STEP_ORDER = ["product", "image", "editor", "review"];
+    // 2026-08-09 funnel reorder (audit §6.6, Gilly's call): the image —
+    // the emotional core of the product — comes FIRST, then the object
+    // it goes on. date/image → product → editor(+size via modal).
+    var _STEP_ORDER = ["image", "product", "editor", "review"];
     function _isValidStep(s) { return _STEP_ORDER.indexOf(s) >= 0; }
     function _applyStep(name, opts) {
       opts = opts || {};
@@ -365,7 +367,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Hash sync — skip when coming from popstate (the browser
       // already updated location.hash before firing the event).
       if (!opts.fromPopstate) {
-        var targetHash = (name === "product") ? "" : ("#" + name);
+        var targetHash = (name === "image") ? "" : ("#" + name);
         if (location.hash !== targetHash) {
           // Use replaceState here when pushHistory is false (e.g.
           // initial sync) to avoid an extra back-stack entry.
@@ -400,7 +402,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // step — but downgrade to "product" if the required state isn't
     // there (a deep-link to #editor without a picked product would
     // strand the user on a black canvas).
-    var _initialStep = "product";
+    var _initialStep = "image";
     var _hashStep = (location.hash || "").replace(/^#/, "").trim();
     if (_isValidStep(_hashStep)) _initialStep = _hashStep;
     state.currentStep = state.currentStep || _initialStep;
@@ -410,11 +412,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // navigated away and back from a deep-link like #image landed on
     // the wrong step.
     function _normalizeStepWithState() {
-      // Demote when the requested step needs a product that's not set.
-      if (state.currentStep !== "product" && !state.selectedProduct) {
-        state.currentStep = "product";
-        try { history.replaceState({ step: "product" }, "", location.pathname + location.search); }
-        catch (_e) {}
+      // Demote when the requested step needs state that isn't there:
+      // editor/review need a product AND an image; product needs
+      // nothing (it's a browsable grid). Land the user at the first
+      // step whose prerequisites are actually met.
+      if (state.currentStep === "editor" || state.currentStep === "review") {
+        var demote = null;
+        if (!state.selectedProduct && !state.originalImage) demote = "image";
+        else if (!state.selectedProduct) demote = "product";
+        else if (!state.originalImage) demote = "image";
+        if (demote) {
+          state.currentStep = demote;
+          try { history.replaceState({ step: demote }, "", location.pathname + location.search); }
+          catch (_e) {}
+        }
       }
       // STRESS-014: re-clear any bogus #-hash. The earlier check ran
       // BEFORE _applyStep wrote its own replaceState, so a bogus hash
@@ -2435,6 +2446,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof _renderBreadcrumb === "function") {
           try { _renderBreadcrumb(); } catch (_e) {}
         }
+      } else if (!state.holdImageStep && state.currentStep === "image") {
+        // Image-first flow (2026-08-09 reorder): the Sun is picked and
+        // no product is — advance to the product step so the funnel
+        // reads date → image → product → size.
+        state.scrollToProductsOnLoad = false;
+        if (typeof setStep === "function") setStep("product");
       } else {
         if (state.scrollToProductsOnLoad) {
           state.scrollToProductsOnLoad = false;
@@ -12975,7 +12992,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (continueBtn) {
         var _step = (state && state.currentStep) || "";
         if (_step === "editor") continueBtn.textContent = "Apply variant";
+        // Image-first funnel (2026-08-09 reorder): the Sun is usually
+        // already picked by the time the size modal opens, so the next
+        // stop is the editor, not the image step.
+        else if (state.originalImage) continueBtn.textContent = "Continue to editor";
         else continueBtn.textContent = "Continue to image";
+      }
+      // The "what happens next" note below the button must agree with it.
+      var nextNoteEl = document.getElementById("confirmSelectNextNote");
+      if (nextNoteEl) {
+        nextNoteEl.textContent = state.originalImage
+          ? "Fine-tune your Sun in the editor next."
+          : "Pick your Sun image next, then fine-tune in the editor.";
       }
       var closeBtn = document.getElementById("confirmSelectClose");
       var backdrop = document.getElementById("confirmSelectBackdrop");
@@ -13029,8 +13057,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (titleEl) titleEl.textContent = product.name;
       if (subEl) {
         subEl.textContent = product._isUserRequested
-          ? "Your request (pending review). Choose a size and colour, then continue to your image."
-          : "Choose a size and colour, then pick your image.";
+          ? "Your request (pending review). Choose a size and colour, then continue."
+          : (state.originalImage
+              ? "Choose a size and colour for your Sun."
+              : "Choose a size and colour, then pick your image.");
       }
 
       function _variantsList() {
