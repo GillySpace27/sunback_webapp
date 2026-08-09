@@ -12443,12 +12443,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var title = "Solar " + wlStr + " — " + dateStr + " · " + product.name;
       var fname = "solar_" + dateStr + "_" + state.wavelength + "_hq.png";
 
-      // Resolve HQ image then composite user edits on top before uploading
-      _getCheckoutImageBase64(dateStr).then(function(base64Data) {
-        // Update step 1 to show upload size
-        var sizeKB = Math.round(base64Data.length / 1024);
+      // Resolve the print file. Preferred path: the server composites it
+      // from parameters and we send a URL (a few hundred bytes). Fallback:
+      // the browser composites and uploads base64, as before.
+      _resolveCheckoutPrintSource(dateStr).then(function(src) {
+        var base64Data = src && src.base64;
+        var printUrl = src && src.url;
         var step1 = document.getElementById("ckStep1");
-        if (step1) step1.querySelector("span").textContent = "Uploading your print file (" + sizeKB + " KB)…";
+        if (step1) {
+          step1.querySelector("span").textContent = printUrl
+            ? "Print file ready on the server — no upload needed"
+            : "Uploading your print file (" + Math.round((base64Data || "").length / 1024) + " KB)…";
+        }
 
         // Only the variant actually being ordered. Enabling every filtered
         // variant made Printify render a mockup per variant (dozens), which
@@ -12462,7 +12468,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            image_base64: base64Data,
+            image_base64: printUrl ? undefined : base64Data,
+            image_url: printUrl || undefined,
             file_name: fname,
             title: title,
             description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
@@ -12708,6 +12715,86 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // render the multi-frame time-integrated print and composite onto THAT —
     // the editor showed only the fast single-frame version. Every branch
     // falls back to the current canvas if the HQ can't be produced/loaded.
+    // Edit parameters the server-side compositor needs. Names match the
+    // editor's own state so there's no translation layer to drift.
+    function _printParams() {
+      var product = _currentSelectedProductObj();
+      var ar = (typeof getEffectiveAspectRatio === "function" && product)
+        ? getEffectiveAspectRatio(product) : null;
+      return {
+        productId: state.selectedProduct || null,
+        printShape: (product && product.printShape) || null,
+        aspectRatio: (ar && ar.w && ar.h) ? { w: ar.w, h: ar.h } : null,
+        cropZoom: state.cropZoom,
+        panX: state.panX, panY: state.panY,
+        rotation: state.rotation || 0,
+        flipH: !!state.flipH, flipV: !!state.flipV,
+        brightness: state.brightness || 0,
+        contrast: state.contrast || 0,
+        saturation: (state.saturation == null ? 100 : state.saturation),
+        hue: state.hue || 0,
+        inverted: !!state.inverted,
+        vignette: state.vignette || 0,
+        vignetteWidth: state.vignetteWidth || 0,
+        vignetteFade: state.vignetteFade || "transparent",
+        vignetteFadeColor: state.vignetteFadeColor || null,
+        vignetteModeR: state._vignetteModeR, vignetteModeG: state._vignetteModeG,
+        vignetteModeB: state._vignetteModeB,
+        cropEdgeFeatherX: state.cropEdgeFeatherX || 0,
+        cropEdgeFeatherY: state.cropEdgeFeatherY || 0,
+        background: state.background || null,
+        // Flags that force the browser path (server refuses them).
+        textOverlay: (state.textOverlay && state.textOverlay.text) ? true : null,
+        timestampStamp: state.timestampStamp ? true : null,
+        dualPanel: !!(product && product.dualPanel) || null,
+        clockNumbers: state.clockNumbers ? true : null,
+      };
+    }
+
+    // Ask the server to build the print file from parameters. Resolves to a
+    // URL string on success, or null to mean "use the browser path" — every
+    // failure mode (unsupported params, missing source, compose error,
+    // network) resolves null rather than rejecting, so checkout degrades to
+    // the pre-2026-08-09 behaviour instead of breaking.
+    function _serverComposePrintFile(sourceUrl) {
+      try {
+        var params = _printParams();
+        if (params.textOverlay || params.timestampStamp || params.dualPanel || params.clockNumbers) {
+          return Promise.resolve(null);
+        }
+        return postJSON(API_BASE + "/api/print_file",
+                        { source_url: sourceUrl, params: params }, 120000)
+          .then(function (r) {
+            if (r && r.supported && r.url) {
+              markCheckoutStep("ckStep1", "done", "Print file prepared on the server");
+              return r.url;
+            }
+            return null;
+          })
+          .catch(function () { return null; });
+      } catch (_e) {
+        return Promise.resolve(null);
+      }
+    }
+
+    // Print source for checkout: {url} when the server composited it,
+    // {base64} when the browser had to. Always resolves.
+    function _resolveCheckoutPrintSource(dateStr) {
+      var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
+      var sourcePromise = (isWarmVibe && state.hqReady && state.hqImageUrl)
+        ? Promise.resolve(state.hqImageUrl)
+        : _ensureIntegratedHqUrl(dateStr);
+      return sourcePromise.then(function (srcUrl) {
+        if (!srcUrl) return null;
+        return _serverComposePrintFile(srcUrl);
+      }).then(function (composedUrl) {
+        if (composedUrl) return { url: composedUrl };
+        return _getCheckoutImageBase64(dateStr).then(function (b64) { return { base64: b64 }; });
+      }).catch(function () {
+        return _getCheckoutImageBase64(dateStr).then(function (b64) { return { base64: b64 }; });
+      });
+    }
+
     function _getCheckoutImageBase64(dateStr) {
       var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
       if (isWarmVibe && state.hqReady && state.hqImageUrl) {

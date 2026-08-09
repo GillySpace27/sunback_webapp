@@ -56,7 +56,7 @@ def get_downloader(total_timeout=600, connect_timeout=60, sock_read_timeout=300)
 
 # Registry to track background tasks for /generate
 task_registry: dict = {}
-from urllib.parse import urlencode, quote_plus
+from urllib.parse import urlencode, quote_plus, urlparse
 import sys
 from dotenv import load_dotenv
 # Load environment variables from ../.env (backend startup)
@@ -949,6 +949,65 @@ async def api_data_frontier():
         "earliest": "2010-05-15",
         "checked_at": _FRONTIER_CACHE["checked_at"],
         "ttl_seconds": _FRONTIER_TTL_SECONDS,
+    }
+
+
+@app.post("/api/print_file")
+async def api_print_file(request: Request, payload: dict = Body(...)):
+    """Compose the print file HERE from edit parameters, instead of shipping
+    the 4096² render to the browser and taking a ~40 MB PNG back.
+
+    Phase 1: geometry + colour only. Orders carrying a text overlay (or the
+    other client-drawn extras) are refused with `supported: false`, and the
+    caller keeps using the browser upload path for those — see
+    api/print_compose.py for why that line is drawn where it is.
+
+    Returns { url } pointing at a staged PNG under /asset/, which the
+    checkout hands to Printify directly."""
+    enforce_origin(request)
+    enforce_rate_limit(request, "print_file", 12, 300.0)
+
+    from api import print_compose
+
+    params = payload.get("params") or {}
+    src_url = str(payload.get("source_url") or "")
+    if not print_compose.supports_params(params):
+        return JSONResponse(status_code=200, content={
+            "supported": False,
+            "reason": "params require client-side rendering (text overlay or extras)",
+        })
+
+    # Resolve the source to a local file. Only our own /asset/ paths are
+    # accepted — this endpoint must never be a fetch-arbitrary-URL gadget.
+    name = os.path.basename(urlparse(src_url).path or "")
+    if not name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="source_url must reference a served asset")
+    candidates = [os.path.join(OUTPUT_DIR, name), str(DEFAULT_CACHE_DIR / name)]
+    src_path = next((p for p in candidates if os.path.exists(p) and os.path.getsize(p) > 1000), None)
+    if not src_path:
+        # The render may have been swept, or belongs to another instance.
+        return JSONResponse(status_code=200, content={
+            "supported": False, "reason": "source render not available on this instance",
+        })
+
+    import uuid as _uuid
+    out_dir = os.path.join(OUTPUT_DIR, "print_uploads")
+    os.makedirs(out_dir, exist_ok=True)
+    out_name = f"{_uuid.uuid4().hex}.png"
+    out_path = os.path.join(out_dir, out_name)
+    try:
+        await asyncio.to_thread(print_compose.compose, src_path, params, out_path)
+    except Exception as e:
+        print(f"[print_file] compose failed: {e}", flush=True)
+        return JSONResponse(status_code=200, content={
+            "supported": False, "reason": f"compose failed: {str(e)[:120]}",
+        })
+    size = os.path.getsize(out_path)
+    print(f"[print_file] composed {out_name} ({size/1e6:.1f} MB) from {os.path.basename(src_path)}", flush=True)
+    return {
+        "supported": True,
+        "url": f"/asset/print_uploads/{out_name}",
+        "size_bytes": size,
     }
 
 

@@ -1242,6 +1242,7 @@ def _do_checkout_sync(
     price: int,
     position: str,
     tags: list,
+    image_url: str = "",
 ) -> dict:
     """Blocking checkout logic — runs in a thread via run_in_threadpool.
 
@@ -1283,7 +1284,13 @@ def _do_checkout_sync(
     # instead — their URL ingester takes files the POST body can't.
     _URL_UPLOAD_THRESHOLD = 20 * 1024 * 1024  # b64 chars; ~15 MB binary
     _staged_upload_path = None
-    if len(image_base64) > _URL_UPLOAD_THRESHOLD:
+    if image_url:
+        # Server-composed print file (api/print_compose.py): the bytes never
+        # left this box, so hand Printify the URL and skip base64 entirely.
+        _abs = image_url if image_url.startswith("http") else f"{_public_base_url()}{image_url}"
+        _log(f"[checkout] Server-composed print file, uploading by URL: {_abs}")
+        upload_json = {"file_name": file_name, "url": _abs}
+    elif len(image_base64) > _URL_UPLOAD_THRESHOLD:
         import base64 as _b64
         import uuid as _uuid
         from api.main import OUTPUT_DIR  # runtime import; no cycle at import time
@@ -1442,7 +1449,8 @@ async def checkout(request: Request):
     try:
         body = await request.json()
 
-        image_base64 = body.get("image_base64", "")
+        image_base64 = body.get("image_base64", "") or ""
+        image_url = body.get("image_url", "") or ""
         file_name = body.get("file_name", "solar_image.png")
         title = body.get("title", "Solar Archive Custom Product")
         description = body.get("description", "")
@@ -1459,8 +1467,12 @@ async def checkout(request: Request):
         position = body.get("position", "front")
         tags = body.get("tags", [])
 
-        if not image_base64:
-            raise HTTPException(status_code=400, detail="Missing image_base64")
+        if not image_base64 and not image_url:
+            raise HTTPException(status_code=400, detail="Missing image_base64 or image_url")
+        # Only our own staged assets may be referenced (never a caller-
+        # supplied external URL — that would make this a fetch gadget).
+        if image_url and not image_url.startswith("/asset/"):
+            raise HTTPException(status_code=400, detail="image_url must be a served /asset/ path")
         if not blueprint_id or not print_provider_id or not variant_ids:
             raise HTTPException(status_code=400, detail="Missing blueprint_id, print_provider_id, or variant_ids")
 
@@ -1469,7 +1481,7 @@ async def checkout(request: Request):
             _do_checkout_sync,
             image_base64, file_name, title, description,
             blueprint_id, print_provider_id, variant_ids,
-            price, position, tags,
+            price, position, tags, image_url,
         )
         return JSONResponse(content=result)
 
