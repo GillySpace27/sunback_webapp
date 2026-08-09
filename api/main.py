@@ -894,6 +894,64 @@ async def api_health():
 # ---------------------------------------------------------------------------
 # /api/build-info — when frontend assets were last modified (for "page updated" display)
 # ---------------------------------------------------------------------------
+# ── Data frontier ────────────────────────────────────────────────────
+# How recent a date can a customer actually pick? JSOC's ingest lag is
+# real and it DRIFTS (measured ~5-6 days on 2026-08-09), so the two date
+# pickers' hardcoded guesses (today-7 and today-1) were respectively
+# over-cautious and wrong — the today-1 one let a beta tester choose a
+# date with no data and hit an error, which is what this replaces.
+#
+# Probe the synoptic archive, which is the deterministic URL the preview
+# path uses: walk back from today until a frame answers. Cheap (HEAD, no
+# body), cached, and self-correcting as the lag moves.
+_FRONTIER_CACHE = {"date": None, "checked_at": 0.0}
+_FRONTIER_TTL_SECONDS = 6 * 3600
+_FRONTIER_MAX_LOOKBACK_DAYS = 21
+_FRONTIER_FALLBACK_DAYS = 7
+
+
+def _probe_data_frontier() -> str:
+    """Most recent UTC date with a synoptic AIA frame at 12:00. Returns
+    YYYY-MM-DD. Falls back to today-7 if every probe fails (network down
+    → stay conservative rather than advertising dates we can't serve)."""
+    today = datetime.utcnow().date()
+    for back in range(0, _FRONTIER_MAX_LOOKBACK_DAYS + 1):
+        d = today - timedelta(days=back)
+        url = (f"{SYNOPTIC_BASE}/{d:%Y/%m/%d}/H1200/"
+               f"AIA{d:%Y%m%d}_1200_0193.fits")
+        try:
+            r = requests.head(url, timeout=(5, 10), allow_redirects=True)
+            if r.status_code == 200:
+                return d.isoformat()
+        except Exception:
+            continue
+    return (today - timedelta(days=_FRONTIER_FALLBACK_DAYS)).isoformat()
+
+
+@app.get("/api/data_frontier")
+async def api_data_frontier():
+    """Latest selectable observation date, plus the archive's first light.
+    The frontend clamps both date pickers to this instead of guessing."""
+    import time as _t
+    now = _t.time()
+    if (_FRONTIER_CACHE["date"] is None
+            or (now - _FRONTIER_CACHE["checked_at"]) > _FRONTIER_TTL_SECONDS):
+        try:
+            _FRONTIER_CACHE["date"] = await asyncio.to_thread(_probe_data_frontier)
+        except Exception as e:
+            print(f"[data_frontier] probe failed: {e}", flush=True)
+            _FRONTIER_CACHE["date"] = (
+                datetime.utcnow().date() - timedelta(days=_FRONTIER_FALLBACK_DAYS)
+            ).isoformat()
+        _FRONTIER_CACHE["checked_at"] = now
+    return {
+        "latest": _FRONTIER_CACHE["date"],
+        "earliest": "2010-05-15",
+        "checked_at": _FRONTIER_CACHE["checked_at"],
+        "ttl_seconds": _FRONTIER_TTL_SECONDS,
+    }
+
+
 @app.get("/api/build-info")
 async def api_build_info():
     """Return the latest modification time of index.html, solar-archive.js, solar-archive.css (UTC ISO)."""

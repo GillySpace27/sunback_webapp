@@ -1204,7 +1204,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       dateInput.max = maxD.toISOString().split("T")[0];
       // Hide wavelength tiles until the user actively picks a date.
       updateWavelengthSectionDateState();
+      // …then replace that guess with the archive's REAL frontier. JSOC's
+      // ingest lag drifts (measured 7 days on 2026-08-09), and the two
+      // pickers used to hardcode different guesses — the birthday card's
+      // today-1 let a beta tester pick a date with no data and hit an
+      // error. Both now track /api/data_frontier; the static value above
+      // stands in until it answers, and stands if it never does.
+      _applyDataFrontier();
     })();
+
+    // Shared by both date pickers. Cached per page load; failure is silent
+    // (the conservative static bound remains in force).
+    var _dataFrontier = null;
+    function _applyDataFrontier() {
+      var apply = function (f) {
+        if (!f || !f.latest) return;
+        _dataFrontier = f;
+        try {
+          if (dateInput) dateInput.max = f.latest;
+          if (f.earliest && dateInput) dateInput.min = f.earliest;
+          var bday = document.getElementById("vibeBirthdayInput");
+          if (bday) {
+            bday.max = f.latest;
+            if (f.earliest) bday.min = f.earliest;
+          }
+        } catch (_e) {}
+      };
+      if (_dataFrontier) { apply(_dataFrontier); return; }
+      fetchWithTimeout(API_BASE + "/api/data_frontier", {}, 12000)
+        .then(function (r) { return r.json(); })
+        .then(apply)
+        .catch(function () { /* keep the static bound */ });
+    }
 
     // ── Birthday Sun CTA wiring ──────────────────────────────────
     // Above-the-fold gifting shortcut: type a date → it populates
@@ -4348,13 +4379,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (!grid) return;
       // (Recent-corona's dynamic today-2 date is gone; all 5 static
       // vibes have hardcoded dates now. The 6th is the birthday card.)
-      // Set the birthday-input's max to today's UTC date (so users can't
-      // pick a future date that has no data).
+      // Birthday-input bounds come from the SAME source as the main
+      // picker (/api/data_frontier). The old today-1 guess ignored JSOC's
+      // multi-day ingest lag and let a beta tester pick an empty date;
+      // _applyDataFrontier sets both, and seeds a conservative today-7
+      // here for the window before it answers.
       var bdayInput = document.getElementById("vibeBirthdayInput");
-      if (bdayInput) {
-        var maxD = new Date(); maxD.setUTCDate(maxD.getUTCDate() - 1);
+      if (bdayInput && !bdayInput.max) {
+        var maxD = new Date(); maxD.setUTCDate(maxD.getUTCDate() - 7);
         bdayInput.max = maxD.toISOString().slice(0, 10);
       }
+      if (typeof _applyDataFrontier === "function") _applyDataFrontier();
 
       // Eager Helioviewer-JPG fallback for every card BEFORE the manifest
       // lands. The manifest fetch can take a few hundred ms on a cold load
@@ -4717,17 +4752,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             msg.style.cssText = "margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(255,179,71,0.10);border:1px solid rgba(255,179,71,0.35);color:var(--accent-corona,#ffb347);font-size:0.82rem;line-height:1.35;";
             bdayInput.parentNode.appendChild(msg);
           }
+          // Two different out-of-range cases, two different explanations.
+          // The old copy only described the 2010 floor, so a too-recent
+          // pick (inside JSOC's multi-day ingest lag) got told about a
+          // launch date in 2010 — confusing, and the case a beta tester
+          // actually hit.
+          var tooRecent = !!(bdayInput.max && picked && picked > bdayInput.max);
+          var snapTo = tooRecent ? bdayInput.max : bdayInput.min;
           msg.innerHTML =
-            'SDO/AIA launched May 15, 2010 — earlier dates have no imagery. ' +
+            (tooRecent
+              ? 'The observatory’s archive runs a few days behind, so the newest images we can print are from <strong>' +
+                bdayInput.max + '</strong>. '
+              : 'SDO/AIA launched May 15, 2010 — earlier dates have no imagery. ') +
             'Try a date between <strong>' + bdayInput.min + '</strong> and ' +
             '<strong>' + bdayInput.max + '</strong>. ' +
             '<button type="button" class="vibe-birthday-range-fallback" ' +
             'style="margin-left:6px;background:transparent;border:0;color:var(--accent-corona,#ffb347);text-decoration:underline;cursor:pointer;font:inherit;">' +
-            'Use earliest available (' + bdayInput.min + ')</button>';
+            (tooRecent ? 'Use latest available (' : 'Use earliest available (') + snapTo + ')</button>';
           var fb = msg.querySelector(".vibe-birthday-range-fallback");
           if (fb) {
             fb.addEventListener("click", function () {
-              bdayInput.value = bdayInput.min;
+              bdayInput.value = snapTo;
               bdayInput.dispatchEvent(new Event("change", { bubbles: true }));
             });
           }
