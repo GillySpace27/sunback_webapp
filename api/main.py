@@ -690,6 +690,51 @@ import threading
 app = FastAPI(title=APP_NAME)
 
 
+# ── Render-cache janitor ─────────────────────────────────────────────
+# OUTPUT_DIR is a regenerable render cache on a 3 GB volume; with no
+# sweep it filled to 100% and live HQ renders started failing with
+# ENOSPC ([Errno 28], caught by a persona walk 2026-08-09). Sweep files
+# older than 2 days at startup and daily thereafter. DEFAULT_CACHE_DIR
+# (curated persistent assets) lives elsewhere and is never touched.
+def _sweep_output_cache(max_age_days: int = 2) -> None:
+    import time as _t
+    cutoff = _t.time() - max_age_days * 86400
+    removed = 0
+    try:
+        for root, _dirs, files in os.walk(OUTPUT_DIR):
+            for fn in files:
+                p = os.path.join(root, fn)
+                try:
+                    if os.path.getmtime(p) < cutoff:
+                        os.remove(p)
+                        removed += 1
+                except OSError:
+                    pass
+    except Exception as e:
+        print(f"[cache-janitor] sweep error: {e}", flush=True)
+    if removed:
+        print(f"[cache-janitor] removed {removed} cache file(s) older than {max_age_days}d", flush=True)
+
+
+def _start_cache_janitor() -> None:
+    import threading as _th
+
+    def _loop():
+        while True:
+            try:
+                _sweep_output_cache()
+            except Exception:
+                pass
+            _t_sleep = 24 * 3600
+            import time as _t
+            _t.sleep(_t_sleep)
+
+    _th.Thread(target=_loop, daemon=True, name="cache-janitor").start()
+
+
+_start_cache_janitor()
+
+
 app_dir = Path(__file__).parent
 # NOTE: api/ is NOT mounted as static. It contains the server source (.py),
 # and a bare StaticFiles(app_dir) mount served every module's source publicly
