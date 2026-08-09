@@ -535,14 +535,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           aria: "Change product",
         });
       }
-      // (Future: image pill on step "editor" — but step editor hides
-      // the breadcrumb entirely per the above, so deferred.)
+      // Forward path: with a product AND an image in hand, the editor
+      // is one click away. Matters most while holdImageStep is set
+      // (auto-advance suppressed), but it's an honest affordance for
+      // everyone on this step.
+      if (state.selectedProduct && state.originalImage) {
+        pills.push({
+          label: "Continue to editor",
+          target: "editor",
+          aria: "Continue to the editor",
+          forward: true,
+        });
+      }
       var html = pills.map(function (p) {
         return '<button type="button" class="workflow-breadcrumb-pill" ' +
                'data-target-step="' + p.target + '" ' +
                'aria-label="' + p.aria + '">' +
-               '<span class="arrow" aria-hidden="true">←</span> ' +
+               (p.forward ? '' : '<span class="arrow" aria-hidden="true">←</span> ') +
                escapeHtmlSimple(p.label) +
+               (p.forward ? ' <span class="arrow" aria-hidden="true">→</span>' : '') +
                '</button>';
       }).join('<span class="workflow-breadcrumb-sep" aria-hidden="true">›</span>');
       pillBox.innerHTML = html;
@@ -553,6 +564,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var btn = e.target.closest(".workflow-breadcrumb-pill");
         if (!btn) return;
         var target = btn.getAttribute("data-target-step");
+        if (target === "editor") state.holdImageStep = false;
         if (target) setStep(target);
       };
     }
@@ -1678,15 +1690,32 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof setStep === "function" && state.currentStep !== "image") {
           setStep("image");
         }
-        // Wait one frame so the body-class swap can repaint the now-
-        // visible section before we scroll into it.
-        requestAnimationFrame(function() {
+        // Beta feedback (2026-08-09, Kyreon): returning here to browse
+        // must not auto-yank back to the editor the moment any image
+        // load lands — hold the step until the user explicitly
+        // continues (breadcrumb pill / commitImageChoice).
+        state.holdImageStep = true;
+        // One-tick defer so the body-class swap can repaint the now-
+        // visible section before we expand + scroll. setTimeout, not
+        // rAF (rAF freezes on hidden tabs — house rule since PR #48).
+        setTimeout(function() {
+          // Same beta report: the button SAYS "time & wavelength" but
+          // landed on the famous-moment cards, and the tester read
+          // those as "the wavelengths". Land on the actual fine-tune
+          // section, expanded.
+          var cfg = document.getElementById("configSection");
+          if (cfg) {
+            cfg.classList.remove("section-collapsed");
+            var tog = document.getElementById("configSectionToggle");
+            if (tog) tog.setAttribute("aria-expanded", "true");
+            cfg.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+          }
           var wlGrid = document.getElementById("wlGrid")
-                    || document.getElementById("configSection")
                     || document.querySelector(".vibe-grid-section");
           if (wlGrid) wlGrid.scrollIntoView({ behavior: "smooth", block: "start" });
           else window.scrollTo({ top: 0, behavior: "smooth" });
-        });
+        }, 0);
       });
     }
 
@@ -2380,7 +2409,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       renderCanvas();
       setProgress(100);
-      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — opening the editor.');
+      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded' +
+        ((state.selectedProduct && !state.holdImageStep) ? ' — opening the editor.' : '.'));
       showToast(wl + " Å loaded!");
 
       imageStage.classList.remove("empty");
@@ -2394,8 +2424,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // set), advance to step "editor". Otherwise the user is on the
       // legacy path (image first, product second) — stay on step
       // "image" so they can pick a product without auto-jumping.
-      if (state.selectedProduct) {
+      if (state.selectedProduct && !state.holdImageStep) {
         commitImageChoice();
+      } else if (state.selectedProduct) {
+        // holdImageStep: the user explicitly returned to this step to
+        // browse (beta report: tile clicks yanked them straight back
+        // to the editor before they could look around). Update in
+        // place; the breadcrumb's "Continue to editor" pill and the
+        // product buttons are the explicit ways forward.
+        if (typeof _renderBreadcrumb === "function") {
+          try { _renderBreadcrumb(); } catch (_e) {}
+        }
       } else {
         if (state.scrollToProductsOnLoad) {
           state.scrollToProductsOnLoad = false;
@@ -10921,6 +10960,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // selected yet (deep-link / dev-console scenarios) — image stays
     // loaded, user picks a product first.
     function commitImageChoice() {
+      // Any explicit continue releases the browse-hold (see
+      // btnChangeWavelength / _installPreviewImage).
+      state.holdImageStep = false;
       if (!state.selectedProduct) return;
       var product = _currentSelectedProductObj();
       if (!product) return;
