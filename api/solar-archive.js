@@ -5691,7 +5691,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       type = type || "success";
       toastEl.textContent = msg;
       toastEl.className = "toast " + type;
-      requestAnimationFrame(function() { toastEl.classList.add("show"); });
+      // setTimeout, NOT requestAnimationFrame (root cause of the months-old
+      // "toast parked over the Buy button" reports): on a hidden tab rAF is
+      // suspended but the 4 s removal timer still fires, so the removal ran
+      // FIRST and the suspended rAF added .show afterwards with no timer
+      // armed — a permanently stuck toast. Plain timers fire in order on
+      // hidden tabs, so add(20ms) always precedes remove(4000ms).
+      clearTimeout(toastEl._showTimer);
+      toastEl._showTimer = setTimeout(function() { toastEl.classList.add("show"); }, 20);
       clearTimeout(toastTimer);
       toastTimer = setTimeout(function() { toastEl.classList.remove("show"); }, 4000);
       // Always dismissable. A tester reported a toast parked over the Buy
@@ -6262,28 +6269,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       catch (_e) { return false; }
     }
     function maybeShowDataCredits() {
+      // NON-BLOCKING inline card, not a modal (audit §6.5, executed
+      // 2026-08-09): the modal version intercepted the primary CTA,
+      // locked scrolling, and with the HQ auto-start it fired on every
+      // first editor entry. Same content, same credits, zero
+      // interception — appended at the end of the editor section.
+      // Closing it dismisses permanently (same localStorage key).
       if (_dataCreditsShownThisSession) return;
       if (_dataCreditsAlreadyDismissed()) return;
+      var host = document.getElementById("editSection");
+      if (!host) return;
       _dataCreditsShownThisSession = true;
-      showDataCredits(
-        "Behind the scenes, while your image renders",
-        "Your high-resolution solar image is being prepared. While you wait, meet the institutes and infrastructure making it possible:" +
-        ' <span style="display:block;margin-top:10px;font-size:0.85rem;">' +
-        '<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">' +
-        '<input type="checkbox" id="dataCreditsDismissForever" style="margin:0;"> ' +
-        "Don’t show this again</label></span>"
-      );
-      // Wire the checkbox after the modal is in the DOM. showInfo renders
-      // synchronously, so a microtask is enough.
-      Promise.resolve().then(function () {
-        var cb = document.getElementById("dataCreditsDismissForever");
-        if (!cb) return;
-        cb.addEventListener("change", function () {
-          try {
-            if (cb.checked) localStorage.setItem(_DATA_CREDITS_DISMISS_KEY, "1");
-            else localStorage.removeItem(_DATA_CREDITS_DISMISS_KEY);
-          } catch (_e) {}
-        });
+      var card = document.createElement("aside");
+      card.className = "data-credits-card";
+      card.setAttribute("aria-label", "Behind the scenes: data credits");
+      card.innerHTML =
+        '<button type="button" class="data-credits-card-close" aria-label="Dismiss and don’t show again">&#x2715;</button>' +
+        '<div class="data-credits-card-title"><i class="fas fa-satellite" aria-hidden="true"></i> Behind the scenes, while your image renders</div>' +
+        _dataCreditsHtml("Your high-resolution solar image is prepared from real NASA data. Meet the institutes and infrastructure making it possible:");
+      host.appendChild(card);
+      var closeBtn = card.querySelector(".data-credits-card-close");
+      if (closeBtn) closeBtn.addEventListener("click", function () {
+        try { localStorage.setItem(_DATA_CREDITS_DISMISS_KEY, "1"); } catch (_e) {}
+        card.remove();
       });
     }
     (function() {
@@ -12407,6 +12415,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         .then(function(data) {
           if (!data.printify_product_id) throw new Error("No product ID returned");
           var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
+          _ckLastProductId = data.printify_product_id;
           markCheckoutStep("ckStep1", "done", "Print file uploaded");
           markCheckoutStep("ckStep2", "done", "Product set up" + vcMsg);
           markCheckoutStep("ckStep3", "done", "Connected to secure checkout");
@@ -12430,12 +12439,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           markCheckoutStep("ckStep4", "done", timedOut ? "Still finishing up…" : "Checkout link ready!");
           checkoutProgress.innerHTML +=
             '<div style="margin-top:16px;">' +
-              '<div style="font-size:48px;margin-bottom:8px;">' + (timedOut ? '⏳' : '🎉') + '</div>' +
-              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">' + (timedOut ? 'Almost there — your product is still going live' : 'Ready for secure checkout!') + '</div>' +
-              '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
+              '<div style="font-size:48px;margin-bottom:8px;" id="ckDoneEmoji">' + (timedOut ? '⏳' : '🎉') + '</div>' +
+              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;" id="ckDoneHeadline">' + (timedOut ? 'Almost there — your product is still going live' : 'Ready for secure checkout!') + '</div>' +
+              '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;" id="ckReassurance">' +
                 reassurance +
               '</p>' +
-              '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
+              '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout" id="ckShopifyCta">' +
                 '<i class="fab fa-shopify"></i>' + (timedOut ? ' Browse the store' : ' Complete Purchase on Shopify') +
               '</a>' +
               '<div style="margin-top:10px;">' +
@@ -12444,7 +12453,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 '</button>' +
               '</div>' +
             '</div>';
-          showToast("Your product is ready — click Complete Purchase on Shopify to pay.");
+          // The ready toast must only promise a button that exists (beta
+          // persona 2026-08-09: timed-out card said "Browse the store"
+          // while the toast said "click Complete Purchase" — a dead end).
+          if (timedOut) {
+            showToast("Your product is still publishing — this page will update when checkout is ready.");
+            // Self-heal: publishing almost always completes shortly after
+            // the poll budget. Keep checking quietly and upgrade the card
+            // in place the moment the real checkout link exists.
+            _armCheckoutUpgradePoll(ckSelectedId);
+          } else {
+            showToast("Your product is ready — click Complete Purchase on Shopify to pay.");
+          }
           // Auto-redirect removed: beta testers reported the previous 1.5s
           // redirect felt "instant" and hid the completed status indicator.
           // The user now clicks the prominent Complete Purchase button when
@@ -12689,6 +12709,49 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         icon.style.fontSize = "";
       }
       if (span && text) span.textContent = text;
+    }
+
+    // Set at checkout time; used by the timed-out card's self-heal poll.
+    var _ckLastProductId = null;
+    var _ckUpgradeTimer = null;
+    function _armCheckoutUpgradePoll(variantIdForCheckout) {
+      // After pollShopifyUrl gives up, Shopify publishing usually lands a
+      // minute or two later. Quietly re-check and upgrade the success card
+      // in place, so the buyer who waited never dead-ends on "Browse the
+      // store" (beta persona 2026-08-09). Bounded: 6 more minutes.
+      clearTimeout(_ckUpgradeTimer);
+      var productId = _ckLastProductId;
+      if (!productId) return;
+      var deadline = Date.now() + 6 * 60000;
+      function _tick() {
+        if (Date.now() > deadline) return;
+        var cta = document.getElementById("ckShopifyCta");
+        if (!cta) return; // card dismissed / replaced — stop quietly
+        fetchWithTimeout(API_BASE + "/api/printify/product/" + productId +
+            "/cart_url?variant_id=" + encodeURIComponent(variantIdForCheckout || ""), {}, 15000)
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.status === "ready" && d.cart_url) {
+              var cta2 = document.getElementById("ckShopifyCta");
+              if (!cta2) return;
+              cta2.href = d.cart_url;
+              cta2.innerHTML = '<i class="fab fa-shopify"></i> Complete Purchase on Shopify';
+              var head = document.getElementById("ckDoneHeadline");
+              if (head) head.textContent = "Ready for secure checkout!";
+              var emo = document.getElementById("ckDoneEmoji");
+              if (emo) emo.textContent = "🎉";
+              var rea = document.getElementById("ckReassurance");
+              if (rea) rea.textContent = (d.source === "storefront-api")
+                ? "Your variant is pre-selected — just complete checkout on Shopify to receive your custom print."
+                : "Choose your size and options on the Shopify page, then complete checkout.";
+              showToast("Checkout is ready — click Complete Purchase on Shopify to pay.");
+              return; // done, stop polling
+            }
+            _ckUpgradeTimer = setTimeout(_tick, 10000);
+          })
+          .catch(function () { _ckUpgradeTimer = setTimeout(_tick, 15000); });
+      }
+      _ckUpgradeTimer = setTimeout(_tick, 8000);
     }
 
     function pollShopifyUrl(printifyProductId, variantIdForCheckout) {

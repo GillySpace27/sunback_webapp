@@ -6569,3 +6569,37 @@ html:not(.dark) .confirm-variant-tile.active {
 .product-group[data-group="_featured"] .product-group-header {
   color: var(--accent-corona-text, #f3d385);
 }
+
+/* ── Data-credits inline card (was a blocking modal — audit §6.5) ── */
+.data-credits-card {
+  position: relative;
+  margin: 18px 0 4px;
+  padding: 16px 40px 16px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-corona-text, #f3d385);
+  border-radius: var(--radius-md);
+}
+.data-credits-card-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+.data-credits-card-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.data-credits-card-close:hover {
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--text-primary);
+}
