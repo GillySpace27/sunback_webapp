@@ -1964,6 +1964,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Latch so the suggester doesn't re-add an orange ring on the next
       // HEK refresh (e.g. when the date is auto-loaded after this click).
       _userTouchedWavelength = true;
+      // Image-first funnel: a tile click IS the user picking their Sun
+      // (vibe cards and the See-the-Sun auto-pick route through a
+      // programmatic tile click too). The bootstrap default-image
+      // preload does NOT click tiles — that's the discriminator that
+      // keeps a pristine landing on step 1 instead of auto-advancing.
+      state.userPickedImage = true;
       state.wavelength = parseInt(card.dataset.wl, 10);
       // User picked their own wavelength — landing default no longer
       // active, so product tiles stop using the pre-rendered Printify
@@ -2446,10 +2452,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof _renderBreadcrumb === "function") {
           try { _renderBreadcrumb(); } catch (_e) {}
         }
-      } else if (!state.holdImageStep && state.currentStep === "image") {
-        // Image-first flow (2026-08-09 reorder): the Sun is picked and
-        // no product is — advance to the product step so the funnel
-        // reads date → image → product → size.
+      } else if (!state.holdImageStep && state.currentStep === "image" && state.userPickedImage) {
+        // Image-first flow (2026-08-09 reorder): the user picked their
+        // Sun and no product is selected — advance to the product step
+        // so the funnel reads date → image → product → size. Gated on
+        // userPickedImage: the landing's silent default-image preload
+        // must NOT advance a pristine visitor past step 1.
         state.scrollToProductsOnLoad = false;
         if (typeof setStep === "function") setStep("product");
       } else {
