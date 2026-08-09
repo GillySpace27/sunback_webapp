@@ -149,7 +149,7 @@
        swapped for the baked quality_strip.webp so it can never render broken. -->
   <div class="section quality-strip-section" id="qualityStrip">
     <button type="button" class="quality-diptych" id="qualityDiptych"
-            aria-label="The Sun before and after our sharpening step, side by side. Activate to compare them hands-on with a draggable slider.">
+            aria-label="The Sun before and after the contrast-equalization step, side by side. Activate to compare them hands-on with a draggable slider.">
       <span class="diptych-pane">
         <span class="diptych-label">Original</span>
         <span class="diptych-sub">raw telescope data</span>
@@ -161,7 +161,7 @@
         <span class="diptych-label">Filtered</span>
         <span class="diptych-sub">RHEF reveals the corona</span>
         <img class="diptych-img" src="/asset/default/compare_rhef.webp" width="900" height="900"
-             alt="The same moment after our sharpening step — the Sun's faint outer glow is now visible."
+             alt="The same moment after contrast equalization — the Sun's faint outer atmosphere is now visible."
              decoding="async" />
       </span>
       <span class="diptych-hint" aria-hidden="true">
@@ -173,11 +173,11 @@
          Filtered (right of divider), compare-over = Original clipped left. -->
     <div class="compare-slider hidden" id="compareSlider" style="--split:50%">
       <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
-           alt="The Sun after our sharpening step, revealing the faint outer glow." decoding="async" />
+           alt="The Sun after contrast equalization, revealing the faint outer atmosphere." decoding="async" />
       <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
            alt="" aria-hidden="true" decoding="async" />
       <div class="compare-handle" role="slider" tabindex="0"
-           aria-label="Drag to compare the original telescope photo with the sharpened version"
+           aria-label="Drag to compare the original telescope photo with the contrast-equalized version"
            aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
            aria-valuetext="50% original, 50% filtered">
         <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
@@ -188,7 +188,7 @@
               aria-label="Close the drag comparison and go back to the side-by-side view"
               title="Back to side-by-side">&#x2715;</button>
     </div>
-    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, our sharpening step lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the sharpened version.</strong></p>
+    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Every print gets the RHEF version.</strong></p>
     <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
   </div>
 
@@ -257,7 +257,7 @@
       <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
               title="The conventional NASA SDO look — what astronomers see published.">Original</button>
       <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
-              title="Our sharpening step — brings out the Sun's faint outer glow. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
+              title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
     </div>
   </div>
 
@@ -674,7 +674,7 @@
                radio values STAY jpg/raw/rhef/hq_rhef so all the
                state.editorFilter / _filterIsReady / quality-pipeline
                wiring continues to work unchanged. -->
-          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC. Paints instantly from a fast web preview, then sharpens to the full telescope frame.">
+          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC. Paints instantly from a fast web preview, then upgrades to the full-resolution telescope frame.">
             <span class="filter-step-num"><i class="fas fa-satellite" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Original</span>
@@ -683,7 +683,7 @@
             <input type="radio" name="editorFilter" value="raw" checked aria-label="Original quality">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="rhef" title="Our sharpening step — brings out the Sun's faint outer glow, invisible in the original. Published research: Gilly &amp; Cranmer 2025 (Sol. Phys. 300, 174).">
+          <div class="filter-step" data-filter="rhef" title="RHEF — re-balances brightness with distance from centre, revealing outer-atmosphere structure the original hides. Published research: Gilly &amp; Cranmer 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Filtered</span>
