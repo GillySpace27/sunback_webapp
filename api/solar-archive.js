@@ -11536,6 +11536,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // meanwhile via the BETA_MODE gate below, so this is display-only).
       if (BETA_MODE && betaConfirmed) {
         document.body.classList.add("beta-mode-active");
+        // Beta copy is injected HERE, not shipped in the static markup —
+        // a skeptical shopper reading the live store's DOM found the
+        // hidden "purchases are disabled" strings and nearly concluded
+        // checkout was theater (persona round, 2026-08-09).
+        var bannerTextEl = document.getElementById("betaBanner");
+        if (bannerTextEl && !bannerTextEl.textContent.trim()) {
+          bannerTextEl.innerHTML = '<i class="fas fa-flask" aria-hidden="true"></i> Beta mode tests the front-end, but purchases are disabled.';
+        }
+        var thanksTitleEl = document.getElementById("betaThanksTitle");
+        if (thanksTitleEl && !thanksTitleEl.textContent.trim()) {
+          thanksTitleEl.textContent = "Thanks for testing My Heliograph!";
+        }
+        var thanksBodyEl = document.getElementById("betaThanksBody");
+        if (thanksBodyEl && !thanksBodyEl.textContent.trim()) {
+          thanksBodyEl.textContent = "Your design is saved to your downloads. Purchasing will be enabled once the store is live — thanks for trying it out!";
+        }
         var titleEl = document.getElementById("appTitle");
         if (titleEl && !titleEl.querySelector(".app-title-beta-badge")) {
           var badge = document.createElement("span");
