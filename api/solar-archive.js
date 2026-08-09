@@ -160,6 +160,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // link before hydration ever got a chance to run. Everything else
     // (date/time/wavelength/vibe) is inert until phase 2 actually acts on
     // it, so it's safe to just stash and move on.
+    // ?fresh=1 — supported reset switch: wipe all persisted app state
+    // BEFORE any restore path runs, so testers and support can force a
+    // true first-visit experience. Clearing storage by hand is defeated
+    // by the pagehide re-persist, which is why this exists.
+    try {
+      if (new URLSearchParams(window.location.search).get("fresh") === "1") {
+        localStorage.clear();
+        sessionStorage.clear();
+      }
+    } catch (_e) {}
+
     var _shareParams = (function () {
       try {
         var q = new URLSearchParams(window.location.search);
