@@ -1263,6 +1263,53 @@ def _shared_lev1_fits_path(mission, wavelength, dt) -> str:
     return os.path.join(OUTPUT_DIR, f"shared_lev1_{mission}_{wl_key}_{dt.strftime('%Y%m%d_%H%M')}.fits")
 
 
+# Full-resolution guard. The synoptic archive (_fetch_aia_synoptic) serves
+# 1024x1024 lev1.5 frames at CDELT1 = 2.4 arcsec/px — a quarter of lev1's
+# ~0.6 arcsec/px in each dimension. That is ample for the 384-px editor
+# preview but NOT for a 4K print, and the preview used to copy whatever
+# frame it happened to fetch into _shared_lev1_fits_path(), where the HQ
+# path would reuse it on the strength of the filename alone. This checks
+# the pixels instead of the name.
+#
+# Discriminator is CDELT1 (physical, survives resampling changes), with the
+# axis length as a secondary check that also handles tile-compressed frames
+# (ZNAXIS*). Unreadable header → False: refusing to reuse costs one VSO
+# fetch, reusing a quarter-scale frame costs print quality on a paid order.
+_FULL_RES_MAX_CDELT = 0.8   # arcsec/px; lev1 ≈ 0.6, synoptic = 2.4
+_FULL_RES_MIN_NAXIS = 4096
+
+
+def _is_full_res_lev1(path) -> bool:
+    """True only if `path` is a full-resolution AIA frame (~0.6 arcsec/px,
+    4096²). Never raises."""
+    try:
+        if not path or not os.path.exists(path) or os.path.getsize(path) < 100_000:
+            return False
+        from astropy.io import fits as _fits
+        with _fits.open(path, memmap=False) as hdul:
+            for hdu in hdul:
+                h = getattr(hdu, "header", None)
+                if not h:
+                    continue
+                cdelt = h.get("CDELT1")
+                if cdelt is not None:
+                    try:
+                        return float(cdelt) <= _FULL_RES_MAX_CDELT
+                    except (TypeError, ValueError):
+                        pass
+                n1 = h.get("ZNAXIS1") or h.get("NAXIS1")
+                n2 = h.get("ZNAXIS2") or h.get("NAXIS2")
+                if n1 and n2:
+                    try:
+                        return min(int(n1), int(n2)) >= _FULL_RES_MIN_NAXIS
+                    except (TypeError, ValueError):
+                        pass
+        return False
+    except Exception as e:
+        log_to_queue(f"[full-res-guard] could not read {os.path.basename(str(path))}: {e}")
+        return False
+
+
 def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, out_path_jpg, url_path_raw, url_path_filtered, url_path_jpg):
     """Blocking FITS fetch + raw and RHEF-filtered PNGs. Also fetches Helioviewer instant preview as JPG.
     Writes preview_SDO_{wl}_{date_str}_raw.png, _filtered.png, and _jpg.png (Helioviewer) for the UI."""
@@ -1486,11 +1533,18 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     # so the shared frame always reflects the most recent preview for this
     # date+wl. Best-effort: a copy failure just means HQ falls back to VSO.
     try:
-        _shared_dst = _shared_lev1_fits_path("SDO", wl, dt)
-        if os.path.abspath(fits_path) != os.path.abspath(_shared_dst):
-            import shutil as _shutil
-            _shutil.copy2(fits_path, _shared_dst)
-            log_to_queue(f"[generate_preview] Cached frame for HQ reuse: {os.path.basename(_shared_dst)}")
+        # Only a genuine full-res lev1 frame earns the shared slot. A 1024²
+        # synoptic frame is perfect for this preview and wrong for a print,
+        # and the HQ path trusts this file (see _is_full_res_lev1).
+        if not _is_full_res_lev1(fits_path):
+            log_to_queue(f"[generate_preview] Not caching {os.path.basename(fits_path)} for HQ reuse "
+                         f"— not full-res lev1 (synoptic/preview-grade frame).")
+        else:
+            _shared_dst = _shared_lev1_fits_path("SDO", wl, dt)
+            if os.path.abspath(fits_path) != os.path.abspath(_shared_dst):
+                import shutil as _shutil
+                _shutil.copy2(fits_path, _shared_dst)
+                log_to_queue(f"[generate_preview] Cached frame for HQ reuse: {os.path.basename(_shared_dst)}")
     except Exception as _share_err:
         log_to_queue(f"[generate_preview] Could not cache frame for HQ reuse: {_share_err}")
 
@@ -3915,8 +3969,13 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         # preview frame exists, or if anything about the reuse goes wrong.
         # Skipped entirely when integrate=True: the checkout print wants the
         # multi-frame time-integrated combine, not the single preview frame.
+        # Belt-and-braces on the write-side guard in _generate_preview_sync:
+        # a frame cached by an older build (before that guard existed) could
+        # still be sitting at this path at quarter scale.
         shared_fits = _shared_lev1_fits_path(mission, wavelength, dt)
-        if not integrate and os.path.exists(shared_fits) and os.path.getsize(shared_fits) > 100_000:
+        if (not integrate and os.path.exists(shared_fits)
+                and os.path.getsize(shared_fits) > 100_000
+                and _is_full_res_lev1(shared_fits)):
             try:
                 import numpy as np
                 log_to_queue(f"[fetch][AIA] Reusing preview frame (no VSO fetch): {os.path.basename(shared_fits)}")
