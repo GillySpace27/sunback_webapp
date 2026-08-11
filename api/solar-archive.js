@@ -11497,11 +11497,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // confirmFn(true) is called when the user explicitly chooses to
     // proceed with the current tier. confirmFn(false) means "wait" /
     // "cancel" — caller does nothing.
+    // Always signals through confirmFn, including on the refuse paths. The
+    // two early returns below used to `return` outright, so a caller that
+    // released its double-click latch inside the callback (all three of them
+    // do) left that latch stuck at "1" — the Buy button then silently
+    // no-oped until a page reload. Passing false keeps every caller's
+    // `if (!ok)` / `finally { _unbusy(); }` honest.
     function _gatePrintQuality(confirmFn) {
       var quality = _printQualityState();
       if (quality === "no_image") {
         showInfo("No Image Yet",
           "Pick an image first — tap a vibe tile or open Customize. The editor opens automatically once the preview lands.");
+        confirmFn(false);
         return;
       }
       if (quality === "jpg_only") {
@@ -11509,6 +11516,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           "The full-resolution FITS image is still downloading from the SDO archive. " +
           "Prints need at least medium-quality (Original / Filtered) data so they don't pixel-blow on a 12-inch canvas. " +
           "Hang tight — this usually finishes in 30–90 seconds, and the Quality timeline above the canvas shows progress.");
+        confirmFn(false);
         return;
       }
       if (quality === "mq_ready") {
@@ -11699,41 +11707,52 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     }
 
 
+    // Shared buy entry point. Called by the editor's Buy button AND by the
+    // size modal's "Add to cart", which lets a user skip the editor entirely
+    // when the mockup they're already looking at is what they want.
+    // `product` is optional: defaults to the current selection.
+    function _startBuyFlow(product) {
+      product = product || PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
+      if (!product) return;
+      // Double-click guard (persona-sweep finding): a rapid double-
+      // tap was firing _gatePrintQuality twice — in beta that meant
+      // two downloads + the "buy" analytics event firing twice; in
+      // real-money mode it could fire two Printify product-create
+      // jobs ($$). dataset.busy is the same pattern used on the
+      // mockup-generate button (line ~2347). Keyed on the editor button
+      // even when the modal starts the flow, so the two entry points
+      // share one latch and can't both be in flight.
+      var latch = btnBuyInEditor || document.body;
+      if (latch.dataset.busy === "1") return;
+      latch.dataset.busy = "1";
+      function _unbusy() { latch.dataset.busy = ""; }
+
+      // Beta path: save a local PNG instead of triggering Shopify.
+      // Still apply the FITS-quality gate so testers don't walk
+      // away with a 384-px placeholder thinking it's the real
+      // thing — same blast-radius if/when they hand the PNG to
+      // someone for a one-off print outside this app.
+      if (BETA_MODE) {
+        _gatePrintQuality(function(ok) {
+          try { if (ok) saveDesignLocally(); } finally { _unbusy(); }
+        });
+        return;
+      }
+
+      // B3: no hard mockup gate — the mockup is preview-only (checkout
+      // uploads the canvas composite). Skipping it just adds a caution
+      // line to the confirm modal.
+      var mockupSkipped = !_hasRealMockup();
+      _gatePrintQuality(function(ok) {
+        try { if (ok) startCheckout(product, mockupSkipped); } finally { _unbusy(); }
+      });
+    }
+
     if (btnBuyInEditor) {
       btnBuyInEditor.addEventListener("click", function() {
         if (btnBuyInEditor.disabled) return;
         if (!state.selectedProduct) return;
-        // Double-click guard (persona-sweep finding): a rapid double-
-        // tap was firing _gatePrintQuality twice — in beta that meant
-        // two downloads + the "buy" analytics event firing twice; in
-        // real-money mode it could fire two Printify product-create
-        // jobs ($$). dataset.busy is the same pattern used on the
-        // mockup-generate button (line ~2347).
-        if (btnBuyInEditor.dataset.busy === "1") return;
-        btnBuyInEditor.dataset.busy = "1";
-        function _unbusy() { btnBuyInEditor.dataset.busy = ""; }
-
-        // Beta path: save a local PNG instead of triggering Shopify.
-        // Still apply the FITS-quality gate so testers don't walk
-        // away with a 384-px placeholder thinking it's the real
-        // thing — same blast-radius if/when they hand the PNG to
-        // someone for a one-off print outside this app.
-        if (BETA_MODE) {
-          _gatePrintQuality(function(ok) {
-            try { if (ok) saveDesignLocally(); } finally { _unbusy(); }
-          });
-          return;
-        }
-
-        // B3: no hard mockup gate — the mockup is preview-only (checkout
-        // uploads the canvas composite). Skipping it just adds a caution
-        // line to the confirm modal.
-        var mockupSkipped = !_hasRealMockup();
-        var product = PRODUCTS.find(function(p) { return p.id === state.selectedProduct; });
-        if (!product) { _unbusy(); return; }
-        _gatePrintQuality(function(ok) {
-          try { if (ok) startCheckout(product, mockupSkipped); } finally { _unbusy(); }
-        });
+        _startBuyFlow();
       });
       updateBuyButtonState();
     }
@@ -13260,21 +13279,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // finding): "Continue to image" is right on first product pick,
       // but reads as a step-back when the user re-opens the picker
       // from the editor to swap a variant.
+      // This modal is the one place the user sees THEIR Sun on the product
+      // they picked (the grid behind it is stock photography). So when there
+      // is a Sun to print, offer to buy it straight from here and make the
+      // editor optional. Hidden in beta, where "buy" is a local zip download
+      // rather than a cart — offering "Add to cart" there would be a lie.
+      var addBtn = document.getElementById("confirmSelectAddToCart");
+      var _step = (state && state.currentStep) || "";
+      var _canBuyNow = !!state.originalImage && !BETA_MODE && _step !== "editor";
+      if (addBtn) {
+        addBtn.classList.toggle("hidden", !_canBuyNow);
+        addBtn.textContent = "Add to cart";
+      }
       if (continueBtn) {
-        var _step = (state && state.currentStep) || "";
         if (_step === "editor") continueBtn.textContent = "Apply variant";
         // Image-first funnel (2026-08-09 reorder): the Sun is usually
         // already picked by the time the size modal opens, so the next
         // stop is the editor, not the image step.
-        else if (state.originalImage) continueBtn.textContent = "Continue to editor";
+        else if (state.originalImage) continueBtn.textContent = "Open the editor";
         else continueBtn.textContent = "Continue to image";
+        // When buying is on the table it takes the primary style and the
+        // editor steps back to secondary.
+        continueBtn.classList.toggle("confirm-modal-btn-primary", !_canBuyNow);
+        continueBtn.classList.toggle("confirm-modal-btn-secondary", _canBuyNow);
       }
       // The "what happens next" note below the button must agree with it.
       var nextNoteEl = document.getElementById("confirmSelectNextNote");
       if (nextNoteEl) {
-        nextNoteEl.textContent = state.originalImage
-          ? "Fine-tune your Sun in the editor next."
-          : "Pick your Sun image next, then fine-tune in the editor.";
+        nextNoteEl.textContent = _canBuyNow
+          ? "Happy with it? Add to cart. Or open the editor to crop, recolour, and add a caption first."
+          : (state.originalImage
+              ? "Fine-tune your Sun in the editor next."
+              : "Pick your Sun image next, then fine-tune in the editor.");
       }
       var closeBtn = document.getElementById("confirmSelectClose");
       var backdrop = document.getElementById("confirmSelectBackdrop");
@@ -13452,7 +13488,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // thumb as a fallback so a real Sun renders on every variant even
           // before an image is picked. _ensureDefaultRhefImage() lazily loads
           // that thumb and re-renders the modal canvas on load.
-          var hasUserImg = !!(state && state.originalImage) && !state.isDefaultActive
+          // If an image is installed it IS the user's Sun, whether or not it
+          // is still the landing default. Dropping the isDefaultActive term
+          // matters now that the grid behind this modal is stock photography:
+          // this canvas is where they confirm their own Sun on the product.
+          var hasUserImg = !!(state && state.originalImage)
                            && solarCanvas && solarCanvas.width > 0;
           var srcW = hasUserImg ? solarCanvas.width : canvasW;
           var srcH = hasUserImg ? solarCanvas.height : canvasH;
@@ -14079,6 +14119,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (sizeChipsEl) sizeChipsEl.removeEventListener("click", onSizeChipClick);
         modal.removeEventListener("click", onExtraAxisClick);
         continueBtn.removeEventListener("click", onContinueClick);
+        if (addBtn) addBtn.removeEventListener("click", onAddToCartClick);
         closeBtn.removeEventListener("click", onCancel);
         backdrop.removeEventListener("click", onCancel);
         document.removeEventListener("keydown", onKey);
@@ -14095,6 +14136,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // (Data-credits popup now fires from commitProductSelection — the
         // single editor-entry chokepoint — so it covers the mug colour
         // chooser path too. No need to trigger it here.)
+      }
+      // "Add to cart": same commit as Continue, then straight into the buy
+      // flow so the editor can be skipped entirely.
+      //
+      // Deliberately reuses onContinue rather than hand-rolling a headless
+      // initializer. That path (commitProductSelection → commitImageChoice →
+      // _continueOpenEditor) is what sets state.cropRatio from the variant's
+      // aspect, applies the cropZoom/vignette defaults, calls renderCanvas(),
+      // and kicks _prewarmIntegratedHq() so the print render is already in
+      // flight by the time checkout asks for it. Duplicating that here would
+      // drift.
+      //
+      // setTimeout, NOT requestAnimationFrame: commitImageChoice defers
+      // _continueOpenEditor with setTimeout(fn), so this queues behind it by
+      // FIFO and the editor state is fully initialized before checkout runs.
+      // rAF is suspended on a backgrounded tab, which is exactly how the two
+      // previous checkout deadlocks in this file happened.
+      function onAddToCartClick() {
+        state.selectedVariantByProduct[product.id] = pendingVariantId;
+        state.pendingVariantByProduct[product.id] = undefined;
+        _close(false);
+        if (onContinue) onContinue();
+        setTimeout(function () { _startBuyFlow(product); }, 0);
       }
       function onListClick(e) {
         var tile = e.target.closest(".confirm-variant-tile");
@@ -14138,6 +14202,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // confirmSelectExtraAxes container.
       modal.addEventListener("click", onExtraAxisClick);
       continueBtn.addEventListener("click", onContinueClick);
+      if (addBtn) addBtn.addEventListener("click", onAddToCartClick);
       closeBtn.addEventListener("click", onCancel);
       backdrop.addEventListener("click", onCancel);
       document.addEventListener("keydown", onKey);
