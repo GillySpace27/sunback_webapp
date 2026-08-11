@@ -1,0 +1,31 @@
+<!-- ── My Heliograph homepage section (replaces the iframe embed) ──────
+  Paste this into: Shopify admin > Online Store > Themes > Horizon >
+  Customize > Home page > the existing "Custom Liquid" section
+  (custom_liquid_7DUAQi), replacing the <iframe> that is there now.
+
+  Why: iframe-embed support was removed from the app (Shopify is the
+  checkout backend only; see api/solar-archive.js "Iframe-embed
+  removed"). The leftover iframe renders as a clipped 70vh strip with
+  no height sync, and the 2026-08-10 cart QA found the custom-product
+  flow effectively unreachable from the homepage because of it. This
+  section links out to the full builder instead.
+-->
+<div style="display:flex; flex-direction:column; align-items:center; gap:18px;
+            text-align:center; padding:72px 24px;">
+  <h2 style="margin:0; font-size:clamp(1.6rem, 4vw, 2.4rem);">
+    Your day, written in sunlight
+  </h2>
+  <p style="margin:0; max-width:34em; opacity:0.85; font-size:1.05rem;">
+    Pick any date since 2010 and we turn that day&rsquo;s real NASA/SDO
+    view of the Sun into a print, poster, clock, or canvas.
+  </p>
+  <a href="https://myheliograph.com"
+     style="display:inline-block; padding:14px 28px; border-radius:999px;
+            background:#e8a33d; color:#181410; font-weight:700;
+            text-decoration:none; font-size:1.05rem;">
+    Design yours at myheliograph.com &rarr;
+  </a>
+  <p style="margin:0; opacity:0.6; font-size:0.85rem;">
+    Or browse ready-made pieces below.
+  </p>
+</div>
