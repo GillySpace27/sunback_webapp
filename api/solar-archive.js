@@ -1290,19 +1290,24 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
     })();
 
-    // ── Reorder workflow: product-first, then edit ────────────────
-    // Moves the product section before the edit section in the DOM,
-    // updates step badge numbers, and sets up the product-first flow.
+    // ── Reorder workflow: keep the product section ahead of the editor ──
+    // Moves the product section before the edit section in the DOM so the
+    // reading order matches the funnel. Step badge numbers are NOT set
+    // here: index.html is the single source of truth for them.
+    //
+    // This function used to hardcode product(1) → image(2) → editor(3),
+    // written when the funnel was product-first. The 2026-08-09 reorder
+    // made the funnel image-first and renumbered the badges in the markup
+    // (image=1, product=2), but this overwrite survived and silently put
+    // them back every load — so a pristine visitor landed on the image
+    // step wearing badge "2" with step 1 hidden. That is the "2 before 1"
+    // report from the 2026-08-10 cart QA; the step machine was never the
+    // cause. Fixing it here keeps markup and funnel in agreement, and any
+    // future reorder is a markup-only edit.
     function reorderWorkflow() {
       var container = productSection.parentNode;
       // Move product section before edit section in DOM order
       container.insertBefore(productSection, editSection);
-      // Update step badge numbers to reflect the reordered DOM:
-      // product(1) → image-pick(2) → editor(3)
-      productSection.querySelector(".step-badge").textContent = "1";
-      var vibeGridSection = document.querySelector(".vibe-grid-section");
-      if (vibeGridSection) vibeGridSection.querySelector(".step-badge").textContent = "2";
-      editSection.querySelector(".step-badge").textContent = "3";
       // Both sections start hidden; productSection shown when wavelength selected,
       // editSection shown when a product card is clicked.
     }
