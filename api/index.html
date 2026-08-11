@@ -199,7 +199,7 @@
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      These are real product photos. The Sun shown is an example &mdash; the one you picked (or pick next) is what gets printed.
+      Real product photos, each showing a different Sun from the archive. Yours is what gets printed &mdash; you&rsquo;ll see it on the product next.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -1226,8 +1226,13 @@
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">Prices in USD. Tax + shipping calculated at checkout. We ship to the US, Canada, EU, and UK — <a href="/shipping">details</a>.</p>
     <p class="confirm-modal-note" style="font-size:0.78rem;margin-top:6px;" id="confirmSelectNextNote">Pick your Sun image next, then fine-tune in the editor.</p>
+    <!-- Two ways forward once a Sun is picked: buy the mockup shown here as-is,
+         or open the editor to crop/colour/caption first. The Add-to-cart button
+         is revealed by JS only when there is actually a Sun to print (and not in
+         beta, where "buy" is a local download). -->
     <div class="confirm-modal-actions">
       <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to image</button>
+      <button class="confirm-modal-btn confirm-modal-btn-primary hidden" id="confirmSelectAddToCart" type="button">Add to cart</button>
     </div>
   </div>
 </div>

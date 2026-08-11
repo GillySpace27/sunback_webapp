@@ -105,13 +105,21 @@ export const state = {
   showGuides: false                // draw centre-line / spine guide lines on canvas
 };
 
-// Pre-rendered REAL Printify mockups for the default landing image
-// (Phase B). Manifest fetched once on init: { product_id: { url, ... } }.
-// When state.isDefaultActive is true AND a manifest entry exists for a
-// product, renderProducts uses the cached <img> instead of the JS canvas
-// mockup approximation — landing tiles show photorealistic actual
-// products. Invalidated to false the moment the user picks their own
-// date or wavelength.
+// Pre-rendered REAL Printify mockups (Phase B). Manifest fetched once on
+// init: { product_id: { url, thumb_url, ... } }. Whenever an entry exists,
+// renderProducts uses the cached <img> instead of the JS canvas
+// approximation, so the grid is photorealistic product photography. Each
+// product is warmed from a different archive moment (the `vibe` keys in
+// main.py's _DEFAULT_MOCKUP_PRODUCTS), which is what makes the grid read as
+// a varied gallery rather than one Sun repeated.
+//
+// NOT gated on state.isDefaultActive. It used to be, which broke when the
+// funnel went image-first: the user always picks a Sun before reaching the
+// grid, and that clears the latch, so every card fell to the canvas path.
+// isDefaultActive now means only "the Sun on screen is still the untouched
+// landing default" and survives as an honesty gate — see _hasRealMockup()
+// and bundler.js, which must not claim a sample-Sun product photo depicts
+// the user's own design.
 export let defaultMockupManifest = null;
 export function setDefaultMockupManifest(manifest) {
   defaultMockupManifest = manifest;
