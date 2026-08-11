@@ -130,7 +130,13 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
         state.timestampVOffset || 0,
         (document.getElementById("solarDate") && document.getElementById("solarDate").value) || "",
         state.wavelength || 0,
-        t ? (t.text + "|" + t.x + "|" + t.y + "|" + t.size + "|" + t.color + "|" + (t.rotation || 0)) : ""
+        // Every property that changes the drawn text's geometry or style
+        // must be in the signature — font/outline/arc changes previously
+        // reused the stale cached snapshot, so the mockup kept the old
+        // text look (UX pass 2026-08-08).
+        t ? (t.text + "|" + t.x + "|" + t.y + "|" + t.size + "|" + t.color + "|" + (t.rotation || 0) +
+             "|" + (t.font || "") + "|" + (t.strokeWidth || 0) + "|" + (t.strokeColor || "") +
+             "|" + (t.outlined ? 1 : 0) + "|" + (t.arc && t.arc.enabled ? (t.arc.radius || 1) : 0)) : ""
       ].join(":");
     }
     function getCleanCanvasSnapshot() {
@@ -318,7 +324,7 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
 
     function drawProductMockup(mctx, productId, sw, sh, variant, opts) {
       var W = 160, H = 160;
-      mctx.fillStyle = "#1a1a2e";
+      mctx.fillStyle = "#25221c";  // warm card, not pre-rebrand navy (palette sweep)
       mctx.fillRect(0, 0, W, H);
 
       // Source routing: the currently-edited product mirrors the live editor

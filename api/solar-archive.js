@@ -11,7 +11,7 @@
    =============================================================== */
 
 import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.js";
-import { PRODUCTS } from "./products.js";
+import { PRODUCTS, FEATURED_PRODUCT_IDS, PRODUCT_CATEGORY_ORDER } from "./products.js";
 import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
 import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mockups.js";
 import { setupFeedback } from "./feedback.js";
@@ -172,6 +172,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // link before hydration ever got a chance to run. Everything else
     // (date/time/wavelength/vibe) is inert until phase 2 actually acts on
     // it, so it's safe to just stash and move on.
+    // ?fresh=1 — supported reset switch: wipe all persisted app state
+    // BEFORE any restore path runs, so testers and support can force a
+    // true first-visit experience. Clearing storage by hand is defeated
+    // by the pagehide re-persist, which is why this exists.
+    try {
+      if (new URLSearchParams(window.location.search).get("fresh") === "1") {
+        localStorage.clear();
+        sessionStorage.clear();
+      }
+    } catch (_e) {}
+
     var _shareParams = (function () {
       try {
         var q = new URLSearchParams(window.location.search);
@@ -215,7 +226,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     //               of source format.
     //   AIA_PAPER — Lemen 2012 AIA instrument paper. Cite when
     //               the product describes the AIA instrument.
-    //   RHEF_PAPER — Gilly et al. 2025, Sol. Phys. 300:174 — the
+    //   RHEF_PAPER — Gilly & Cranmer 2025, Sol. Phys. 300:174 — the
     //                radial histogram equalization filter method
     //                paper. Cite on the RHEF / HQ RHEF tier
     //                descriptions.
@@ -274,12 +285,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       // No step in the history state. Derive intent from the hash so
       // mashing the back button always lands us on the right step
-      // instead of leaving the body class stale (friction-audit P0:
-      // back-to-root left body.step-image when the user expected
-      // body.step-product). Empty hash = product; #image = image;
-      // #editor = editor; bogus hash = product.
+      // instead of leaving the body class stale. Empty hash = image
+      // (the first step since the 2026-08-09 date→image→product→size
+      // reorder); #product / #editor explicit; bogus hash = image.
       var hashStep = (location.hash || "").replace(/^#/, "").trim();
-      if (!_isValidStep(hashStep)) hashStep = "product";
+      if (!_isValidStep(hashStep)) hashStep = "image";
       _applyStep(hashStep, { fromPopstate: true });
     });
 
@@ -306,7 +316,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Commit 1 (this file): plumbing only. Default state.currentStep =
     // "image" preserves today's behaviour. CSS section-hiding rules
     // arrive in commit 3 (cold-default to "product").
-    var _STEP_ORDER = ["product", "image", "editor", "review"];
+    // 2026-08-09 funnel reorder (audit §6.6, Gilly's call): the image —
+    // the emotional core of the product — comes FIRST, then the object
+    // it goes on. date/image → product → editor(+size via modal).
+    var _STEP_ORDER = ["image", "product", "editor", "review"];
     function _isValidStep(s) { return _STEP_ORDER.indexOf(s) >= 0; }
     function _applyStep(name, opts) {
       opts = opts || {};
@@ -377,7 +390,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Hash sync — skip when coming from popstate (the browser
       // already updated location.hash before firing the event).
       if (!opts.fromPopstate) {
-        var targetHash = (name === "product") ? "" : ("#" + name);
+        var targetHash = (name === "image") ? "" : ("#" + name);
         if (location.hash !== targetHash) {
           // Use replaceState here when pushHistory is false (e.g.
           // initial sync) to avoid an extra back-stack entry.
@@ -412,7 +425,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // step — but downgrade to "product" if the required state isn't
     // there (a deep-link to #editor without a picked product would
     // strand the user on a black canvas).
-    var _initialStep = "product";
+    var _initialStep = "image";
     var _hashStep = (location.hash || "").replace(/^#/, "").trim();
     if (_isValidStep(_hashStep)) _initialStep = _hashStep;
     state.currentStep = state.currentStep || _initialStep;
@@ -422,11 +435,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // navigated away and back from a deep-link like #image landed on
     // the wrong step.
     function _normalizeStepWithState() {
-      // Demote when the requested step needs a product that's not set.
-      if (state.currentStep !== "product" && !state.selectedProduct) {
-        state.currentStep = "product";
-        try { history.replaceState({ step: "product" }, "", location.pathname + location.search); }
-        catch (_e) {}
+      // Demote when the requested step needs state that isn't there:
+      // editor/review need a product AND an image; product needs
+      // nothing (it's a browsable grid). Land the user at the first
+      // step whose prerequisites are actually met.
+      if (state.currentStep === "editor" || state.currentStep === "review") {
+        var demote = null;
+        if (!state.selectedProduct && !state.originalImage) demote = "image";
+        else if (!state.selectedProduct) demote = "product";
+        else if (!state.originalImage) demote = "image";
+        if (demote) {
+          state.currentStep = demote;
+          try { history.replaceState({ step: demote }, "", location.pathname + location.search); }
+          catch (_e) {}
+        }
       }
       // STRESS-014: re-clear any bogus #-hash. The earlier check ran
       // BEFORE _applyStep wrote its own replaceState, so a bogus hash
@@ -547,14 +569,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           aria: "Change product",
         });
       }
-      // (Future: image pill on step "editor" — but step editor hides
-      // the breadcrumb entirely per the above, so deferred.)
+      // Forward path: with a product AND an image in hand, the editor
+      // is one click away. Matters most while holdImageStep is set
+      // (auto-advance suppressed), but it's an honest affordance for
+      // everyone on this step.
+      if (state.selectedProduct && state.originalImage) {
+        pills.push({
+          label: "Continue to editor",
+          target: "editor",
+          aria: "Continue to the editor",
+          forward: true,
+        });
+      }
       var html = pills.map(function (p) {
         return '<button type="button" class="workflow-breadcrumb-pill" ' +
                'data-target-step="' + p.target + '" ' +
                'aria-label="' + p.aria + '">' +
-               '<span class="arrow" aria-hidden="true">←</span> ' +
+               (p.forward ? '' : '<span class="arrow" aria-hidden="true">←</span> ') +
                escapeHtmlSimple(p.label) +
+               (p.forward ? ' <span class="arrow" aria-hidden="true">→</span>' : '') +
                '</button>';
       }).join('<span class="workflow-breadcrumb-sep" aria-hidden="true">›</span>');
       pillBox.innerHTML = html;
@@ -565,6 +598,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var btn = e.target.closest(".workflow-breadcrumb-pill");
         if (!btn) return;
         var target = btn.getAttribute("data-target-step");
+        if (target === "editor") state.holdImageStep = false;
         if (target) setStep(target);
       };
     }
@@ -1182,7 +1216,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       dateInput.max = maxD.toISOString().split("T")[0];
       // Hide wavelength tiles until the user actively picks a date.
       updateWavelengthSectionDateState();
+      // …then replace that guess with the archive's REAL frontier. JSOC's
+      // ingest lag drifts (measured 7 days on 2026-08-09), and the two
+      // pickers used to hardcode different guesses — the birthday card's
+      // today-1 let a beta tester pick a date with no data and hit an
+      // error. Both now track /api/data_frontier; the static value above
+      // stands in until it answers, and stands if it never does.
+      _applyDataFrontier();
     })();
+
+    // Shared by both date pickers. Cached per page load; failure is silent
+    // (the conservative static bound remains in force).
+    var _dataFrontier = null;
+    function _applyDataFrontier() {
+      var apply = function (f) {
+        if (!f || !f.latest) return;
+        _dataFrontier = f;
+        try {
+          if (dateInput) dateInput.max = f.latest;
+          if (f.earliest && dateInput) dateInput.min = f.earliest;
+          var bday = document.getElementById("vibeBirthdayInput");
+          if (bday) {
+            bday.max = f.latest;
+            if (f.earliest) bday.min = f.earliest;
+          }
+        } catch (_e) {}
+      };
+      if (_dataFrontier) { apply(_dataFrontier); return; }
+      fetchWithTimeout(API_BASE + "/api/data_frontier", {}, 12000)
+        .then(function (r) { return r.json(); })
+        .then(apply)
+        .catch(function () { /* keep the static bound */ });
+    }
 
     // ── Birthday Sun CTA wiring ──────────────────────────────────
     // Above-the-fold gifting shortcut: type a date → it populates
@@ -1690,15 +1755,32 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof setStep === "function" && state.currentStep !== "image") {
           setStep("image");
         }
-        // Wait one frame so the body-class swap can repaint the now-
-        // visible section before we scroll into it.
-        requestAnimationFrame(function() {
+        // Beta feedback (2026-08-09, Kyreon): returning here to browse
+        // must not auto-yank back to the editor the moment any image
+        // load lands — hold the step until the user explicitly
+        // continues (breadcrumb pill / commitImageChoice).
+        state.holdImageStep = true;
+        // One-tick defer so the body-class swap can repaint the now-
+        // visible section before we expand + scroll. setTimeout, not
+        // rAF (rAF freezes on hidden tabs — house rule since PR #48).
+        setTimeout(function() {
+          // Same beta report: the button SAYS "time & wavelength" but
+          // landed on the famous-moment cards, and the tester read
+          // those as "the wavelengths". Land on the actual fine-tune
+          // section, expanded.
+          var cfg = document.getElementById("configSection");
+          if (cfg) {
+            cfg.classList.remove("section-collapsed");
+            var tog = document.getElementById("configSectionToggle");
+            if (tog) tog.setAttribute("aria-expanded", "true");
+            cfg.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+          }
           var wlGrid = document.getElementById("wlGrid")
-                    || document.getElementById("configSection")
                     || document.querySelector(".vibe-grid-section");
           if (wlGrid) wlGrid.scrollIntoView({ behavior: "smooth", block: "start" });
           else window.scrollTo({ top: 0, behavior: "smooth" });
-        });
+        }, 0);
       });
     }
 
@@ -1936,6 +2018,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // Latch so the suggester doesn't re-add an orange ring on the next
       // HEK refresh (e.g. when the date is auto-loaded after this click).
       _userTouchedWavelength = true;
+      // Image-first funnel: a tile click IS the user picking their Sun
+      // (vibe cards and the See-the-Sun auto-pick route through a
+      // programmatic tile click too). The bootstrap default-image
+      // preload does NOT click tiles — that's the discriminator that
+      // keeps a pristine landing on step 1 instead of auto-advancing.
+      state.userPickedImage = true;
       state.wavelength = parseInt(card.dataset.wl, 10);
       // User picked their own wavelength — landing default no longer
       // active, so product tiles stop using the pre-rendered Printify
@@ -2392,7 +2480,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       renderCanvas();
       setProgress(100);
-      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded — opening the editor.');
+      setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded' +
+        ((state.selectedProduct && !state.holdImageStep) ? ' — opening the editor.' : '.'));
       showToast(wl + " Å loaded!");
 
       imageStage.classList.remove("empty");
@@ -2406,26 +2495,39 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // set), advance to step "editor". Otherwise the user is on the
       // legacy path (image first, product second) — stay on step
       // "image" so they can pick a product without auto-jumping.
-      if (state.selectedProduct) {
+      if (state.selectedProduct && !state.holdImageStep) {
         commitImageChoice();
+      } else if (state.selectedProduct) {
+        // holdImageStep: the user explicitly returned to this step to
+        // browse (beta report: tile clicks yanked them straight back
+        // to the editor before they could look around). Update in
+        // place; the breadcrumb's "Continue to editor" pill and the
+        // product buttons are the explicit ways forward.
+        if (typeof _renderBreadcrumb === "function") {
+          try { _renderBreadcrumb(); } catch (_e) {}
+        }
+      } else if (!state.holdImageStep && state.currentStep === "image" && state.userPickedImage) {
+        // Image-first flow (2026-08-09 reorder): the user picked their
+        // Sun and no product is selected — advance to the product step
+        // so the funnel reads date → image → product → size. Gated on
+        // userPickedImage: the landing's silent default-image preload
+        // must NOT advance a pristine visitor past step 1.
+        state.scrollToProductsOnLoad = false;
+        if (typeof setStep === "function") setStep("product");
       } else {
         if (state.scrollToProductsOnLoad) {
           state.scrollToProductsOnLoad = false;
           _scrollToEl(productSection, "start");
         }
-        // Surface the image as the active vibe so the master toggle
-        // (rendered in the breadcrumb on step "image") drives mockups.
-        // NOT for the default landing image: the cold-load bootstrap
-        // (dateInput.value = "2014-10-24" + synthetic change event) funnels
-        // through this same handler, and the unconditional hop yanked every
-        // fresh visitor off the step-"product" landing onto step "image":
-        // the first numbered section they saw was "2 · Pick an image" with
-        // step 1 hidden (2026-08-10 cart QA). A user-picked image always
-        // has isDefaultActive false.
-        if (typeof setStep === "function" && state.currentStep === "product"
-            && !state.isDefaultActive) {
-          setStep("image");
-        }
+        // No step hop here. The 2026-08-10 cart QA fix used to force
+        // "product" → "image" at this point, back when the funnel was
+        // product-first; under the 2026-08-09 image-first reorder that
+        // hop runs BACKWARD (image precedes product now), so it would
+        // bounce a user who reached step "product" back to step 1.
+        // The same bug it guarded — the landing's silent default-image
+        // preload must not advance a pristine visitor past step 1 — is
+        // covered upstream by the `state.userPickedImage` gate on the
+        // image→product branch above.
         if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
       }
       updateProductSectionHeader();
@@ -4293,13 +4395,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (!grid) return;
       // (Recent-corona's dynamic today-2 date is gone; all 5 static
       // vibes have hardcoded dates now. The 6th is the birthday card.)
-      // Set the birthday-input's max to today's UTC date (so users can't
-      // pick a future date that has no data).
+      // Birthday-input bounds come from the SAME source as the main
+      // picker (/api/data_frontier). The old today-1 guess ignored JSOC's
+      // multi-day ingest lag and let a beta tester pick an empty date;
+      // _applyDataFrontier sets both, and seeds a conservative today-7
+      // here for the window before it answers.
       var bdayInput = document.getElementById("vibeBirthdayInput");
-      if (bdayInput) {
-        var maxD = new Date(); maxD.setUTCDate(maxD.getUTCDate() - 1);
+      if (bdayInput && !bdayInput.max) {
+        var maxD = new Date(); maxD.setUTCDate(maxD.getUTCDate() - 7);
         bdayInput.max = maxD.toISOString().slice(0, 10);
       }
+      if (typeof _applyDataFrontier === "function") _applyDataFrontier();
 
       // Eager Helioviewer-JPG fallback for every card BEFORE the manifest
       // lands. The manifest fetch can take a few hundred ms on a cold load
@@ -4662,17 +4768,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             msg.style.cssText = "margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(255,179,71,0.10);border:1px solid rgba(255,179,71,0.35);color:var(--accent-corona,#ffb347);font-size:0.82rem;line-height:1.35;";
             bdayInput.parentNode.appendChild(msg);
           }
+          // Two different out-of-range cases, two different explanations.
+          // The old copy only described the 2010 floor, so a too-recent
+          // pick (inside JSOC's multi-day ingest lag) got told about a
+          // launch date in 2010 — confusing, and the case a beta tester
+          // actually hit.
+          var tooRecent = !!(bdayInput.max && picked && picked > bdayInput.max);
+          var snapTo = tooRecent ? bdayInput.max : bdayInput.min;
           msg.innerHTML =
-            'SDO/AIA launched May 15, 2010 — earlier dates have no imagery. ' +
+            (tooRecent
+              ? 'The observatory’s archive runs a few days behind, so the newest images we can print are from <strong>' +
+                bdayInput.max + '</strong>. '
+              : 'SDO/AIA launched May 15, 2010 — earlier dates have no imagery. ') +
             'Try a date between <strong>' + bdayInput.min + '</strong> and ' +
             '<strong>' + bdayInput.max + '</strong>. ' +
             '<button type="button" class="vibe-birthday-range-fallback" ' +
             'style="margin-left:6px;background:transparent;border:0;color:var(--accent-corona,#ffb347);text-decoration:underline;cursor:pointer;font:inherit;">' +
-            'Use earliest available (' + bdayInput.min + ')</button>';
+            (tooRecent ? 'Use latest available (' : 'Use earliest available (') + snapTo + ')</button>';
           var fb = msg.querySelector(".vibe-birthday-range-fallback");
           if (fb) {
             fb.addEventListener("click", function () {
-              bdayInput.value = bdayInput.min;
+              bdayInput.value = snapTo;
               bdayInput.dispatchEvent(new Event("change", { bubbles: true }));
             });
           }
@@ -4771,9 +4887,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.hqReady = false;
       state.hqImageUrl = null;
       state.hqFormat = null;
-      var _cachedHqDisplay = cachedHq || cachedRhef;
-      if (_cachedHqDisplay) {
-        state.hqFilterImage = _cachedHqDisplay;
+      // Only a GENUINE stacked rHQ lights the HQ tier. The old fallback
+      // (cachedRhef) made "HQ Filtered" byte-identical to "Filtered" for
+      // vibes not yet re-warmed with Option-A artifacts — the owner's
+      // "HQ vs Filtered are confusing" report (UX pass 2026-08-08). The
+      // PRINT source (hqImageUrl) keeps its fallback: a same-image print
+      // is fine, a same-image "upgrade" button is a lie.
+      if (cachedHq && entry.rhq_2048_url) {
+        state.hqFilterImage = cachedHq;
         state.hqFormat = "rhef";
         state.hqReady = true;
         state.hqImageUrl = entry.hq_4096_url || entry.rhef_full_url || null;
@@ -4824,10 +4945,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // "Filtered" (MQ) = the single-frame rhef_full. No longer aliased to HQ.
       _preload(entry.rhef_full_url, slug + ":rhef", function (img) { state.rhefImage = img; });
       // "HQ Filtered" = the STACKED rHQ_2048 (clean corona) — a genuinely
-      // different, better image than Filtered. Fallback to rhef_full for
-      // vibes not yet re-warmed. hqImageUrl → the 4096 print source that the
-      // checkout composites the user's edits onto (loadImage handles WebP).
-      _preload(entry.rhq_2048_url || entry.rhef_full_url, slug + ":hq", function (img) {
+      // different, better image than Filtered. NO rhef_full fallback here
+      // (see the aliasing note above): a vibe without Option-A artifacts
+      // keeps the HQ tier locked rather than "upgrading" to the same image.
+      // hqImageUrl → the 4096 print source that the checkout composites
+      // the user's edits onto (loadImage handles WebP).
+      if (entry.rhq_2048_url) _preload(entry.rhq_2048_url, slug + ":hq", function (img) {
         state.hqFilterImage = img;
         state.hqFormat = "rhef";
         state.hqReady = true;
@@ -5069,71 +5192,71 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         title: "AR 2192 — October 24, 2014",
         body: 'Active Region 2192 was the largest sunspot group since November 1990. ' +
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012 (Sol. Phys. 275, 17). ' +
-              'RHEF tier: Gilly et al. 2025 (Sol. Phys. 300, 174).'
+              'RHEF tier: Gilly & Cranmer 2025 (Sol. Phys. 300, 174).'
       },
       x93_flare: {
         title: "X9.3 flare — September 6, 2017",
         body: 'Solar Cycle 24\'s largest X-ray flare. Peak GOES class X9.3 at 11:53 UTC. ' +
               'Shown at 211 Å (Fe XIV ~2 MK) rather than 131 Å, which saturates at flare peaks. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       mothers_day_storm: {
         title: "Mother's Day storm — May 10, 2024",
         body: 'G5 geomagnetic storm from active region 13664, the strongest since 2003. ' +
               'Image: NASA/SDO/AIA 193 Å, ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. ' +
-              'RHEF tier: Gilly et al. 2025.'
+              'RHEF tier: Gilly & Cranmer 2025.'
       },
       limb_x82_flare: {
         title: "Limb X8.2 flare — September 10, 2017",
         body: 'Off-limb X8.2 flare, four days after the X9.3 on the same active region (12673). ' +
               'The post-flare arcade off the limb is one of the most iconic images of the SDO era. ' +
               'Shown at 211 Å to avoid 131 Å saturation. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       monster_prominence: {
         title: "Monster prominence — August 31, 2012",
         body: 'Iconic prominence eruption captured in 304 Å He II — sometimes called the ' +
-              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              '"Goes Out" CME. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       pre_x93_powderkeg: {
         title: "AR 12673 brewing — September 4, 2017",
         body: 'Active Region 12673 two days before its X9.3 flare. The hottest coronal loops ' +
               '(6 MK Fe XVIII) glow in 94 Å, foreshadowing what was coming. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       post_flare_arcade: {
         title: "Post-flare arcade — July 19, 2012",
         body: 'M7.7 limb event with the textbook post-flare arcade — magnetic loops reconnecting ' +
               'and cooling into the 131 Å Fe XXI band (~10 MK). One of the most-shared SDO ' +
               'images from cycle 24\'s rising phase. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       great_sympathetic_eruption: {
         title: "Great sympathetic eruption — August 1, 2010",
         body: 'Schrijver & Title (2011) called this "the great connected eruption" — a cascade ' +
               'of filament lifts and CMEs across the entire visible disk, linked by long-range ' +
               'magnetic connections. 171 Å reveals the warm-corona loop network that carried the cascade. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       ar13664_emergence: {
         title: "AR 13664 emerges — May 8, 2024",
         body: 'Active region 13664 two days before it caused the Mother\'s Day G5 geomagnetic ' +
               'storm. Shown at 335 Å (Fe XVI, ~2.5 MK) which catches the active-region core ' +
-              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              'as it organized. ' + CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       x16_flare_ribbons: {
         title: "X1.6 flare ribbons — September 10, 2014",
         body: 'The X1.6 flare from AR 12158 with textbook two-ribbon structure in the ' +
               'chromospheric 1600 Å band. Flare ribbons trace footprints of the reconnection ' +
               'sheet where magnetic energy is released. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       },
       ar2192_photosphere: {
         title: "AR 2192 in deep UV — October 24, 2014",
         body: 'The same monster sunspot as the AR 2192 card, seen in 1700 Å (UV continuum from ' +
               'the temperature-minimum region, ~5000 K). Where 193 Å shows the corona above, ' +
               '1700 Å shows the photospheric sunspot itself. ' +
-              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly et al. 2025.'
+              CITATIONS.SDO_ACK + ' Lemen et al. 2012. RHEF tier: Gilly & Cranmer 2025.'
       }
     };
     function _toggleVibeInfo(card, btn) {
@@ -5640,7 +5763,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       type = type || "success";
       toastEl.textContent = msg;
       toastEl.className = "toast " + type;
-      requestAnimationFrame(function() { toastEl.classList.add("show"); });
+      // setTimeout, NOT requestAnimationFrame (root cause of the months-old
+      // "toast parked over the Buy button" reports): on a hidden tab rAF is
+      // suspended but the 4 s removal timer still fires, so the removal ran
+      // FIRST and the suspended rAF added .show afterwards with no timer
+      // armed — a permanently stuck toast. Plain timers fire in order on
+      // hidden tabs, so add(20ms) always precedes remove(4000ms).
+      clearTimeout(toastEl._showTimer);
+      toastEl._showTimer = setTimeout(function() { toastEl.classList.add("show"); }, 20);
       clearTimeout(toastTimer);
       toastTimer = setTimeout(function() { toastEl.classList.remove("show"); }, 4000);
       // Always dismissable. A tester reported a toast parked over the Buy
@@ -6182,7 +6312,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var VSO   = L("https://virtualsolar.org/", "Virtual Solar Observatory");
       var HV    = L("https://www.helioviewer.org/", "Helioviewer Project");
       var LEMEN = L("https://ui.adsabs.harvard.edu/abs/2012SoPh..275...17L/abstract", "Lemen et al. 2012");
-      var GILLY = L("https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G/abstract", "Gilly et al. 2025");
+      var GILLY = L("https://doi.org/10.1007/s11207-025-02578-x", "Gilly & Cranmer 2025");
       return '<div style="text-align:left;font-size:0.85rem;line-height:1.55;">' +
           (lead ? '<p style="margin-bottom:14px;">' + lead + '</p>' : '') +
           '<p style="margin-bottom:6px;"><strong>The Sun, observed</strong></p>' +
@@ -6211,28 +6341,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       catch (_e) { return false; }
     }
     function maybeShowDataCredits() {
+      // NON-BLOCKING inline card, not a modal (audit §6.5, executed
+      // 2026-08-09): the modal version intercepted the primary CTA,
+      // locked scrolling, and with the HQ auto-start it fired on every
+      // first editor entry. Same content, same credits, zero
+      // interception — appended at the end of the editor section.
+      // Closing it dismisses permanently (same localStorage key).
       if (_dataCreditsShownThisSession) return;
       if (_dataCreditsAlreadyDismissed()) return;
+      var host = document.getElementById("editSection");
+      if (!host) return;
       _dataCreditsShownThisSession = true;
-      showDataCredits(
-        "Behind the scenes, while your image renders",
-        "Your high-resolution solar image is being prepared. While you wait, meet the institutes and infrastructure making it possible:" +
-        ' <span style="display:block;margin-top:10px;font-size:0.85rem;">' +
-        '<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">' +
-        '<input type="checkbox" id="dataCreditsDismissForever" style="margin:0;"> ' +
-        "Don’t show this again</label></span>"
-      );
-      // Wire the checkbox after the modal is in the DOM. showInfo renders
-      // synchronously, so a microtask is enough.
-      Promise.resolve().then(function () {
-        var cb = document.getElementById("dataCreditsDismissForever");
-        if (!cb) return;
-        cb.addEventListener("change", function () {
-          try {
-            if (cb.checked) localStorage.setItem(_DATA_CREDITS_DISMISS_KEY, "1");
-            else localStorage.removeItem(_DATA_CREDITS_DISMISS_KEY);
-          } catch (_e) {}
-        });
+      var card = document.createElement("aside");
+      card.className = "data-credits-card";
+      card.setAttribute("aria-label", "Behind the scenes: data credits");
+      card.innerHTML =
+        '<button type="button" class="data-credits-card-close" aria-label="Dismiss and don’t show again">&#x2715;</button>' +
+        '<div class="data-credits-card-title"><i class="fas fa-satellite" aria-hidden="true"></i> Behind the scenes, while your image renders</div>' +
+        _dataCreditsHtml("Your high-resolution solar image is prepared from real NASA data. Meet the institutes and infrastructure making it possible:");
+      host.appendChild(card);
+      var closeBtn = card.querySelector(".data-credits-card-close");
+      if (closeBtn) closeBtn.addEventListener("click", function () {
+        try { localStorage.setItem(_DATA_CREDITS_DISMISS_KEY, "1"); } catch (_e) {}
+        card.remove();
       });
     }
     (function() {
@@ -8847,19 +8978,30 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var sizeNorm = tov.sizeNorm != null ? tov.sizeNorm : (tov.size != null ? tov.size : 48) / _TEXT_REF_SIZE;
         var pixelSize = Math.max(4, sizeNorm * refMin);
         var textWidth = _textOverflowMeasureWidth(tov.text, tov.font || "Inter", pixelSize);
-        var safeWidth;
+        // Text is drawn CENTER-ANCHORED at (xNorm, yNorm) — the check must
+        // account for position, not just width. The old width-only check
+        // never read xNorm at all, so a short caption dragged to the edge
+        // hung half off the print with no warning (UX pass 2026-08-08).
+        var cxN = tov.xNorm != null ? tov.xNorm : 0.5;
+        var cyN = tov.yNorm != null ? tov.yNorm : 0.5;
         if (isCircle) {
-          // Chord width of the inscribed circle at the text's vertical
-          // offset from center — text further from the vertical middle
-          // has less horizontal room before it crosses the disk edge.
-          var dyNorm = Math.abs((tov.yNorm != null ? tov.yNorm : 0.5) - 0.5);
-          var dy = dyNorm * refMin;
-          var radius = refMin * 0.46; // inscribed radius minus a small print margin
-          safeWidth = 2 * Math.sqrt(Math.max(0, radius * radius - dy * dy));
+          // Distance from disk center to the farthest corner of the text's
+          // bounding box must stay inside the print-safe radius. 0.406, not
+          // 0.46: the wall-clock mockup clips at arc(80,80,65) = 0.406·W,
+          // and the old constant was ~13% too permissive against it.
+          var radius = refMin * 0.406;
+          var dxC = Math.abs(cxN - 0.5) * refMin + textWidth / 2;
+          var dyC = Math.abs(cyN - 0.5) * refMin + pixelSize / 2;
+          show = Math.sqrt(dxC * dxC + dyC * dyC) > radius;
         } else {
-          safeWidth = refW * 0.92; // ~8% total side margin
+          var margin = 0.04; // 4% print-safe margin per side
+          var left   = cxN * refW - textWidth / 2;
+          var right  = cxN * refW + textWidth / 2;
+          var top    = cyN * refMin - pixelSize / 2;
+          var bottom = cyN * refMin + pixelSize / 2;
+          show = left < refW * margin || right > refW * (1 - margin) ||
+                 top < refMin * margin || bottom > refMin * (1 - margin);
         }
-        show = textWidth > safeWidth;
       }
       warnEl.classList.toggle("hidden", !show);
     }
@@ -8975,6 +9117,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var _ch = solarCanvas.height || 1;
         state.textOverlay.xNorm = newX / _cw;
         state.textOverlay.yNorm = newY / _ch;
+        // Dragging is the ONE path that can push text out of the safe
+        // area positionally — and was the one path that never re-checked
+        // the overflow warning (UX pass 2026-08-08).
+        if (typeof _checkTextOverflow === "function") _checkTextOverflow();
         scheduleCanvasRender();
         return;
       }
@@ -9516,13 +9662,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Collect all option values into a single lower-case string for flexible matching
         var optStr = Object.keys(opts).map(function(k) { return String(opts[k]); }).join(" ").toLowerCase();
         var titleStr = (v.title || "").toLowerCase();
-        var combined = optStr + " " + titleStr;
+        // Printify mixes straight quotes and double-primes for inches
+        // ('9" x 11"' vs '11″ x 14″') — normalize so size tokens match both.
+        var combined = (optStr + " " + titleStr).replace(/[″”]/g, '"');
 
         // Size check: must match one of the allowed sizes
         var sizeOk = !f.sizes || f.sizes.length === 0;
         if (!sizeOk) {
           sizeOk = f.sizes.some(function(s) {
-            var sl = s.toLowerCase();
+            var sl = s.toLowerCase().replace(/[″”]/g, '"');
             // Use word-boundary-style check: the size must appear as a whole token
             // e.g. "xl" should match "xl" but not "2xl" or "xxl"
             return new RegExp("(?:^|[^a-z0-9])" + sl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:$|[^a-z0-9])", "i").test(combined);
@@ -9937,19 +10085,58 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
      * Returns null if nothing usable is available — callers render an
      * empty pill rather than a misleading number.
      */
+    // Proportional-markup ladder (2026-08-08 repricing). MUST stay in
+    // lockstep with _ladder_prices in api/printify_routes.py — the charged
+    // price is recomputed server-side with the same rule, and charged must
+    // equal displayed:
+    //   mult    = max(1, anchor / minCost)
+    //   flat    = max(0, anchor - minCost)
+    //   raw     = max(cost * mult, cost + flat)
+    //   price   = raw rounded UP to the next .99
+    //   ladder  = distinct cost tiers ascending, forced >= $1.00 apart
+    // Memoized per bucket+anchor; cleared implicitly on reload (pricing
+    // cache itself only changes with a page-lifetime fetch).
+    var _ladderCache = {};
+    function _ceil99(cents) {
+      var p = Math.floor(cents / 100) * 100 + 99;
+      return p >= cents ? p : p + 100;
+    }
+    function _ladderFor(key, bucket, anchor) {
+      var ck = key + "|" + anchor;
+      if (_ladderCache[ck]) return _ladderCache[ck];
+      var costs = [];
+      for (var k in bucket) {
+        if (bucket[k] && bucket[k].cost != null && costs.indexOf(bucket[k].cost) === -1) {
+          costs.push(bucket[k].cost);
+        }
+      }
+      costs.sort(function(a, b) { return a - b; });
+      var out = {};
+      if (!costs.length) { _ladderCache[ck] = out; return out; }
+      var minCost = costs[0];
+      var flat = Math.max(0, anchor - minCost);
+      var mult = (anchor > 0 && minCost > 0) ? Math.max(1, anchor / minCost) : 1;
+      var prev = null;
+      for (var i = 0; i < costs.length; i++) {
+        var c = costs[i];
+        var raw = Math.max(Math.round(c * mult), c + flat);
+        var p = _ceil99(raw);
+        if (prev !== null && i > 0 && p < prev + 100) p = prev + 100;
+        out[c] = p;
+        prev = p;
+      }
+      _ladderCache[ck] = out;
+      return out;
+    }
     function priceForVariantDisplay(product, variant) {
       if (!product || !variant) return null;
       var key = product.blueprintId + "_" + product.printProviderId;
       var bucket = variantPricingCache[key];
       if (bucket && bucket[variant.id] && bucket[variant.id].cost != null) {
-        var costs = [];
-        for (var k in bucket) {
-          if (bucket[k] && bucket[k].cost != null) costs.push(bucket[k].cost);
-        }
-        var minCost = costs.length ? Math.min.apply(null, costs) : bucket[variant.id].cost;
         var anchor = product.checkoutPrice != null ? product.checkoutPrice : 0;
-        var markup = Math.max(0, anchor - minCost);
-        return formatCents(bucket[variant.id].cost + markup);
+        var ladder = _ladderFor(key, bucket, anchor);
+        var price = ladder[bucket[variant.id].cost];
+        if (price != null) return formatCents(price);
       }
       var manual = getVariantPrice(product, variant);
       if (manual) return manual;
@@ -9994,7 +10181,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             var trueCost = costs[p.blueprintId];
             // Blueprint absent from the index (shop has never sold it) —
             // fall back to the advertised price rather than spinning forever.
-            var cents = trueCost != null ? Math.max(trueCost, p.checkoutPrice || 0) : p.checkoutPrice;
+            // _ceil99 so the card matches the picker's cheapest ladder price
+            // when Printify's cost drifted above the advertised anchor.
+            var cents = trueCost != null ? _ceil99(Math.max(trueCost, p.checkoutPrice || 0)) : p.checkoutPrice;
             var html = "From " + (formatCents(cents) || p.price);
             _productPriceCache[p.id] = html;
             _updateProductPriceDom(p.id, html);
@@ -10387,6 +10576,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var userRequestsSection = document.getElementById("userRequestsSection");
       if (userRequestsGrid) userRequestsGrid.innerHTML = "";
       var hasUserRequested = false;
+      // Curated top row + category groups (Gilly, 2026-08-08): the flat
+      // popularity grid had grown to 35 cards / ~8,900px. Cards render
+      // through the same machinery; only the append target changes.
+      productGrid.classList.add("product-grid-grouped");
+      var _groupEls = {};
+      function _mkGroup(key, label) {
+        var wrap = document.createElement("div");
+        wrap.className = "product-group";
+        wrap.dataset.group = key;
+        var h = document.createElement("h3");
+        h.className = "product-group-header";
+        h.textContent = label;
+        var inner = document.createElement("div");
+        inner.className = "product-grid product-grid-inner";
+        wrap.appendChild(h);
+        wrap.appendChild(inner);
+        productGrid.appendChild(wrap);
+        _groupEls[key] = { wrap: wrap, inner: inner };
+      }
+      _mkGroup("_featured", "Most popular");
+      PRODUCT_CATEGORY_ORDER.forEach(function (c) { _mkGroup(c.key, c.label); });
+      var _lastGroupKey = PRODUCT_CATEGORY_ORDER[PRODUCT_CATEGORY_ORDER.length - 1].key;
+      function _targetGridFor(p) {
+        if (FEATURED_PRODUCT_IDS.indexOf(p.id) !== -1) return _groupEls._featured.inner;
+        var g = _groupEls[p.category] || _groupEls[_lastGroupKey];
+        return g.inner;
+      }
       // Iterate in popularity order (buys, then non-converting clicks) so
       // the grid surfaces the most-wanted products first. Per-product
       // routing to the user-requested grid below is unchanged.
@@ -10432,10 +10648,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
         card.className = "product-card";
         card.dataset.productId = p.id;
-        card.setAttribute("role", "button");
-        card.setAttribute("tabindex", "0");
-        var priceAriaText = _productPriceCache[p.id] || "price loading";
-        card.setAttribute("aria-label", p.name + " - " + p.desc + ". " + priceAriaText + (canSelect ? " Select to edit" : ""));
+        // a11y (launch audit §6.3): the card is a plain container, NOT a
+        // role=button — wrapping the real <button> below in a focusable
+        // role=button was axe "nested-interactive" ×24 (double focus stops,
+        // button-inside-button announcements). Mouse click-anywhere still
+        // works via the grid's delegated click handler; keyboard users get
+        // the one real button, whose Enter/Space the grid keydown handler
+        // routes to the same picker.
         // Card layout: preview → info text → action button → collapsible variant pane.
         // The variant pane lives BELOW the button so clicking the button reads as
         // "expand this to see variants." Each variant row carries its own
@@ -10601,8 +10820,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (userRequestsGrid) userRequestsGrid.appendChild(card);
           hasUserRequested = true;
         } else {
-          productGrid.appendChild(card);
+          _targetGridFor(p).appendChild(card);
         }
+      });
+
+      // Drop any category group that ended up empty (all members hidden,
+      // featured, or routed to the requests grid) so no orphan headers show.
+      Object.keys(_groupEls).forEach(function (k) {
+        if (!_groupEls[k].inner.firstChild) _groupEls[k].wrap.remove();
       });
 
       // Show/hide the Your Requests section based on whether the session has
@@ -10844,6 +11069,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // selected yet (deep-link / dev-console scenarios) — image stays
     // loaded, user picks a product first.
     function commitImageChoice() {
+      // Any explicit continue releases the browse-hold (see
+      // btnChangeWavelength / _installPreviewImage).
+      state.holdImageStep = false;
       if (!state.selectedProduct) return;
       var product = _currentSelectedProductObj();
       if (!product) return;
@@ -10860,10 +11088,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
       // Editor-open side effects (cropZoom defaults, renderCanvas, scroll,
       // data-credits modal) live in _continueOpenEditor below.
-      // requestAnimationFrame defers it one paint so the body-class swap
-      // can flush, the editor section becomes visible, and the scroll
-      // lands on real layout instead of an invisible target.
-      requestAnimationFrame(function () {
+      // setTimeout(0), NOT requestAnimationFrame: rAF is suspended on
+      // hidden tabs (same class as the PR #48 checkout-modal deadlock), so
+      // a deep link opened in a background tab never ran the editor-open
+      // side effects — no MQ render, no HQ prewarm — until foregrounded.
+      // The one-tick defer still lets the body-class swap flush before the
+      // scroll measures layout.
+      setTimeout(function () {
         _continueOpenEditor(product);
         // Belt-and-suspenders: force a quality-timeline repaint right
         // when the editor opens, so the bar matches whatever tier the
@@ -10912,6 +11143,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // time-integrated print render in the background so checkout finds it
       // cached (no second wait). No-op for warm vibes / missing date.
       if (typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
+
+      // Also start the display-tier HQ render so the "HQ Filtered" step in
+      // the Quality timeline lights up (and auto-advances) on its own.
+      // Without this the tier was structurally unreachable for custom dates
+      // except by clicking it — the owner's "HQ never triggers on its own"
+      // report (UX pass 2026-08-08). Dedup/caching inside
+      // startHqFilterGeneration makes repeat editor opens free.
+      try {
+        if ((!state.activeVibeSlug || state.activeVibeSlug === "birthday") &&
+            !state.hqReady && !state.hqFetching &&
+            typeof dateInput !== "undefined" && dateInput && dateInput.value && state.wavelength) {
+          startHqFilterGeneration(dateInput.value, state.wavelength, "rhef");
+        }
+      } catch (_e) {}
 
       // Default the editor to "Fill" crop (100%, edge-to-edge) + "Off"
       // vignette so the print area is covered completely the moment the
@@ -11170,8 +11415,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     function _printQualityState() {
       if (!state.originalImage) return "no_image";
       if (state.hqReady) return "hq_ready";
+      // The print upload composites onto the time-integrated 4096 render,
+      // which _prewarmIntegratedHq kicks off at editor open. If that render
+      // has RESOLVED, the print is genuinely HQ regardless of which display
+      // tier the user is looking at — gating on state.hqReady alone made the
+      // "still cooking" modal fire on every custom-date checkout, claiming a
+      // render that (pre-2026-08-08) had never even been started (UX pass).
+      if (_integratedHqReadyForCurrentSelection()) return "hq_ready";
       if (state.rhefImage || state.rawBackendImage) return "mq_ready";
       return "jpg_only";
+    }
+    function _integratedHqCacheKeyForSelection() {
+      var dateStr = (typeof dateInput !== "undefined" && dateInput && dateInput.value) ? dateInput.value : "";
+      if (!dateStr || !state.wavelength) return null;
+      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength;
+    }
+    function _integratedHqReadyForCurrentSelection() {
+      try {
+        var k = _integratedHqCacheKeyForSelection();
+        return !!(k && _integratedHqCache[k] && _integratedHqCache[k].url);
+      } catch (_e) { return false; }
     }
 
     // Promote the editor's active filter to the highest available
@@ -11245,8 +11508,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           "Submit at MQ anyway",
           "Submitting…"
         );
-        // showModal's default close-on-cancel handles the "wait" path
-        // — we just don't fire confirmFn for the cancel button.
+        // showModal's default close-on-cancel handles the "wait" path —
+        // we just don't fire confirmFn for the cancel button. Make the
+        // wait ACTIONABLE: the modal's claim is only true if the print
+        // render is actually in flight, so (a) kick it if it somehow
+        // isn't, and (b) toast when it lands so the user knows to hit
+        // checkout again instead of waiting on a signal that never
+        // came (the pre-2026-08-08 deadlock).
+        try {
+          var _k = _integratedHqCacheKeyForSelection();
+          if (_k) {
+            if (!_integratedHqCache[_k] && typeof _prewarmIntegratedHq === "function") _prewarmIntegratedHq();
+            var _e2 = _integratedHqCache[_k];
+            if (_e2 && _e2.promise && !_e2._toastArmed) {
+              _e2._toastArmed = true;
+              _e2.promise.then(function (url) {
+                if (url) showToast("Print-quality render finished — checkout will now use it.", "success");
+              });
+            }
+          }
+        } catch (_e) {}
         return;
       }
       // hq_ready — promote to HQ if not already there, then pass.
@@ -11320,6 +11601,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // meanwhile via the BETA_MODE gate below, so this is display-only).
       if (BETA_MODE && betaConfirmed) {
         document.body.classList.add("beta-mode-active");
+        // Beta copy is injected HERE, not shipped in the static markup —
+        // a skeptical shopper reading the live store's DOM found the
+        // hidden "purchases are disabled" strings and nearly concluded
+        // checkout was theater (persona round, 2026-08-09).
+        var bannerTextEl = document.getElementById("betaBanner");
+        if (bannerTextEl && !bannerTextEl.textContent.trim()) {
+          bannerTextEl.innerHTML = '<i class="fas fa-flask" aria-hidden="true"></i> Beta mode tests the front-end, but purchases are disabled.';
+        }
+        var thanksTitleEl = document.getElementById("betaThanksTitle");
+        if (thanksTitleEl && !thanksTitleEl.textContent.trim()) {
+          thanksTitleEl.textContent = "Thanks for testing My Heliograph!";
+        }
+        var thanksBodyEl = document.getElementById("betaThanksBody");
+        if (thanksBodyEl && !thanksBodyEl.textContent.trim()) {
+          thanksBodyEl.textContent = "Your design is saved to your downloads. Purchasing will be enabled once the store is live — thanks for trying it out!";
+        }
         var titleEl = document.getElementById("appTitle");
         if (titleEl && !titleEl.querySelector(".app-title-beta-badge")) {
           var badge = document.createElement("span");
@@ -12166,12 +12463,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var title = "Solar " + wlStr + " — " + dateStr + " · " + product.name;
       var fname = "solar_" + dateStr + "_" + state.wavelength + "_hq.png";
 
-      // Resolve HQ image then composite user edits on top before uploading
-      _getCheckoutImageBase64(dateStr).then(function(base64Data) {
-        // Update step 1 to show upload size
-        var sizeKB = Math.round(base64Data.length / 1024);
+      // Resolve the print file. Preferred path: the server composites it
+      // from parameters and we send a URL (a few hundred bytes). Fallback:
+      // the browser composites and uploads base64, as before.
+      _resolveCheckoutPrintSource(dateStr).then(function(src) {
+        var base64Data = src && src.base64;
+        var printUrl = src && src.url;
         var step1 = document.getElementById("ckStep1");
-        if (step1) step1.querySelector("span").textContent = "Uploading your print file (" + sizeKB + " KB)…";
+        if (step1) {
+          step1.querySelector("span").textContent = printUrl
+            ? "Print file ready on the server — no upload needed"
+            : "Uploading your print file (" + Math.round((base64Data || "").length / 1024) + " KB)…";
+        }
 
         // Only the variant actually being ordered. Enabling every filtered
         // variant made Printify render a mockup per variant (dozens), which
@@ -12185,7 +12488,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            image_base64: base64Data,
+            image_base64: printUrl ? undefined : base64Data,
+            image_url: printUrl || undefined,
             file_name: fname,
             title: title,
             description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
@@ -12210,6 +12514,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         .then(function(data) {
           if (!data.printify_product_id) throw new Error("No product ID returned");
           var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
+          _ckLastProductId = data.printify_product_id;
           markCheckoutStep("ckStep1", "done", "Print file uploaded");
           markCheckoutStep("ckStep2", "done", "Product set up" + vcMsg);
           markCheckoutStep("ckStep3", "done", "Connected to secure checkout");
@@ -12233,12 +12538,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           markCheckoutStep("ckStep4", "done", timedOut ? "Still finishing up…" : "Checkout link ready!");
           checkoutProgress.innerHTML +=
             '<div style="margin-top:16px;">' +
-              '<div style="font-size:48px;margin-bottom:8px;">' + (timedOut ? '⏳' : '🎉') + '</div>' +
-              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;">' + (timedOut ? 'Almost there — your product is still going live' : 'Ready for secure checkout!') + '</div>' +
-              '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;">' +
+              '<div style="font-size:48px;margin-bottom:8px;" id="ckDoneEmoji">' + (timedOut ? '⏳' : '🎉') + '</div>' +
+              '<div style="color:#3ddc84;font-weight:600;margin-bottom:8px;" id="ckDoneHeadline">' + (timedOut ? 'Almost there — your product is still going live' : 'Ready for secure checkout!') + '</div>' +
+              '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;" id="ckReassurance">' +
                 reassurance +
               '</p>' +
-              '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout">' +
+              '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout" id="ckShopifyCta">' +
                 '<i class="fab fa-shopify"></i>' + (timedOut ? ' Browse the store' : ' Complete Purchase on Shopify') +
               '</a>' +
               '<div style="margin-top:10px;">' +
@@ -12247,7 +12552,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                 '</button>' +
               '</div>' +
             '</div>';
-          showToast("Your product is ready — click Complete Purchase on Shopify to pay.");
+          // The ready toast must only promise a button that exists (beta
+          // persona 2026-08-09: timed-out card said "Browse the store"
+          // while the toast said "click Complete Purchase" — a dead end).
+          if (timedOut) {
+            showToast("Your product is still publishing — this page will update when checkout is ready.");
+            // Self-heal: publishing almost always completes shortly after
+            // the poll budget. Keep checking quietly and upgrade the card
+            // in place the moment the real checkout link exists.
+            _armCheckoutUpgradePoll(ckSelectedId);
+          } else {
+            showToast("Your product is ready — click Complete Purchase on Shopify to pay.");
+          }
           // Auto-redirect removed: beta testers reported the previous 1.5s
           // redirect felt "instant" and hid the completed status indicator.
           // The user now clicks the prominent Complete Purchase button when
@@ -12419,6 +12735,86 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // render the multi-frame time-integrated print and composite onto THAT —
     // the editor showed only the fast single-frame version. Every branch
     // falls back to the current canvas if the HQ can't be produced/loaded.
+    // Edit parameters the server-side compositor needs. Names match the
+    // editor's own state so there's no translation layer to drift.
+    function _printParams() {
+      var product = _currentSelectedProductObj();
+      var ar = (typeof getEffectiveAspectRatio === "function" && product)
+        ? getEffectiveAspectRatio(product) : null;
+      return {
+        productId: state.selectedProduct || null,
+        printShape: (product && product.printShape) || null,
+        aspectRatio: (ar && ar.w && ar.h) ? { w: ar.w, h: ar.h } : null,
+        cropZoom: state.cropZoom,
+        panX: state.panX, panY: state.panY,
+        rotation: state.rotation || 0,
+        flipH: !!state.flipH, flipV: !!state.flipV,
+        brightness: state.brightness || 0,
+        contrast: state.contrast || 0,
+        saturation: (state.saturation == null ? 100 : state.saturation),
+        hue: state.hue || 0,
+        inverted: !!state.inverted,
+        vignette: state.vignette || 0,
+        vignetteWidth: state.vignetteWidth || 0,
+        vignetteFade: state.vignetteFade || "transparent",
+        vignetteFadeColor: state.vignetteFadeColor || null,
+        vignetteModeR: state._vignetteModeR, vignetteModeG: state._vignetteModeG,
+        vignetteModeB: state._vignetteModeB,
+        cropEdgeFeatherX: state.cropEdgeFeatherX || 0,
+        cropEdgeFeatherY: state.cropEdgeFeatherY || 0,
+        background: state.background || null,
+        // Flags that force the browser path (server refuses them).
+        textOverlay: (state.textOverlay && state.textOverlay.text) ? true : null,
+        timestampStamp: state.timestampStamp ? true : null,
+        dualPanel: !!(product && product.dualPanel) || null,
+        clockNumbers: state.clockNumbers ? true : null,
+      };
+    }
+
+    // Ask the server to build the print file from parameters. Resolves to a
+    // URL string on success, or null to mean "use the browser path" — every
+    // failure mode (unsupported params, missing source, compose error,
+    // network) resolves null rather than rejecting, so checkout degrades to
+    // the pre-2026-08-09 behaviour instead of breaking.
+    function _serverComposePrintFile(sourceUrl) {
+      try {
+        var params = _printParams();
+        if (params.textOverlay || params.timestampStamp || params.dualPanel || params.clockNumbers) {
+          return Promise.resolve(null);
+        }
+        return postJSON(API_BASE + "/api/print_file",
+                        { source_url: sourceUrl, params: params }, 120000)
+          .then(function (r) {
+            if (r && r.supported && r.url) {
+              markCheckoutStep("ckStep1", "done", "Print file prepared on the server");
+              return r.url;
+            }
+            return null;
+          })
+          .catch(function () { return null; });
+      } catch (_e) {
+        return Promise.resolve(null);
+      }
+    }
+
+    // Print source for checkout: {url} when the server composited it,
+    // {base64} when the browser had to. Always resolves.
+    function _resolveCheckoutPrintSource(dateStr) {
+      var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
+      var sourcePromise = (isWarmVibe && state.hqReady && state.hqImageUrl)
+        ? Promise.resolve(state.hqImageUrl)
+        : _ensureIntegratedHqUrl(dateStr);
+      return sourcePromise.then(function (srcUrl) {
+        if (!srcUrl) return null;
+        return _serverComposePrintFile(srcUrl);
+      }).then(function (composedUrl) {
+        if (composedUrl) return { url: composedUrl };
+        return _getCheckoutImageBase64(dateStr).then(function (b64) { return { base64: b64 }; });
+      }).catch(function () {
+        return _getCheckoutImageBase64(dateStr).then(function (b64) { return { base64: b64 }; });
+      });
+    }
+
     function _getCheckoutImageBase64(dateStr) {
       var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
       if (isWarmVibe && state.hqReady && state.hqImageUrl) {
@@ -12492,6 +12888,49 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         icon.style.fontSize = "";
       }
       if (span && text) span.textContent = text;
+    }
+
+    // Set at checkout time; used by the timed-out card's self-heal poll.
+    var _ckLastProductId = null;
+    var _ckUpgradeTimer = null;
+    function _armCheckoutUpgradePoll(variantIdForCheckout) {
+      // After pollShopifyUrl gives up, Shopify publishing usually lands a
+      // minute or two later. Quietly re-check and upgrade the success card
+      // in place, so the buyer who waited never dead-ends on "Browse the
+      // store" (beta persona 2026-08-09). Bounded: 6 more minutes.
+      clearTimeout(_ckUpgradeTimer);
+      var productId = _ckLastProductId;
+      if (!productId) return;
+      var deadline = Date.now() + 6 * 60000;
+      function _tick() {
+        if (Date.now() > deadline) return;
+        var cta = document.getElementById("ckShopifyCta");
+        if (!cta) return; // card dismissed / replaced — stop quietly
+        fetchWithTimeout(API_BASE + "/api/printify/product/" + productId +
+            "/cart_url?variant_id=" + encodeURIComponent(variantIdForCheckout || ""), {}, 15000)
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.status === "ready" && d.cart_url) {
+              var cta2 = document.getElementById("ckShopifyCta");
+              if (!cta2) return;
+              cta2.href = d.cart_url;
+              cta2.innerHTML = '<i class="fab fa-shopify"></i> Complete Purchase on Shopify';
+              var head = document.getElementById("ckDoneHeadline");
+              if (head) head.textContent = "Ready for secure checkout!";
+              var emo = document.getElementById("ckDoneEmoji");
+              if (emo) emo.textContent = "🎉";
+              var rea = document.getElementById("ckReassurance");
+              if (rea) rea.textContent = (d.source === "storefront-api")
+                ? "Your variant is pre-selected — just complete checkout on Shopify to receive your custom print."
+                : "Choose your size and options on the Shopify page, then complete checkout.";
+              showToast("Checkout is ready — click Complete Purchase on Shopify to pay.");
+              return; // done, stop polling
+            }
+            _ckUpgradeTimer = setTimeout(_tick, 10000);
+          })
+          .catch(function () { _ckUpgradeTimer = setTimeout(_tick, 15000); });
+      }
+      _ckUpgradeTimer = setTimeout(_tick, 8000);
     }
 
     function pollShopifyUrl(printifyProductId, variantIdForCheckout) {
@@ -12803,7 +13242,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (continueBtn) {
         var _step = (state && state.currentStep) || "";
         if (_step === "editor") continueBtn.textContent = "Apply variant";
+        // Image-first funnel (2026-08-09 reorder): the Sun is usually
+        // already picked by the time the size modal opens, so the next
+        // stop is the editor, not the image step.
+        else if (state.originalImage) continueBtn.textContent = "Continue to editor";
         else continueBtn.textContent = "Continue to image";
+      }
+      // The "what happens next" note below the button must agree with it.
+      var nextNoteEl = document.getElementById("confirmSelectNextNote");
+      if (nextNoteEl) {
+        nextNoteEl.textContent = state.originalImage
+          ? "Fine-tune your Sun in the editor next."
+          : "Pick your Sun image next, then fine-tune in the editor.";
       }
       var closeBtn = document.getElementById("confirmSelectClose");
       var backdrop = document.getElementById("confirmSelectBackdrop");
@@ -12857,8 +13307,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (titleEl) titleEl.textContent = product.name;
       if (subEl) {
         subEl.textContent = product._isUserRequested
-          ? "Your request (pending review). Choose a size and colour, then continue to your image."
-          : "Choose a size and colour, then pick your image.";
+          ? "Your request (pending review). Choose a size and colour, then continue."
+          : (state.originalImage
+              ? "Choose a size and colour for your Sun."
+              : "Choose a size and colour, then pick your image.");
       }
 
       function _variantsList() {

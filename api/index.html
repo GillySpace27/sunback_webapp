@@ -8,7 +8,7 @@
        background (var(--bg-deep) = #0a0a12) and light alternate (#f0eff5)
        per prefers-color-scheme. Without these the iOS/Android status bar
        and desktop frame defaulted to white while the page rendered dark. -->
-  <meta name="theme-color" content="#0a0a12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f0eff5" media="(prefers-color-scheme: light)">
   <title>My Heliograph — The Sun on Any Date, as Wall Art</title>
   <meta name="description" content="Pick any date since 2010 and get the real image of the Sun that day, printed as a poster, print, or canvas. A meaningful birthday or anniversary gift.">
@@ -16,14 +16,14 @@
   <!-- Open Graph + Twitter Card for share previews. -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="My Heliograph — Your day, written in sunlight.">
-  <meta property="og:description" content="The real Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
+  <meta property="og:description" content="Real NASA/SDO images of the Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
   <meta property="og:url" content="https://myheliograph.com/">
   <meta property="og:image" content="https://myheliograph.com/asset/default/og_card.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="My Heliograph — Your day, written in sunlight.">
-  <meta name="twitter:description" content="The real Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
+  <meta name="twitter:description" content="Real NASA/SDO images of the Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
   <meta name="twitter:image" content="https://myheliograph.com/asset/default/og_card.jpg">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg">
@@ -41,6 +41,11 @@
        trips on 4G mobile). Priya Iyer (round-2 perf audit). -->
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <link rel="preconnect" href="https://myheliograph.com" crossorigin>
+  <!-- Hero before/after pair: preload at high priority. On a cold edge
+       cache the Filtered panel painted seconds after the Original,
+       leaving the value-prop demo as a blank box (UX pass 2026-08-08). -->
+  <link rel="preload" as="image" href="/asset/default/compare_raw.webp" fetchpriority="high">
+  <link rel="preload" as="image" href="/asset/default/compare_rhef.webp" fetchpriority="high">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
 </head>
@@ -71,7 +76,7 @@
     <div class="hero-icon"></div>
     <h1 id="appTitle">My Heliograph</h1>
     <p class="hero-tagline">Your day, written in sunlight</p>
-    <p>Pick any date since 2010 and see the real Sun from that day — yours as a print, poster, or canvas.</p>
+    <p>Pick any date since 2010: real NASA/SDO observations of the Sun from that day, enhanced with a published algorithm to reveal coronal structure the raw data hides. Yours as a print, poster, or canvas.</p>
     <!-- NASA SDO rules-of-the-road acknowledgement, surfaced prominently
          at the top (moved up from the footer). Required on any SDO-
          derived imagery. Keep in sync with solar-archive.js
@@ -81,10 +86,11 @@
          fetch sets the .beta-mode-active class on <body>, which un-hides
          this block via CSS). Orange so it reads as an advisory, not an
          error. -->
-    <div class="beta-banner" id="betaBanner">
-      <i class="fas fa-flask" aria-hidden="true"></i>
-      Beta mode tests the front-end, but purchases are disabled.
-    </div>
+    <!-- Text injected by _applyBetaModeUI only when beta_mode is ON —
+         a skeptical shopper reading the DOM of the LIVE store found the
+         static "purchases are disabled" copy and nearly concluded the
+         checkout was theater (persona round, 2026-08-09). -->
+    <div class="beta-banner" id="betaBanner"></div>
   </header>
 
   <!-- Main landmark wraps the interactive editor flow (banners, date/
@@ -143,7 +149,7 @@
        swapped for the baked quality_strip.webp so it can never render broken. -->
   <div class="section quality-strip-section" id="qualityStrip">
     <button type="button" class="quality-diptych" id="qualityDiptych"
-            aria-label="The Sun before and after our sharpening step, side by side. Activate to compare them hands-on with a draggable slider.">
+            aria-label="The Sun before and after the contrast-equalization step, side by side. Activate to compare them hands-on with a draggable slider.">
       <span class="diptych-pane">
         <span class="diptych-label">Original</span>
         <span class="diptych-sub">raw telescope data</span>
@@ -155,7 +161,7 @@
         <span class="diptych-label">Filtered</span>
         <span class="diptych-sub">RHEF reveals the corona</span>
         <img class="diptych-img" src="/asset/default/compare_rhef.webp" width="900" height="900"
-             alt="The same moment after our sharpening step — the Sun's faint outer glow is now visible."
+             alt="The same moment after contrast equalization — the Sun's faint outer atmosphere is now visible."
              decoding="async" />
       </span>
       <span class="diptych-hint" aria-hidden="true">
@@ -167,11 +173,11 @@
          Filtered (right of divider), compare-over = Original clipped left. -->
     <div class="compare-slider hidden" id="compareSlider" style="--split:50%">
       <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
-           alt="The Sun after our sharpening step, revealing the faint outer glow." decoding="async" />
+           alt="The Sun after contrast equalization, revealing the faint outer atmosphere." decoding="async" />
       <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
            alt="" aria-hidden="true" decoding="async" />
       <div class="compare-handle" role="slider" tabindex="0"
-           aria-label="Drag to compare the original telescope photo with the sharpened version"
+           aria-label="Drag to compare the original telescope photo with the contrast-equalized version"
            aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
            aria-valuetext="50% original, 50% filtered">
         <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
@@ -182,18 +188,18 @@
               aria-label="Close the drag comparison and go back to the side-by-side view"
               title="Back to side-by-side">&#x2715;</button>
     </div>
-    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, our sharpening step lifts the Sun&rsquo;s faint outer glow out of the dark. <strong>Every print gets the sharpened version.</strong></p>
-    <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (Gilly et al. 2025), not a filter preset. Prints are rendered at full 4K.</p>
+    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Every print gets the RHEF version.</strong></p>
+    <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
   </div>
 
   <div class="section" id="productSection">
     <div class="section-header">
-      <div class="step-badge">1</div>
+      <div class="step-badge">2</div>
       <h2 class="section-title" id="productSectionTitle">Pick your product</h2>
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      These are real product photos. The Sun shown is just an example &mdash; pick a product and you&rsquo;ll choose your own Sun image next.
+      These are real product photos. The Sun shown is an example &mdash; the one you picked (or pick next) is what gets printed.
     </p>
 
     <div class="product-grid" id="productGrid"></div>
@@ -251,13 +257,13 @@
       <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
               title="The conventional NASA SDO look — what astronomers see published.">Original</button>
       <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
-              title="Our sharpening step — brings out the Sun's faint outer glow. Published research (Gilly et al. 2025).">Filtered</button>
+              title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
     </div>
   </div>
 
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
     <div class="section-header">
-      <div class="step-badge">2</div>
+      <div class="step-badge">1</div>
       <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
       <button type="button" class="edit-btn edit-btn-nav share-image-step-btn hidden" id="btnShareSunImageStep" title="Copy a link to this exact Sun">
         <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
@@ -521,9 +527,9 @@
          reference #solarDate / #solarTime / #missionSelect still work.
          `display:none !important` overrides .controls-grid's `display:grid`. -->
     <div class="controls-grid" aria-hidden="true" style="display:none !important;">
-      <input type="date" id="solarDate">
-      <input type="time" id="solarTime" value="12:00" step="60">
-      <select id="missionSelect">
+      <input type="date" id="solarDate" aria-label="Observation date">
+      <input type="time" id="solarTime" value="12:00" step="60" aria-label="Observation time (UTC)">
+      <select id="missionSelect" aria-label="Mission">
         <option value="SDO">SDO / AIA (2010–present)</option>
       </select>
     </div>
@@ -668,7 +674,7 @@
                radio values STAY jpg/raw/rhef/hq_rhef so all the
                state.editorFilter / _filterIsReady / quality-pipeline
                wiring continues to work unchanged. -->
-          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC. Paints instantly from a fast web preview, then sharpens to the full telescope frame.">
+          <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC. Paints instantly from a fast web preview, then upgrades to the full-resolution telescope frame.">
             <span class="filter-step-num"><i class="fas fa-satellite" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Original</span>
@@ -677,7 +683,7 @@
             <input type="radio" name="editorFilter" value="raw" checked aria-label="Original quality">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="rhef" title="Our sharpening step — brings out the Sun's faint outer glow, invisible in the original. Published research: Gilly et al. 2025 (Sol. Phys. 300, 174).">
+          <div class="filter-step" data-filter="rhef" title="RHEF — re-balances brightness with distance from centre, revealing outer-atmosphere structure the original hides. Published research: Gilly &amp; Cranmer 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
               <span class="filter-step-name">Filtered</span>
@@ -948,7 +954,7 @@
     <!-- Text Tool Panel -->
     <div class="text-tool-panel hidden" id="textToolPanel">
       <div class="field-row">
-        <span class="field-label-sm">Text</span>
+        <label class="field-label-sm" for="textInput">Text</label>
         <input type="text" id="textInput" placeholder="Your text here..." value="">
       </div>
       <p class="text-overflow-warn hidden" id="textOverflowWarn" aria-live="polite">
@@ -1077,7 +1083,7 @@
              references #previewVariantWrap / #previewVariantSelect
              degrades gracefully (no-op). -->
         <div class="preview-variant-wrap hidden" id="previewVariantWrap" hidden>
-          <select id="previewVariantSelect" hidden></select>
+          <select id="previewVariantSelect" hidden aria-label="Product variant"></select>
           <p class="preview-variant-note hidden" id="previewVariantClockNote" hidden></p>
         </div>
         <!-- Dual-panel layout toggle. Shown only for products whose
@@ -1130,15 +1136,14 @@
     <!-- Buy button lives in the preview pane (see #selectedProductPreview); no inline editor CTAs here. -->
   </div>
 
-  </main>
-
   <!-- Trust bar — reassurance near the end of the funnel (secure checkout,
        fulfilment, defect coverage). Wording matches the Refund policy
-       (no change-of-mind refunds, but defects/damage replaced or refunded). -->
+       (no change-of-mind refunds, but defects/damage replaced or refunded).
+       Inside <main> so it lives in a landmark (axe "region", audit §6.3). -->
   <div class="trust-bar" role="note" aria-label="Purchase reassurance">
     <span><i class="fas fa-lock" aria-hidden="true"></i> Secure checkout via Shopify</span>
     <span aria-hidden="true">·</span>
-    <span><i class="fas fa-box-open" aria-hidden="true"></i> Made to order &amp; shipped worldwide by Printify</span>
+    <span><i class="fas fa-box-open" aria-hidden="true"></i> Made to order &amp; shipped to the US, Canada, EU &amp; UK by Printify</span>
     <span aria-hidden="true">·</span>
     <!-- Window = production (2–7 business days) + US transit (3–6),
          matching /shipping — keep the three in sync. -->
@@ -1146,6 +1151,8 @@
     <span aria-hidden="true">·</span>
     <span><i class="fas fa-shield-heart" aria-hidden="true"></i> Misprinted or damaged? Replaced or refunded</span>
   </div>
+
+  </main>
 
   <footer class="app-footer" role="contentinfo">
     <nav class="footer-legal-nav" aria-label="Legal">
@@ -1218,7 +1225,7 @@
     <div class="confirm-size-chips hidden" id="confirmSelectSizeChips" role="listbox" aria-label="Size"></div>
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">Prices in USD. Tax + shipping calculated at checkout. We ship to the US, Canada, EU, and UK — <a href="/shipping">details</a>.</p>
-    <p class="confirm-modal-note" style="font-size:0.78rem;margin-top:6px;">Pick your Sun image next, then fine-tune in the editor.</p>
+    <p class="confirm-modal-note" style="font-size:0.78rem;margin-top:6px;" id="confirmSelectNextNote">Pick your Sun image next, then fine-tune in the editor.</p>
     <div class="confirm-modal-actions">
       <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to image</button>
     </div>
@@ -1235,11 +1242,8 @@
   <div class="beta-thanks-panel">
     <button class="beta-thanks-close" id="betaThanksClose" type="button" aria-label="Close">&#x2715;</button>
     <div class="beta-thanks-icon"><i class="fas fa-sun" aria-hidden="true"></i></div>
-    <h2 class="beta-thanks-title" id="betaThanksTitle">Thanks for testing My Heliograph!</h2>
-    <p class="beta-thanks-body">
-      Your design is saved to your downloads. Purchasing will be enabled once
-      the store is live — thanks for trying it out!
-    </p>
+    <h2 class="beta-thanks-title" id="betaThanksTitle"></h2>
+    <p class="beta-thanks-body" id="betaThanksBody"></p>
     <div class="beta-thanks-actions">
       <button class="beta-thanks-btn beta-thanks-btn-primary" id="betaThanksReset" type="button">
         <i class="fas fa-redo" aria-hidden="true"></i> Design a new product

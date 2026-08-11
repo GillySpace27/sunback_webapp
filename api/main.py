@@ -56,7 +56,7 @@ def get_downloader(total_timeout=600, connect_timeout=60, sock_read_timeout=300)
 
 # Registry to track background tasks for /generate
 task_registry: dict = {}
-from urllib.parse import urlencode, quote_plus
+from urllib.parse import urlencode, quote_plus, urlparse
 import sys
 from dotenv import load_dotenv
 # Load environment variables from ../.env (backend startup)
@@ -573,32 +573,43 @@ DEFAULT_MOCKUPS_MANIFEST = DEFAULT_CACHE_DIR / "default_mockups.json"
 # Black mug sibling — those are surfaced via the colour-chooser, not as
 # their own grid tile.)
 _DEFAULT_MOCKUP_PRODUCTS = [
-    {"id": "canvas_stretched",     "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
-    {"id": "metal_sign",           "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
-    {"id": "acrylic_print",        "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
-    {"id": "poster_matte",         "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
-    {"id": "framed_poster",        "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
-    {"id": "wall_clock",           "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
-    {"id": "tapestry",             "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
-    {"id": "mug_15oz",             "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
-    {"id": "tumbler_20oz",         "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
-    {"id": "tshirt_unisex",        "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
-    {"id": "hoodie_pullover",      "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
-    {"id": "crewneck_sweatshirt",  "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
-    {"id": "phone_case_apple",     "blueprintId": 269,  "printProviderId": 1,   "variantId": 112814, "position": "front"},
-    {"id": "phone_case_samsung",   "blueprintId": 269,  "printProviderId": 1,   "variantId": 125531, "position": "front"},
-    {"id": "phone_case_pixel",     "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
-    {"id": "laptop_sleeve",        "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
-    {"id": "mouse_pad",            "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
-    {"id": "desk_mat",             "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
-    {"id": "throw_pillow",         "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
-    {"id": "sherpa_blanket",       "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
-    {"id": "shower_curtain",       "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
-    {"id": "puzzle_1000",          "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
-    {"id": "coaster_set",          "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
-    {"id": "sticker_kiss",         "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
-    {"id": "journal_hardcover",    "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
-    {"id": "backpack",             "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
+    {"id": "canvas_stretched",     "vibe": "great_sympathetic_eruption", "ar": [2400, 3000], "blueprintId": 555,  "printProviderId": 69,  "variantId": 70880, "position": "front"},
+    {"id": "metal_sign",           "vibe": "x93_flare", "ar": [2250, 1650], "blueprintId": 1206, "printProviderId": 228, "variantId": 91993, "position": "front"},
+    {"id": "acrylic_print",        "vibe": "post_flare_arcade", "ar": [2250, 1650], "blueprintId": 1098, "printProviderId": 228, "variantId": 82057, "position": "front"},
+    {"id": "poster_matte",         "vibe": "ar2192", "ar": [11, 14], "blueprintId": 282,  "printProviderId": 99,  "variantId": 43135, "position": "front"},
+    {"id": "framed_poster",        "vibe": "ar13664_emergence", "ar": [11, 14], "blueprintId": 492,  "printProviderId": 36,  "variantId": 65400, "position": "front"},
+    {"id": "wall_clock",           "vibe": "ar2192", "ar": [1, 1], "blueprintId": 277,  "printProviderId": 1,   "variantId": 43008, "position": "front"},
+    {"id": "tapestry",             "vibe": "great_sympathetic_eruption", "ar": [4350, 5850], "blueprintId": 241,  "printProviderId": 10,  "variantId": 41686, "position": "front"},
+    {"id": "mug_15oz",             "vibe": "monster_prominence", "ar": [2790, 1219], "blueprintId": 425,  "printProviderId": 1,   "variantId": 62014, "position": "front"},
+    {"id": "tumbler_20oz",         "vibe": "pre_x93_powderkeg", "ar": [2795, 2100], "blueprintId": 353,  "printProviderId": 1,   "variantId": 44519, "position": "front"},
+    {"id": "tshirt_unisex",        "vibe": "x93_flare", "ar": [3319, 3761], "blueprintId": 12,   "printProviderId": 29,  "variantId": 18052, "position": "front"},
+    {"id": "hoodie_pullover",      "vibe": "post_flare_arcade", "ar": [3319, 3761], "blueprintId": 77,   "printProviderId": 29,  "variantId": 32878, "position": "front"},
+    {"id": "crewneck_sweatshirt",  "vibe": "ar13664_emergence", "ar": [3319, 3761], "blueprintId": 49,   "printProviderId": 29,  "variantId": 25377, "position": "front"},
+    {"id": "phone_case_apple",     "vibe": "limb_x82_flare", "ar": [1246, 2085], "blueprintId": 269,  "printProviderId": 1,   "variantId": 112814, "position": "front"},
+    {"id": "phone_case_samsung",   "vibe": "monster_prominence", "ar": [1251, 2097], "blueprintId": 269,  "printProviderId": 1,   "variantId": 125531, "position": "front"},
+    {"id": "phone_case_pixel",     "vibe": "post_flare_arcade", "ar": [1329, 2126], "blueprintId": 421,  "printProviderId": 23,  "variantId": 116386, "position": "front"},
+    {"id": "laptop_sleeve",        "vibe": "great_sympathetic_eruption", "ar": [4, 3], "blueprintId": 429,  "printProviderId": 1,   "variantId": 62037, "position": "front"},
+    {"id": "mouse_pad",            "vibe": "pre_x93_powderkeg", "ar": [1, 1], "blueprintId": 582,  "printProviderId": 99,  "variantId": 71665, "position": "front"},
+    {"id": "desk_mat",             "vibe": "ar13664_emergence", "ar": [5610, 3839], "blueprintId": 488,  "printProviderId": 1,   "variantId": 65240, "position": "front"},
+    {"id": "throw_pillow",         "vibe": "monster_prominence", "ar": [1, 1], "blueprintId": 220,  "printProviderId": 10,  "variantId": 41521, "position": "front"},
+    {"id": "sherpa_blanket",       "vibe": "great_sympathetic_eruption", "ar": [7875, 9375], "blueprintId": 238,  "printProviderId": 99,  "variantId": 41656, "position": "front"},
+    {"id": "shower_curtain",       "vibe": "post_flare_arcade", "ar": [7104, 7392], "blueprintId": 235,  "printProviderId": 10,  "variantId": 41653, "position": "front"},
+    {"id": "puzzle_1000",          "vibe": "ar2192_photosphere", "ar": [4200, 3300], "blueprintId": 532,  "printProviderId": 59,  "variantId": 68984, "position": "front"},
+    {"id": "coaster_set",          "vibe": "pre_x93_powderkeg", "ar": [1, 1], "blueprintId": 510,  "printProviderId": 48,  "variantId": 72872, "position": "front"},
+    {"id": "sticker_kiss",         "vibe": "monster_prominence", "ar": [1, 1], "blueprintId": 400,  "printProviderId": 99,  "variantId": 45748, "position": "front"},
+    {"id": "journal_hardcover",    "vibe": "ar13664_emergence", "ar": [2032, 2850], "blueprintId": 485,  "printProviderId": 28,  "variantId": 65223, "position": "front"},
+    {"id": "backpack",             "vibe": "post_flare_arcade", "blueprintId": 347,  "printProviderId": 14,  "variantId": 44419, "position": "front"},
+    # 2026-08-08 additions — keep in sync with api/products.js.
+    {"id": "wall_clock_acrylic",   "vibe": "x93_flare", "ar": [1, 1], "blueprintId": 1305, "printProviderId": 104, "variantId": 98941, "position": "front"},
+    {"id": "rug_round",            "vibe": "monster_prominence", "ar": [1, 1], "blueprintId": 1083, "printProviderId": 10,  "variantId": 81470, "position": "front"},
+    {"id": "ornament_ceramic",     "vibe": "limb_x82_flare", "ar": [1, 1], "blueprintId": 531,  "printProviderId": 59,  "variantId": 69370, "position": "front"},
+    {"id": "tote_bag",             "vibe": "great_sympathetic_eruption", "ar": [2835, 3425], "blueprintId": 553,  "printProviderId": 34,  "variantId": 70603, "position": "front"},
+    {"id": "greeting_cards",       "vibe": "x93_flare", "ar": [1860, 2460], "blueprintId": 785,  "printProviderId": 41,  "variantId": 74934, "position": "front"},
+    {"id": "baby_bodysuit",        "vibe": "mothers_day_storm", "ar": [1500, 1714], "blueprintId": 568,  "printProviderId": 99,  "variantId": 71076, "position": "front"},
+    {"id": "beach_towel",          "vibe": "great_sympathetic_eruption", "ar": [18900, 9900], "blueprintId": 352,  "printProviderId": 99,  "variantId": 44444, "position": "front"},
+    {"id": "crew_socks",           "vibe": "x93_flare", "ar": [1358, 5551], "blueprintId": 365,  "printProviderId": 14,  "variantId": 44906, "position": "front"},
+    {"id": "magnet_diecut",        "vibe": "mothers_day_storm", "ar": [1, 1], "blueprintId": 851,  "printProviderId": 73,  "variantId": 76775, "position": "front"},
+    {"id": "candle_soy",           "vibe": "monster_prominence", "ar": [900, 600], "blueprintId": 1048, "printProviderId": 219, "variantId": 80301, "position": "front"},
 ]
 
 # Vibe-grid landing tiles — pre-rendered HQ pairs (raw + RHEF) for the
@@ -677,6 +688,51 @@ import sys
 import threading
 
 app = FastAPI(title=APP_NAME)
+
+
+# ── Render-cache janitor ─────────────────────────────────────────────
+# OUTPUT_DIR is a regenerable render cache on a 3 GB volume; with no
+# sweep it filled to 100% and live HQ renders started failing with
+# ENOSPC ([Errno 28], caught by a persona walk 2026-08-09). Sweep files
+# older than 2 days at startup and daily thereafter. DEFAULT_CACHE_DIR
+# (curated persistent assets) lives elsewhere and is never touched.
+def _sweep_output_cache(max_age_days: int = 2) -> None:
+    import time as _t
+    cutoff = _t.time() - max_age_days * 86400
+    removed = 0
+    try:
+        for root, _dirs, files in os.walk(OUTPUT_DIR):
+            for fn in files:
+                p = os.path.join(root, fn)
+                try:
+                    if os.path.getmtime(p) < cutoff:
+                        os.remove(p)
+                        removed += 1
+                except OSError:
+                    pass
+    except Exception as e:
+        print(f"[cache-janitor] sweep error: {e}", flush=True)
+    if removed:
+        print(f"[cache-janitor] removed {removed} cache file(s) older than {max_age_days}d", flush=True)
+
+
+def _start_cache_janitor() -> None:
+    import threading as _th
+
+    def _loop():
+        while True:
+            try:
+                _sweep_output_cache()
+            except Exception:
+                pass
+            _t_sleep = 24 * 3600
+            import time as _t
+            _t.sleep(_t_sleep)
+
+    _th.Thread(target=_loop, daemon=True, name="cache-janitor").start()
+
+
+_start_cache_janitor()
 
 
 app_dir = Path(__file__).parent
@@ -838,6 +894,123 @@ async def api_health():
 # ---------------------------------------------------------------------------
 # /api/build-info — when frontend assets were last modified (for "page updated" display)
 # ---------------------------------------------------------------------------
+# ── Data frontier ────────────────────────────────────────────────────
+# How recent a date can a customer actually pick? JSOC's ingest lag is
+# real and it DRIFTS (measured ~5-6 days on 2026-08-09), so the two date
+# pickers' hardcoded guesses (today-7 and today-1) were respectively
+# over-cautious and wrong — the today-1 one let a beta tester choose a
+# date with no data and hit an error, which is what this replaces.
+#
+# Probe the synoptic archive, which is the deterministic URL the preview
+# path uses: walk back from today until a frame answers. Cheap (HEAD, no
+# body), cached, and self-correcting as the lag moves.
+_FRONTIER_CACHE = {"date": None, "checked_at": 0.0}
+_FRONTIER_TTL_SECONDS = 6 * 3600
+_FRONTIER_MAX_LOOKBACK_DAYS = 21
+_FRONTIER_FALLBACK_DAYS = 7
+
+
+def _probe_data_frontier() -> str:
+    """Most recent UTC date with a synoptic AIA frame at 12:00. Returns
+    YYYY-MM-DD. Falls back to today-7 if every probe fails (network down
+    → stay conservative rather than advertising dates we can't serve)."""
+    today = datetime.utcnow().date()
+    for back in range(0, _FRONTIER_MAX_LOOKBACK_DAYS + 1):
+        d = today - timedelta(days=back)
+        url = (f"{SYNOPTIC_BASE}/{d:%Y/%m/%d}/H1200/"
+               f"AIA{d:%Y%m%d}_1200_0193.fits")
+        try:
+            r = requests.head(url, timeout=(5, 10), allow_redirects=True)
+            if r.status_code == 200:
+                return d.isoformat()
+        except Exception:
+            continue
+    return (today - timedelta(days=_FRONTIER_FALLBACK_DAYS)).isoformat()
+
+
+@app.get("/api/data_frontier")
+async def api_data_frontier():
+    """Latest selectable observation date, plus the archive's first light.
+    The frontend clamps both date pickers to this instead of guessing."""
+    import time as _t
+    now = _t.time()
+    if (_FRONTIER_CACHE["date"] is None
+            or (now - _FRONTIER_CACHE["checked_at"]) > _FRONTIER_TTL_SECONDS):
+        try:
+            _FRONTIER_CACHE["date"] = await asyncio.to_thread(_probe_data_frontier)
+        except Exception as e:
+            print(f"[data_frontier] probe failed: {e}", flush=True)
+            _FRONTIER_CACHE["date"] = (
+                datetime.utcnow().date() - timedelta(days=_FRONTIER_FALLBACK_DAYS)
+            ).isoformat()
+        _FRONTIER_CACHE["checked_at"] = now
+    return {
+        "latest": _FRONTIER_CACHE["date"],
+        "earliest": "2010-05-15",
+        "checked_at": _FRONTIER_CACHE["checked_at"],
+        "ttl_seconds": _FRONTIER_TTL_SECONDS,
+    }
+
+
+@app.post("/api/print_file")
+async def api_print_file(request: Request, payload: dict = Body(...)):
+    """Compose the print file HERE from edit parameters, instead of shipping
+    the 4096² render to the browser and taking a ~40 MB PNG back.
+
+    Phase 1: geometry + colour only. Orders carrying a text overlay (or the
+    other client-drawn extras) are refused with `supported: false`, and the
+    caller keeps using the browser upload path for those — see
+    api/print_compose.py for why that line is drawn where it is.
+
+    Returns { url } pointing at a staged PNG under /asset/, which the
+    checkout hands to Printify directly."""
+    enforce_origin(request)
+    enforce_rate_limit(request, "print_file", 12, 300.0)
+
+    from api import print_compose
+
+    params = payload.get("params") or {}
+    src_url = str(payload.get("source_url") or "")
+    if not print_compose.supports_params(params):
+        return JSONResponse(status_code=200, content={
+            "supported": False,
+            "reason": "params require client-side rendering (text overlay or extras)",
+        })
+
+    # Resolve the source to a local file. Only our own /asset/ paths are
+    # accepted — this endpoint must never be a fetch-arbitrary-URL gadget.
+    name = os.path.basename(urlparse(src_url).path or "")
+    if not name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="source_url must reference a served asset")
+    candidates = [os.path.join(OUTPUT_DIR, name), str(DEFAULT_CACHE_DIR / name)]
+    src_path = next((p for p in candidates if os.path.exists(p) and os.path.getsize(p) > 1000), None)
+    if not src_path:
+        # The render may have been swept, or belongs to another instance.
+        return JSONResponse(status_code=200, content={
+            "supported": False, "reason": "source render not available on this instance",
+        })
+
+    import uuid as _uuid
+    out_dir = os.path.join(OUTPUT_DIR, "print_uploads")
+    os.makedirs(out_dir, exist_ok=True)
+    out_name = f"{_uuid.uuid4().hex}.png"
+    out_path = os.path.join(out_dir, out_name)
+    try:
+        await asyncio.to_thread(print_compose.compose, src_path, params, out_path)
+    except Exception as e:
+        print(f"[print_file] compose failed: {e}", flush=True)
+        return JSONResponse(status_code=200, content={
+            "supported": False, "reason": f"compose failed: {str(e)[:120]}",
+        })
+    size = os.path.getsize(out_path)
+    print(f"[print_file] composed {out_name} ({size/1e6:.1f} MB) from {os.path.basename(src_path)}", flush=True)
+    return {
+        "supported": True,
+        "url": f"/asset/print_uploads/{out_name}",
+        "size_bytes": size,
+    }
+
+
 @app.get("/api/build-info")
 async def api_build_info():
     """Return the latest modification time of index.html, solar-archive.js, solar-archive.css (UTC ISO)."""
@@ -1207,6 +1380,53 @@ def _shared_lev1_fits_path(mission, wavelength, dt) -> str:
     return os.path.join(OUTPUT_DIR, f"shared_lev1_{mission}_{wl_key}_{dt.strftime('%Y%m%d_%H%M')}.fits")
 
 
+# Full-resolution guard. The synoptic archive (_fetch_aia_synoptic) serves
+# 1024x1024 lev1.5 frames at CDELT1 = 2.4 arcsec/px — a quarter of lev1's
+# ~0.6 arcsec/px in each dimension. That is ample for the 384-px editor
+# preview but NOT for a 4K print, and the preview used to copy whatever
+# frame it happened to fetch into _shared_lev1_fits_path(), where the HQ
+# path would reuse it on the strength of the filename alone. This checks
+# the pixels instead of the name.
+#
+# Discriminator is CDELT1 (physical, survives resampling changes), with the
+# axis length as a secondary check that also handles tile-compressed frames
+# (ZNAXIS*). Unreadable header → False: refusing to reuse costs one VSO
+# fetch, reusing a quarter-scale frame costs print quality on a paid order.
+_FULL_RES_MAX_CDELT = 0.8   # arcsec/px; lev1 ≈ 0.6, synoptic = 2.4
+_FULL_RES_MIN_NAXIS = 4096
+
+
+def _is_full_res_lev1(path) -> bool:
+    """True only if `path` is a full-resolution AIA frame (~0.6 arcsec/px,
+    4096²). Never raises."""
+    try:
+        if not path or not os.path.exists(path) or os.path.getsize(path) < 100_000:
+            return False
+        from astropy.io import fits as _fits
+        with _fits.open(path, memmap=False) as hdul:
+            for hdu in hdul:
+                h = getattr(hdu, "header", None)
+                if not h:
+                    continue
+                cdelt = h.get("CDELT1")
+                if cdelt is not None:
+                    try:
+                        return float(cdelt) <= _FULL_RES_MAX_CDELT
+                    except (TypeError, ValueError):
+                        pass
+                n1 = h.get("ZNAXIS1") or h.get("NAXIS1")
+                n2 = h.get("ZNAXIS2") or h.get("NAXIS2")
+                if n1 and n2:
+                    try:
+                        return min(int(n1), int(n2)) >= _FULL_RES_MIN_NAXIS
+                    except (TypeError, ValueError):
+                        pass
+        return False
+    except Exception as e:
+        log_to_queue(f"[full-res-guard] could not read {os.path.basename(str(path))}: {e}")
+        return False
+
+
 def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, out_path_jpg, url_path_raw, url_path_filtered, url_path_jpg):
     """Blocking FITS fetch + raw and RHEF-filtered PNGs. Also fetches Helioviewer instant preview as JPG.
     Writes preview_SDO_{wl}_{date_str}_raw.png, _filtered.png, and _jpg.png (Helioviewer) for the UI."""
@@ -1430,11 +1650,18 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     # so the shared frame always reflects the most recent preview for this
     # date+wl. Best-effort: a copy failure just means HQ falls back to VSO.
     try:
-        _shared_dst = _shared_lev1_fits_path("SDO", wl, dt)
-        if os.path.abspath(fits_path) != os.path.abspath(_shared_dst):
-            import shutil as _shutil
-            _shutil.copy2(fits_path, _shared_dst)
-            log_to_queue(f"[generate_preview] Cached frame for HQ reuse: {os.path.basename(_shared_dst)}")
+        # Only a genuine full-res lev1 frame earns the shared slot. A 1024²
+        # synoptic frame is perfect for this preview and wrong for a print,
+        # and the HQ path trusts this file (see _is_full_res_lev1).
+        if not _is_full_res_lev1(fits_path):
+            log_to_queue(f"[generate_preview] Not caching {os.path.basename(fits_path)} for HQ reuse "
+                         f"— not full-res lev1 (synoptic/preview-grade frame).")
+        else:
+            _shared_dst = _shared_lev1_fits_path("SDO", wl, dt)
+            if os.path.abspath(fits_path) != os.path.abspath(_shared_dst):
+                import shutil as _shutil
+                _shutil.copy2(fits_path, _shared_dst)
+                log_to_queue(f"[generate_preview] Cached frame for HQ reuse: {os.path.basename(_shared_dst)}")
     except Exception as _share_err:
         log_to_queue(f"[generate_preview] Could not cache frame for HQ reuse: {_share_err}")
 
@@ -2220,12 +2447,23 @@ def _phase_b_load_default_image_b64():
 
 def _phase_b_pick_mockup_url(product_json):
     """Pick the primary mockup URL from a Printify product-create response.
-    Prefers the first image marked `is_default: true`, then the first front
-    image, then the first image overall. Returns None if there are no
-    usable mockup images."""
+
+    Preference order (Gilly, 2026-08-08): the in-context lifestyle camera
+    first — Printify tags every mockup URL with ?camera_label=…, and the
+    'context*' shots (product hung on a wall, held in hands in front of a
+    tree, on a desk) sell far better on the landing grid than the flat
+    catalog shot. Falls back to is_default → front → anything, which is
+    the pre-2026-08-08 behavior, for blueprints with no context camera."""
     imgs = (product_json or {}).get("images") or []
     if not imgs:
         return None
+    import re as _re
+    def _cam(img):
+        m = _re.search(r"camera_label=([A-Za-z0-9_-]+)", img.get("src") or "")
+        return (m.group(1) if m else "").lower()
+    for img in imgs:
+        if img.get("src") and _cam(img).startswith("context"):
+            return img["src"]
     for img in imgs:
         if img.get("is_default") and img.get("src"):
             return img["src"]
@@ -2359,15 +2597,22 @@ def _ensure_mockup_thumb(pid: str, manifest: dict) -> bool:
     return True
 
 
-def _phase_b_warm(image_id_cache):
+def _phase_b_warm(image_id_cache, force=False):
     """Synchronously pre-render + cache real Printify mockups for every
     product in `_DEFAULT_MOCKUP_PRODUCTS`. Idempotent: skips products
-    whose mockup file already exists on disk. Per-product try/except so
+    whose mockup file already exists on disk (unless `force`, which
+    regenerates everything — used when the selection logic or the
+    per-product source images change). Per-product try/except so
     one failure doesn't break the batch.
 
-    `image_id_cache` is a one-item list used as a lazy holder for the
-    uploaded image id — uploaded only when at least one product actually
-    needs to be rendered.
+    Source images: each product entry may carry a `vibe` slug — its
+    pre-warmed rhef_full.png becomes the mockup art, giving the landing
+    grid a spread of dates and wavelength palettes instead of one image
+    everywhere (Gilly, 2026-08-08). Products without a slug (or with the
+    artifact missing on disk) fall back to the Phase A default HQ.
+
+    `image_id_cache` is a dict cache {source_key: uploaded_image_id} —
+    each distinct source uploads at most once per run.
 
     Returns a summary dict with counts + per-product status + the
     written manifest path."""
@@ -2385,21 +2630,86 @@ def _phase_b_warm(image_id_cache):
         except Exception:
             manifest = {}
 
-    def _ensure_uploaded():
-        if image_id_cache[0]:
-            return image_id_cache[0]
-        b64 = _phase_b_load_default_image_b64()
-        body = {"file_name": DEFAULT_HQ_FILENAME, "contents": b64}
+    if not isinstance(image_id_cache, dict):
+        image_id_cache = {}
+
+    def _source_for(prod):
+        """(source_key, loader) for this product's mockup art: the vibe
+        slug's rhef_full.png when present on disk, else the default HQ."""
+        slug = prod.get("vibe")
+        if slug:
+            p = DEFAULT_CACHE_DIR / "vibe" / slug / "rhef_full.png"
+            if p.exists() and p.stat().st_size > 1000:
+                return slug, p
+        return "_default", None
+
+    def _pad_to_aspect(raw_bytes, ar):
+        """Pad (never crop) the square source to the product's print
+        aspect, filling with the image's own corner-average colour so the
+        extension reads as more corona-dark sky, not white paper. Cropping
+        was rejected: an 11:14 cover-crop of the square art would clip
+        ~20% off the Sun's disk. Returns PNG bytes; on any failure returns
+        the input unchanged (mockup then letterboxes, the old behavior)."""
+        try:
+            import io
+            from PIL import Image
+            ratio = float(ar[0]) / float(ar[1])
+            im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            w, h = im.size
+            if abs((w / h) - ratio) < 0.02:
+                return raw_bytes
+            if (w / h) < ratio:
+                new_w, new_h = int(round(h * ratio)), h
+            else:
+                new_w, new_h = w, int(round(w / ratio))
+            px = im.load()
+            k = max(2, min(w, h) // 50)
+            corners = [(0, 0), (w - k, 0), (0, h - k), (w - k, h - k)]
+            tot = [0, 0, 0]; n = 0
+            for cx, cy in corners:
+                for dx in range(0, k, 2):
+                    for dy in range(0, k, 2):
+                        p = px[cx + dx, cy + dy]
+                        tot[0] += p[0]; tot[1] += p[1]; tot[2] += p[2]; n += 1
+            fill = tuple(int(t / n) for t in tot)
+            canvas = Image.new("RGB", (new_w, new_h), fill)
+            canvas.paste(im, ((new_w - w) // 2, (new_h - h) // 2))
+            buf = io.BytesIO()
+            canvas.save(buf, "PNG")
+            return buf.getvalue()
+        except Exception as _e:
+            print(f"[warm_default][phase_b] pad_to_aspect failed (using original): {_e}", flush=True)
+            return raw_bytes
+
+    def _ensure_uploaded(prod):
+        import base64
+        key, path = _source_for(prod)
+        ar = prod.get("ar")
+        # One upload per distinct (source, print-aspect) pair.
+        ckey = key + (f"_{ar[0]:g}x{ar[1]:g}" if ar else "")
+        if image_id_cache.get(ckey):
+            return image_id_cache[ckey]
+        if path is not None:
+            raw = path.read_bytes()
+            fname = f"{ckey}_rhef_full.png"
+        else:
+            raw = base64.b64decode(_phase_b_load_default_image_b64())
+            fname = DEFAULT_HQ_FILENAME
+        if ar:
+            raw = _pad_to_aspect(raw, ar)
+        b64 = base64.b64encode(raw).decode("ascii")
+        body = {"file_name": fname, "contents": b64}
         r = _printify_request(
             "POST", f"{PRINTIFY_BASE}/uploads/images.json",
             headers=_headers(), json=body, timeout=120,
         )
         if r.status_code >= 400:
             raise RuntimeError(f"Printify upload failed: {r.status_code} {r.text[:200]}")
-        image_id_cache[0] = r.json().get("id")
-        if not image_id_cache[0]:
+        image_id = r.json().get("id")
+        if not image_id:
             raise RuntimeError(f"Printify upload returned no id: {r.text[:200]}")
-        return image_id_cache[0]
+        image_id_cache[ckey] = image_id
+        return image_id
 
     created = 0
     skipped = 0
@@ -2422,7 +2732,7 @@ def _phase_b_warm(image_id_cache):
         mock_path = DEFAULT_MOCKUPS_DIR / f"{pid}.png"
         status = {"id": pid}
         # Idempotent skip: file on disk AND manifest entry → done.
-        if mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
+        if not force and mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
             skipped += 1
             status["status"] = "skipped_cached"
             # Backfill the WebP grid thumbnail even for cached mockups so a
@@ -2439,7 +2749,7 @@ def _phase_b_warm(image_id_cache):
         time.sleep(1.2)
 
         try:
-            image_id = _ensure_uploaded()
+            image_id = _ensure_uploaded(prod)
             payload = {
                 "title": f"[MOCKUP-WARM] Solar Archive default — {pid}",
                 "description": "Auto-generated default mockup; will be deleted.",
@@ -2626,7 +2936,8 @@ async def warm_default(request: Request):
     # a thread to avoid blocking the asyncio loop for the heavy Printify
     # orchestration.
     try:
-        phase_b_result = await asyncio.to_thread(_phase_b_warm, [None])
+        _force = str(request.query_params.get("force", "")).strip().lower() in ("1", "true", "yes")
+        phase_b_result = await asyncio.to_thread(_phase_b_warm, {}, _force)
     except Exception as e:
         # Phase B failed wholesale (likely Phase A image missing or
         # Printify creds). Return Phase A success + the B error so the
@@ -3775,8 +4086,13 @@ def fido_fetch_map(dt: datetime, mission: str, wavelength: Optional[int], detect
         # preview frame exists, or if anything about the reuse goes wrong.
         # Skipped entirely when integrate=True: the checkout print wants the
         # multi-frame time-integrated combine, not the single preview frame.
+        # Belt-and-braces on the write-side guard in _generate_preview_sync:
+        # a frame cached by an older build (before that guard existed) could
+        # still be sitting at this path at quarter scale.
         shared_fits = _shared_lev1_fits_path(mission, wavelength, dt)
-        if not integrate and os.path.exists(shared_fits) and os.path.getsize(shared_fits) > 100_000:
+        if (not integrate and os.path.exists(shared_fits)
+                and os.path.getsize(shared_fits) > 100_000
+                and _is_full_res_lev1(shared_fits)):
             try:
                 import numpy as np
                 log_to_queue(f"[fetch][AIA] Reusing preview frame (no VSO fetch): {os.path.basename(shared_fits)}")

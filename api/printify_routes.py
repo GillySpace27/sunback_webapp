@@ -28,6 +28,7 @@ import logging
 
 from api.shopify_storefront import (
     cart_permalink,
+    ensure_pod_product_config,
     lookup_variant_id_by_sku,
     storefront_configured,
 )
@@ -1022,15 +1023,21 @@ def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client
          anchor (operator sells below cost), and a single clamp-up overcharges
          the cheapest size. Per-variant pricing is the only correct fix.
 
-    The model mirrors the editor's priceForVariantDisplay (api/solar-archive.js
-    :9189) exactly, so the customer is charged what they were shown:
+    The model mirrors the editor's priceForVariantDisplay (api/solar-archive.js)
+    exactly, so the customer is charged what they were shown. 2026-08-08
+    repricing (Gilly): proportional markup + merchandised ladder instead of the
+    old flat markup (which made a 46-size poster step by pennies and gave the
+    largest size the same dollar margin as the smallest):
 
-        markup        = max(0, anchor - cheapest_enabled_cost)
-        variant_price = variant_cost + markup            (always >= cost)
+        mult    = max(1, anchor / min_cost)
+        flat    = max(0, anchor - min_cost)
+        raw_v   = max(cost_v * mult, cost_v + flat)   (never less than before)
+        price_v = raw_v rounded UP to the next .99
+        ladder  = distinct cost tiers, ascending, forced >= $1.00 apart
 
     `anchor` is the product.checkoutPrice the client sent (the advertised
-    "From $X"). Using it only as the markup anchor means a tampered low anchor
-    can at worst drive margin to zero — it can never push a price below cost.
+    "From $X"). A tampered low anchor floors mult at 1 and flat at 0, so it
+    can at worst drive margin toward zero — never push a price below cost.
 
     Returns {variant_id: price_cents} for every variant we could price from the
     catalog. Variants the catalog has no cost for are omitted (caller refuses
@@ -1063,19 +1070,47 @@ def _compute_variant_prices(blueprint_id, print_provider_id, variant_ids, client
     # previous enabled-subset min produced a smaller markup than the editor
     # showed whenever the filtered set excluded the cheapest variant, so the
     # buyer was charged slightly less than displayed.)
-    all_costs = [
-        e["cost"] for e in bucket.values() if e.get("cost") is not None
-    ]
-    min_cost = min(all_costs) if all_costs else 0
     anchor = int(client_anchor) if isinstance(client_anchor, int) and client_anchor > 0 else 0
-    markup = max(0, anchor - min_cost)
+    price_by_cost = _ladder_prices(bucket, anchor)
     prices = {}
     for v in variant_ids:
         vid = int(v)
         entry = bucket.get(vid)
         if entry and entry.get("cost") is not None:
-            prices[vid] = int(entry["cost"]) + markup
+            prices[vid] = price_by_cost[int(entry["cost"])]
     return prices
+
+
+def _ceil99(cents: int) -> int:
+    """Round up to the next X.99 (in cents). Never below the input."""
+    p = (cents // 100) * 100 + 99
+    return p if p >= cents else p + 100
+
+
+def _ladder_prices(bucket: dict, anchor: int) -> dict:
+    """{cost_cents: price_cents} for every distinct cost in the bucket,
+    using the proportional-markup + merchandised-ladder rule documented in
+    _compute_variant_prices. MUST stay in lockstep with the editor's
+    _ladderFor (solar-archive.js priceForVariantDisplay) — charged price
+    must equal displayed price."""
+    costs = sorted({int(e["cost"]) for e in bucket.values() if e.get("cost") is not None})
+    if not costs:
+        return {}
+    min_cost = costs[0]
+    flat = max(0, anchor - min_cost)
+    mult = max(1.0, anchor / min_cost) if (anchor > 0 and min_cost > 0) else 1.0
+    out = {}
+    prev = None
+    for c in costs:
+        # int(x + 0.5) == JS Math.round for positive x (Python's round()
+        # banker's-rounds, which would drift from the display).
+        raw = max(int(c * mult + 0.5), c + flat)
+        p = _ceil99(raw)
+        if prev is not None and c != costs[0] and p < prev + 100:
+            p = prev + 100
+        out[c] = p
+        prev = p
+    return out
 
 
 @router.get("/blueprints/cheapest_costs")
@@ -1207,6 +1242,7 @@ def _do_checkout_sync(
     price: int,
     position: str,
     tags: list,
+    image_url: str = "",
 ) -> dict:
     """Blocking checkout logic — runs in a thread via run_in_threadpool.
 
@@ -1240,13 +1276,51 @@ def _do_checkout_sync(
     variant_ids = priced_variant_ids
 
     _log(f"[checkout] Step 1: uploading image ({len(image_base64)} chars)")
-    upload_resp = _printify_request(
-        "POST",
-        f"{PRINTIFY_BASE}/uploads/images.json",
-        headers=_headers(),
-        json={"file_name": file_name, "contents": image_base64},
-        timeout=120,
-    )
+    # Printify's base64 `contents` upload 413s ("The POST data is too
+    # large") somewhere above ~35 MB — hit live 2026-08-08 with a
+    # 41.7 MB HQ acrylic print file (the HQ auto-start made 4096-px
+    # PNG exports the norm at checkout). For big payloads, stage the
+    # PNG under OUTPUT_DIR (served at /asset/) and hand Printify a URL
+    # instead — their URL ingester takes files the POST body can't.
+    _URL_UPLOAD_THRESHOLD = 20 * 1024 * 1024  # b64 chars; ~15 MB binary
+    _staged_upload_path = None
+    if image_url:
+        # Server-composed print file (api/print_compose.py): the bytes never
+        # left this box, so hand Printify the URL and skip base64 entirely.
+        _abs = image_url if image_url.startswith("http") else f"{_public_base_url()}{image_url}"
+        _log(f"[checkout] Server-composed print file, uploading by URL: {_abs}")
+        upload_json = {"file_name": file_name, "url": _abs}
+    elif len(image_base64) > _URL_UPLOAD_THRESHOLD:
+        import base64 as _b64
+        import uuid as _uuid
+        from api.main import OUTPUT_DIR  # runtime import; no cycle at import time
+        _updir = os.path.join(OUTPUT_DIR, "print_uploads")
+        os.makedirs(_updir, exist_ok=True)
+        _staged_name = f"{_uuid.uuid4().hex}.png"
+        _staged_upload_path = os.path.join(_updir, _staged_name)
+        with open(_staged_upload_path, "wb") as _fh:
+            _fh.write(_b64.b64decode(image_base64))
+        _staged_url = f"{_public_base_url()}/asset/print_uploads/{_staged_name}"
+        _log(f"[checkout] Large print file — staging for URL upload: {_staged_url}")
+        upload_json = {"file_name": file_name, "url": _staged_url}
+    else:
+        upload_json = {"file_name": file_name, "contents": image_base64}
+    try:
+        upload_resp = _printify_request(
+            "POST",
+            f"{PRINTIFY_BASE}/uploads/images.json",
+            headers=_headers(),
+            json=upload_json,
+            timeout=180,
+        )
+    finally:
+        # Printify ingests the URL during the POST, so the staged file is
+        # disposable as soon as the call returns (success or not).
+        if _staged_upload_path:
+            try:
+                os.remove(_staged_upload_path)
+            except OSError:
+                pass
     if upload_resp.status_code not in (200, 201):
         raise Exception(f"Image upload failed ({upload_resp.status_code}): {upload_resp.text[:300]}")
 
@@ -1375,7 +1449,8 @@ async def checkout(request: Request):
     try:
         body = await request.json()
 
-        image_base64 = body.get("image_base64", "")
+        image_base64 = body.get("image_base64", "") or ""
+        image_url = body.get("image_url", "") or ""
         file_name = body.get("file_name", "solar_image.png")
         title = body.get("title", "Solar Archive Custom Product")
         description = body.get("description", "")
@@ -1392,8 +1467,12 @@ async def checkout(request: Request):
         position = body.get("position", "front")
         tags = body.get("tags", [])
 
-        if not image_base64:
-            raise HTTPException(status_code=400, detail="Missing image_base64")
+        if not image_base64 and not image_url:
+            raise HTTPException(status_code=400, detail="Missing image_base64 or image_url")
+        # Only our own staged assets may be referenced (never a caller-
+        # supplied external URL — that would make this a fetch gadget).
+        if image_url and not image_url.startswith("/asset/"):
+            raise HTTPException(status_code=400, detail="image_url must be a served /asset/ path")
         if not blueprint_id or not print_provider_id or not variant_ids:
             raise HTTPException(status_code=400, detail="Missing blueprint_id, print_provider_id, or variant_ids")
 
@@ -1402,7 +1481,7 @@ async def checkout(request: Request):
             _do_checkout_sync,
             image_base64, file_name, title, description,
             blueprint_id, print_provider_id, variant_ids,
-            price, position, tags,
+            price, position, tags, image_url,
         )
         return JSONResponse(content=result)
 
@@ -1459,6 +1538,10 @@ def _fetch_shopify_url_sync(product_id: str) -> dict:
 
     slug = slug_only(handle) or slug_only(external_id)
     if slug:
+        # Per-order products arrive from Printify with DENY inventory and
+        # no headless-channel publication; patch both before the buyer
+        # reaches Shopify (no-op without SHOPIFY_ADMIN_ACCESS_TOKEN).
+        ensure_pod_product_config(slug)
         return {"status": "ready", "shopify_url": f"https://{SHOPIFY_STORE_DOMAIN}/products/{slug}"}
     return {"status": "pending"}
 
@@ -1570,6 +1653,10 @@ def _build_cart_url_sync(printify_product_id: str, variant_id: int) -> dict:
     handle = _shopify_handle_from_printify(product)
     if not handle:
         return {"status": "pending"}
+    # Same post-publish patch as _fetch_shopify_url_sync: fix inventory
+    # policy and headless publication before building the cart link, so
+    # the Storefront lookup below can actually see the product.
+    ensure_pod_product_config(handle)
     product_page_url = f"https://{SHOPIFY_STORE_DOMAIN}/products/{handle}"
     fallback = {
         "status": "ready",
