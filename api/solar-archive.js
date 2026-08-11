@@ -13264,6 +13264,97 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       else window.addEventListener("load", kick, { once: true });
     })();
 
+    // ── Real Printify mockups inside the size picker ──────────────
+    // The picker's canvas composite shows the right SHAPE but not the real
+    // product. Once a variant is chosen we ask Printify for an actual
+    // rendered photo of that exact variant with the user's Sun on it, so the
+    // add-to-cart / open-the-editor decision is made against the real thing.
+    //
+    // Cost discipline, because every one of these creates a throwaway
+    // [MOCKUP] draft on Printify (swept later by _sweep_stale_mockup_drafts):
+    //   - ONE camera angle per variant, never the full set
+    //   - cached per (product, variant, tier) so re-tapping is free
+    //   - debounced, so tapping through four sizes fires once, not four times
+    //   - one request in flight at a time; stale replies are dropped
+    //   - skipped entirely until the science image is good enough to be worth
+    //     a draft (matches the editor button's long-standing rule)
+    var _variantMockupCache = {};      // key -> {url} once resolved
+    var _variantMockupToken = 0;       // supersedes stale in-flight replies
+    var _variantMockupTimer = null;    // debounce handle
+    var _VARIANT_MOCKUP_DEBOUNCE_MS = 700;
+
+    function _variantMockupTier() {
+      return (state.editorFilter === "rhef" || state.editorFilter === "hq_rhef")
+        ? "filtered" : "raw";
+    }
+    function _variantMockupKey(productId, variantId) {
+      return productId + ":" + variantId;
+    }
+    // Pick ONE image out of Printify's camera set. Prefer the flagged
+    // default, then a front view, else whatever came first.
+    function _pickOneMockupImage(images) {
+      if (!images || !images.length) return null;
+      var hit = images.find(function (im) { return im && im.is_default; })
+             || images.find(function (im) { return im && im.position === "front"; })
+             || images[0];
+      return (hit && hit.src) || null;
+    }
+    // Resolve a Printify upload id for the picker's preview.
+    //
+    // Deliberately does NOT touch state.uploadedPrintifyIdRaw/Filtered, the
+    // cache the editor's mockup button and the checkout upload share. The
+    // picker runs before the science FITS has landed, so its source is often
+    // the low-res JPG preview; writing that into the shared cache would let a
+    // JPG-grade upload be reused for the editor mockup and, worse, the print
+    // file. One upload per tier per session is plenty for a 240px preview.
+    var _pickerUploadIds = {};
+    function _ensurePrintifyUploadId(tier) {
+      var key = tier;
+      if (_pickerUploadIds[key]) return Promise.resolve(_pickerUploadIds[key]);
+      var fname = "preview_" + ((dateInput && dateInput.value) || "image") + "_" +
+                  state.wavelength + "_" + tier + ".png";
+      var b64;
+      try { b64 = getCanvasBase64(); } catch (_e) { return Promise.reject(new Error("canvas unavailable")); }
+      if (!b64) return Promise.reject(new Error("canvas empty"));
+      return fetchWithTimeout(API_BASE + "/api/printify/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_name: fname, contents: b64 })
+      }, 90000)
+        .then(function (r) { return r.ok ? r.json() : r.text().then(function (t) { throw new Error(t); }); })
+        .then(function (data) {
+          if (!data || !data.id) throw new Error("no image id");
+          _pickerUploadIds[key] = data.id;
+          return data.id;
+        });
+    }
+    // One variant, one camera. Resolves to an image URL or null.
+    function _fetchVariantMockup(product, variantId, tier) {
+      return _ensurePrintifyUploadId(tier).then(function (imageId) {
+        var payload = {
+          title: "[MOCKUP] Size picker — " + product.name,
+          description: "Auto-generated variant preview",
+          blueprint_id: product.blueprintId,
+          print_provider_id: product.printProviderId,
+          variants: [{ id: variantId, price: 100, is_enabled: true }],
+          print_areas: [{
+            variant_ids: [variantId],
+            placeholders: [{
+              position: product.position || "front",
+              images: [{ id: imageId, x: 0.5, y: 0.5, scale: 1, angle: 0 }]
+            }]
+          }]
+        };
+        return fetchWithTimeout(API_BASE + "/api/printify/product", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }, 90000);
+      })
+        .then(function (r) { return r.ok ? r.json() : r.text().then(function (t) { throw new Error(t); }); })
+        .then(function (data) { return _pickOneMockupImage(data && data.images); });
+    }
+
     function showConfirmSelectModal(product, onContinue) {
       var modal = document.getElementById("confirmSelectModal");
       var listEl = document.getElementById("confirmSelectVariantList");
@@ -13504,6 +13595,88 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         } catch (e) {
           mockupEl.classList.add("empty");
         }
+        // The canvas above is the instant answer. Ask Printify for a real
+        // photo of this exact variant in the background and swap it in.
+        _scheduleVariantMockup(variant);
+      }
+
+      // Paint a resolved Printify photo over the canvas composite. Kept
+      // visually identical in size so the swap doesn't jump the layout.
+      function _paintVariantMockup(url) {
+        if (!mockupEl || !url) return;
+        var img = new Image();
+        img.alt = product.name + " preview";
+        img.className = "confirm-mockup-canvas";
+        img.style.width = "240px";
+        img.style.height = "auto";
+        img.style.borderRadius = "10px";
+        img.onload = function () {
+          // Only paint if this is still the variant on screen.
+          if (!mockupEl.isConnected) return;
+          mockupEl.innerHTML = "";
+          mockupEl.classList.remove("empty");
+          mockupEl.appendChild(img);
+          _setVariantMockupNote("");
+        };
+        img.src = url;
+      }
+      function _setVariantMockupNote(text) {
+        if (!mockupEl) return;
+        var note = mockupEl.parentNode && mockupEl.parentNode.querySelector(".confirm-mockup-note");
+        if (!text) { if (note) note.remove(); return; }
+        if (!note) {
+          note = document.createElement("div");
+          note.className = "confirm-mockup-note";
+          note.style.cssText = "font-size:0.75rem;opacity:0.72;margin-top:6px;text-align:center;";
+          if (mockupEl.parentNode) mockupEl.parentNode.insertBefore(note, mockupEl.nextSibling);
+        }
+        note.textContent = text;
+      }
+      // Debounced, cached, one-in-flight request for the real photo.
+      function _scheduleVariantMockup(variant) {
+        var vid = (variant && variant.id) || pendingVariantId;
+        if (!vid || !product.blueprintId || !product.printProviderId) return;
+        // Only requirement is that there IS an image. Deliberately looser
+        // than the editor's mockup button, which refuses below MQ: that rule
+        // protects print quality, and this is a preview of SHAPE and finish.
+        // The picker runs before the science FITS lands, so demanding MQ here
+        // would mean the real photo essentially never appeared. The print
+        // file is composed separately at checkout and keeps its own gate.
+        var q = (typeof _printQualityState === "function") ? _printQualityState() : "hq_ready";
+        if (!state.originalImage || q === "no_image") {
+          _setVariantMockupNote("");
+          return;
+        }
+        // ONE mockup per variant per session, full stop. Tier and quality are
+        // deliberately NOT part of the key: both drift upward while the
+        // science image loads (jpg → raw → rhef), and including them meant
+        // every tap during that window burned another Printify draft. At the
+        // 240px preview size the tiers are near-indistinguishable, so the
+        // extra drafts bought nothing.
+        var tier = _variantMockupTier();
+        var key = _variantMockupKey(product.id, vid);
+        var cached = _variantMockupCache[key];
+        if (cached && cached.url) { _paintVariantMockup(cached.url); return; }
+
+        if (_variantMockupTimer) clearTimeout(_variantMockupTimer);
+        var myToken = ++_variantMockupToken;
+        _setVariantMockupNote("Rendering a real product photo…");
+        _variantMockupTimer = setTimeout(function () {
+          if (myToken !== _variantMockupToken) return;   // superseded by a newer tap
+          _fetchVariantMockup(product, vid, tier)
+            .then(function (url) {
+              if (myToken !== _variantMockupToken) return;
+              if (!url) { _setVariantMockupNote(""); return; }
+              _variantMockupCache[key] = { url: url };
+              _paintVariantMockup(url);
+            })
+            .catch(function () {
+              if (myToken !== _variantMockupToken) return;
+              // Non-fatal: the canvas composite is still on screen and is a
+              // perfectly usable preview. Say nothing rather than alarm.
+              _setVariantMockupNote("");
+            });
+        }, _VARIANT_MOCKUP_DEBOUNCE_MS);
       }
       function _selectInModal(vid) {
         pendingVariantId = vid;
