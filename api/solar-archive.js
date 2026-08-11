@@ -111,6 +111,18 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         banner.classList.add("hidden");
         return;
       }
+      // Framed (e.g. the legacy Shopify-homepage iframe embed): iframe
+      // support was removed, the embed clips the page, and the banner's
+      // buttons proved unreachable inside the frame (2026-08-10 cart QA).
+      // Run strictly-necessary only: no analytics, no banner, and no
+      // persisted choice so a later standalone visit still gets asked.
+      var _framed = false;
+      try { _framed = (window.self !== window.top); }
+      catch (_e) { _framed = true; /* cross-origin throw = framed */ }
+      if (_framed) {
+        banner.classList.add("hidden");
+        return;
+      }
       if (_cookieConsentState()) {
         if (_cookieConsentState() === "accept") {
           _initGA4();
@@ -2403,7 +2415,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
         // Surface the image as the active vibe so the master toggle
         // (rendered in the breadcrumb on step "image") drives mockups.
-        if (typeof setStep === "function" && state.currentStep === "product") {
+        // NOT for the default landing image: the cold-load bootstrap
+        // (dateInput.value = "2014-10-24" + synthetic change event) funnels
+        // through this same handler, and the unconditional hop yanked every
+        // fresh visitor off the step-"product" landing onto step "image":
+        // the first numbered section they saw was "2 · Pick an image" with
+        // step 1 hidden (2026-08-10 cart QA). A user-picked image always
+        // has isDefaultActive false.
+        if (typeof setStep === "function" && state.currentStep === "product"
+            && !state.isDefaultActive) {
           setStep("image");
         }
         if (typeof _renderBreadcrumb === "function") _renderBreadcrumb();
@@ -10428,6 +10448,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             '<div class="product-desc">' + p.desc + "</div>" +
             '<div class="product-price" data-product-id="' + p.id + '">' + productPriceGridHtml(p) + "</div>" +
             '<button class="product-buy-btn product-select-btn" data-product-id="' + p.id + '" aria-expanded="false"' +
+              // Named per product: 30+ identical "Choose size & colour"
+              // buttons are indistinguishable to a screen-reader user
+              // tabbing the grid (2026-08-10 cart QA).
+              ' aria-label="Choose size &amp; colour for ' + escapeHtmlSimple(p.name) + '"' +
               (canSelect ? '' : ' disabled') + '>' + selectLabel + '</button>' +
             '<div class="variant-panel hidden" data-product-id="' + p.id + '"></div>' +
           "</div>";
