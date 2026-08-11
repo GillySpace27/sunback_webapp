@@ -1322,12 +1322,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       var intro = document.getElementById("productSectionIntro");
       if (!title || !intro) return;
       var editorOpen = editSection && !editSection.classList.contains("hidden");
+      // Both strings must stay honest about whose Sun the cards show. Since
+      // the grid moved to pre-rendered Printify photography, a card shows the
+      // archive Sun that product was warmed with, NOT the user's pick \u2014 their
+      // Sun is on the editor canvas and in the size modal.
       if (editorOpen && state.selectedProduct) {
         title.textContent = "Product examples";
-        intro.innerHTML = "Your image looks great on all of these. Click any card to switch your selection \u2014 or stick with what you have and head to checkout.";
+        intro.innerHTML = "Stock photos of each product, every one with a different Sun. Yours is on the canvas above \u2014 click any card to print it on something else.";
       } else {
         title.textContent = "Choose your product";
-        intro.innerHTML = "Click <strong>Choose size &amp; colour</strong>, then pick the Sun image you want printed.";
+        intro.innerHTML = "Real product photos, each showing a different Sun from the archive. Click <strong>Choose size &amp; colour</strong> to see <strong>your</strong> Sun on one.";
       }
     }
 
@@ -5509,33 +5513,6 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // short-circuits to the cached PNG instead of running the 1–3 min
         // pipeline. Cache MISS is fine — the server's do_generate_sync
         // self-restores from /var/data on the eventual HQ request anyway.
-        // Fetch the pre-rendered REAL Printify mockup manifest (Phase B).
-        // When present, renderProducts will render <img> tiles instead of
-        // the JS canvas approximations for the default landing image.
-        // Missing / 404 is fine — falls through to the canvas mockups.
-        (function _fetchDefaultMockupManifest() {
-          fetch("/asset/default/default_mockups.json", { cache: "no-store" })
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (json) {
-              if (!json || typeof json !== "object") return;
-              // setter — `defaultMockupManifest` is a `let` binding in
-              // state.js and module imports are read-only from outside
-              // the declaring module.
-              setDefaultMockupManifest(json);
-              if (typeof renderProducts === "function" && state.isDefaultActive) {
-                renderProducts();
-              }
-              // Race-safety: a user who selected a product BEFORE the
-              // manifest fetch returned would still see the buy/download
-              // button disabled. Re-run the gate now that the Phase B
-              // manifest is in memory — _hasRealMockup will pick it up.
-              if (state.isDefaultActive && state.selectedProduct) {
-                if (typeof updateBuyButtonState === "function") updateBuyButtonState();
-                if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
-              }
-            })
-            .catch(function () { /* not warmed yet — fine */ });
-        })();
         function _primeDefaultHQ() {
           // STRESS-015: the legacy /asset/hq_SDO_193_20141024.png path
           // no longer exists on prod (the file moved to the per-vibe
@@ -5605,6 +5582,38 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         }
       }
     }
+
+    // Fetch the pre-rendered REAL Printify mockup manifest (Phase B). When
+    // present, renderProducts renders <img> tiles of the actual products
+    // instead of JS canvas approximations. Missing / 404 is fine — the cards
+    // fall through to the canvas branch.
+    //
+    // Module scope on purpose. This used to live inside
+    // `if (dateInput) { if (!dateInput.value) { ... } }`, which meant it only
+    // ran when the date field was empty at bootstrap. Browsers restore
+    // <input type="date"> values across a soft reload, so on F5 the whole
+    // block was skipped, the manifest was never fetched, and every card fell
+    // to the canvas approximation.
+    (function _fetchDefaultMockupManifest() {
+      fetch("/asset/default/default_mockups.json", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (json) {
+          if (!json || typeof json !== "object") return;
+          // setter — `defaultMockupManifest` is a `let` binding in state.js
+          // and module imports are read-only from outside the declaring module.
+          setDefaultMockupManifest(json);
+          // Unconditional repaint: a manifest that resolves after the user has
+          // already picked a Sun still needs to reveal itself.
+          if (typeof renderProducts === "function") renderProducts();
+          // Race-safety: a user who selected a product BEFORE the manifest
+          // returned would still see the buy/download button disabled.
+          if (state.selectedProduct) {
+            if (typeof updateBuyButtonState === "function") updateBuyButtonState();
+            if (typeof _applyBetaModeUI === "function") _applyBetaModeUI();
+          }
+        })
+        .catch(function () { /* not warmed yet — fine */ });
+    })();
 
     // Eager-render the product grid pre-image so users can browse the catalog
     // while a wavelength image is loading (or before they even pick one). The
@@ -10569,9 +10578,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // loading…" hint on the grid container so cold-load feels
       // intentional. The hint clears on the second render (when the
       // manifest is in memory).
-      var _coldNoManifest = state.isDefaultActive &&
-                            (!defaultMockupManifest ||
-                             Object.keys(defaultMockupManifest || {}).length === 0);
+      // Not gated on isDefaultActive: the manifest now drives every card, so
+      // "still loading" is true on any cold render that lacks it, not just on
+      // the pristine landing.
+      var _coldNoManifest = !defaultMockupManifest ||
+                            Object.keys(defaultMockupManifest || {}).length === 0;
       productGrid.classList.toggle("is-loading-mockups", _coldNoManifest);
       // The user-requested grid lives below the main grid, hidden unless the
       // session has at least one requested product. Requested products render
@@ -10629,7 +10640,16 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // Phase B default-manifest variant carries a single URL,
         // not an images[] array, so it gets a simpler render path.
         var hasGeneratedMockup = state.mockups[p.id] && state.mockups[p.id].images && state.mockups[p.id].images.length > 0;
-        var hasDefaultMockup = state.isDefaultActive && defaultMockupManifest && defaultMockupManifest[p.id] && defaultMockupManifest[p.id].url;
+        // Pre-rendered Printify photo, if we have one for this product.
+        // Deliberately NOT gated on state.isDefaultActive any more: under the
+        // image-first funnel the user always picks a Sun before reaching this
+        // grid, and picking one clears that latch, so the gate could never be
+        // true here and every card fell to the canvas approximation. The grid
+        // is a PRODUCT chooser; a real photo of the product (each showing a
+        // different archive Sun) beats a rough canvas of the right Sun. Their
+        // own Sun appears in the size modal and the editor.
+        var defEntry = (defaultMockupManifest && defaultMockupManifest[p.id]) || null;
+        var hasDefaultMockup = !!(defEntry && defEntry.url);
         var hasMockup = hasGeneratedMockup || hasDefaultMockup;
         var statusDot = hasMockup
           ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
@@ -10771,16 +10791,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             })(p.id, mockImages, img, ctrBadge, slideLoader);
           }
           _addIconBadge(previewEl, p.icon);
-        } else if (
-          state.isDefaultActive
-          && defaultMockupManifest
-          && defaultMockupManifest[p.id]
-          && defaultMockupManifest[p.id].url
-        ) {
-          // Default-image, real Printify mockup cached on disk (Phase B):
-          // photorealistic actual-product photo for the landing showcase.
-          // Falls back to the canvas branch below the moment the user
-          // personalizes (state.isDefaultActive flips false).
+        } else if (hasDefaultMockup) {
+          // Real Printify mockup cached on disk (Phase B): a photorealistic
+          // photo of the actual product. Each product's warm art is a
+          // different archive moment (see _DEFAULT_MOCKUP_PRODUCTS' `vibe`
+          // keys in main.py), so the grid reads as a varied gallery rather
+          // than 36 copies of one Sun.
           var realImg = new Image();
           realImg.alt = p.name + " mockup";
           realImg.loading = "lazy";
@@ -10791,7 +10807,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           // (~20-30KB) when the warm manifest carries one, falling back to the
           // full 1200² PNG (~300-540KB) for older caches without thumbs. The
           // full url is still used for the download/print bundle elsewhere.
-          realImg.src = defaultMockupManifest[p.id].thumb_url || defaultMockupManifest[p.id].url;
+          realImg.src = defEntry.thumb_url || defEntry.url;
           var realPreviewEl = card.querySelector(".product-preview");
           realPreviewEl.innerHTML = "";
           realPreviewEl.appendChild(realImg);
