@@ -1331,7 +1331,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         intro.innerHTML = "Stock photos of each product, every one with a different Sun. Yours is on the canvas above \u2014 click any card to print it on something else.";
       } else {
         title.textContent = "Choose your product";
-        intro.innerHTML = "Real product photos, each showing a different Sun from the archive. Click <strong>Choose size &amp; colour</strong> to see <strong>your</strong> Sun on one.";
+        intro.innerHTML = "Real product photos, each showing a different Sun from the archive. Click <strong>Choose variant</strong> to see <strong>your</strong> Sun on one.";
       }
     }
 
@@ -9976,7 +9976,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }
       var labelSpan = btn.querySelector(".product-select-btn-label");
       if (labelSpan) {
-        labelSpan.textContent = open ? "Hide sizes" : "Choose size & colour";
+        labelSpan.textContent = open ? "Hide variants" : "Choose variant";
       }
     }
 
@@ -10518,7 +10518,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (product.id === "wall_clock") {
         html += '<p class="variant-clock-note">Some options differ by hand color (white vs black).</p>';
       }
-      html += '<p class="variant-pick-hint">Use <strong>Choose size &amp; colour</strong> above to change.</p>';
+      html += '<p class="variant-pick-hint">Use <strong>Choose variant</strong> above to change.</p>';
       html += '</div>';
       panel.innerHTML = html;
 
@@ -10669,7 +10669,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var canSelect = !!p.blueprintId && !!p.printProviderId;
         var selectLabel = !p.blueprintId
           ? '<i class="fas fa-spinner fa-spin"></i> Resolving\u2026'
-          : '<i class="fas fa-arrow-right"></i> <span class="product-select-btn-label">Choose size &amp; colour</span>';
+          : '<i class="fas fa-arrow-right"></i> <span class="product-select-btn-label">Choose variant</span>';
 
         card.className = "product-card";
         card.dataset.productId = p.id;
@@ -10692,10 +10692,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             '<div class="product-desc">' + p.desc + "</div>" +
             '<div class="product-price" data-product-id="' + p.id + '">' + productPriceGridHtml(p) + "</div>" +
             '<button class="product-buy-btn product-select-btn" data-product-id="' + p.id + '" aria-expanded="false"' +
-              // Named per product: 30+ identical "Choose size & colour"
-              // buttons are indistinguishable to a screen-reader user
-              // tabbing the grid (2026-08-10 cart QA).
-              ' aria-label="Choose size &amp; colour for ' + escapeHtmlSimple(p.name) + '"' +
+              // Named per product: 30+ identical "Choose variant" buttons
+              // are indistinguishable to a screen-reader user tabbing the
+              // grid (2026-08-10 cart QA).
+              ' aria-label="Choose variant for ' + escapeHtmlSimple(p.name) + '"' +
               (canSelect ? '' : ' disabled') + '>' + selectLabel + '</button>' +
             '<div class="variant-panel hidden" data-product-id="' + p.id + '"></div>' +
           "</div>";
@@ -13455,10 +13455,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (titleEl) titleEl.textContent = product.name;
       if (subEl) {
         subEl.textContent = product._isUserRequested
-          ? "Your request (pending review). Choose a size and colour, then continue."
+          ? "Your request (pending review). Choose a variant, then continue."
           : (state.originalImage
-              ? "Choose a size and colour for your Sun."
-              : "Choose a size and colour, then pick your image.");
+              ? "Choose a variant for your Sun."
+              : "Choose a variant, then pick your image.");
       }
 
       function _variantsList() {
@@ -13620,17 +13620,25 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         };
         img.src = url;
       }
-      function _setVariantMockupNote(text) {
+      // Progress line under the picker's preview. `busy` adds the Font
+      // Awesome spinner already used elsewhere in the app (the bare
+      // .spinner class has no standalone rule — only .status-msg .spinner
+      // — so fa-spin is the one that actually animates here).
+      function _setVariantMockupNote(text, busy) {
         if (!mockupEl) return;
         var note = mockupEl.parentNode && mockupEl.parentNode.querySelector(".confirm-mockup-note");
         if (!text) { if (note) note.remove(); return; }
         if (!note) {
           note = document.createElement("div");
           note.className = "confirm-mockup-note";
-          note.style.cssText = "font-size:0.75rem;opacity:0.72;margin-top:6px;text-align:center;";
+          note.style.cssText = "font-size:0.75rem;opacity:0.72;margin-top:8px;text-align:center;" +
+                               "display:flex;align-items:center;justify-content:center;gap:7px;";
+          note.setAttribute("role", "status");
+          note.setAttribute("aria-live", "polite");
           if (mockupEl.parentNode) mockupEl.parentNode.insertBefore(note, mockupEl.nextSibling);
         }
-        note.textContent = text;
+        note.innerHTML = (busy ? '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> ' : "") +
+                         escapeHtmlSimple(text);
       }
       // Debounced, cached, one-in-flight request for the real photo.
       function _scheduleVariantMockup(variant) {
@@ -13660,7 +13668,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
         if (_variantMockupTimer) clearTimeout(_variantMockupTimer);
         var myToken = ++_variantMockupToken;
-        _setVariantMockupNote("Rendering a real product photo…");
+        _setVariantMockupNote("Rendering a real product photo…", true);
         _variantMockupTimer = setTimeout(function () {
           if (myToken !== _variantMockupToken) return;   // superseded by a newer tap
           _fetchVariantMockup(product, vid, tier)
