@@ -52,8 +52,52 @@ if [ -d "../../$DC" ] || [ -d "../$DC" ]; then
     cp "$d"raw_thumb.png "$d"rhef_thumb.png "$DEST/vibe/$slug/" 2>/dev/null || true
   done
   echo "static landing assets: $(find "$DEST" -type f | wc -l | tr -d ' ') files, $(du -sh "$DEST" | cut -f1)"
+
+  # ── Staleness guard ────────────────────────────────────────────
+  # Static Assets SHADOW the Fly origin: whatever lands in public/ wins,
+  # and Cloudflare then holds it for 30 days immutable. A mirror nobody
+  # refreshed silently masked a good warm for days (25 stale front-camera
+  # entries at the edge while Fly served 37 with context cameras, and 12
+  # products had no card photo at all). Never again silently: compare what
+  # we just copied against the live origin and refuse to ship a mirror that
+  # would mask it. Soft-fail when Fly is unreachable so offline builds work;
+  # ALLOW_STALE_MIRROR=1 to ship anyway.
+  ORIGIN="${ORIGIN:-https://myheliograph-api.fly.dev}"
+  FLY_MANIFEST=$(mktemp)
+  # shellcheck disable=SC2064
+  trap "rm -f '$FLY_MANIFEST'" EXIT
+  if curl -fsS --max-time 120 -o "$FLY_MANIFEST" "$ORIGIN/asset/default/default_mockups.json" 2>/dev/null; then
+    # Heredoc owns stdin, so the manifest travels as a file path, not a pipe.
+    python3 - "$DEST" "${ALLOW_STALE_MIRROR:-0}" "$FLY_MANIFEST" <<'PY'
+import json, sys, pathlib
+dest, allow = pathlib.Path(sys.argv[1]), sys.argv[2] == "1"
+fly = json.loads(pathlib.Path(sys.argv[3]).read_text())
+problems = []
+for pid, entry in sorted(fly.items()):
+    thumb = entry.get("thumb_url")
+    if not thumb:
+        continue
+    p = dest / "mockups" / pathlib.Path(thumb).name
+    if not p.exists():
+        problems.append(f"{pid}: missing from mirror (origin has it)")
+    elif p.stat().st_size != entry.get("thumb_size_bytes"):
+        problems.append(
+            f"{pid}: {p.stat().st_size} B in mirror vs {entry.get('thumb_size_bytes')} B on origin")
+if problems:
+    print("\nSTALE MIRROR — public/ would shadow fresher assets on Fly:")
+    for p in problems[:15]:
+        print("  " + p)
+    if len(problems) > 15:
+        print(f"  ... and {len(problems) - 15} more")
+    print("\nFix: ./infra/scripts/pull_fly_assets.sh   (or ALLOW_STALE_MIRROR=1 to ship anyway)")
+    sys.exit(0 if allow else 1)
+print(f"staleness guard: OK, {len(fly)} entries match the origin")
+PY
+  else
+    echo "WARN: could not reach $ORIGIN — skipping staleness check"
+  fi
 else
-  echo "WARN: no default_cache mirror — landing manifests will fall through to Fly (run pull_render_data.sh)"
+  echo "WARN: no default_cache mirror — landing manifests will fall through to Fly (run pull_fly_assets.sh)"
 fi
 
 echo "public/ built:"
