@@ -35,16 +35,16 @@ function ringWedge(a0: number, a1: number) {
 
 function makeLabel(text: string) {
   const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 72;
+  c.width = 512;
+  c.height = 144;
   const g = c.getContext("2d")!;
-  g.font = "600 32px Inter, system-ui, sans-serif";
+  g.font = "600 64px Inter, system-ui, sans-serif";
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillStyle = "rgba(0,0,0,0.6)";
-  g.fillText(text, 129, 38);
+  g.fillStyle = "rgba(0,0,0,0.65)";
+  g.fillText(text, 258, 76);
   g.fillStyle = "#fff";
-  g.fillText(text, 128, 36);
+  g.fillText(text, 256, 72);
   return new THREE.CanvasTexture(c);
 }
 
@@ -130,7 +130,7 @@ export default function Heliograph() {
             />
           </mesh>
           <mesh position={w.labelPos} raycast={() => null}>
-            <planeGeometry args={[0.82, 0.23]} />
+            <planeGeometry args={[1.64, 0.46]} />
             <meshBasicMaterial map={w.label} transparent depthWrite={false} toneMapped={false} />
           </mesh>
         </group>
