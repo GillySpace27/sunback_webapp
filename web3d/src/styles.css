@@ -1,0 +1,232 @@
+:root {
+  --bg: #05060a;
+  --ink: #f3efe6;
+  --muted: #9aa0ad;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The scroll track sets the film's length; the stage is fixed behind it. */
+.scroll-space {
+  height: 720vh;
+}
+.stage,
+.canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+}
+.stage {
+  z-index: 0;
+}
+
+/* ---- copy overlay ---- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+  pointer-events: none;
+  padding: 6vh 8vw;
+}
+.overlay-line {
+  grid-area: 1 / 1;
+  margin: 0;
+  text-align: center;
+  max-width: 22ch;
+  will-change: opacity, transform;
+}
+.eyebrow {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: clamp(0.6rem, 1.4vw, 0.75rem);
+  color: var(--muted);
+  margin-bottom: 1.4rem;
+}
+.line {
+  font-size: clamp(1.5rem, 4.2vw, 3.1rem);
+  line-height: 1.18;
+  font-weight: 400;
+  margin: 0;
+  text-wrap: balance;
+}
+.line.climax {
+  font-style: italic;
+  font-size: clamp(1.8rem, 5vw, 3.8rem);
+}
+.cta,
+.fallback .cta {
+  pointer-events: auto;
+  display: inline-block;
+  margin-top: 2rem;
+  padding: 0.8rem 2rem;
+  border: 1px solid rgba(243, 239, 230, 0.4);
+  border-radius: 999px;
+  color: var(--ink);
+  text-decoration: none;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  font-size: 0.9rem;
+  transition: background 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s;
+}
+.cta:hover {
+  background: var(--ink);
+  color: #0a0a0f;
+}
+
+/* ---- wavelength picker ---- */
+.picker {
+  position: fixed;
+  left: 50%;
+  bottom: max(3vh, env(safe-area-inset-bottom));
+  transform: translate(-50%, 20px);
+  display: flex;
+  gap: clamp(0.4rem, 1.6vw, 1rem);
+  padding: 0.75rem 1rem;
+  margin: 0;
+  border: 0;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 96vw;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.picker--in {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+.swatch {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.swatch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.swatch-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--tint);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s;
+}
+.swatch:hover .swatch-dot {
+  transform: scale(1.15);
+}
+.swatch input:checked + .swatch-dot {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 2px var(--ink), 0 0 18px var(--tint);
+}
+.swatch input:focus-visible + .swatch-dot {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.swatch-label {
+  font-size: 0.62rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ---- loader / fallback ---- */
+.loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  z-index: 5;
+}
+.loader-spark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff2c2;
+  box-shadow: 0 0 24px 6px #ffcf87;
+  animation: ignite 2s ease-in-out infinite;
+}
+@keyframes ignite {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+.fallback {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  z-index: 5;
+}
+.fallback .muted {
+  color: var(--muted);
+}
+
+/* ---- a11y utilities ---- */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip {
+  position: fixed;
+  left: 1rem;
+  top: -3rem;
+  z-index: 10;
+  background: var(--ink);
+  color: #0a0a0f;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+.skip:focus {
+  top: 1rem;
+}
+
+/* Respect reduced motion: kill the ignite pulse and swatch bounces. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
