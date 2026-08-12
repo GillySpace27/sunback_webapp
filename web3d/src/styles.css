@@ -1,7 +1,9 @@
 :root {
   --bg: #05060a;
-  --ink: #f3efe6;
-  --muted: #9aa0ad;
+  --ink: #f4efe6;
+  --muted: #c3b9a9;
+  --serif: "Fraunces Variable", ui-serif, Georgia, serif;
+  --sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   color-scheme: dark;
 }
 
@@ -14,13 +16,12 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* The scroll track sets the film's length; the stage is fixed behind it. */
 .scroll-space {
-  height: 720vh;
+  height: 760vh;
 }
 .stage,
 .canvas {
@@ -44,81 +45,108 @@ body {
   padding: 6vh 8vw;
 }
 .overlay-line {
+  position: relative;
   grid-area: 1 / 1;
   margin: 0;
   text-align: center;
-  max-width: 22ch;
+  max-width: 20ch;
   will-change: opacity, transform;
 }
+/* soft scrim so copy lifts off the plasma without a hard box */
+.overlay-line::before {
+  content: "";
+  position: absolute;
+  inset: -60% -40%;
+  z-index: -1;
+  background: radial-gradient(ellipse at center, rgba(5, 6, 10, 0.55), transparent 68%);
+  filter: blur(6px);
+}
 .eyebrow {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--sans);
   text-transform: uppercase;
-  letter-spacing: 0.32em;
-  font-size: clamp(0.6rem, 1.4vw, 0.75rem);
+  letter-spacing: 0.34em;
+  font-weight: 500;
+  font-size: clamp(0.6rem, 1.3vw, 0.72rem);
   color: var(--muted);
-  margin-bottom: 1.4rem;
+  margin-bottom: 1.5rem;
 }
 .line {
-  font-size: clamp(1.5rem, 4.2vw, 3.1rem);
-  line-height: 1.18;
-  font-weight: 400;
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 380;
+  font-size: clamp(1.7rem, 4.4vw, 3.2rem);
+  line-height: 1.14;
+  letter-spacing: -0.015em;
   margin: 0;
   text-wrap: balance;
+  text-shadow: 0 2px 34px rgba(0, 0, 0, 0.55);
 }
 .line.climax {
   font-style: italic;
-  font-size: clamp(1.8rem, 5vw, 3.8rem);
+  font-weight: 340;
+  font-size: clamp(2rem, 5.2vw, 4rem);
 }
 .cta,
 .fallback .cta {
   pointer-events: auto;
   display: inline-block;
-  margin-top: 2rem;
-  padding: 0.8rem 2rem;
-  border: 1px solid rgba(243, 239, 230, 0.4);
+  margin-top: 2.2rem;
+  padding: 0.85rem 2.1rem;
+  border: 1px solid rgba(244, 239, 230, 0.45);
   border-radius: 999px;
   color: var(--ink);
   text-decoration: none;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0.08em;
-  font-size: 0.9rem;
-  transition: background 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s;
+  font-family: var(--sans);
+  letter-spacing: 0.1em;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  transition: background 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.5s;
 }
 .cta:hover {
   background: var(--ink);
   color: #0a0a0f;
 }
 
-/* ---- wavelength picker ---- */
-.picker {
+/* ---- wavelength picker: nav is the full-width scroll container so nothing
+       clips; the fieldset is max-content and auto-centers when it fits ---- */
+#buy {
   position: fixed;
-  left: 50%;
-  bottom: max(3vh, env(safe-area-inset-bottom));
-  transform: translate(-50%, 20px);
-  display: flex;
-  gap: clamp(0.4rem, 1.6vw, 1rem);
-  padding: 0.75rem 1rem;
-  margin: 0;
-  border: 0;
+  left: 0;
+  right: 0;
+  bottom: max(2.4vh, env(safe-area-inset-bottom));
   z-index: 3;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  max-width: 96vw;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+#buy::-webkit-scrollbar {
+  display: none;
+}
+.picker {
+  width: max-content;
+  margin: 0 auto;
+  display: flex;
+  gap: clamp(0.5rem, 1.8vw, 1.1rem);
+  padding: 0.75rem 1.2rem;
+  border: 0;
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .picker--in {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translateY(0);
   pointer-events: auto;
 }
 .swatch {
   display: grid;
   justify-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   cursor: pointer;
-  font-family: ui-sans-serif, system-ui, sans-serif;
 }
 .swatch input {
   position: absolute;
@@ -127,29 +155,36 @@ body {
   height: 1px;
 }
 .swatch-dot {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--tint);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s;
+  background: radial-gradient(circle at 35% 30%, #ffffff55, var(--tint) 60%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 10px -2px var(--tint);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
 }
 .swatch:hover .swatch-dot {
-  transform: scale(1.15);
+  transform: scale(1.18);
 }
 .swatch input:checked + .swatch-dot {
-  transform: scale(1.35);
-  box-shadow: 0 0 0 2px var(--ink), 0 0 18px var(--tint);
+  transform: scale(1.42);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 0 2px var(--ink),
+    0 0 22px var(--tint);
 }
 .swatch input:focus-visible + .swatch-dot {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
 }
 .swatch-label {
-  font-size: 0.62rem;
+  font-family: var(--sans);
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
   color: var(--muted);
-  letter-spacing: 0.04em;
   white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .swatch-label {
+    display: none;
+  }
 }
 
 /* ---- loader / fallback ---- */
@@ -187,9 +222,13 @@ body {
   place-content: center;
   justify-items: center;
   text-align: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   padding: 2rem;
   z-index: 5;
+}
+.fallback h1 {
+  font-family: var(--serif);
+  font-weight: 400;
 }
 .fallback .muted {
   color: var(--muted);
@@ -217,13 +256,13 @@ body {
   padding: 0.6rem 1rem;
   border-radius: 6px;
   text-decoration: none;
+  font-family: var(--sans);
   transition: top 0.2s ease;
 }
 .skip:focus {
   top: 1rem;
 }
 
-/* Respect reduced motion: kill the ignite pulse and swatch bounces. */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;

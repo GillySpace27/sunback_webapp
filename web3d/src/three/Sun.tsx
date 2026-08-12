@@ -101,8 +101,9 @@ export default function Sun() {
     // lerp color toward selected channel (600ms-ish crossfade feel)
     tint.current.set(ch.tint);
     hot.current.set(ch.hot);
-    (uniforms.uTint.value as THREE.Color).lerp(tint.current, 0.08);
-    (uniforms.uHot.value as THREE.Color).lerp(hot.current, 0.08);
+    // ~600ms crossfade feel when a wavelength is selected
+    (uniforms.uTint.value as THREE.Color).lerp(tint.current, 0.05);
+    (uniforms.uHot.value as THREE.Color).lerp(hot.current, 0.05);
     uniforms.uTime.value += reducedMotion ? dt * 0.15 : dt;
     uniforms.uOctaves.value = quality === "high" ? 6 : quality === "medium" ? 4 : 3;
   });

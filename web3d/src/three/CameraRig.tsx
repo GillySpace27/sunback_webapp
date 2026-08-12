@@ -1,31 +1,31 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { useStore, spaceAt, SpaceKey } from "../store";
+import { useStore, spaceAt, SpaceKey, SPACES } from "../store";
 
-// Camera scrubs a spline through the seven spaces (position + look target),
-// with heavily damped cursor parallax gated per space. Motion is motivated:
-// the camera only moves because the light moves.
+// Camera scrubs a spline through the seven spaces, one control point per space.
+// Composition is deliberately off-center at the threshold (the Sun sits on a
+// third, black breathing above); the path then flies from the Sun at the origin
+// down to the Room far along -Z, so the light literally travels to the wall.
 const POS: [number, number, number][] = [
-  [0, 0, 7.2], // threshold — small sun, far
-  [0, 0, 3.1], // surface — push in
-  [0.6, 0.4, 10.5], // crossing — pull back into the void
+  [2.0, 1.2, 10.6], // threshold — small Sun, lower-left third
+  [0, 0, 3.0], // surface — push in, awe
+  [0.6, 0.4, 11.0], // crossing — pull back into the void
   [0, 0, 5.2], // aperture — face the filter wheel
-  [0.1, -0.5, 3.3], // darkroom — close, low
-  [0.7, 1.1, 6.4], // room — crane up and back
-  [0.5, 0.7, 6.6], // gift — settle
+  [0.2, -0.3, 2.7], // darkroom — extreme close on the plasma (light becoming ink)
+  [1.7, 1.15, -34.0], // room — the fly lands here: framed print on the wall
+  [1.35, 0.7, -34.5], // gift — settle
 ];
 const TGT: [number, number, number][] = [
+  [1.05, 0.68, 0], // sun pushed to lower-left of frame
   [0, 0, 0],
   [0, 0, 0],
   [0, 0, 0],
-  [0, 0, 0],
-  [0, -0.2, 0],
-  [0, 0.2, 0],
-  [0, 0.1, 0],
+  [0, 0, 0], // darkroom looks at the Sun (the forming image)
+  [0.15, 0.25, -40],
+  [0.08, 0.12, -40],
 ];
 
-// per-space cursor reactivity (0..1)
 const REACT: Record<SpaceKey, number> = {
   threshold: 0.3,
   surface: 0.4,
@@ -36,25 +36,42 @@ const REACT: Record<SpaceKey, number> = {
   gift: 0.4,
 };
 
+const smooth = (f: number) => f * f * (3 - 2 * f); // cine dwell: slow at both ends
+
+// Remap raw scroll into an eased curve parameter that HOLDS at each space and
+// moves quickly between them — film cutting, not linear scrubbing.
+function easedParam(progress: number) {
+  const n = SPACES.length; // 7 points
+  let i = 0;
+  for (let k = 0; k < n; k++) if (progress >= SPACES[k].start) i = k;
+  if (i >= n - 1) return 1;
+  const start = SPACES[i].start;
+  const end = SPACES[i + 1].start;
+  const f = THREE.MathUtils.clamp((progress - start) / (end - start), 0, 1);
+  return (i + smooth(f)) / (n - 1);
+}
+
 export default function CameraRig() {
-  const posCurve = useMemo(
-    () => new THREE.CatmullRomCurve3(POS.map((p) => new THREE.Vector3(...p))),
-    []
-  );
-  const tgtCurve = useMemo(
-    () => new THREE.CatmullRomCurve3(TGT.map((p) => new THREE.Vector3(...p))),
-    []
-  );
+  const posCurve = useMemo(() => {
+    const c = new THREE.CatmullRomCurve3(POS.map((p) => new THREE.Vector3(...p)));
+    c.curveType = "centripetal"; // no overshoot across the big Sun->Room jump
+    return c;
+  }, []);
+  const tgtCurve = useMemo(() => {
+    const c = new THREE.CatmullRomCurve3(TGT.map((p) => new THREE.Vector3(...p)));
+    c.curveType = "centripetal";
+    return c;
+  }, []);
   const pos = useRef(new THREE.Vector3(...POS[0]));
   const tgt = useRef(new THREE.Vector3(...TGT[0]));
   const parallax = useRef(new THREE.Vector2());
 
   useFrame((state) => {
     const { progress, reducedMotion } = useStore.getState();
-    posCurve.getPoint(progress, pos.current);
-    tgtCurve.getPoint(progress, tgt.current);
+    const t = easedParam(progress);
+    posCurve.getPoint(t, pos.current);
+    tgtCurve.getPoint(t, tgt.current);
 
-    // cursor parallax: damped, gated by space, off under reduced motion
     const gate = reducedMotion ? 0 : REACT[spaceAt(progress)];
     parallax.current.x += (state.pointer.x * gate - parallax.current.x) * 0.05;
     parallax.current.y += (state.pointer.y * gate - parallax.current.y) * 0.05;
@@ -64,7 +81,7 @@ export default function CameraRig() {
       pos.current
         .clone()
         .add(new THREE.Vector3(parallax.current.x * 0.5, parallax.current.y * 0.35, 0)),
-      0.12
+      0.1
     );
     cam.lookAt(tgt.current);
   });

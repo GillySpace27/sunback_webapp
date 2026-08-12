@@ -36,6 +36,11 @@ export const useStore = create<State>((set) => ({
   setReducedMotion: (v) => set({ reducedMotion: v }),
 }));
 
+// dev-only handle for driving progress in tests (harmless in prod)
+if (typeof window !== "undefined") {
+  (window as unknown as { __store?: unknown }).__store = useStore;
+}
+
 // The seven spaces, as progress thresholds. Used by overlay + camera + effects.
 export const SPACES = [
   { key: "threshold", start: 0.0 },

@@ -4,11 +4,11 @@ import { useStore, SPACES } from "../store";
 // scroll; opacity peaks mid-slice and falls at the edges. Text never animates
 // over a moving camera — it lives in the still center of each space.
 const COPY: Record<string, { eyebrow?: string; line: string }> = {
-  threshold: { eyebrow: "My Heliograph", line: "Light left the Sun on a day that matters to you." },
-  surface: { line: "Ninety-three million miles of it. Eight minutes of travel." },
-  crossing: { line: "Across the dark, one thread of light. For you." },
+  threshold: { eyebrow: "My Heliograph", line: "The Sun, on the day that mattered." },
+  surface: { line: "Ninety-three million miles. Eight minutes of light." },
+  crossing: { line: "Then the long dark, crossed for one person." },
   aperture: { line: "Choose the light. Aim the instrument." },
-  darkroom: { line: "Caught, and made into ink on paper." },
+  darkroom: { line: "Caught, and pressed into paper." },
   room: { line: "Your day, written in sunlight." },
   gift: { line: "A gift made of a star." },
 };
