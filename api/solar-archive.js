@@ -12524,6 +12524,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var ckSelectedId = state.selectedVariantByProduct[product.id] || product.variantId;
         var ckVariantIds = [ckSelectedId];
 
+        // PII-free design identity. A personalized (free-text) order is a
+        // throwaway fulfillment artifact and must never seed the catalog, so
+        // it carries a "personalized" marker and NO design tag. Every other
+        // order carries "design-<hash>" so identical designs reuse one product.
+        var isPersonalized = !!(state.textOverlay && state.textOverlay.text);
+        var cleanParams = _printParams();
+        cleanParams.textOverlay = null;  // identity excludes the PII
+        var designHash = _designHash({
+          wavelength: state.wavelength,
+          date: dateStr,
+          filter: state.editorFilter || state.hqFormat || null,
+          vibe: state.activeVibeSlug || null,
+          blueprint_id: product.blueprintId,
+          print_provider_id: product.printProviderId,
+          variant_ids: ckVariantIds.slice().sort(),
+          position: product.position || "front",
+          params: cleanParams
+        });
+        var ckTags = ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()];
+        ckTags.push(isPersonalized ? "personalized" : ("design-" + designHash));
+
         return fetchWithTimeout(API_BASE + "/api/printify/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -12538,7 +12559,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             variant_ids: ckVariantIds,
             price: product.checkoutPrice,
             position: product.position || "front",
-            tags: ["solar-archive", "custom", "sun", wlStr, product.name.toLowerCase()]
+            tags: ckTags,
+            design_hash: designHash,
+            personalized: isPersonalized
           })
           // NEEDS-FIX (workflow wx5fi2brl, checkout-timeout-mismatch):
           // bumped 180000 → 300000 to outlast the worst-case server
@@ -12555,6 +12578,20 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           if (!data.printify_product_id) throw new Error("No product ID returned");
           var vcMsg = data.variant_count ? " (" + data.variant_count + " variants)" : "";
           _ckLastProductId = data.printify_product_id;
+          // Personalized orders seed the PII-free catalog twin in the
+          // background (deduped server-side). Fire-and-forget: never awaited,
+          // never blocks the buyer's checkout link.
+          if (isPersonalized) {
+            _seedCatalogTwin({
+              dateStr: dateStr, wlStr: wlStr, fname: fname, title: title,
+              description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
+              blueprintId: product.blueprintId, printProviderId: product.printProviderId,
+              variantIds: ckVariantIds, price: product.checkoutPrice,
+              position: product.position || "front",
+              productName: product.name.toLowerCase(),
+              designHash: designHash, cleanParams: cleanParams
+            });
+          }
           markCheckoutStep("ckStep1", "done", "Print file uploaded");
           markCheckoutStep("ckStep2", "done", "Product set up" + vcMsg);
           markCheckoutStep("ckStep3", "done", "Connected to secure checkout");
@@ -12811,14 +12848,44 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       };
     }
 
+    // Stable, PII-free identity for a design so identical orders reuse ONE
+    // catalog product instead of minting a snowflake each time. Hashes every
+    // image-affecting input EXCEPT the free-text overlay (the PII). cyrb53 is
+    // a tiny well-distributed 53-bit hash — no dependency, no async crypto.
+    // ponytail: 53-bit hash; collisions are astronomically unlikely at this
+    // catalog cardinality and a collision only means two designs share a
+    // product. Widen to SHA if the archive ever reaches billions of designs.
+    function _stableStringify(v) {
+      if (v === null || typeof v !== "object") return JSON.stringify(v);
+      if (Array.isArray(v)) return "[" + v.map(_stableStringify).join(",") + "]";
+      return "{" + Object.keys(v).sort().map(function (k) {
+        return JSON.stringify(k) + ":" + _stableStringify(v[k]);
+      }).join(",") + "}";
+    }
+    function _cyrb53(str) {
+      var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+      for (var i = 0, ch; i < str.length; i++) {
+        ch = str.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+      h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+      h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+      var n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+      return n.toString(16);
+    }
+    // Build the PII-free design fingerprint from a param object. `params`
+    // must already have textOverlay stripped by the caller.
+    function _designHash(o) { return _cyrb53(_stableStringify(o)); }
+
     // Ask the server to build the print file from parameters. Resolves to a
     // URL string on success, or null to mean "use the browser path" — every
     // failure mode (unsupported params, missing source, compose error,
     // network) resolves null rather than rejecting, so checkout degrades to
     // the pre-2026-08-09 behaviour instead of breaking.
-    function _serverComposePrintFile(sourceUrl) {
+    function _serverComposePrintFile(sourceUrl, paramsOverride) {
       try {
-        var params = _printParams();
+        var params = paramsOverride || _printParams();
         if (params.textOverlay || params.timestampStamp || params.dualPanel || params.clockNumbers) {
           return Promise.resolve(null);
         }
@@ -12853,6 +12920,48 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       }).catch(function () {
         return _getCheckoutImageBase64(dateStr).then(function (b64) { return { base64: b64 }; });
       });
+    }
+
+    // Phase 3b: a personalized (PII) order still contributes its PII-free
+    // design to the catalog. Fire-and-forget AFTER the buyer has their
+    // checkout link: server-compose the text-free twin and run a second,
+    // deduped checkout tagged design-<hash>. Never blocks or breaks the
+    // buyer's flow — any failure is swallowed. The twin is only buildable
+    // when the design is server-composable (no timestamp/dual-panel/clock),
+    // so those personalized orders simply don't seed the catalog.
+    function _seedCatalogTwin(o) {
+      try {
+        var cp = o.cleanParams;
+        if (cp.timestampStamp || cp.dualPanel || cp.clockNumbers) return;
+        var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
+        var srcPromise = (isWarmVibe && state.hqReady && state.hqImageUrl)
+          ? Promise.resolve(state.hqImageUrl)
+          : _ensureIntegratedHqUrl(o.dateStr);
+        srcPromise.then(function (srcUrl) {
+          if (!srcUrl) return null;
+          return _serverComposePrintFile(srcUrl, cp);
+        }).then(function (twinUrl) {
+          if (!twinUrl) return null;  // not server-composable / unavailable
+          return fetchWithTimeout(API_BASE + "/api/printify/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              image_url: twinUrl,
+              file_name: o.fname,
+              title: o.title,
+              description: o.description,
+              blueprint_id: o.blueprintId,
+              print_provider_id: o.printProviderId,
+              variant_ids: o.variantIds,
+              price: o.price,
+              position: o.position,
+              tags: ["solar-archive", "custom", "sun", o.wlStr, o.productName, "design-" + o.designHash],
+              design_hash: o.designHash,
+              personalized: false
+            })
+          }, 300000);
+        }).catch(function () { /* twin is best-effort; never surface */ });
+      } catch (_e) { /* never break checkout over the twin */ }
     }
 
     function _getCheckoutImageBase64(dateStr) {
