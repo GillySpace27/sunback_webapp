@@ -15,10 +15,14 @@ import Effects from "./Effects";
 // remounted. Quality tier drops adaptively on sustained frame loss.
 export default function Scene() {
   const setQuality = useStore((s) => s.setQuality);
+  const quality = useStore((s) => s.quality);
+  // drop resolution before shader quality on weak GPUs (cheap global win)
+  const dpr: [number, number] | number =
+    quality === "high" ? [1, 2] : quality === "medium" ? 1.5 : 1;
   return (
     <Canvas
       className="canvas"
-      dpr={[1, 2]}
+      dpr={dpr}
       gl={{ antialias: true, powerPreference: "high-performance" }}
       camera={{ fov: 45, position: [0, 0, 7.2], near: 0.1, far: 100 }}
       onCreated={(state) => {

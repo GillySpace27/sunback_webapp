@@ -29,7 +29,7 @@ export default function App() {
         </p>
       </header>
 
-      <div className="stage">
+      <div className="stage" aria-hidden="true">
         <ErrorBoundary>
           <Suspense fallback={<Loader />}>
             <Scene />
@@ -41,6 +41,11 @@ export default function App() {
 
       <nav id="buy" aria-label="Customize your Heliograph">
         <WavelengthPicker />
+        {/* the real, screen-reader-announced purchase control (the overlay's
+            "Make one" is decorative and aria-hidden) */}
+        <a className="cta cta--buy" href="https://myheliograph.com">
+          Make one
+        </a>
       </nav>
 
       {/* Scroll track: gives the film its length. The stage above is fixed. */}

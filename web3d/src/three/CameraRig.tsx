@@ -65,6 +65,7 @@ export default function CameraRig() {
   const pos = useRef(new THREE.Vector3(...POS[0]));
   const tgt = useRef(new THREE.Vector3(...TGT[0]));
   const parallax = useRef(new THREE.Vector2());
+  const scratch = useRef(new THREE.Vector3());
 
   useFrame((state) => {
     const { progress, reducedMotion } = useStore.getState();
@@ -77,12 +78,11 @@ export default function CameraRig() {
     parallax.current.y += (state.pointer.y * gate - parallax.current.y) * 0.05;
 
     const cam = state.camera;
-    cam.position.lerp(
-      pos.current
-        .clone()
-        .add(new THREE.Vector3(parallax.current.x * 0.5, parallax.current.y * 0.35, 0)),
-      0.1
-    );
+    scratch.current.copy(pos.current);
+    scratch.current.x += parallax.current.x * 0.5;
+    scratch.current.y += parallax.current.y * 0.35;
+    // reduced motion: snap (no inertial glide); otherwise damped follow
+    cam.position.lerp(scratch.current, reducedMotion ? 1 : 0.1);
     cam.lookAt(tgt.current);
   });
 

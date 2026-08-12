@@ -103,9 +103,30 @@ body {
   backdrop-filter: blur(4px);
   transition: background 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.5s;
 }
+.cta {
+  min-height: 44px;
+}
 .cta:hover {
   background: var(--ink);
   color: #0a0a0f;
+}
+.cta:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+/* The real, accessible purchase control: off-screen until a keyboard user
+   focuses it (like the skip link), so it never double-renders with the
+   decorative overlay CTA for sighted mouse users. */
+.cta--buy {
+  position: fixed;
+  left: 50%;
+  bottom: -6rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  transition: bottom 0.2s ease;
+}
+.cta--buy:focus {
+  bottom: 7rem;
 }
 
 /* ---- wavelength picker: nav is the full-width scroll container so nothing
@@ -128,8 +149,10 @@ body {
   width: max-content;
   margin: 0 auto;
   display: flex;
-  gap: clamp(0.5rem, 1.8vw, 1.1rem);
-  padding: 0.75rem 1.2rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 1.2rem 1rem;
   border: 0;
   opacity: 0;
   transform: translateY(16px);
@@ -137,15 +160,33 @@ body {
   transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
     transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.picker--in {
+/* reveal on scroll OR when a keyboard user focuses into the buy controls */
+.picker--in,
+#buy:focus-within .picker {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
 }
+.picker-readout {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+.swatches {
+  display: flex;
+  gap: clamp(0.2rem, 1vw, 0.6rem);
+}
 .swatch {
   display: grid;
   justify-items: center;
-  gap: 0.45rem;
+  align-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 12px;
   cursor: pointer;
 }
 .swatch input {

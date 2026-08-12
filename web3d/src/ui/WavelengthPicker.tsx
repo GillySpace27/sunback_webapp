@@ -7,8 +7,8 @@ import { CHANNELS } from "../data/wavelengths";
 export default function WavelengthPicker() {
   const channel = useStore((s) => s.channel);
   const setChannel = useStore((s) => s.setChannel);
-  const progress = useStore((s) => s.progress);
-  const revealed = progress > 0.4;
+  const revealed = useStore((s) => s.progress > 0.4);
+  const active = CHANNELS[channel];
 
   return (
     <fieldset
@@ -16,24 +16,34 @@ export default function WavelengthPicker() {
       aria-label="Choose a solar wavelength"
     >
       <legend className="visually-hidden">Solar wavelength</legend>
-      {CHANNELS.map((ch, i) => (
-        <label
-          key={ch.angstrom}
-          className="swatch"
-          style={{ ["--tint" as string]: ch.tint }}
-          title={`${ch.instrument} ${ch.label}`}
-        >
-          <input
-            type="radio"
-            name="wavelength"
-            checked={i === channel}
-            onChange={() => setChannel(i)}
-            tabIndex={revealed ? 0 : -1}
-          />
-          <span className="swatch-dot" aria-hidden="true" />
-          <span className="swatch-label">{ch.label}</span>
-        </label>
-      ))}
+
+      {/* live label — the only wavelength cue on touch (dot labels are hidden) */}
+      <output className="picker-readout" aria-live="polite">
+        {active.instrument} · {active.label}
+      </output>
+
+      <div className="swatches">
+        {CHANNELS.map((ch, i) => (
+          <label
+            key={ch.angstrom}
+            className="swatch"
+            style={{ ["--tint" as string]: ch.tint }}
+            title={`${ch.instrument} ${ch.label}`}
+          >
+            <input
+              type="radio"
+              name="wavelength"
+              aria-label={`${ch.instrument} ${ch.label}`}
+              checked={i === channel}
+              onChange={() => setChannel(i)}
+              // roving tabindex: one tab stop for the group, arrows move within
+              tabIndex={i === channel ? 0 : -1}
+            />
+            <span className="swatch-dot" aria-hidden="true" />
+            <span className="swatch-label">{ch.label}</span>
+          </label>
+        ))}
+      </div>
     </fieldset>
   );
 }

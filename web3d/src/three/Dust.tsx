@@ -42,6 +42,12 @@ export default function Dust({ count = 260 }: { count?: number }) {
 
   useFrame((state, dt) => {
     const { reducedMotion, progress } = useStore.getState();
+    // fade the starfield out as we approach the room (~0.7 -> 0.86)
+    const fade = THREE.MathUtils.clamp((0.86 - progress) / 0.16, 0, 1);
+    mat.current.opacity = 0.5 * fade;
+    points.current.visible = fade > 0.01;
+    if (fade <= 0.01) return; // no CPU loop / buffer upload while invisible
+
     const pos = geo.getAttribute("position") as THREE.BufferAttribute;
     const px = state.pointer.x * 7;
     const py = state.pointer.y * 4.5;
@@ -66,10 +72,6 @@ export default function Dust({ count = 260 }: { count?: number }) {
     }
     pos.needsUpdate = true;
     points.current.rotation.z += drift * 0.005;
-    // fade the starfield out as we approach the room (~0.7 -> 0.86)
-    const fade = THREE.MathUtils.clamp((0.86 - progress) / 0.16, 0, 1);
-    mat.current.opacity = 0.5 * fade;
-    points.current.visible = fade > 0.01;
   });
 
   return (

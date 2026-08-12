@@ -1,5 +1,6 @@
 import { RenderTexture, PerspectiveCamera } from "@react-three/drei";
 import Sun from "./Sun";
+import { useStore } from "../store";
 
 // The landing. A warm interior with the finished piece on the wall: a framed
 // print whose image is a live render of the Sun at the chosen wavelength
@@ -8,6 +9,11 @@ import Sun from "./Sun";
 const Z = -40;
 
 export default function Room() {
+  // Only render the (expensive) live print once the room is being approached.
+  // Mounts during the aperture so the shader compiles while it is still
+  // off-screen, then holds for the darkroom/room/gift climax.
+  const showPrint = useStore((s) => s.progress > 0.5);
+
   return (
     <group position={[0, 0, Z]}>
       {/* warm tungsten room light */}
@@ -33,13 +39,24 @@ export default function Room() {
         </mesh>
         <mesh position={[0, 0.05, 0.01]}>
           <planeGeometry args={[1.95, 2.75]} />
-          {/* the print is self-lit: it shows their Sun */}
-          <meshBasicMaterial>
-            <RenderTexture attach="map" width={640} height={900}>
-              <color attach="background" args={["#050307"]} />
-              <PerspectiveCamera makeDefault position={[0, 0, 3.15]} fov={42} />
-              <Sun />
-            </RenderTexture>
+          {/* the print is self-lit: it shows their Sun, full disc with margin */}
+          <meshBasicMaterial color={showPrint ? "#ffffff" : "#1a120c"}>
+            {showPrint && (
+              <RenderTexture attach="map" width={384} height={540}>
+                <color attach="background" args={["#050307"]} />
+                {/* manual aspect to match the portrait FBO so the disc stays round */}
+                <PerspectiveCamera
+                  makeDefault
+                  manual
+                  position={[0, 0, 11]}
+                  fov={42}
+                  aspect={384 / 540}
+                  near={0.1}
+                  far={40}
+                />
+                <Sun />
+              </RenderTexture>
+            )}
           </meshBasicMaterial>
         </mesh>
       </group>

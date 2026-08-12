@@ -101,16 +101,19 @@ export default function Sun() {
     // lerp color toward selected channel (600ms-ish crossfade feel)
     tint.current.set(ch.tint);
     hot.current.set(ch.hot);
-    // ~600ms crossfade feel when a wavelength is selected
-    (uniforms.uTint.value as THREE.Color).lerp(tint.current, 0.05);
-    (uniforms.uHot.value as THREE.Color).lerp(hot.current, 0.05);
-    uniforms.uTime.value += reducedMotion ? dt * 0.15 : dt;
+    // frame-rate-independent ~600ms crossfade (0.26s time constant ~= 90% @ 600ms)
+    const k = 1 - Math.exp(-dt / 0.26);
+    (uniforms.uTint.value as THREE.Color).lerp(tint.current, k);
+    (uniforms.uHot.value as THREE.Color).lerp(hot.current, k);
+    // reduced motion: hold the granulation still (color still crossfades)
+    uniforms.uTime.value += reducedMotion ? 0 : dt;
     uniforms.uOctaves.value = quality === "high" ? 6 : quality === "medium" ? 4 : 3;
   });
 
   return (
     <mesh>
-      <icosahedronGeometry args={[1.6, 64]} />
+      {/* fragment-shader-driven surface: high tessellation buys nothing past ~12 */}
+      <icosahedronGeometry args={[1.6, 12]} />
       <shaderMaterial
         ref={mat}
         vertexShader={vertex}

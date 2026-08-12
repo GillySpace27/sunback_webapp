@@ -13,15 +13,16 @@ const COPY: Record<string, { eyebrow?: string; line: string }> = {
   gift: { line: "A gift made of a star." },
 };
 
+// One line per space: peaks mid-slice, falls to 0 exactly at each boundary so
+// the lines never overlap (they hand off cleanly) and there is no dead band.
+// First line peaks at the very top (progress 0), last at the very bottom.
 function opacityFor(progress: number, i: number) {
   const start = SPACES[i].start;
   const end = i + 1 < SPACES.length ? SPACES[i + 1].start : 1.0001;
-  // First line peaks at the very top (progress 0), last at the very bottom, so
-  // both extremes are legible without scrolling; middle lines peak mid-slice.
   const peak = i === 0 ? start : i === SPACES.length - 1 ? end : (start + end) / 2;
   const half = Math.max(end - peak, peak - start, 1e-4);
   const d = Math.abs(progress - peak) / half; // 0 at peak, 1 at slice edge
-  return Math.max(0, 1 - d * 1.15);
+  return Math.max(0, 1 - d);
 }
 
 export default function Overlay() {
@@ -40,7 +41,14 @@ export default function Overlay() {
             {c.eyebrow && <figcaption className="eyebrow">{c.eyebrow}</figcaption>}
             <p className={s.key === "room" ? "line climax" : "line"}>{c.line}</p>
             {s.key === "gift" && (
-              <a className="cta" href="https://myheliograph.com" style={{ pointerEvents: o > 0.5 ? "auto" : "none" }}>
+              // decorative twin of the real CTA in <nav id="buy">; kept out of the
+              // tab order since the whole overlay is aria-hidden
+              <a
+                className="cta"
+                href="https://myheliograph.com"
+                tabIndex={-1}
+                style={{ pointerEvents: o > 0.5 ? "auto" : "none" }}
+              >
                 Make one
               </a>
             )}

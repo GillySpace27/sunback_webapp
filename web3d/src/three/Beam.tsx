@@ -9,6 +9,7 @@ import { CHANNELS } from "../data/wavelengths";
 export default function Beam() {
   const ref = useRef<THREE.Mesh>(null!);
   const mat = useRef<THREE.MeshBasicMaterial>(null!);
+  const prevChannel = useRef(-1);
 
   useFrame(() => {
     const { progress, channel } = useStore.getState();
@@ -18,9 +19,14 @@ export default function Beam() {
       0,
       1
     );
-    ref.current.visible = v > 0.01;
+    const visible = v > 0.01;
+    ref.current.visible = visible;
+    if (!visible) return; // skip work while the beam is off (most of the film)
     mat.current.opacity = v * 0.7;
-    mat.current.color.set(CHANNELS[channel].hot);
+    if (channel !== prevChannel.current) {
+      mat.current.color.set(CHANNELS[channel].hot); // re-parse hex only on change
+      prevChannel.current = channel;
+    }
   });
 
   return (
