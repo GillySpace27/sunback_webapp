@@ -1,4 +1,5 @@
 import { useStore, SPACES } from "../store";
+import BuyLink from "./BuyLink";
 
 // Per-space copy, cross-faded by scroll progress. Each line owns a slice of the
 // scroll; opacity peaks mid-slice and falls at the edges. Text never animates
@@ -43,14 +44,9 @@ export default function Overlay() {
             {s.key === "gift" && (
               // decorative twin of the real CTA in <nav id="buy">; kept out of the
               // tab order since the whole overlay is aria-hidden
-              <a
-                className="cta"
-                href="https://myheliograph.com"
-                tabIndex={-1}
-                style={{ pointerEvents: o > 0.5 ? "auto" : "none" }}
-              >
+              <BuyLink className="cta" decorative style={{ pointerEvents: o > 0.5 ? "auto" : "none" }}>
                 Make one
-              </a>
+              </BuyLink>
             )}
           </figure>
         );

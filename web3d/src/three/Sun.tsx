@@ -1,12 +1,14 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "../store";
 import { CHANNELS } from "../data/wavelengths";
+import { useSunTexture } from "../hooks/useSunTexture";
 
-// Procedural plasma sphere. fbm noise -> granulation; the same geometry
-// recolors per wavelength by lerping two color uniforms (tint + hot core).
-// This is the only heavy shader in the scene; everything else is cheap.
+// The Sun surface: the real SDO/AIA full-disk image for the chosen date +
+// wavelength, orthographically mapped onto the front hemisphere. A procedural
+// plasma shader is the loading/fallback state and crossfades out as the photo
+// arrives, so the Sun always reads as *their* Sun once the frame is fetched.
 const vertex = /* glsl */ `
   varying vec3 vN;
   varying vec3 vView;
@@ -29,9 +31,13 @@ const fragment = /* glsl */ `
   uniform float uTime;
   uniform vec3 uTint;
   uniform vec3 uHot;
-  uniform float uOctaves; // quality knob: fewer octaves on weak GPUs
+  uniform float uOctaves;
+  uniform sampler2D uMap;   // real SDO/AIA disk
+  uniform float uHasMap;    // 1 once a photo is loaded
+  uniform float uMapMix;    // crossfade procedural -> photo
+  uniform float uDiscR;     // uv radius of the solar disk in the image (~0.31)
+  uniform float uExposure;  // lift the (dim) raw disk so it reads on dark bg
 
-  // hash / value-noise fbm
   vec3 hash3(vec3 p){
     p = vec3(dot(p,vec3(127.1,311.7,74.7)),
              dot(p,vec3(269.5,183.3,246.1)),
@@ -62,28 +68,37 @@ const fragment = /* glsl */ `
 
   void main(){
     vec3 p = vPos * 2.4;
-    // domain-warped granulation, slowly convecting
     float t = uTime * 0.06;
     float warp = fbm(p + vec3(0.0, t, 0.0));
     float n = fbm(p * 1.6 + warp * 1.4 + vec3(t, 0.0, -t));
     n = smoothstep(-0.6, 0.9, n);
-
-    // limb darkening: dimmer toward the edge (grazing view)
     float limb = pow(clamp(dot(vN, vView), 0.0, 1.0), 0.55);
-
     vec3 base = uTint * (0.25 + 0.75 * n);
     vec3 col = mix(vec3(0.02), base, limb);
-    // hot cores where granulation peaks
     col += uHot * pow(n, 5.0) * limb * 1.4;
 
+    // real disk, mapped so the silhouette edge lands on the photo's limb
+    if (uHasMap > 0.5) {
+      vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
+      vec3 photo = texture2D(uMap, muv).rgb * uExposure;
+      col = mix(col, photo, uMapMix);
+    }
     gl_FragColor = vec4(col, 1.0);
   }
 `;
 
+const BLACK_1PX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+BLACK_1PX.needsUpdate = true;
+
 export default function Sun() {
-  const mat = useRef<THREE.ShaderMaterial>(null!);
   const tint = useRef(new THREE.Color(CHANNELS[5].tint));
   const hot = useRef(new THREE.Color(CHANNELS[5].hot));
+
+  const channel = useStore((s) => s.channel);
+  const date = useStore((s) => s.date);
+  const time = useStore((s) => s.time);
+  const angstrom = CHANNELS[channel].angstrom;
+  const tex = useSunTexture(date, time, angstrom);
 
   const uniforms = useMemo(
     () => ({
@@ -91,31 +106,39 @@ export default function Sun() {
       uTint: { value: tint.current.clone() },
       uHot: { value: hot.current.clone() },
       uOctaves: { value: 6 },
+      uMap: { value: BLACK_1PX as THREE.Texture },
+      uHasMap: { value: 0 },
+      uMapMix: { value: 0 },
+      uDiscR: { value: 0.31 }, // ponytail: plate-scale knob; tune if framing drifts
+      uExposure: { value: 1.4 },
     }),
     []
   );
 
+  useEffect(() => {
+    uniforms.uMap.value = tex ?? BLACK_1PX;
+    uniforms.uHasMap.value = tex ? 1 : 0;
+  }, [tex, uniforms]);
+
   useFrame((_, dt) => {
-    const { channel, quality, reducedMotion } = useStore.getState();
-    const ch = CHANNELS[channel];
-    // lerp color toward selected channel (600ms-ish crossfade feel)
-    tint.current.set(ch.tint);
-    hot.current.set(ch.hot);
-    // frame-rate-independent ~600ms crossfade (0.26s time constant ~= 90% @ 600ms)
+    const { channel: ch, quality, reducedMotion } = useStore.getState();
+    const c = CHANNELS[ch];
+    tint.current.set(c.tint);
+    hot.current.set(c.hot);
     const k = 1 - Math.exp(-dt / 0.26);
     (uniforms.uTint.value as THREE.Color).lerp(tint.current, k);
     (uniforms.uHot.value as THREE.Color).lerp(hot.current, k);
-    // reduced motion: hold the granulation still (color still crossfades)
     uniforms.uTime.value += reducedMotion ? 0 : dt;
     uniforms.uOctaves.value = quality === "high" ? 6 : quality === "medium" ? 4 : 3;
+    // resolve procedural -> photo (or back) over ~0.5s
+    const target = uniforms.uHasMap.value;
+    uniforms.uMapMix.value += (target - uniforms.uMapMix.value) * (1 - Math.exp(-dt / 0.5));
   });
 
   return (
     <mesh>
-      {/* fragment-shader-driven surface: high tessellation buys nothing past ~12 */}
       <icosahedronGeometry args={[1.6, 12]} />
       <shaderMaterial
-        ref={mat}
         vertexShader={vertex}
         fragmentShader={fragment}
         uniforms={uniforms}

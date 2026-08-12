@@ -36,11 +36,39 @@ Build: `npm run build` → `dist/` (static, host anywhere: Cloudflare Pages, Fly
 - **Resilience**: `ui/ErrorBoundary.tsx` routes WebGL failures to the 2D shop.
 - **SEO**: metadata + Product JSON-LD in `index.html`.
 
+## Identity, real Sun, and handoff
+
+This site owns only the **image identity** (date + wavelength). The buyer picks
+their date (`ui/WavelengthPicker.tsx` date field) and wavelength (filter wheel /
+picker), and the real SDO/AIA full-disk JPG for that identity is textured onto
+the Sun and the framed print (`lib/handoff.ts` `thumbUrl` →
+`/api/helioviewer_thumb`, mapped orthographically in `three/Sun.tsx`, shown flat
+in `three/Room.tsx`). A procedural plasma is the loading/fallback state.
+
+"Make one" (`ui/BuyLink.tsx`) deep-links to the original front end with the
+identity preloaded and warms the backend on buy-intent:
+
+    https://myheliograph.com/?d=YYYY-MM-DD&t=HH:MM&wl=<angstrom>
+
+The original's existing hydration (`d`/`t`/`wl`) runs the same path a real date
+submit uses and auto-advances into **product + editor + checkout** — no changes
+needed on the original. See `PRODUCT_CREATION_CONTRACT.md`.
+
+### Origin note (required for the texture)
+
+`/api/helioviewer_thumb` is origin-enforced. In **prod** the 3D site must be
+served same-origin as the API (or the 3D origin allow-listed server-side) or
+uncached thumbs 403. In **dev** `vite.config.ts` proxies `/api` and spoofs an
+allow-listed Origin/Referer. Configure `VITE_API_BASE` / `VITE_ORIGINAL_SITE`
+(and `VITE_DEV_API` for the dev proxy target) if the origins differ.
+
 ## Deliberately stubbed (add when real assets land)
 
 - GLTF instrument model + KTX2/meshopt pipeline. Current instrument is procedural
   geometry, so the app runs with zero downloaded assets.
-- The full art of spaces 5–7 (darkroom, room, gift): the camera path and copy
-  beats exist; the interiors are lighting/copy, not modeled sets yet.
-- Print render-to-texture onto paper, and the audio layer (solar p-mode drone).
+- The full modeled art of the darkroom transition (the room/gift interiors and
+  the framed print are real; the darkroom is still a plasma close-up + copy).
+- The audio layer (solar p-mode drone).
 - GSAP ScrollTrigger per-element scrubbed timelines (Lenis drives progress today).
+- Passing the chosen product id (`&p=`) — the picker collects date + wavelength;
+  product selection currently happens on the original after handoff.

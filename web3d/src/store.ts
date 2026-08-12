@@ -12,6 +12,12 @@ type State = {
   channel: number;
   setChannel: (i: number) => void;
 
+  // the image identity date/time (fed to the Helioviewer texture + deep link)
+  date: string; // YYYY-MM-DD
+  setDate: (d: string) => void;
+  time: string; // HH:MM
+  setTime: (t: string) => void;
+
   // adaptive quality tier, driven by PerformanceMonitor
   quality: Quality;
   setQuality: (q: Quality) => void;
@@ -28,6 +34,12 @@ export const useStore = create<State>((set) => ({
 
   channel: DEFAULT_CHANNEL,
   setChannel: (i) => set({ channel: i }),
+
+  // default a few days back so a real AIA frame exists (data has some latency)
+  date: new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10),
+  setDate: (d) => set({ date: d }),
+  time: "12:00",
+  setTime: (t) => set({ time: t }),
 
   quality: "high",
   setQuality: (q) => set({ quality: q }),

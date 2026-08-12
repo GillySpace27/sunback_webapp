@@ -1,18 +1,22 @@
-import { RenderTexture, PerspectiveCamera } from "@react-three/drei";
-import Sun from "./Sun";
 import { useStore } from "../store";
+import { CHANNELS } from "../data/wavelengths";
+import { useSunTexture } from "../hooks/useSunTexture";
 
 // The landing. A warm interior with the finished piece on the wall: a framed
-// print whose image is a live render of the Sun at the chosen wavelength
-// (render-to-texture). This is where cosmic collapses to domestic — the climax.
-// Sits far down -Z; the camera flies here after the aperture.
+// print of the real SDO/AIA disk for the chosen date + wavelength (the same
+// Helioviewer image the 3D Sun uses, shown flat as a photo). This is where
+// cosmic collapses to domestic — the climax. Sits far down -Z; the camera
+// flies here after the aperture.
 const Z = -40;
 
 export default function Room() {
-  // Only render the (expensive) live print once the room is being approached.
-  // Mounts during the aperture so the shader compiles while it is still
-  // off-screen, then holds for the darkroom/room/gift climax.
-  const showPrint = useStore((s) => s.progress > 0.5);
+  const date = useStore((s) => s.date);
+  const time = useStore((s) => s.time);
+  const channel = useStore((s) => s.channel);
+  const near = useStore((s) => s.progress > 0.5); // only fetch once approaching
+  // shares the Sun's cached texture (same url) — no extra request
+  const tex = useSunTexture(date, time, CHANNELS[channel].angstrom);
+  const showPrint = near && !!tex;
 
   return (
     <group position={[0, 0, Z]}>
@@ -27,38 +31,31 @@ export default function Room() {
         <meshStandardMaterial color="#3c2a1c" roughness={1} />
       </mesh>
 
-      {/* frame + mat + print (a portrait piece) */}
+      {/* frame + mat + the printed photo (square, disk centered) */}
       <group>
         <mesh position={[0, 0, -0.02]}>
-          <planeGeometry args={[2.62, 3.52]} />
+          <planeGeometry args={[2.98, 2.98]} />
           <meshStandardMaterial color="#0f0b08" roughness={0.6} metalness={0.1} />
         </mesh>
         <mesh position={[0, 0, 0]}>
-          <planeGeometry args={[2.3, 3.2]} />
+          <planeGeometry args={[2.72, 2.72]} />
           <meshStandardMaterial color="#efe9dc" roughness={0.9} />
         </mesh>
-        <mesh position={[0, 0.05, 0.01]}>
-          <planeGeometry args={[1.95, 2.75]} />
-          {/* the print is self-lit: it shows their Sun, full disc with margin */}
-          <meshBasicMaterial color={showPrint ? "#ffffff" : "#1a120c"}>
-            {showPrint && (
-              <RenderTexture attach="map" width={384} height={540}>
-                <color attach="background" args={["#050307"]} />
-                {/* manual aspect to match the portrait FBO so the disc stays round */}
-                <PerspectiveCamera
-                  makeDefault
-                  manual
-                  position={[0, 0, 11]}
-                  fov={42}
-                  aspect={384 / 540}
-                  near={0.1}
-                  far={40}
-                />
-                <Sun />
-              </RenderTexture>
-            )}
-          </meshBasicMaterial>
+        {/* dark base under the print */}
+        <mesh position={[0, 0, 0.01]}>
+          <planeGeometry args={[2.4, 2.4]} />
+          <meshBasicMaterial color="#0b0705" toneMapped={false} />
         </mesh>
+        {/* the printed photo — mounted fresh once the JPG is ready so the
+            material compiles WITH the map (setting map= late on an existing
+            basic material doesn't recompile and renders flat). Dimmed a touch
+            so the bright disk reads as a print, not a lamp that blooms out. */}
+        {showPrint && (
+          <mesh position={[0, 0, 0.02]}>
+            <planeGeometry args={[2.4, 2.4]} />
+            <meshBasicMaterial map={tex} color="#c2c2c2" toneMapped={false} />
+          </mesh>
+        )}
       </group>
     </group>
   );

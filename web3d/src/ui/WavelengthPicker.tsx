@@ -7,15 +7,30 @@ import { CHANNELS } from "../data/wavelengths";
 export default function WavelengthPicker() {
   const channel = useStore((s) => s.channel);
   const setChannel = useStore((s) => s.setChannel);
+  const date = useStore((s) => s.date);
+  const setDate = useStore((s) => s.setDate);
   const revealed = useStore((s) => s.progress > 0.4);
   const active = CHANNELS[channel];
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <fieldset
       className={"picker" + (revealed ? " picker--in" : "")}
-      aria-label="Choose a solar wavelength"
+      aria-label="Choose your date and wavelength"
     >
-      <legend className="visually-hidden">Solar wavelength</legend>
+      <legend className="visually-hidden">Date and solar wavelength</legend>
+
+      {/* the day that mattered — feeds the real Sun image and the deep link */}
+      <label className="date-field">
+        <span className="date-label">Your date</span>
+        <input
+          type="date"
+          value={date}
+          min="2010-05-15"
+          max={today}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+        />
+      </label>
 
       {/* live label — the only wavelength cue on touch (dot labels are hidden) */}
       <output className="picker-readout" aria-live="polite">

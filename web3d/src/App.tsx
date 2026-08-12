@@ -5,6 +5,7 @@ import ErrorBoundary from "./ui/ErrorBoundary";
 import Loader from "./ui/Loader";
 import Overlay from "./ui/Overlay";
 import WavelengthPicker from "./ui/WavelengthPicker";
+import BuyLink from "./ui/BuyLink";
 
 // The heavy Three.js bundle is code-split and streamed behind the loader.
 const Scene = lazy(() => import("./three/Scene"));
@@ -42,10 +43,9 @@ export default function App() {
       <nav id="buy" aria-label="Customize your Heliograph">
         <WavelengthPicker />
         {/* the real, screen-reader-announced purchase control (the overlay's
-            "Make one" is decorative and aria-hidden) */}
-        <a className="cta cta--buy" href="https://myheliograph.com">
-          Make one
-        </a>
+            "Make one" is decorative and aria-hidden); deep-links to the original
+            front end with the chosen date + wavelength and warms the backend */}
+        <BuyLink className="cta cta--buy">Make one</BuyLink>
       </nav>
 
       {/* Scroll track: gives the film its length. The stage above is fixed. */}

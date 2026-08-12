@@ -5,7 +5,9 @@ import { useStore } from "../store";
 // through the aperture and the room; it is the most expensive pass, so it is
 // off in the wide/void spaces and disabled entirely on the low tier.
 export default function Effects() {
-  const dofOn = useStore((s) => s.progress > 0.46);
+  // shallow focus through the aperture/darkroom; OFF in the room so the framed
+  // print stays crisp (it's a photo, not a light to blur)
+  const dofOn = useStore((s) => s.progress > 0.46 && s.progress < 0.8);
   const quality = useStore((s) => s.quality);
   if (quality === "low") {
     return (

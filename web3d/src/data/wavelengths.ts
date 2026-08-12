@@ -21,7 +21,8 @@ export const CHANNELS: Channel[] = [
   { angstrom: 335, nm: 33.5, instrument: "AIA", label: "33.5 nm", tint: "#2f6fd6", hot: "#cfe0ff" },
   { angstrom: 1600, nm: 160.0, instrument: "AIA", label: "160.0 nm", tint: "#b6c14a", hot: "#f4ffd0" },
   { angstrom: 1700, nm: 170.0, instrument: "AIA", label: "170.0 nm", tint: "#d98a8a", hot: "#ffe1e1" },
-  { angstrom: 6173, nm: 617.6, instrument: "HMI", label: "617.6 nm", tint: "#d8c9a8", hot: "#fff6e0" },
 ];
+// The 9 SDO/AIA channels the product pipeline supports (see PRODUCT_CREATION_
+// CONTRACT.md). Each angstrom value is a valid `wl` deep-link + thumb param.
 
 export const DEFAULT_CHANNEL = 5; // 30.4 nm — the warm, recognizable Sun
