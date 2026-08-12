@@ -9,7 +9,7 @@ const COPY: Record<string, { eyebrow?: string; line: string }> = {
   surface: { line: "Ninety-three million miles. Eight minutes of light." },
   crossing: { line: "Then the long dark, crossed for one person." },
   aperture: { line: "Choose the light. Aim the instrument." },
-  darkroom: { line: "Caught, and pressed into paper." },
+  darkroom: { line: "Through your window, onto your wall." },
   room: { line: "Your day, written in sunlight." },
   gift: { line: "A gift made of a star." },
 };
@@ -36,7 +36,11 @@ export default function Overlay() {
         return (
           <figure
             key={s.key}
-            className="overlay-line"
+            className={
+              "overlay-line" +
+              (s.key === "threshold" ? " overlay-line--hero" : "") +
+              (s.key === "room" ? " overlay-line--climax" : "")
+            }
             style={{ opacity: o, transform: `translateY(${(1 - o) * 14}px)` }}
           >
             {c.eyebrow && <figcaption className="eyebrow">{c.eyebrow}</figcaption>}

@@ -13,8 +13,8 @@ const POS: [number, number, number][] = [
   [0.6, 0.4, 11.0], // crossing — pull back into the void
   [0, 0, 5.2], // aperture — face the filter wheel
   [0.2, -0.3, 2.7], // darkroom — extreme close on the plasma (light becoming ink)
-  [1.7, 1.15, -34.0], // room — the fly lands here: framed print on the wall
-  [1.35, 0.7, -34.5], // gift — settle
+  [0.0, 0.7, -32.4], // room — pulled back to frame the window (left) + print (right)
+  [0.1, 0.5, -32.8], // gift — settle
 ];
 const TGT: [number, number, number][] = [
   [1.05, 0.68, 0], // sun pushed to lower-left of frame
@@ -22,8 +22,8 @@ const TGT: [number, number, number][] = [
   [0, 0, 0],
   [0, 0, 0],
   [0, 0, 0], // darkroom looks at the Sun (the forming image)
-  [0.15, 0.25, -40],
-  [0.08, 0.12, -40],
+  [-0.3, 0.4, -40], // room — center between window and print
+  [-0.15, 0.3, -40], // gift
 ];
 
 const REACT: Record<SpaceKey, number> = {

@@ -52,14 +52,20 @@ body {
   max-width: 20ch;
   will-change: opacity, transform;
 }
-/* soft scrim so copy lifts off the plasma without a hard box */
+/* scrim so copy holds 4.5:1 even over the BRIGHTEST plasma frame: a strong,
+   tight core that fades out, not a weak wash. */
 .overlay-line::before {
   content: "";
   position: absolute;
-  inset: -60% -40%;
+  inset: -70% -45%;
   z-index: -1;
-  background: radial-gradient(ellipse at center, rgba(5, 6, 10, 0.55), transparent 68%);
-  filter: blur(6px);
+  background: radial-gradient(
+    ellipse at center,
+    rgba(5, 6, 10, 0.9) 0%,
+    rgba(5, 6, 10, 0.66) 42%,
+    transparent 74%
+  );
+  filter: blur(10px);
 }
 .eyebrow {
   font-family: var(--sans);
@@ -79,12 +85,34 @@ body {
   letter-spacing: -0.015em;
   margin: 0;
   text-wrap: balance;
-  text-shadow: 0 2px 34px rgba(0, 0, 0, 0.55);
+  /* layered shadow: a tight dark halo for legibility + a soft spread */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.85),
+    0 0 40px rgba(0, 0, 0, 0.6);
 }
 .line.climax {
   font-style: italic;
   font-weight: 340;
   font-size: clamp(2rem, 5.2vw, 4rem);
+}
+/* Hero: commit the headline to the negative space on wide screens (the Sun
+   sits lower-left, so the copy lives in the empty upper-right instead of
+   colliding with the disk). Stays centered on phones, where it reads fine. */
+@media (min-width: 768px) {
+  .overlay-line--hero {
+    justify-self: end;
+    align-self: center;
+    text-align: left;
+    max-width: 15ch;
+    margin-right: 4vw;
+  }
+  .overlay-line--hero .eyebrow {
+    text-align: left;
+  }
+}
+/* Climax line sits high, clear of the pinned buy bar at the bottom. */
+.overlay-line--climax {
+  align-self: start;
+  margin-top: 9vh;
 }
 .cta,
 .fallback .cta {
