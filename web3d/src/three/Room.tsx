@@ -19,7 +19,9 @@ export default function Room() {
   const showPrint = near && !!tex;
 
   return (
-    <group position={[0, 0, Z]}>
+    // hidden until approached, so the distant frame never floats into the
+    // hero/crossing sightline (the camera reaches the room ~0.82)
+    <group position={[0, 0, Z]} visible={near}>
       {/* warm tungsten room light */}
       <ambientLight intensity={0.5} color="#ffe0bf" />
       <directionalLight position={[6, 7, 8]} intensity={1.9} color="#ffd2a0" />
