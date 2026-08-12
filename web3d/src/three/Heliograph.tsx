@@ -9,7 +9,7 @@ import { useWheelTextures } from "../hooks/useWheelTextures";
 // ring of real pie slices (one per wavelength, nm-labelled) fans around a
 // TRANSPARENT center — the actual 3D Sun sphere (the current selection) shines
 // through the hole; click a slice to change it. The heading lives outside it.
-const INNER = 1.15; // ring hole ~= the 3D Sun's silhouette at the aperture camera
+const INNER = 1.6; // ring hole sits OUTSIDE the 3D Sun's silhouette (whole disk + a gap)
 const OUTER = 3.0;
 const DISC_UV = 0.31; // solar-disk radius in the thumb's UV space (FOV ~3072")
 const WHEEL_Z = 2.0; // in front of the 3D sphere, which shows through the hole
