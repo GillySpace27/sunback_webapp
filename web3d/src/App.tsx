@@ -6,6 +6,7 @@ import { warmBackend } from "./lib/handoff";
 import ErrorBoundary from "./ui/ErrorBoundary";
 import Loader from "./ui/Loader";
 import Overlay from "./ui/Overlay";
+import Arrows from "./ui/Arrows";
 import WavelengthPicker from "./ui/WavelengthPicker";
 
 // The heavy Three.js bundle is code-split and streamed behind the loader.
@@ -50,6 +51,7 @@ export default function App() {
       </div>
 
       <Overlay />
+      <Arrows />
 
       <nav id="buy" aria-label="Customize your Heliograph">
         {/* the picker carries the real, visible, screen-reader-announced

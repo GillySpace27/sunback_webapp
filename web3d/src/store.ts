@@ -34,6 +34,10 @@ type State = {
 
   reducedMotion: boolean;
   setReducedMotion: (v: boolean) => void;
+
+  // programmatic scroll (wired to Lenis) so the timeline arrows can jump beats
+  scrollToProgress: (p: number) => void;
+  setScrollToProgress: (fn: (p: number) => void) => void;
 };
 
 // ponytail: refs/useFrame read these; components subscribe only where a
@@ -61,7 +65,18 @@ export const useStore = create<State>((set) => ({
 
   reducedMotion: false,
   setReducedMotion: (v) => set({ reducedMotion: v }),
+
+  scrollToProgress: () => {},
+  setScrollToProgress: (fn) => set({ scrollToProgress: fn }),
 }));
+
+// Center progress of each space — where its copy peaks; the arrows jump here.
+export function spaceCenters(): number[] {
+  return SPACES.map((s, i) => {
+    const end = i + 1 < SPACES.length ? SPACES[i + 1].start : 1;
+    return (s.start + end) / 2;
+  });
+}
 
 // dev-only handle for driving progress in tests (stripped from prod builds)
 if (import.meta.env.DEV && typeof window !== "undefined") {

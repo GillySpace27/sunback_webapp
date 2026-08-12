@@ -5,10 +5,10 @@ import BuyLink from "./BuyLink";
 // scroll; opacity peaks mid-slice and falls at the edges. Text never animates
 // over a moving camera — it lives in the still center of each space.
 const COPY: Record<string, { eyebrow?: string; line: string }> = {
-  threshold: { eyebrow: "My Heliograph", line: "The Sun, on the day that mattered." },
-  surface: { line: "Ninety-three million miles. Eight minutes of light." },
-  crossing: { line: "Then the long dark, crossed for one person." },
-  aperture: { line: "Choose the light. Aim the instrument." },
+  threshold: { eyebrow: "My Heliograph", line: "The Sun, on the day that mattered to you." },
+  surface: { line: "The light that lit your day." },
+  aperture: { line: "Select a color." },
+  crossing: { line: "Ninety-three million miles to earth, traversed in 8 minutes." },
   darkroom: { line: "Through your window, onto your wall." },
   room: { line: "Your day, written in sunlight." },
   gift: { line: "A gift made of a star." },
@@ -48,7 +48,7 @@ export default function Overlay() {
               className={
                 s.key === "room"
                   ? "line climax"
-                  : s.key === "surface"
+                  : s.key === "crossing"
                     ? "line line--caption"
                     : "line"
               }

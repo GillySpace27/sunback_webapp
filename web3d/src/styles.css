@@ -336,6 +336,53 @@ body {
   }
 }
 
+/* ---- timeline arrows ---- */
+.arrows {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(0.4rem, 2vw, 1.5rem);
+}
+.arrow {
+  pointer-events: auto;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  background: rgba(8, 9, 14, 0.5);
+  backdrop-filter: blur(6px);
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.25s ease, background 0.25s ease, transform 0.25s ease;
+}
+.arrow:hover {
+  opacity: 1;
+  background: rgba(8, 9, 14, 0.8);
+  transform: scale(1.06);
+}
+.arrow:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.arrow:disabled {
+  opacity: 0.12;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .arrow {
+    width: 42px;
+    height: 42px;
+  }
+}
+
 /* ---- loader / fallback ---- */
 .loader {
   position: fixed;

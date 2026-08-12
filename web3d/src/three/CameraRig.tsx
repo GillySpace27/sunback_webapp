@@ -7,26 +7,27 @@ import { useStore, spaceAt, SpaceKey, SPACES } from "../store";
 // Composition is deliberately off-center at the threshold (the Sun sits on a
 // third, black breathing above); the path then flies from the Sun at the origin
 // down to the Room far along -Z, so the light literally travels to the wall.
-// Sun at origin; Earth at (5,-2,-8); the home interior around (1.7,-1,-33).
-// The path arcs OUT past the Sun to Earth and down to the home — it never
-// dives through the Sun.
+// Sun at origin; Earth at (3,-2,9) and the home at (2.5,-2.5,13) — both on the
+// VIEWER side (+Z). The camera pulls back toward the viewer to reveal Earth,
+// then settles into the home: "coming back to Earth, where I am", never diving
+// behind the Sun.
 const POS: [number, number, number][] = [
   [2.0, 1.2, 10.6], // threshold — small Sun, lower-left third
   [0, 0, 3.0], // surface — push in, awe
   [0, 0, 6.6], // aperture — pull back so the filter wheel reads as a full ring
-  [-2.5, 2.2, 12.0], // crossing — pulled back: Sun small + Earth lit by a sunbeam
-  [4.6, -1.2, -3.0], // darkroom — arc past the Sun, descend toward Earth
-  [2.0, -0.4, -25.5], // room — inside the home: window (Sun outside) + print
-  [2.1, -0.5, -25.8], // gift — settle
+  [0, 0.8, 24.0], // crossing — pulled way back toward the viewer: Sun small far, Earth near, beam
+  [2.4, -1.9, 21.0], // darkroom — descending toward the home (still coming toward us)
+  [2.5, -2.3, 18.6], // room — settled into the home, framing window (left) + print (right)
+  [2.52, -2.35, 18.7], // gift — settle
 ];
 const TGT: [number, number, number][] = [
   [1.05, 0.68, 0], // sun pushed to lower-left of frame
   [0, 0, 0],
   [0, 0, 0], // aperture — the wheel around the Sun
-  [2.2, -1.0, -4.0], // crossing — frame the Sun/Earth vista
-  [5, -2, -8], // darkroom — Earth
-  [1.7, -1.2, -33], // room — between the window and the print
-  [1.7, -1.1, -33], // gift
+  [1.6, -1.1, 9], // crossing — frame the Sun (far) + Earth (near) vista
+  [2.7, -2.3, 13], // darkroom — the home ahead
+  [2.5, -2.5, 13], // room — between the window and the print
+  [2.5, -2.4, 13], // gift
 ];
 
 const REACT: Record<SpaceKey, number> = {

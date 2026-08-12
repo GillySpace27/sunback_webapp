@@ -8,8 +8,8 @@ import { useStore } from "../store";
 // outside) and a soft shaft falls across the wall, materializing as a framed
 // print of the real SDO/AIA disk for the chosen day. Cosmic -> domestic.
 // Hidden until approached so nothing floats into the earlier beats.
-// Positioned as a home reached after descending past Earth.
-const ROOM_POS: [number, number, number] = [1.7, -1, -33];
+// On the viewer side (+Z), near Earth — the home you settle back into.
+const ROOM_POS: [number, number, number] = [2.5, -2.5, 13];
 
 // warm daylight sky with a bright sun glow, seen through the window
 function makeSky() {

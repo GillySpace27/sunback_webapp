@@ -8,6 +8,7 @@ import { useStore } from "../store";
 // for the demo. Add GSAP ScrollTrigger when per-element scrubbed timelines land.
 export function useScrollProgress() {
   const setProgress = useStore((s) => s.setProgress);
+  const setScrollToProgress = useStore((s) => s.setScrollToProgress);
   const reduced = useStore((s) => s.reducedMotion);
 
   useEffect(() => {
@@ -23,6 +24,12 @@ export function useScrollProgress() {
       setProgress(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0);
     };
 
+    // let the timeline arrows jump to a target progress (0..1) via Lenis
+    setScrollToProgress((p: number) => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      lenis.scrollTo(Math.min(1, Math.max(0, p)) * max, { duration: reduced ? 0 : 1.2 });
+    });
+
     let raf = 0;
     const loop = (t: number) => {
       lenis.raf(t);
@@ -36,5 +43,5 @@ export function useScrollProgress() {
       cancelAnimationFrame(raf);
       lenis.destroy();
     };
-  }, [setProgress, reduced]);
+  }, [setProgress, setScrollToProgress, reduced]);
 }
