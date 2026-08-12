@@ -54,9 +54,10 @@ export default function Heliograph() {
 
   useFrame(() => {
     const { channel, progress } = useStore.getState();
-    // present through the aperture; kept off the crossing void and the room
+    // present through the aperture space (~0.28-0.45), before the outward
+    // journey; kept off the Sun-awe beat and everything after
     const fade = THREE.MathUtils.clamp(
-      Math.min((progress - 0.5) / 0.06, (0.76 - progress) / 0.06),
+      Math.min((progress - 0.29) / 0.05, (0.45 - progress) / 0.05),
       0,
       1
     );

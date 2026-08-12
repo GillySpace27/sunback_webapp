@@ -7,8 +7,9 @@ import { useStore } from "../store";
 // arrives in someone's home: it comes through a window (the Sun glowing
 // outside) and a soft shaft falls across the wall, materializing as a framed
 // print of the real SDO/AIA disk for the chosen day. Cosmic -> domestic.
-// Hidden until approached so nothing floats into the hero sightline.
-const Z = -40;
+// Hidden until approached so nothing floats into the earlier beats.
+// Positioned as a home reached after descending past Earth.
+const ROOM_POS: [number, number, number] = [1.7, -1, -33];
 
 // warm daylight sky with a bright sun glow, seen through the window
 function makeSky() {
@@ -74,7 +75,8 @@ function Shimmer() {
 
 export default function Room() {
   const tex = useStore((s) => s.currentTexture);
-  const near = useStore((s) => s.progress > 0.5);
+  // reveal only once we've left the Earth vista and are descending to the home
+  const near = useStore((s) => s.progress > 0.66);
   const showPrint = near && !!tex;
   const sky = useMemo(makeSky, []);
   const shaft = useMemo(makeShaft, []);
@@ -87,7 +89,7 @@ export default function Room() {
   });
 
   return (
-    <group position={[0, 0, Z]} visible={near}>
+    <group position={ROOM_POS} visible={near}>
       {/* warm tungsten room light + a stronger warm key from the window side */}
       <ambientLight intensity={0.45} color="#ffe0bf" />
       <directionalLight position={[-3, 3, 6]} intensity={2.1} color="#ffddab" />

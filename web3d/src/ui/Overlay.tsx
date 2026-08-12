@@ -44,7 +44,17 @@ export default function Overlay() {
             style={{ opacity: o, transform: `translateY(${(1 - o) * 14}px)` }}
           >
             {c.eyebrow && <figcaption className="eyebrow">{c.eyebrow}</figcaption>}
-            <p className={s.key === "room" ? "line climax" : "line"}>{c.line}</p>
+            <p
+              className={
+                s.key === "room"
+                  ? "line climax"
+                  : s.key === "surface"
+                    ? "line line--caption"
+                    : "line"
+              }
+            >
+              {c.line}
+            </p>
             {s.key === "gift" && (
               // decorative twin of the real CTA in <nav id="buy">; kept out of the
               // tab order since the whole overlay is aria-hidden

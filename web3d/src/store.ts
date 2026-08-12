@@ -68,13 +68,17 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
   (window as unknown as { __store?: unknown }).__store = useStore;
 }
 
-// The seven spaces, as progress thresholds. Used by overlay + camera + effects.
+// The seven spaces, as progress thresholds. Ordered as one outward journey:
+// the Sun (hero -> awe -> choose the light), then out across the dark to Earth
+// lit by a sunbeam, then down to the surface and into a home where the print
+// materializes on the wall. Aperture sits BEFORE the crossing so you aim the
+// instrument at the Sun before leaving it.
 export const SPACES = [
   { key: "threshold", start: 0.0 },
-  { key: "surface", start: 0.16 },
-  { key: "crossing", start: 0.32 },
-  { key: "aperture", start: 0.48 },
-  { key: "darkroom", start: 0.66 },
+  { key: "surface", start: 0.13 },
+  { key: "aperture", start: 0.28 },
+  { key: "crossing", start: 0.45 },
+  { key: "darkroom", start: 0.63 },
   { key: "room", start: 0.82 },
   { key: "gift", start: 0.94 },
 ] as const;

@@ -94,6 +94,16 @@ body {
   font-weight: 340;
   font-size: clamp(2rem, 5.2vw, 4rem);
 }
+/* caption register (the distance beat) — a tracked sans counterpoint to the
+   serif headlines, so the seven beats aren't one flat typographic note */
+.line--caption {
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: clamp(0.95rem, 2.1vw, 1.4rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.55;
+}
 /* Hero: commit the headline to the negative space on wide screens (the Sun
    sits lower-left, so the copy lives in the empty upper-right instead of
    colliding with the disk). Stays centered on phones, where it reads fine. */
@@ -241,19 +251,35 @@ body {
   color: var(--muted);
 }
 .date-field input[type="date"] {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(244, 239, 230, 0.25);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  border-radius: 999px;
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.8rem;
-  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  padding: 0.45rem 0.9rem;
   color-scheme: dark;
   min-height: 40px;
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+.date-field input[type="date"]:hover {
+  border-color: rgba(244, 239, 230, 0.5);
+  background: rgba(255, 255, 255, 0.09);
+}
+/* tune the native calendar glyph to the dark theme instead of the OS default */
+.date-field input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  opacity: 0.65;
+  cursor: pointer;
+}
+.date-field input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 .date-field input[type="date"]:focus-visible {
   outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
 }
 .swatches {
   display: flex;

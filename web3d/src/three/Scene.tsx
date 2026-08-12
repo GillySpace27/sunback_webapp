@@ -6,6 +6,7 @@ import { useStore } from "../store";
 import Sun from "./Sun";
 import Heliograph from "./Heliograph";
 import Dust from "./Dust";
+import Earth from "./Earth";
 import Room from "./Room";
 import CameraRig from "./CameraRig";
 import Effects from "./Effects";
@@ -40,6 +41,7 @@ export default function Scene() {
         <Sun />
         <Heliograph />
         <Dust />
+        <Earth />
         <Room />
       </Suspense>
       <CameraRig />

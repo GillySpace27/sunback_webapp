@@ -7,23 +7,26 @@ import { useStore, spaceAt, SpaceKey, SPACES } from "../store";
 // Composition is deliberately off-center at the threshold (the Sun sits on a
 // third, black breathing above); the path then flies from the Sun at the origin
 // down to the Room far along -Z, so the light literally travels to the wall.
+// Sun at origin; Earth at (5,-2,-8); the home interior around (1.7,-1,-33).
+// The path arcs OUT past the Sun to Earth and down to the home — it never
+// dives through the Sun.
 const POS: [number, number, number][] = [
   [2.0, 1.2, 10.6], // threshold — small Sun, lower-left third
   [0, 0, 3.0], // surface — push in, awe
-  [0.6, 0.4, 11.0], // crossing — pull back into the void
-  [0, 0, 5.2], // aperture — face the filter wheel
-  [0.2, -0.3, 2.7], // darkroom — extreme close on the plasma (light becoming ink)
-  [0.0, 0.7, -32.4], // room — pulled back to frame the window (left) + print (right)
-  [0.1, 0.5, -32.8], // gift — settle
+  [0, 0, 6.6], // aperture — pull back so the filter wheel reads as a full ring
+  [-2.5, 2.2, 12.0], // crossing — pulled back: Sun small + Earth lit by a sunbeam
+  [4.6, -1.2, -3.0], // darkroom — arc past the Sun, descend toward Earth
+  [2.0, -0.4, -25.5], // room — inside the home: window (Sun outside) + print
+  [2.1, -0.5, -25.8], // gift — settle
 ];
 const TGT: [number, number, number][] = [
   [1.05, 0.68, 0], // sun pushed to lower-left of frame
   [0, 0, 0],
-  [0, 0, 0],
-  [0, 0, 0],
-  [0, 0, 0], // darkroom looks at the Sun (the forming image)
-  [-0.3, 0.4, -40], // room — center between window and print
-  [-0.15, 0.3, -40], // gift
+  [0, 0, 0], // aperture — the wheel around the Sun
+  [2.2, -1.0, -4.0], // crossing — frame the Sun/Earth vista
+  [5, -2, -8], // darkroom — Earth
+  [1.7, -1.2, -33], // room — between the window and the print
+  [1.7, -1.1, -33], // gift
 ];
 
 const REACT: Record<SpaceKey, number> = {
