@@ -6,14 +6,13 @@ import { CHANNELS } from "../data/wavelengths";
 import { useWheelTextures } from "../hooks/useWheelTextures";
 
 // The filter wheel: the day's Sun in every wavelength, as a clean palette. A
-// ring of real pie slices (one per wavelength, nm-labelled) fans around an
-// OPAQUE Sun at the center that shows the CURRENT selection — click a slice and
-// the center Sun changes. Nothing muddy overlaps; the heading lives outside it.
-const INNER = 1.28; // ring inner radius = edge of the center Sun
+// ring of real pie slices (one per wavelength, nm-labelled) fans around a
+// TRANSPARENT center — the actual 3D Sun sphere (the current selection) shines
+// through the hole; click a slice to change it. The heading lives outside it.
+const INNER = 1.15; // ring hole ~= the 3D Sun's silhouette at the aperture camera
 const OUTER = 3.0;
-const CENTER_R = 1.24; // opaque center Sun (sits just inside the ring)
 const DISC_UV = 0.31; // solar-disk radius in the thumb's UV space (FOV ~3072")
-const WHEEL_Z = 2.0; // in front of the 3D sphere, which it fully covers here
+const WHEEL_Z = 2.0; // in front of the 3D sphere, which shows through the hole
 
 function ringWedge(a0: number, a1: number) {
   const shape = new THREE.Shape();
@@ -29,19 +28,6 @@ function ringWedge(a0: number, a1: number) {
   for (let i = 0; i < p.count; i++) {
     uv[i * 2] = (p.getX(i) / OUTER) * DISC_UV + 0.5;
     uv[i * 2 + 1] = (p.getY(i) / OUTER) * DISC_UV + 0.5;
-  }
-  g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-  return g;
-}
-
-// a circle textured with the full disk (the opaque center Sun)
-function centerGeo() {
-  const g = new THREE.CircleGeometry(CENTER_R, 64);
-  const p = g.getAttribute("position");
-  const uv = new Float32Array(p.count * 2);
-  for (let i = 0; i < p.count; i++) {
-    uv[i * 2] = (p.getX(i) / CENTER_R) * DISC_UV + 0.5;
-    uv[i * 2 + 1] = (p.getY(i) / CENTER_R) * DISC_UV + 0.5;
   }
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   return g;
@@ -68,9 +54,7 @@ export default function Heliograph() {
   const meshes = useRef<THREE.Mesh[]>([]);
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
-  const channel = useStore((s) => s.channel);
   const texes = useWheelTextures(date, time);
-  const center = useMemo(centerGeo, []);
 
   const wedges = useMemo(() => {
     const n = CHANNELS.length;
@@ -151,16 +135,7 @@ export default function Heliograph() {
           </mesh>
         </group>
       ))}
-
-      {/* opaque center Sun — the current selection; changes on click */}
-      <mesh geometry={center} position={[0, 0, 0.25]} raycast={() => null}>
-        <meshBasicMaterial
-          key={texes[channel] ? "c-tex" : "c-none"}
-          map={texes[channel] || undefined}
-          color={texes[channel] ? "#ffffff" : CHANNELS[channel].tint}
-          toneMapped={false}
-        />
-      </mesh>
+      {/* center is left open — the 3D Sun sphere shows through the hole */}
     </group>
   );
 }
