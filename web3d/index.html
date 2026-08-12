@@ -13,14 +13,12 @@
       name="description"
       content="A gift made of light. The Sun exactly as it burned on the day that matters to you, in the wavelength you choose, printed on the object you love."
     />
-    <!-- Not deployed yet (local dev only). Add a canonical + og:url set to the
-         3D site's OWN URL once it has one; until then, no canonical is correct
-         (the page self-canonicalizes to whatever URL serves it). Do NOT point
-         canonical at the store root or it will de-index this page. -->
-    <!-- <link rel="canonical" href="https://REPLACE-WITH-DEPLOY-URL/" /> -->
+    <!-- Served same-origin under /experience/ by the Cloudflare Worker. -->
+    <link rel="canonical" href="https://myheliograph.com/experience/" />
 
     <!-- Open Graph / social -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://myheliograph.com/experience/" />
     <meta property="og:title" content="My Heliograph — Your day, written in sunlight" />
     <meta
       property="og:description"

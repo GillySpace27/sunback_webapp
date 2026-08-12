@@ -25,6 +25,21 @@ for f in "$API_DIR"/legal/*.html; do
   cp "$f" "$OUT/$(basename "$f")"
 done
 
+# ── 3D experience (web3d) ──────────────────────────────────────
+# The cinematic "Eight Minutes" front end, served SAME-ORIGIN under
+# /experience/ so its origin-enforced Helioviewer textures (/api/*) and the
+# deep-link handoff to the store root both work with zero CORS/allow-list
+# changes. Built separately (cd ../../web3d && npm run build) with
+# base=/experience/. Its only HTML entry is /experience/index.html (no client
+# routing), so no SPA fallback is needed.
+WEB3D="../../web3d/dist"
+if [ -d "$WEB3D" ]; then
+  cp -r "$WEB3D" "$OUT/experience"
+  echo "web3d: $(find "$OUT/experience" -type f | wc -l | tr -d ' ') files -> public/experience/"
+else
+  echo "WARN: web3d/dist not built — /experience/ will 404 (run: cd ../../web3d && npm run build)"
+fi
+
 # Landing assets served STATIC from the edge so the landing page + product
 # grid + vibe gallery need ZERO backend (no waiting on a cold Fly wake).
 # Only the small stuff: the two manifests + mockup thumbs + vibe thumbs.
