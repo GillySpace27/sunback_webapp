@@ -28,7 +28,7 @@ export default function Scene() {
       onCreated={(state) => {
         state.gl.toneMapping = THREE.ACESFilmicToneMapping;
         state.gl.toneMappingExposure = 1.0;
-        (window as unknown as { __three?: unknown }).__three = state;
+        if (import.meta.env.DEV) (window as unknown as { __three?: unknown }).__three = state;
       }}
     >
       <color attach="background" args={["#05060a"]} />

@@ -1,26 +1,36 @@
+import { useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
 import { useStore } from "../store";
-import { CHANNELS } from "../data/wavelengths";
-import { useSunTexture } from "../hooks/useSunTexture";
 
 // The landing. A warm interior with the finished piece on the wall: a framed
-// print of the real SDO/AIA disk for the chosen date + wavelength (the same
-// Helioviewer image the 3D Sun uses, shown flat as a photo). This is where
-// cosmic collapses to domestic — the climax. Sits far down -Z; the camera
-// flies here after the aperture.
+// print of the real SDO/AIA disk for the chosen identity (the shared texture,
+// shown flat as a photo). While that photo is still loading the frame shows a
+// subtle "developing" shimmer, never a blank hole. Sits far down -Z; the camera
+// flies here after the aperture. Hidden until approached so the frame never
+// floats into the hero sightline.
 const Z = -40;
 
+// pulsing placeholder inside the frame while the print's photo loads
+function Shimmer() {
+  const mat = useRef<THREE.MeshBasicMaterial>(null!);
+  useFrame((s) => {
+    if (mat.current) mat.current.opacity = 0.12 + 0.08 * Math.sin(s.clock.elapsedTime * 2.2);
+  });
+  return (
+    <mesh position={[0, 0, 0.02]}>
+      <planeGeometry args={[2.4, 2.4]} />
+      <meshBasicMaterial ref={mat} color="#c25a2a" transparent opacity={0.15} toneMapped={false} />
+    </mesh>
+  );
+}
+
 export default function Room() {
-  const date = useStore((s) => s.date);
-  const time = useStore((s) => s.time);
-  const channel = useStore((s) => s.channel);
-  const near = useStore((s) => s.progress > 0.5); // only fetch once approaching
-  // shares the Sun's cached texture (same url) — no extra request
-  const tex = useSunTexture(date, time, CHANNELS[channel].angstrom);
+  const tex = useStore((s) => s.currentTexture);
+  const near = useStore((s) => s.progress > 0.5);
   const showPrint = near && !!tex;
 
   return (
-    // hidden until approached, so the distant frame never floats into the
-    // hero/crossing sightline (the camera reaches the room ~0.82)
     <group position={[0, 0, Z]} visible={near}>
       {/* warm tungsten room light */}
       <ambientLight intensity={0.5} color="#ffe0bf" />
@@ -48,10 +58,11 @@ export default function Room() {
           <planeGeometry args={[2.4, 2.4]} />
           <meshBasicMaterial color="#0b0705" toneMapped={false} />
         </mesh>
+        {/* developing shimmer until the real photo is ready */}
+        {near && !showPrint && <Shimmer />}
         {/* the printed photo — mounted fresh once the JPG is ready so the
-            material compiles WITH the map (setting map= late on an existing
-            basic material doesn't recompile and renders flat). Dimmed a touch
-            so the bright disk reads as a print, not a lamp that blooms out. */}
+            material compiles WITH the map. Dimmed a touch so the bright disk
+            reads as a print, not a lamp that blooms out. */}
         {showPrint && (
           <mesh position={[0, 0, 0.02]}>
             <planeGeometry args={[2.4, 2.4]} />

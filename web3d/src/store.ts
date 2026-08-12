@@ -1,7 +1,9 @@
 import { create } from "zustand";
+import type { Texture } from "three";
 import { DEFAULT_CHANNEL } from "./data/wavelengths";
 
 export type Quality = "high" | "medium" | "low";
+export type TexStatus = "idle" | "loading" | "ready" | "error";
 
 type State = {
   // 0..1 scroll progress across the whole film. Single source of truth.
@@ -17,6 +19,14 @@ type State = {
   setDate: (d: string) => void;
   time: string; // HH:MM
   setTime: (t: string) => void;
+
+  // the real SDO/AIA texture for the CURRENT identity (null => procedural
+  // fallback); status drives loading/error affordances. Never show a stale
+  // texture for a different date — the loader nulls it on identity change.
+  currentTexture: Texture | null;
+  setTexture: (t: Texture | null) => void;
+  texStatus: TexStatus;
+  setTexStatus: (s: TexStatus) => void;
 
   // adaptive quality tier, driven by PerformanceMonitor
   quality: Quality;
@@ -41,6 +51,11 @@ export const useStore = create<State>((set) => ({
   time: "12:00",
   setTime: (t) => set({ time: t }),
 
+  currentTexture: null,
+  setTexture: (t) => set({ currentTexture: t }),
+  texStatus: "idle",
+  setTexStatus: (s) => set({ texStatus: s }),
+
   quality: "high",
   setQuality: (q) => set({ quality: q }),
 
@@ -48,8 +63,8 @@ export const useStore = create<State>((set) => ({
   setReducedMotion: (v) => set({ reducedMotion: v }),
 }));
 
-// dev-only handle for driving progress in tests (harmless in prod)
-if (typeof window !== "undefined") {
+// dev-only handle for driving progress in tests (stripped from prod builds)
+if (import.meta.env.DEV && typeof window !== "undefined") {
   (window as unknown as { __store?: unknown }).__store = useStore;
 }
 

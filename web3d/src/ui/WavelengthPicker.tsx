@@ -1,14 +1,17 @@
 import { useStore } from "../store";
 import { CHANNELS } from "../data/wavelengths";
+import BuyLink from "./BuyLink";
 
-// Accessible counterpart to the 3D filter wheel. Native radios give free
-// arrow-key navigation and screen-reader semantics; state is shared with the
-// wheel through the store, so clicking a 3D wedge updates this and vice versa.
+// The pinned "configure + commit" bar: date, wavelength (accessible counterpart
+// to the 3D filter wheel), a live readout, and a real visible "Make one" so a
+// buyer can commit the moment they're ready — not only at the very end of the
+// scroll. State is shared with the wheel through the store.
 export default function WavelengthPicker() {
   const channel = useStore((s) => s.channel);
   const setChannel = useStore((s) => s.setChannel);
   const date = useStore((s) => s.date);
   const setDate = useStore((s) => s.setDate);
+  const status = useStore((s) => s.texStatus);
   const revealed = useStore((s) => s.progress > 0.4);
   const active = CHANNELS[channel];
   const today = new Date().toISOString().slice(0, 10);
@@ -16,9 +19,9 @@ export default function WavelengthPicker() {
   return (
     <fieldset
       className={"picker" + (revealed ? " picker--in" : "")}
-      aria-label="Choose your date and wavelength"
+      aria-label="Choose your date and wavelength, then make your print"
     >
-      <legend className="visually-hidden">Date and solar wavelength</legend>
+      <legend className="visually-hidden">Date, solar wavelength, and purchase</legend>
 
       {/* the day that mattered — feeds the real Sun image and the deep link */}
       <label className="date-field">
@@ -32,9 +35,11 @@ export default function WavelengthPicker() {
         />
       </label>
 
-      {/* live label — the only wavelength cue on touch (dot labels are hidden) */}
+      {/* live label + load state — the only wavelength cue on touch */}
       <output className="picker-readout" aria-live="polite">
         {active.instrument} · {active.label}
+        {status === "loading" && <span className="picker-status"> · developing your Sun…</span>}
+        {status === "error" && <span className="picker-status err"> · no image for this date</span>}
       </output>
 
       <div className="swatches">
@@ -58,6 +63,12 @@ export default function WavelengthPicker() {
             <span className="swatch-label">{ch.label}</span>
           </label>
         ))}
+      </div>
+
+      {/* commit — visible for mouse from the moment the bar is revealed */}
+      <div className="picker-buy">
+        <BuyLink className="cta cta--bar">Make one</BuyLink>
+        <span className="price-anchor">Prints from $9.99</span>
       </div>
     </fieldset>
   );

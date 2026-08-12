@@ -44,7 +44,7 @@ export default function Overlay() {
             {s.key === "gift" && (
               // decorative twin of the real CTA in <nav id="buy">; kept out of the
               // tab order since the whole overlay is aria-hidden
-              <BuyLink className="cta" decorative style={{ pointerEvents: o > 0.5 ? "auto" : "none" }}>
+              <BuyLink className="cta" decorative style={{ pointerEvents: o > 0.15 ? "auto" : "none" }}>
                 Make one
               </BuyLink>
             )}

@@ -3,7 +3,6 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "../store";
 import { CHANNELS } from "../data/wavelengths";
-import { useSunTexture } from "../hooks/useSunTexture";
 
 // The Sun surface: the real SDO/AIA full-disk image for the chosen date +
 // wavelength, orthographically mapped onto the front hemisphere. A procedural
@@ -67,6 +66,14 @@ const fragment = /* glsl */ `
   }
 
   void main(){
+    // fast path: once the photo has fully resolved, skip the expensive fbm
+    // plasma entirely (its result would be discarded by the mix anyway)
+    if (uHasMap > 0.5 && uMapMix > 0.99) {
+      vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
+      gl_FragColor = vec4(texture2D(uMap, muv).rgb * uExposure, 1.0);
+      return;
+    }
+
     vec3 p = vPos * 2.4;
     float t = uTime * 0.06;
     float warp = fbm(p + vec3(0.0, t, 0.0));
@@ -77,7 +84,7 @@ const fragment = /* glsl */ `
     vec3 col = mix(vec3(0.02), base, limb);
     col += uHot * pow(n, 5.0) * limb * 1.4;
 
-    // real disk, mapped so the silhouette edge lands on the photo's limb
+    // real disk crossfading in, mapped so the silhouette edge lands on the limb
     if (uHasMap > 0.5) {
       vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
       vec3 photo = texture2D(uMap, muv).rgb * uExposure;
@@ -94,11 +101,9 @@ export default function Sun() {
   const tint = useRef(new THREE.Color(CHANNELS[5].tint));
   const hot = useRef(new THREE.Color(CHANNELS[5].hot));
 
-  const channel = useStore((s) => s.channel);
-  const date = useStore((s) => s.date);
-  const time = useStore((s) => s.time);
-  const angstrom = CHANNELS[channel].angstrom;
-  const tex = useSunTexture(date, time, angstrom);
+  // the real texture is loaded centrally (useSunTextureLoader) and published to
+  // the store; null while loading/on error, so we fall back to the plasma
+  const tex = useStore((s) => s.currentTexture);
 
   const uniforms = useMemo(
     () => ({

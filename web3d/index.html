@@ -4,12 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#05060a" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     <title>My Heliograph — Your day, written in sunlight</title>
     <meta
       name="description"
       content="A gift made of light. The Sun exactly as it burned on the day that matters to you, in the wavelength you choose, printed on the object you love."
     />
+    <!-- NOTE: set this to the 3D site's OWN deploy URL. If it is not served at
+         the store root, a self-canonical to myheliograph.com/ will de-index it. -->
     <link rel="canonical" href="https://myheliograph.com/" />
 
     <!-- Open Graph / social -->
@@ -19,18 +24,32 @@
       property="og:description"
       content="Light that left the Sun on your date, caught and made into a thing you can hold."
     />
-    <meta property="og:image" content="https://myheliograph.com/og.jpg" />
+    <meta property="og:image" content="https://myheliograph.com/asset/default/og_card.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="My Heliograph — the Sun on your date, as a print." />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://myheliograph.com/asset/default/og_card.jpg" />
 
-    <!-- Product structured data -->
+    <!-- Site + brand structured data (validates without per-product pricing) -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "Product",
-        "name": "My Heliograph — custom solar print",
-        "description": "The Sun on your chosen date and wavelength, printed on your choice of object.",
-        "brand": { "@type": "Brand", "name": "My Heliograph" },
-        "slogan": "Your day, written in sunlight"
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "My Heliograph",
+            "url": "https://myheliograph.com/",
+            "description": "The Sun on your chosen date and wavelength, printed on the object you love.",
+            "slogan": "Your day, written in sunlight"
+          },
+          {
+            "@type": "Organization",
+            "name": "My Heliograph",
+            "url": "https://myheliograph.com/",
+            "logo": "https://myheliograph.com/favicon.svg"
+          }
+        ]
       }
     </script>
   </head>
