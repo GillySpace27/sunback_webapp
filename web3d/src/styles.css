@@ -124,6 +124,11 @@ body {
   align-self: start;
   margin-top: 9vh;
 }
+/* "Select a color." sits at the top, not overlaid on the wheel. */
+.overlay-line--top {
+  align-self: start;
+  margin-top: 8vh;
+}
 .cta,
 .fallback .cta {
   pointer-events: auto;

@@ -59,6 +59,59 @@ function makeShaft() {
   return t;
 }
 
+// The print materializes as you scroll in: an inkblot bloom (noise-thresholded
+// reveal with a soft ink edge), driven by scroll progress 0.76 -> 0.92.
+const printVert = /* glsl */ `
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+`;
+const printFrag = /* glsl */ `
+  precision highp float;
+  varying vec2 vUv;
+  uniform sampler2D uMap;
+  uniform float uReveal;
+  float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+  float noise(vec2 p){
+    vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+    return mix(mix(hash(i), hash(i+vec2(1,0)), f.x),
+               mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
+  }
+  void main(){
+    // blotchy threshold: big blobs + finer detail -> organic ink bleed
+    float n = noise(vUv * 5.0) * 0.62 + noise(vUv * 15.0) * 0.38;
+    float a = smoothstep(n - 0.10, n + 0.06, uReveal);
+    vec3 col = texture2D(uMap, vUv).rgb * 0.82;
+    if (a <= 0.001) discard;
+    gl_FragColor = vec4(col, a);
+  }
+`;
+
+function MaterializingPrint({ tex }: { tex: THREE.Texture }) {
+  const uniforms = useMemo(
+    () => ({ uMap: { value: tex }, uReveal: { value: 0 } }),
+    [tex]
+  );
+  useFrame(() => {
+    const { progress, reducedMotion } = useStore.getState();
+    // scroll-driven inkblot bloom as you settle into the room
+    uniforms.uReveal.value = reducedMotion
+      ? 1
+      : THREE.MathUtils.clamp((progress - 0.76) / 0.16, 0, 1);
+  });
+  return (
+    <mesh position={[0, 0, 0.02]}>
+      <planeGeometry args={[1.8, 1.8]} />
+      <shaderMaterial
+        vertexShader={printVert}
+        fragmentShader={printFrag}
+        uniforms={uniforms}
+        transparent
+        toneMapped={false}
+      />
+    </mesh>
+  );
+}
+
 // pulsing placeholder inside the frame while the print's photo loads
 function Shimmer() {
   const mat = useRef<THREE.MeshBasicMaterial>(null!);
@@ -158,12 +211,7 @@ export default function Room() {
           <meshBasicMaterial color="#0b0705" toneMapped={false} />
         </mesh>
         {near && !showPrint && <Shimmer />}
-        {showPrint && (
-          <mesh position={[0, 0, 0.02]}>
-            <planeGeometry args={[1.8, 1.8]} />
-            <meshBasicMaterial map={tex} color="#c9c9c9" toneMapped={false} />
-          </mesh>
-        )}
+        {showPrint && tex && <MaterializingPrint tex={tex} />}
       </group>
     </group>
   );

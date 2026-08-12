@@ -47,16 +47,23 @@ export default function Earth() {
   const earth = useRef<THREE.Mesh>(null!);
   const beamMat = useRef<THREE.MeshBasicMaterial>(null!);
 
-  // orient a thin open cylinder along Sun -> Earth (continuous, linear beam)
+  // a cone of light: wide at the Sun, converging to a single point on Earth's
+  // sun-facing surface (the irradiated spot)
   const beam = useMemo(() => {
-    const dir = EARTH.clone().sub(SUN);
+    const spot = EARTH.clone().add(SUN.clone().sub(EARTH).normalize().multiplyScalar(1.06));
+    const dir = spot.clone().sub(SUN); // Sun -> spot (cone apex points here)
     const len = dir.length();
-    const mid = SUN.clone().add(EARTH).multiplyScalar(0.5);
+    const mid = SUN.clone().add(spot).multiplyScalar(0.5);
     const q = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       dir.clone().normalize()
     );
-    return { len, mid: mid.toArray() as [number, number, number], quat: q };
+    return {
+      len,
+      mid: mid.toArray() as [number, number, number],
+      quat: q,
+      spot: spot.toArray() as [number, number, number],
+    };
   }, []);
 
   useFrame((s, dt) => {
@@ -101,20 +108,25 @@ export default function Earth() {
         />
       </mesh>
 
-      {/* continuous sunbeam Sun -> Earth (thin open cylinder, no hard caps) */}
+      {/* cone of sunlight: wide at the Sun (base), converging to the spot (apex) */}
       <mesh position={beam.mid} quaternion={beam.quat}>
-        <cylinderGeometry args={[0.05, 0.05, beam.len, 12, 1, true]} />
+        <coneGeometry args={[1.5, beam.len, 40, 1, true]} />
         <meshBasicMaterial
           ref={beamMat}
           alphaMap={alpha}
           color="#ffe6b0"
           transparent
-          opacity={0.55}
+          opacity={0.28}
           depthWrite={false}
           side={THREE.DoubleSide}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
+      </mesh>
+      {/* the irradiated point on Earth — a bright warm spot the cone lands on */}
+      <mesh position={beam.spot}>
+        <sphereGeometry args={[0.16, 16, 16]} />
+        <meshBasicMaterial color="#fff6de" toneMapped={false} />
       </mesh>
     </group>
   );

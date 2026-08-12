@@ -16,25 +16,25 @@ const POS: [number, number, number][] = [
   [0, 0, 3.0], // surface — push in, awe
   [0, 0, 6.6], // aperture — pull back so the filter wheel reads as a full ring
   [0, 0.8, 24.0], // crossing — pulled way back toward the viewer: Sun small far, Earth near, beam
-  [2.4, -1.9, 21.0], // darkroom — descending toward the home (still coming toward us)
-  [2.5, -2.3, 18.6], // room — settled into the home, framing window (left) + print (right)
-  [2.52, -2.35, 18.7], // gift — settle
+  [0.9, -1.1, 17.5], // darkroom — following the light IN through the window
+  [2.4, -2.2, 17.5], // room — landed inside, facing the print as it materializes
+  [2.45, -2.25, 17.6], // gift — settle
 ];
 const TGT: [number, number, number][] = [
   [1.05, 0.68, 0], // sun pushed to lower-left of frame
   [0, 0, 0],
   [0, 0, 0], // aperture — the wheel around the Sun
   [1.6, -1.1, 9], // crossing — frame the Sun (far) + Earth (near) vista
-  [2.7, -2.3, 13], // darkroom — the home ahead
-  [2.5, -2.5, 13], // room — between the window and the print
-  [2.5, -2.4, 13], // gift
+  [0.65, -1.4, 12.6], // darkroom — the glowing window we enter through
+  [3.3, -2.7, 13], // room — the print on the wall where the light lands
+  [3.3, -2.6, 13], // gift
 ];
 
 const REACT: Record<SpaceKey, number> = {
   threshold: 0.3,
   surface: 0.4,
   crossing: 0.1,
-  aperture: 0.8,
+  aperture: 0.18, // keep the wheel centered/stable, not drifting with the cursor
   darkroom: 0.3,
   room: 0.5,
   gift: 0.4,

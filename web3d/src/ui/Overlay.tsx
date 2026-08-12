@@ -39,6 +39,7 @@ export default function Overlay() {
             className={
               "overlay-line" +
               (s.key === "threshold" ? " overlay-line--hero" : "") +
+              (s.key === "aperture" ? " overlay-line--top" : "") +
               (s.key === "room" ? " overlay-line--climax" : "")
             }
             style={{ opacity: o, transform: `translateY(${(1 - o) * 14}px)` }}
