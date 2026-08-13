@@ -106,8 +106,9 @@ export default function Earth() {
     if (grp.current) grp.current.visible = visible;
     if (!visible) return;
     // deterministic spin so the disk reliably ENTERS with North America (Colorado)
-    // facing the viewer, then drifts slowly; COLO_Y tuned so ~105°W faces camera
-    void reduced;
+    // facing the viewer, then drifts slowly; COLO_Y tuned so ~105°W faces camera.
+    // The spin is scroll-linked (not autonomous), so it's fine under reduced
+    // motion; the only autonomous motion here is the beam flicker, gated below.
     if (earth.current)
       earth.current.rotation.set(0, COLO_Y + THREE.MathUtils.smoothstep(p, 0.35, 0.53) * 0.35, 0.35);
     // grow ~6.5x through the dive so the disk rushes up like a planet approached
@@ -123,7 +124,9 @@ export default function Earth() {
       earth.current.position.x += slideX;
     }
     if (atmo.current) {
-      atmo.current.scale.setScalar(grow * 1.14);
+      // 1.08, not 1.14: a tighter rim reads as soft atmospheric scatter rather
+      // than a hard blue ring around the limb (award-review finding).
+      atmo.current.scale.setScalar(grow * 1.08);
       atmo.current.position.copy(EARTH).addScaledVector(TO_SUN, shift);
       atmo.current.position.x += slideX;
     }
@@ -131,12 +134,14 @@ export default function Earth() {
     if (earthMat.current) earthMat.current.opacity = THREE.MathUtils.clamp((p - 0.35) / 0.02, 0, 1);
     // atmosphere rim brightens as we enter it
     const enter = THREE.MathUtils.smoothstep(p, 0.48, 0.53);
-    if (atmoMat.current) atmoMat.current.opacity = (0.14 + 0.5 * enter) * appear;
+    if (atmoMat.current) atmoMat.current.opacity = (0.1 + 0.32 * enter) * appear;
     // beam belongs to the FAR crossing; it lights up only AFTER Earth has slid
     // into place (~0.41) so it never points at empty space, and is gone before the dive
     const beamFade = THREE.MathUtils.clamp(Math.min((p - 0.41) / 0.02, (0.47 - p) / 0.02), 0, 1);
     if (beamMat.current) {
-      beamMat.current.opacity = (0.7 + 0.08 * Math.sin(s.clock.elapsedTime * 1.1)) * beamFade;
+      // reduced motion: hold a steady beam (no autonomous flicker)
+      const flicker = reduced ? 0 : 0.08 * Math.sin(s.clock.elapsedTime * 1.1);
+      beamMat.current.opacity = (0.7 + flicker) * beamFade;
     }
     // billboard the shaft around the Sun->Earth axis so it always faces the
     // camera edge-on and reads as soft light, never a tube silhouette
@@ -169,8 +174,8 @@ export default function Earth() {
         />
       </mesh>
       {/* atmosphere rim */}
-      <mesh ref={atmo} position={EARTH.toArray()} scale={1.14}>
-        <sphereGeometry args={[EARTH_R, 32, 32]} />
+      <mesh ref={atmo} position={EARTH.toArray()} scale={1.08}>
+        <sphereGeometry args={[EARTH_R, 48, 48]} />
         <meshBasicMaterial
           ref={atmoMat}
           color="#7cc0ff"

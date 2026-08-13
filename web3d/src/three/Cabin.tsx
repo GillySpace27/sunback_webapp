@@ -16,31 +16,69 @@ const WALL_H = 3.4;
 const BASE_Y = GROUND_Y + WALL_H / 2; // wall box center
 const FRONT_Z = CZ + HALF_D; // the face the camera approaches (+Z, viewer side)
 
-// stacked-log texture: warm timber bands with darker chinking between courses
+// stacked-log texture. Each course is shaded like a ROUND log (dark top edge →
+// bright upper third → midtone → dark bottom) with wood grain, occasional knots,
+// and darker chinking between courses. The old version was a flat 128px band
+// gradient that read as cardboard in the wide field shot (award-review finding);
+// this bakes the cylindrical light + grain into a 512px map so the logs have
+// form and detail even before the (flat) lighting touches them.
 function logTexture() {
+  const W = 512,
+    H = 512;
   const c = document.createElement("canvas");
-  c.width = 128;
-  c.height = 128;
+  c.width = W;
+  c.height = H;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#6b4a2f";
-  g.fillRect(0, 0, 128, 128);
-  const courses = 7;
+  g.fillStyle = "#5a3d26";
+  g.fillRect(0, 0, W, H);
+  const courses = 8;
+  const ch = H / courses;
   for (let i = 0; i < courses; i++) {
-    const y = (i / courses) * 128;
-    const h = 128 / courses;
-    const shade = 92 + Math.floor(Math.random() * 26);
-    const grad = g.createLinearGradient(0, y, 0, y + h);
-    grad.addColorStop(0, `rgb(${shade + 24},${shade - 8},${shade - 42})`);
-    grad.addColorStop(0.5, `rgb(${shade + 6},${shade - 26},${shade - 58})`);
-    grad.addColorStop(1, `rgb(${shade - 20},${shade - 44},${shade - 70})`);
+    const y = i * ch;
+    const warm = 150 + Math.floor(Math.random() * 28); // per-log timber variation
+    const rgb = (l: number) => `rgb(${Math.max(0, warm + l)},${Math.max(0, warm + l - 26)},${Math.max(0, warm + l - 54)})`;
+    // cylindrical shading across the log's height
+    const grad = g.createLinearGradient(0, y, 0, y + ch);
+    grad.addColorStop(0.0, rgb(-64)); // shadowed top edge
+    grad.addColorStop(0.3, rgb(22)); // highlight (log crown)
+    grad.addColorStop(0.58, rgb(-6)); // midtone
+    grad.addColorStop(1.0, rgb(-70)); // shadowed bottom edge
     g.fillStyle = grad;
-    g.fillRect(0, y + 1.5, 128, h - 3);
-    g.fillStyle = "rgba(30,18,10,0.85)"; // chinking line
-    g.fillRect(0, y, 128, 1.6);
+    g.fillRect(0, y + 2, W, ch - 4);
+    // wood grain: faint wavy streaks running along the log
+    for (let s = 0; s < 16; s++) {
+      const gy = y + 4 + Math.random() * (ch - 8);
+      g.globalAlpha = 0.06 + Math.random() * 0.08;
+      g.strokeStyle = Math.random() < 0.5 ? "#2e1c10" : "#946a3e";
+      g.lineWidth = 0.6 + Math.random() * 0.9;
+      g.beginPath();
+      g.moveTo(0, gy);
+      for (let x = 0; x <= W; x += 28) g.lineTo(x, gy + Math.sin((x / W) * Math.PI * 2 + i) * 1.3);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    // an occasional knot
+    if (Math.random() < 0.55) {
+      const kx = Math.random() * W,
+        ky = y + ch * (0.4 + Math.random() * 0.25),
+        kr = 3 + Math.random() * 4;
+      const kg = g.createRadialGradient(kx, ky, 0, kx, ky, kr);
+      kg.addColorStop(0, "#281608");
+      kg.addColorStop(0.7, "rgba(40,22,8,0.5)");
+      kg.addColorStop(1, "rgba(40,22,8,0)");
+      g.fillStyle = kg;
+      g.beginPath();
+      g.arc(kx, ky, kr, 0, Math.PI * 2);
+      g.fill();
+    }
+    // chinking (mortar) between courses
+    g.fillStyle = "rgba(26,17,11,0.92)";
+    g.fillRect(0, y, W, 3);
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8; // hold detail at the grazing angle of the wide field shot
   t.repeat.set(3, 1);
   return t;
 }

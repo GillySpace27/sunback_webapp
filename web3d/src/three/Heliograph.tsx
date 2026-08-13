@@ -7,7 +7,7 @@ import { CHANNELS } from "../data/wavelengths";
 import { useWheelTextures } from "../hooks/useWheelTextures";
 
 // The filter wheel: the day's Sun in every wavelength, as a clean palette. A
-// ring of real pie slices (one per wavelength, nm-labelled) fans around a
+// ring of real pie slices (one per wavelength, Ångström-labelled) fans around a
 // TRANSPARENT center — the actual 3D Sun sphere (the current selection) shines
 // through the hole; click a slice to change it. The heading lives outside it.
 const INNER = 1.6; // ring hole sits OUTSIDE the 3D Sun's silhouette (whole disk + a gap)

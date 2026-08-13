@@ -18,10 +18,12 @@ loader.setCrossOrigin("anonymous");
 
 // A real, correctly-framed AIA 304 disk baked at build time. Painted on the
 // very first frame so the hero opens on an actual Sun, not the procedural
-// plasma — the live fetch for the true identity crossfades over it a beat later.
-// ponytail: static asset == the money frame with zero network wait; refresh it
-// by re-hitting /api/helioviewer_thumb and dropping the PNG back in place.
-const DEFAULT_SUN = "/asset/default/sun_304.png";
+// plasma; the live fetch for the true identity crossfades over it a beat later.
+// Bundled in web3d/public so it deploys with the experience (BASE_URL resolves
+// to /experience/ in prod, / in dev). Previously pointed at /asset/default/
+// sun_304.png, which 404'd in prod: the hero opened black on slow links until
+// the network Sun arrived. Refresh it by re-hitting /api/helioviewer_thumb.
+const DEFAULT_SUN = `${import.meta.env.BASE_URL}sun_304.png`;
 
 function put(url: string, tex: THREE.Texture) {
   cache.set(url, tex);
