@@ -165,7 +165,7 @@ export const PRODUCTS = [
   // Ornament: cost $6.22 flat across all four shapes. Default = Circle.
   { id: "ornament_ceramic", category: "gifts",     name: "Ceramic Ornament",    desc: "Your Sun on the tree — circle, star, heart, or snowflake", icon: "fa-snowflake", price: "From $14.99", checkoutPrice: 1499, blueprintId: 531,  printProviderId: 59,  variantId: 69370, position: "front", aspectRatio: { w: 1, h: 1 } },
   // Tote: cost $18.89 both colors (The Print Bar). Front placeholder only.
-  { id: "tote_bag",             name: "Canvas Tote Bag",     desc: "Heavy canvas tote — black or cream",        icon: "fa-shopping-bag", price: "From $34.99", checkoutPrice: 3499, blueprintId: 553,  printProviderId: 34,  variantId: 70603, position: "front", aspectRatio: { w: 2835, h: 3425 } },
+  { id: "tote_bag",             category: "home",    name: "Canvas Tote Bag",     desc: "Heavy canvas tote — black or cream",        icon: "fa-shopping-bag", price: "From $34.99", checkoutPrice: 3499, blueprintId: 553,  printProviderId: 34,  variantId: 70603, position: "front", aspectRatio: { w: 2835, h: 3425 } },
   // Cards: 1-pc $2.91 / 10-pc $15.99 (Duplium); the pack sizes ARE the variants.
   { id: "greeting_cards", category: "gifts",       name: "Greeting Cards",      desc: "Fold-out cards with your Sun — single or 10-pack", icon: "fa-envelope-open-text", price: "From $6.99", checkoutPrice: 699, blueprintId: 785, printProviderId: 41, variantId: 74934, position: "front", aspectRatio: { w: 1860, h: 2460 } },
   // Bodysuit: cost $13.56 across colors/sizes (Printify Choice).

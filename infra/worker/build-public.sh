@@ -13,7 +13,9 @@ OUT="public"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# Core page + ES modules (the /{module}.js whitelist in api/main.py).
+# Core page + ES modules at the ROOT (the store is the site root; the 3D
+# experience lives under /experience/). The /{module}.js whitelist mirrors
+# api/main.py so .py source is never served.
 for f in index.html solar-archive.js solar-archive.css \
          state.js products.js colors.js mockups.js feedback.js stats.js bundler.js \
          favicon.svg robots.txt sitemap.xml; do
@@ -24,6 +26,28 @@ done
 for f in "$API_DIR"/legal/*.html; do
   cp "$f" "$OUT/$(basename "$f")"
 done
+
+# ── 3D experience (web3d), served SAME-ORIGIN under /experience/ ──
+# So its origin-enforced Helioviewer textures (/api/*) and the deep-link handoff
+# back to the store root both work with zero CORS/allow-list changes. Built with
+# base=/experience/ (cd ../../web3d && npm run build).
+WEB3D="../../web3d/dist"
+if [ -d "$WEB3D" ]; then
+  cp -r "$WEB3D" "$OUT/experience"
+  echo "web3d: $(find "$OUT/experience" -type f | wc -l | tr -d ' ') files -> public/experience/"
+else
+  echo "WARN: web3d/dist not built — /experience/ will 404 (run: cd ../../web3d && npm run build)"
+fi
+
+# Self-host the two variable fonts for the store restyle (the store isn't
+# Vite-built, so it can't @fontsource-import them). Served root-absolute from
+# /asset/fonts/ so both apps resolve them.
+FONTS_SRC="../../web3d/node_modules/@fontsource-variable"
+mkdir -p "$OUT/asset/fonts"
+cp "$FONTS_SRC/inter/files/inter-latin-standard-normal.woff2" "$OUT/asset/fonts/inter.woff2" 2>/dev/null \
+  || echo "WARN: inter woff2 not found (run npm i in web3d) — store falls back to system sans"
+cp "$FONTS_SRC/fraunces/files/fraunces-latin-opsz-normal.woff2" "$OUT/asset/fonts/fraunces.woff2" 2>/dev/null \
+  || echo "WARN: fraunces woff2 not found — store headings fall back to serif"
 
 # Landing assets served STATIC from the edge so the landing page + product
 # grid + vibe gallery need ZERO backend (no waiting on a cold Fly wake).

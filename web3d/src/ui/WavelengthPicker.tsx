@@ -1,0 +1,102 @@
+import { useState } from "react";
+import { useStore } from "../store";
+import { CHANNELS } from "../data/wavelengths";
+import BuyLink from "./BuyLink";
+
+// The pinned "configure + commit" bar: date, wavelength (accessible counterpart
+// to the 3D filter wheel), a live readout, and a real visible "Make one". It is
+// always present but COLLAPSIBLE — a slim handle the visitor can open at any
+// time. Stays collapsed by default (incl. the gallery, where the clickable 3D
+// products are the buy affordance and an expanded bar would hide them).
+export default function WavelengthPicker() {
+  const channel = useStore((s) => s.channel);
+  const setChannel = useStore((s) => s.setChannel);
+  const date = useStore((s) => s.date);
+  const setDate = useStore((s) => s.setDate);
+  const status = useStore((s) => s.texStatus);
+  const active = CHANNELS[channel];
+  const today = new Date().toISOString().slice(0, 10);
+
+  // collapsed by default; opens on click or keyboard focus into the bar.
+  const [open, setOpen] = useState(false);
+
+  return (
+    <fieldset
+      className={"picker picker--in" + (open ? "" : " picker--collapsed")}
+      aria-label="Choose your date and wavelength, then make your print"
+      onFocusCapture={() => setOpen(true)}
+    >
+      <legend className="visually-hidden">Date, solar wavelength, and purchase</legend>
+
+      <button
+        type="button"
+        className="picker-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="picker-toggle-label">{open ? "Hide options" : "Make yours"}</span>
+        <svg className="picker-chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path
+            d={open ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      <div className="picker-body">
+      {/* the day that mattered — feeds the real Sun image and the deep link */}
+      <label className="date-field">
+        <span className="date-label">Your date</span>
+        <input
+          type="date"
+          value={date}
+          min="2010-05-15"
+          max={today}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+        />
+      </label>
+
+      {/* live label + load state — the only wavelength cue on touch */}
+      <output className="picker-readout" aria-live="polite">
+        {active.instrument} · {active.label} · <span className="picker-sees">{active.sees}</span>
+        {status === "loading" && <span className="picker-status"> · developing your Sun…</span>}
+        {status === "error" && <span className="picker-status err"> · no image for this date</span>}
+      </output>
+
+      <div className="swatches">
+        {CHANNELS.map((ch, i) => (
+          <label
+            key={ch.angstrom}
+            className="swatch"
+            style={{ ["--tint" as string]: ch.tint }}
+          >
+            <input
+              type="radio"
+              name="wavelength"
+              aria-label={`${ch.instrument} ${ch.label}: ${ch.sees}`}
+              checked={i === channel}
+              onChange={() => setChannel(i)}
+              // roving tabindex: one tab stop for the group, arrows move within
+              tabIndex={i === channel ? 0 : -1}
+            />
+            <span className="swatch-dot" aria-hidden="true" />
+            <span className="swatch-label">{ch.label}</span>
+            {/* styled tooltip: what this wavelength reveals (hover + focus) */}
+            <span className="swatch-tip" role="tooltip">{ch.sees}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* commit — visible for mouse from the moment the bar is revealed */}
+      <div className="picker-buy">
+        <BuyLink className="cta cta--bar">Make one</BuyLink>
+        <span className="price-anchor">Prints from $9.99</span>
+      </div>
+      </div>
+    </fieldset>
+  );
+}

@@ -99,6 +99,29 @@
        via the skip-link, and screen-readers expose region navigation. -->
   <main id="mainContent">
 
+  <!-- Handoff bridge from the 3D experience: a branded "confirm your Sun"
+       screen shown ONLY when arriving with an identity in the URL (?d&t&wl).
+       Sits above the store while the image pipeline warms behind it. -->
+  <div id="confirmOverlay" class="handoff-overlay" hidden>
+    <div class="handoff-card">
+      <p class="handoff-eyebrow">Your Sun</p>
+      <img id="confirmThumb" class="handoff-thumb" alt="Your chosen Sun" />
+      <p id="confirmMeta" class="handoff-meta"></p>
+      <div class="handoff-actions">
+        <button type="button" id="confirmContinue" class="handoff-continue">Continue</button>
+        <button type="button" id="confirmEdit" class="handoff-edit">Change date or colour</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Persistent, editable summary of the handoff Sun; shown on body.fromHandoff. -->
+  <button type="button" id="sunSummaryChip" class="sun-summary-chip" hidden
+          aria-label="Your chosen Sun — click to change the date or colour">
+    <img id="chipThumb" class="chip-thumb" alt="" />
+    <span id="chipMeta" class="chip-meta"></span>
+    <i class="fa-solid fa-pen chip-pen" aria-hidden="true"></i>
+  </button>
+
   <!-- CSP Notice — only revealed when a real securitypolicyviolation
        fires. Persona-sweep finding: the prior copy read like a malware
        warning above the fold; softened to user-language. -->

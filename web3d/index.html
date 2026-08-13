@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05060a" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <title>My Heliograph — Your day, written in sunlight</title>
+    <meta
+      name="description"
+      content="A gift made of light. The Sun exactly as it burned on the day that matters to you, in the wavelength you choose, printed on the object you love."
+    />
+    <!-- Served same-origin under /experience/ by the Cloudflare Worker. -->
+    <link rel="canonical" href="https://myheliograph.com/experience/" />
+
+    <!-- Open Graph / social -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://myheliograph.com/experience/" />
+    <meta property="og:title" content="My Heliograph — Your day, written in sunlight" />
+    <meta
+      property="og:description"
+      content="Light that left the Sun on your date, caught and made into a thing you can hold."
+    />
+    <meta property="og:image" content="https://myheliograph.com/asset/default/og_card.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="My Heliograph — the Sun on your date, as a print." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://myheliograph.com/asset/default/og_card.jpg" />
+
+    <!-- Site + brand structured data (validates without per-product pricing) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "My Heliograph",
+            "url": "https://myheliograph.com/",
+            "description": "The Sun on your chosen date and wavelength, printed on the object you love.",
+            "slogan": "Your day, written in sunlight"
+          },
+          {
+            "@type": "Organization",
+            "name": "My Heliograph",
+            "url": "https://myheliograph.com/",
+            "logo": "https://myheliograph.com/favicon.svg"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>My Heliograph is an interactive 3D experience. Please enable JavaScript, or visit myheliograph.com.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

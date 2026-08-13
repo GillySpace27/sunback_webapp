@@ -1,0 +1,754 @@
+:root {
+  --bg: #05060a;
+  --ink: #f4efe6;
+  --muted: #c3b9a9;
+  --serif: "Fraunces Variable", ui-serif, Georgia, serif;
+  --sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.scroll-space {
+  height: 760vh;
+}
+.stage,
+.canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+}
+.stage {
+  z-index: 0;
+}
+
+/* ---- copy overlay ---- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+  pointer-events: none;
+  padding: 6vh 8vw;
+}
+.overlay-line {
+  position: relative;
+  grid-area: 1 / 1;
+  margin: 0;
+  text-align: center;
+  max-width: 20ch;
+  will-change: opacity, transform;
+}
+/* scrim so copy holds 4.5:1 even over the BRIGHTEST plasma frame: a strong,
+   tight core that fades out, not a weak wash. */
+.overlay-line::before {
+  content: "";
+  position: absolute;
+  inset: -70% -45%;
+  z-index: -1;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(5, 6, 10, 0.9) 0%,
+    rgba(5, 6, 10, 0.66) 42%,
+    transparent 74%
+  );
+  filter: blur(10px);
+}
+/* light-background beats (sky, sunlit room): a tight opaque scrim would read as
+   a dark stain, so use a much softer, wider, warmer halo — a gentle shadow
+   behind the copy, not a plate. Legibility then leans on the text-shadow. */
+.overlay-line--light::before {
+  inset: -100% -70%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(8, 6, 4, 0.42) 0%,
+    rgba(8, 6, 4, 0.2) 38%,
+    transparent 66%
+  );
+  filter: blur(26px);
+}
+.overlay-line--light .line {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 2px 16px rgba(0, 0, 0, 0.7),
+    0 0 44px rgba(0, 0, 0, 0.55);
+}
+.eyebrow {
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.34em;
+  font-weight: 500;
+  font-size: clamp(0.6rem, 1.3vw, 0.72rem);
+  color: var(--muted);
+  margin-bottom: 1.5rem;
+}
+.line {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 380;
+  font-size: clamp(1.7rem, 4.4vw, 3.2rem);
+  line-height: 1.14;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+  /* layered shadow: a tight dark halo for legibility + a soft spread */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.85),
+    0 0 40px rgba(0, 0, 0, 0.6);
+}
+.line.climax {
+  font-style: italic;
+  font-weight: 340;
+  font-size: clamp(2rem, 5.2vw, 4rem);
+}
+/* caption register (the distance beat) — a tracked sans counterpoint to the
+   serif headlines, so the seven beats aren't one flat typographic note */
+.line--caption {
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: clamp(0.95rem, 2.1vw, 1.4rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.55;
+}
+/* Hero: commit the headline to the negative space on wide screens (the Sun
+   sits lower-left, so the copy lives in the empty upper-right instead of
+   colliding with the disk). Stays centered on phones, where it reads fine. */
+@media (min-width: 768px) {
+  .overlay-line--hero {
+    justify-self: end;
+    align-self: center;
+    text-align: left;
+    max-width: 15ch;
+    margin-right: 4vw;
+  }
+  .overlay-line--hero .eyebrow {
+    text-align: left;
+  }
+}
+/* Climax line: the print is the hero here, so the copy clears it — a tight block
+   in the upper area on wide screens (print center, window upper-left, copy upper
+   -right), staying centered on phones where it reads fine. */
+.overlay-line--climax {
+  align-self: start;
+  margin-top: 6vh;
+}
+@media (min-width: 768px) {
+  /* print center, window upper-left, gallery frame upper-right — drop the copy
+     into the empty lower-left so it never lands on any of them */
+  .overlay-line--climax {
+    justify-self: start;
+    align-self: end;
+    text-align: left;
+    max-width: 10ch;
+    margin: 0 0 24vh 5vw;
+  }
+}
+/* "Select a color." sits at the top, not overlaid on the wheel. */
+.overlay-line--top {
+  align-self: start;
+  margin-top: 8vh;
+}
+/* crossing: Sun upper-left, Earth enters lower-right — keep the caption in the
+   empty left band so it never sits on the Earth or the beam. */
+@media (min-width: 768px) {
+  .overlay-line--crossing {
+    justify-self: start;
+    align-self: center;
+    text-align: left;
+    max-width: 16ch;
+    margin-left: 6vw;
+  }
+  /* gallery: frames + a shelf of objects fill the lower two-thirds — put the copy
+     in the empty upper-right wall, clear of every piece. */
+  .overlay-line--gallery {
+    justify-self: end;
+    align-self: start;
+    text-align: right;
+    max-width: 11ch;
+    margin: 6vh 6vw 0 0;
+  }
+}
+.cta,
+.fallback .cta {
+  pointer-events: auto;
+  display: inline-block;
+  margin-top: 2.2rem;
+  padding: 0.85rem 2.1rem;
+  border: 1px solid rgba(244, 239, 230, 0.45);
+  border-radius: 999px;
+  color: var(--ink);
+  text-decoration: none;
+  font-family: var(--sans);
+  letter-spacing: 0.1em;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  transition: background 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.5s;
+}
+.cta {
+  min-height: 44px;
+}
+.cta:hover {
+  background: var(--ink);
+  color: #0a0a0f;
+}
+/* dual-tone focus ring: a dark halo under the light outline guarantees >=3:1
+   on any backdrop (bright plasma or dark void) */
+.cta:focus-visible,
+.date-field input[type="date"]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+/* the real, visible commit control living in the picker bar */
+.picker-buy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+.cta--bar {
+  margin-top: 0;
+  padding: 0.7rem 2.4rem;
+  background: var(--ink);
+  color: #0a0a0f;
+  font-weight: 600;
+}
+.cta--bar:hover {
+  background: #fffdf7;
+}
+.price-anchor {
+  font-family: var(--sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.picker-status {
+  color: var(--muted);
+  font-style: italic;
+}
+.picker-status.err {
+  color: #e8a37a;
+}
+
+/* ---- wavelength picker: nav is the full-width scroll container so nothing
+       clips; the fieldset is max-content and auto-centers when it fits ---- */
+#buy {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(2.4vh, env(safe-area-inset-bottom));
+  z-index: 3;
+  padding-top: 14px; /* room for the plate's drop shadow */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+#buy::-webkit-scrollbar {
+  display: none;
+}
+.picker {
+  width: max-content;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1.3rem 1rem;
+  /* solid plate so every control clears 4.5:1 over the bright plasma behind */
+  background: rgba(8, 9, 14, 0.74);
+  border: 1px solid rgba(244, 239, 230, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 10px 44px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* reveal on scroll OR when a keyboard user focuses into the buy controls */
+.picker--in,
+#buy:focus-within .picker {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* collapse toggle: a slim pill header; collapsed hides the body so the bar is a
+   small handle through the film, expanding on click / focus / at the gallery */
+.picker-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: center;
+  padding: 0.15rem 0.4rem;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.picker-toggle:hover {
+  color: var(--ink);
+}
+.picker-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.picker-chevron {
+  color: currentColor;
+}
+.picker-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.picker--collapsed {
+  padding-bottom: 0.6rem;
+}
+.picker--collapsed .picker-body {
+  display: none;
+}
+.picker-readout {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+.date-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--sans);
+}
+.date-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.date-field input[type="date"] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  padding: 0.45rem 0.9rem;
+  color-scheme: dark;
+  min-height: 40px;
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+.date-field input[type="date"]:hover {
+  border-color: rgba(244, 239, 230, 0.5);
+  background: rgba(255, 255, 255, 0.09);
+}
+/* tune the native calendar glyph to the dark theme instead of the OS default */
+.date-field input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  opacity: 0.65;
+  cursor: pointer;
+}
+.date-field input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+.date-field input[type="date"]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+.swatches {
+  display: flex;
+  gap: clamp(0.2rem, 1vw, 0.6rem);
+}
+.swatch {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+/* "what it sees" tooltip, above the dot, on hover or keyboard focus */
+.swatch-tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  white-space: nowrap;
+  background: rgba(12, 12, 18, 0.96);
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10;
+}
+.swatch:hover .swatch-tip,
+.swatch input:focus-visible ~ .swatch-tip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.picker-sees {
+  color: var(--ink);
+  opacity: 0.82;
+}
+/* wheel wedge tooltip: reuse the swatch-tip box, but it lives inside a drei
+   <Html> (positioned in 3D), so undo the swatch-relative absolute placement and
+   make it visible */
+.wheel-tip {
+  position: static;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+}
+/* SDO spacecraft hover tooltip (drei Html) */
+.sdo-html {
+  pointer-events: none;
+}
+.sdo-tip {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  white-space: nowrap;
+  background: rgba(12, 12, 18, 0.96);
+  border: 1px solid rgba(244, 239, 230, 0.2);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--sans);
+  transform: translateY(-50%);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+.sdo-tip-name {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.sdo-tip-link {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: #ffd9a0;
+  text-decoration: none;
+}
+.sdo-tip-link:hover {
+  text-decoration: underline;
+}
+.swatch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.swatch-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff55, var(--tint) 60%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 10px -2px var(--tint);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
+}
+.swatch:hover .swatch-dot {
+  transform: scale(1.18);
+}
+.swatch input:checked + .swatch-dot {
+  transform: scale(1.42);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 0 2px var(--ink),
+    0 0 22px var(--tint);
+}
+.swatch input:focus-visible + .swatch-dot {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.85);
+}
+.swatch-label {
+  font-family: var(--sans);
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* keep the nm label on every swatch even on phones — color alone can't
+   separate nine tints (two blues, a green, an olive), and the picker row
+   scrolls horizontally so the labels never crowd. */
+@media (max-width: 640px) {
+  .swatch-label {
+    font-size: 0.56rem;
+    letter-spacing: 0.02em;
+  }
+}
+
+/* ---- timeline arrows ---- */
+.arrows {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(0.4rem, 2vw, 1.5rem);
+}
+.arrow {
+  pointer-events: auto;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(244, 239, 230, 0.34);
+  background: rgba(8, 9, 14, 0.62);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.25s ease, background 0.25s ease, transform 0.25s ease;
+}
+.arrow:hover {
+  opacity: 1;
+  background: rgba(8, 9, 14, 0.8);
+  transform: scale(1.06);
+}
+.arrow:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.arrow:disabled {
+  opacity: 0.12;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .arrow {
+    width: 42px;
+    height: 42px;
+  }
+}
+
+/* ---- loader / fallback ---- */
+.loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  z-index: 5;
+}
+.loader-spark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff2c2;
+  box-shadow: 0 0 24px 6px #ffcf87;
+  animation: ignite 2s ease-in-out infinite;
+}
+@keyframes ignite {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+.fallback {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  padding: 2rem;
+  z-index: 5;
+}
+.fallback h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+}
+.fallback .muted {
+  color: var(--muted);
+}
+
+/* ---- a11y utilities ---- */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip {
+  position: fixed;
+  left: 1rem;
+  top: -3rem;
+  z-index: 10;
+  background: var(--ink);
+  color: #0a0a0f;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-family: var(--sans);
+  transition: top 0.2s ease;
+}
+.skip:focus {
+  top: 1rem;
+}
+
+/* persistent "skip straight to the store" escape hatch, top-right */
+.skip-store {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
+  z-index: 6;
+  pointer-events: auto;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 0.5rem 0.9rem;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(244, 239, 230, 0.28);
+  border-radius: 999px;
+  background: rgba(8, 9, 14, 0.42);
+  backdrop-filter: blur(6px);
+  transition: background 0.4s, border-color 0.4s, color 0.4s;
+}
+.skip-store:hover {
+  background: var(--ink);
+  color: #0a0a0f;
+  border-color: var(--ink);
+}
+.skip-store:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+
+/* Hero date prompt — asked first, sits low-center on the opening beat, clear of
+   the lower-left Sun and the upper-right headline. Fades out as you scroll in. */
+.hero-date {
+  position: fixed;
+  left: 50%;
+  bottom: 16vh;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  text-align: center;
+  transition: opacity 0.4s ease;
+}
+.hero-date-field {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--sans);
+}
+.hero-date-label {
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+}
+.hero-date input[type="date"] {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(244, 239, 230, 0.3);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  padding: 0.55rem 1.1rem;
+  color-scheme: dark;
+  min-height: 44px;
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+.hero-date input[type="date"]:hover {
+  border-color: rgba(244, 239, 230, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+.hero-date input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.hero-date input[type="date"]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+.hero-date-hint {
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+/* soft nudge until a date is picked: the input breathes, the "next" arrow
+   pulses. Reduced-motion users get no animation (handled globally below). */
+@keyframes date-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 236, 190, 0); }
+  50% { box-shadow: 0 0 0 5px rgba(255, 236, 190, 0.18); }
+}
+.hero-date--nudge input[type="date"] {
+  animation: date-breathe 2.4s ease-in-out infinite;
+  border-color: rgba(255, 236, 190, 0.55);
+}
+@keyframes arrow-nudge {
+  0%, 100% { transform: translateX(0); opacity: 0.85; }
+  50% { transform: translateX(4px); opacity: 1; }
+}
+.arrow--nudge {
+  animation: arrow-nudge 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
