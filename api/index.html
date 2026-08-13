@@ -53,16 +53,21 @@
        /asset/fonts/ by infra/worker/build-public.sh. -->
   <link rel="preload" as="font" type="font/woff2" crossorigin href="/asset/fonts/fraunces.woff2">
   <link rel="preload" as="font" type="font/woff2" crossorigin href="/asset/fonts/inter.woff2">
+  <!-- Resolve the theme BEFORE first paint. solar-archive.js also does this,
+       but it loads as type="module" and is therefore deferred, so until now a
+       dark-mode visitor got a full paint of the LIGHT palette before the class
+       landed — a white flash on a page whose whole premise is warm darkness.
+       Inline and synchronous is the only placement that beats first paint.
+       Must stay ABOVE the stylesheet so html.dark is set when it applies. -->
+  <script>
+    try {
+      if (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) {
+        document.documentElement.classList.add("dark");
+      }
+    } catch (e) { /* theme is cosmetic; never block the page over it */ }
+  </script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
-  <!-- Critical field paint, inlined so the very first frame is already the
-       warm dark field rather than a white flash waiting on the stylesheet.
-       Deliberately minimal: just the ground colour and the field's box, with
-       everything else deferred to solar-archive.css. -->
-  <style>
-    html { background: #141210; }
-    .field { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-  </style>
 </head>
 <body class="step-product">
 <!-- sqrt display filter for RAW frames of ARBITRARY (non-committed) dates.
