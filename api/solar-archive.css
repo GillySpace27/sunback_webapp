@@ -158,23 +158,11 @@ body {
   overflow-x: hidden;
 }
 
-/* Animated background */
-body::before {
-  content: '';
-  position: fixed;
-  top: -50%; left: -50%;
-  width: 200%; height: 200%;
-  background: radial-gradient(ellipse at 30% 20%, var(--glow-sun) 0%, transparent 50%),
-              radial-gradient(ellipse at 70% 80%, var(--glow-corona) 0%, transparent 50%);
-  animation: bgDrift 20s ease-in-out infinite alternate;
-  z-index: 0;
-  pointer-events: none;
-}
-
-@keyframes bgDrift {
-  0% { transform: translate(0,0) rotate(0deg); }
-  100% { transform: translate(-5%,3%) rotate(3deg); }
-}
+/* Animated background — superseded by the continuous field (.field), which
+   lives in index.html before <main> and is defined in the MOLTEN RECORD block
+   at the end of this file. The old single-layer body::before could not
+   cross-fade warm to cool, which the scroll-driven temperature gradient
+   requires, so it was replaced by explicit stacked layers. */
 
 .app-container {
   position: relative;
@@ -776,36 +764,37 @@ body.beta-mode-active .beta-banner {
   box-shadow: 0 6px 16px rgba(217, 169, 26, 0.4);
 }
 
-/* Sections / Steps */
+/* Sections / Steps
+   MOLTEN RECORD (2026-08-13): sections no longer read as separate cards.
+   The hard 1px border and the opaque --bg-card fill were what made every
+   boundary a visible seam; the continuous field behind the page is meant to
+   run unbroken from hero to checkout. Panels are now translucent so the field
+   shows through and grouping survives without a hard edge.
+
+   Deliberately NOT going fully background-less: this page carries dense
+   content (product grids, editor controls, forms) that needs visual grouping
+   to stay legible. A translucent panel is still a continuous surface; a hard
+   border is not. backdrop-filter is avoided here on purpose — it is expensive
+   over section-sized areas (see the perf constraint register, P6).
+
+   NOTE: no `animation` here, and never a `transform`. The old
+   `animation: fadeInUp` used translateY, which even at a "to" state of 0
+   promoted .section to a containing block for position:fixed descendants and
+   broke position:sticky for the editor preview pane. Entrances are owned by
+   .flow-inner (see the MOLTEN RECORD block at the end of this file). */
 .section {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: rgba(37, 34, 28, 0.55);
+  border: 0;
   border-radius: var(--radius-lg);
   padding: 24px;
   margin-bottom: 20px;
-  /* Opacity-only fade. The previous `animation: fadeInUp` keyframes
-     used transform: translateY(...) which, even at the "to" state of 0,
-     promoted .section to a containing block for position:fixed
-     descendants AND broke position:sticky behaviour for the editor
-     preview pane in some browsers. The result Gilly hit on prod was
-     the master tier toggle scrolling with the section instead of
-     pinning, and the editor preview pane not floating. Opacity-only
-     has no side effects on positioning. */
-  animation: sectionFadeIn 0.45s ease-out both;
 }
 
-.section:nth-child(2) { animation-delay: 0.1s; }
-.section:nth-child(3) { animation-delay: 0.2s; }
-.section:nth-child(4) { animation-delay: 0.3s; }
-.section:nth-child(5) { animation-delay: 0.4s; }
-
-@keyframes sectionFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-/* Legacy keyframes preserved for any external rule still referencing
-   fadeInUp (search confirms only `.section` used it, but leave for
-   safety). */
+/* Still referenced by .hero (L216) and .backend-banner (L3356), so these stay.
+   Opacity-only, so no containing-block side effects. `sectionFadeIn` and the
+   .section:nth-child stagger delays were removed with the card treatment
+   above: leaving them alongside the scroll-driven reveals would double-fade
+   every section (fires once on load, then again on scroll-into-view). */
 @keyframes fadeInUp {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -6787,3 +6776,181 @@ body.handoff-confirm #workflowBreadcrumb {
 .sun-summary-chip:hover {
   border-color: rgba(217, 169, 26, 0.5);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MOLTEN RECORD — Phase 1: the continuous field, anchoring, and the pour
+   (2026-08-13). Concept: "the light stays liquid until it's yours."
+
+   Phase 1 is deliberately ZERO-JAVASCRIPT. Everything below works with no
+   library loaded, so the store is complete and beautiful before GSAP arrives
+   and simply gets upgraded when it does. If the vendored bundle never loads,
+   nothing here is missing.
+
+   THE ONE PERFORMANCE RULE for this whole system: move elements, never
+   animate gradients. Animating a gradient's stops or position repaints the
+   whole surface every frame. A pre-rasterized layer moved with translate3d
+   or cross-faded with opacity is compositor-only: same picture, roughly an
+   order of magnitude cheaper.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Registered custom properties ──────────────────────────────────────
+   Registration is MANDATORY, not cosmetic. An unregistered custom property
+   is a string token to the browser, so it STEPS between values instead of
+   interpolating, and every animation built on these would jump rather than
+   flow. */
+@property --field-temp { syntax: "<number>"; initial-value: 0; inherits: true; }
+@property --motion-amp { syntax: "<number>"; initial-value: 1; inherits: true; }
+@property --heat       { syntax: "<number>"; initial-value: 0; inherits: false; }
+@property --rhef       { syntax: "<number>"; initial-value: 0; inherits: false; }
+@property --ig         { syntax: "<number>"; initial-value: 0; inherits: false; }
+
+/* ── The field ─────────────────────────────────────────────────────────
+   One continuous surface behind the entire document, replacing per-section
+   backgrounds as the thing that defines depth. Two stacked static gradient
+   layers cross-fade warm to cool as you descend (Phase 3 drives --field-temp
+   from scroll); two blurred convection cells drift on coprime periods so the
+   ambience never visibly loops.
+
+   The palette here is a TEMPERATURE SCALE, not a color scheme: corona gold at
+   the furnace, cool blue by the time the object is cooled and paid for. */
+.field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  contain: layout paint style;
+}
+.field-warm,
+.field-cool {
+  position: absolute;
+  inset: -25%;
+}
+.field-warm {
+  background:
+    radial-gradient(ellipse at 30% 18%, var(--glow-sun) 0%, transparent 52%),
+    radial-gradient(ellipse at 72% 78%, var(--glow-corona) 0%, transparent 52%);
+  /* the pour: a hot core opening outward on first paint (see 1e below) */
+  animation: fieldPour 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Cool layer sits above warm and is revealed purely by opacity. This is the
+   whole temperature scrub: no color-mix on a scrubbed property, no gradient
+   repaint, just one compositor-friendly cross-fade. */
+.field-cool {
+  background:
+    radial-gradient(ellipse at 30% 18%, rgba(127, 176, 212, 0.20) 0%, transparent 52%),
+    radial-gradient(ellipse at 72% 78%, rgba(127, 176, 212, 0.14) 0%, transparent 55%);
+  opacity: var(--field-temp);
+}
+/* Convection. The blur is STATIC so it rasterizes exactly once; only
+   transform animates. Amplitude rides --motion-amp so pools and the tier
+   system can damp the ambience to nothing without touching these rules. */
+.field-cell {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 62vmax;
+  height: 62vmax;
+  margin: -31vmax 0 0 -31vmax;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: calc(0.30 * var(--motion-amp));
+  will-change: transform;
+}
+.field-cell--a {
+  background: radial-gradient(circle, var(--glow-sun) 0%, transparent 68%);
+  animation: cellDriftA 47s ease-in-out infinite;
+}
+.field-cell--b {
+  background: radial-gradient(circle, var(--glow-corona) 0%, transparent 68%);
+  animation: cellDriftB 61s ease-in-out infinite;
+}
+/* 47s and 61s are coprime, so the two cells never resynchronise and the
+   pattern has no visible repeat period. */
+@keyframes cellDriftA {
+  0%   { transform: translate3d(-16vw, -10vh, 0) scale(1); }
+  50%  { transform: translate3d(12vw, 8vh, 0) scale(1.10); }
+  100% { transform: translate3d(-16vw, -10vh, 0) scale(1); }
+}
+@keyframes cellDriftB {
+  0%   { transform: translate3d(14vw, 12vh, 0) scale(1.06); }
+  50%  { transform: translate3d(-11vw, -9vh, 0) scale(0.94); }
+  100% { transform: translate3d(14vw, 12vh, 0) scale(1.06); }
+}
+
+/* ── 1e. The pour ──────────────────────────────────────────────────────
+   First paint is already the warm dark field with a corona core: no white
+   flash, no spinner, nothing gated. The pour ACCOMPANIES content rather than
+   delaying it — a loader that withholds the page is a conversion cost, not a
+   flourish. */
+@keyframes fieldPour {
+  from { opacity: 0; transform: scale(0.42); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes pourRise {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+/* The hero surfaces with the pour rather than the old generic fade. Applied
+   to inner elements only, never to a section, so no containing block is
+   created for the hoisted fixed UI. */
+.hero .hero-icon { animation: pourRise 700ms cubic-bezier(0.22, 1, 0.36, 1) both 120ms; }
+.hero h1         { animation: pourRise 760ms cubic-bezier(0.22, 1, 0.36, 1) both 190ms; }
+.hero-tagline    { animation: pourRise 780ms cubic-bezier(0.22, 1, 0.36, 1) both 260ms; }
+.hero p:not(.hero-tagline) { animation: pourRise 800ms cubic-bezier(0.22, 1, 0.36, 1) both 330ms; }
+
+/* ── 1b. Flow and anchor layers ────────────────────────────────────────
+   The structural split that keeps motion off click targets.
+
+   .flow-inner  — the ONLY thing continuous scroll-linked motion ever touches
+                  (Phase 3's PASS drift and velocity stretch).
+   .anchor-layer — never drifts, never stretches, never scales.
+
+   The precise rule is narrower than "CTAs must not animate": the hazard is
+   CONTINUOUS motion under a pointer that is already aiming, which is a
+   straight Fitts's law penalty on the one element whose job is being clicked.
+   A one-time entrance that finishes and comes to rest is fine, which is why
+   product cards can still ride the wave reveal while living in .anchor-layer.
+
+   Both are plain block containers by design: they add grouping without
+   introducing a formatting context that could disturb existing layout. */
+.flow-inner,
+.anchor-layer {
+  display: block;
+}
+.anchor-layer {
+  /* Belt and braces. If a future rule ever tries to transform this subtree,
+     it fails loudly in review rather than silently costing clicks. */
+  transform: none !important;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────
+   accessibility.html publicly states that scroll animations short-circuit
+   under the OS preference, so this is a correctness requirement rather than
+   a courtesy. The field stays (it is the page's background, not an
+   animation); everything that moves stops. */
+@media (prefers-reduced-motion: reduce) {
+  .field-cell { animation: none; opacity: 0.18; }
+  .field-warm { animation: none; }
+  .hero .hero-icon,
+  .hero h1,
+  .hero-tagline,
+  .hero p:not(.hero-tagline) { animation: none; }
+}
+
+/* Inline trust signals at the two hesitation points (variant modal, checkout
+   button). The full .trust-bar still lives after the editor; these are the
+   compact restatement placed where the doubt actually occurs. Muted by
+   design — reassurance should be findable, not compete with the price. */
+.trust-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.trust-inline i { color: var(--accent-sun); margin-right: 5px; }
+.editor-actions .trust-inline,
+.confirm-modal-actions + .trust-inline { justify-content: center; }

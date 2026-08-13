@@ -46,8 +46,23 @@
        leaving the value-prop demo as a blank box (UX pass 2026-08-08). -->
   <link rel="preload" as="image" href="/asset/default/compare_raw.webp" fetchpriority="high">
   <link rel="preload" as="image" href="/asset/default/compare_rhef.webp" fetchpriority="high">
+  <!-- Self-hosted variable faces, preloaded. A page this typographic cannot
+       afford a swap flash, and these are same-origin so the round trip is
+       short. crossorigin is REQUIRED on font preloads even same-origin —
+       without it the browser fetches the file twice. Copied into
+       /asset/fonts/ by infra/worker/build-public.sh. -->
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="/asset/fonts/fraunces.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="/asset/fonts/inter.woff2">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="solar-archive.css" rel="stylesheet">
+  <!-- Critical field paint, inlined so the very first frame is already the
+       warm dark field rather than a white flash waiting on the stylesheet.
+       Deliberately minimal: just the ground colour and the field's box, with
+       everything else deferred to solar-archive.css. -->
+  <style>
+    html { background: #141210; }
+    .field { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  </style>
 </head>
 <body class="step-product">
 <!-- sqrt display filter for RAW frames of ARBITRARY (non-committed) dates.
@@ -69,6 +84,20 @@
      and screen-reader users bypass the hero/banners and jump straight
      to the editor. Sam Rosenberg round-2 WCAG 2.4.1 finding. -->
 <a href="#mainContent" class="skip-link">Skip to main content</a>
+
+<!-- The continuous field. One unbroken surface behind the whole document,
+     replacing the per-section card backgrounds that used to make every
+     boundary a visible seam. Two stacked static gradient layers cross-fade
+     warm to cool as the visitor descends (Phase 3 drives --field-temp from
+     scroll position); two blurred cells convect on coprime periods so the
+     ambience never visibly loops. Purely decorative, hence aria-hidden. -->
+<div class="field" aria-hidden="true">
+  <div class="field-warm"></div>
+  <div class="field-cool"></div>
+  <div class="field-cell field-cell--a"></div>
+  <div class="field-cell field-cell--b"></div>
+</div>
+
 <div class="app-container">
 
   <!-- Hero -->
@@ -171,6 +200,11 @@
        make_compare_pair.py); zero backend. If either 404s, the whole block is
        swapped for the baked quality_strip.webp so it can never render broken. -->
   <div class="section quality-strip-section" id="qualityStrip">
+   <!-- .flow-inner carries the entrance only. This section is a stillness
+        BASIN: it is the proof moment, and you cannot compare two images while
+        anything is moving, so it is deliberately excluded from the continuous
+        PASS drift in Phase 3. -->
+   <div class="flow-inner">
     <button type="button" class="quality-diptych" id="qualityDiptych"
             aria-label="The Sun before and after the contrast-equalization step, side by side. Activate to compare them hands-on with a draggable slider.">
       <span class="diptych-pane">
@@ -213,9 +247,12 @@
     </div>
     <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Every print gets the RHEF version.</strong></p>
     <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
+   </div>
   </div>
 
   <div class="section" id="productSection">
+   <!-- Header and intro copy drift with the scroll; the grid does not. -->
+   <div class="flow-inner">
     <div class="section-header">
       <div class="step-badge">2</div>
       <h2 class="section-title" id="productSectionTitle">Pick your product</h2>
@@ -224,7 +261,16 @@
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
       Real product photos, each showing a different Sun from the archive. Yours is what gets printed &mdash; you&rsquo;ll see it on the product next.
     </p>
+   </div>
 
+   <!-- Everything below is a click target. .anchor-layer is never subject to
+        continuous scroll-linked motion (PASS drift, velocity stretch), because
+        a target that moves while the pointer is already aiming at it is a
+        straight Fitts's law penalty on the elements whose entire job is being
+        clicked. One-time entrances still run here: the hazard is sustained
+        motion during aiming, not an animation that finishes and comes to rest,
+        which is why the grid can still ride the wave reveal. -->
+   <div class="anchor-layer">
     <div class="product-grid" id="productGrid"></div>
 
     <!-- Your Requests: products the user added this session via "Request a product".
@@ -243,6 +289,7 @@
     </div>
 
     <div class="status-msg" id="orderStatus"></div>
+   </div>
   </div>
 
   <!-- Vibe grid — step 2 surface (revealed once a product is committed).
@@ -1145,6 +1192,12 @@
                resolves. -->
           <i class="fas fa-shopping-cart" aria-hidden="true"></i> <span id="btnBuyLabel">Continue to checkout</span>
         </button>
+        <!-- Second hesitation point: the commit itself. Same two signals as
+             the variant modal, kept deliberately terse next to the button. -->
+        <p class="trust-inline" role="note">
+          <span><i class="fas fa-lock" aria-hidden="true"></i> Secure checkout via Shopify</span>
+          <span><i class="fas fa-shield-heart" aria-hidden="true"></i> Replaced or refunded if it arrives damaged</span>
+        </p>
       </div>
     </div><!-- /.editor-with-preview -->
 
@@ -1248,6 +1301,15 @@
     <div class="confirm-size-chips hidden" id="confirmSelectSizeChips" role="listbox" aria-label="Size"></div>
     <div class="confirm-variant-picker" id="confirmSelectVariantList" role="listbox" aria-label="Variant"></div>
     <p class="confirm-modal-note">Prices in USD. Tax + shipping calculated at checkout. We ship to the US, Canada, EU, and UK — <a href="/shipping">details</a>.</p>
+    <!-- Trust at the point of hesitation. The full .trust-bar sits after the
+         editor, which is after the buying decision has largely been made; the
+         moments people actually hesitate are first price exposure, this modal
+         where the real price lands, and the checkout button. Two signals only:
+         enough to reassure, short enough not to compete with the price. -->
+    <p class="trust-inline" role="note">
+      <span><i class="fas fa-lock" aria-hidden="true"></i> Secure checkout via Shopify</span>
+      <span><i class="fas fa-shield-heart" aria-hidden="true"></i> Misprinted or damaged? Replaced or refunded</span>
+    </p>
     <p class="confirm-modal-note" style="font-size:0.78rem;margin-top:6px;" id="confirmSelectNextNote">Pick your Sun image next, then fine-tune in the editor.</p>
     <!-- Two ways forward once a Sun is picked: buy the mockup shown here as-is,
          or open the editor to crop/colour/caption first. The Add-to-cart button
