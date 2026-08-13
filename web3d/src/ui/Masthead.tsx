@@ -9,6 +9,12 @@ import { useStore } from "../store";
 // It fades out as the journey begins (same treatment as HeroDate) so it never
 // competes with the crossing, and it is real text rather than an image, so it
 // is selectable, translatable and readable by a screen reader.
+//
+// The NASA attribution deliberately does NOT live here. It is required (SDO
+// rules of the road) but it is not a headline, and stacking four blocks of text
+// over the opening frame made the landing busy. It moved to a persistent
+// footer credit — see <DataCredit /> — where it is always present without
+// competing with the pitch.
 export default function Masthead() {
   const progress = useStore((s) => s.progress);
   // Present on the opening beat only; gone well before the aperture.
@@ -30,10 +36,6 @@ export default function Masthead() {
         Pick any date since 2010: real NASA/SDO observations of the Sun from that day, enhanced
         with a published algorithm to reveal coronal structure the raw data hides. Yours as a
         print, poster, or canvas.
-      </p>
-      <p className="masthead-credit">
-        Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams. Not affiliated; no
-        endorsement implied.
       </p>
     </header>
   );

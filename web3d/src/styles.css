@@ -848,3 +848,28 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .masthead { transition: none; }
 }
+
+/* NASA attribution: always on the page, never part of the pitch. Sits under
+   the picker bar as a quiet footer line rather than as a fourth block of text
+   over the opening frame, which is what made the landing feel crowded. */
+.data-credit {
+  position: fixed;
+  left: 50%;
+  bottom: max(0.6vh, 6px);
+  transform: translateX(-50%);
+  z-index: 3;
+  margin: 0;
+  width: min(720px, 92vw);
+  text-align: center;
+  font-family: var(--sans);
+  font-size: clamp(0.58rem, 1vw, 0.68rem);
+  line-height: 1.4;
+  color: var(--muted);
+  opacity: 0.55;
+  pointer-events: none;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+}
+@media (max-width: 600px) {
+  /* the picker bar owns the bottom of a phone screen */
+  .data-credit { display: none; }
+}

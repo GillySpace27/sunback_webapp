@@ -9,6 +9,7 @@ import Overlay from "./ui/Overlay";
 import AtmosphereFlash from "./ui/AtmosphereFlash";
 import HeroDate from "./ui/HeroDate";
 import Masthead from "./ui/Masthead";
+import DataCredit from "./ui/DataCredit";
 import SkipToStore from "./ui/SkipToStore";
 import Arrows from "./ui/Arrows";
 import WavelengthPicker from "./ui/WavelengthPicker";
@@ -59,6 +60,7 @@ export default function App() {
       </div>
 
       <Masthead />
+      <DataCredit />
       <Overlay />
       <AtmosphereFlash />
       <SkipToStore />

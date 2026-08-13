@@ -5,7 +5,10 @@ import BuyLink from "./BuyLink";
 // scroll; opacity peaks mid-slice and falls at the edges. Text never animates
 // over a moving camera — it lives in the still center of each space.
 const COPY: Record<string, { eyebrow?: string; line: string }> = {
-  threshold: { eyebrow: "My Heliograph", line: "Give the gift of the Sun, from the day that mattered." },
+  // threshold has NO copy on purpose. The masthead carries the name, tagline
+  // and pitch at the top of the page now, so a second headline over the same
+  // frame was two competing hero statements at once. The first line that
+  // animates is "The light that lit your day", once the camera is already in.
   surface: { line: "The light that lit your day." },
   aperture: { line: "Choose your wavelength." },
   crossing: { line: "Light that left the Sun eight minutes ago." },
@@ -57,6 +60,7 @@ export default function Overlay() {
       {SPACES.map((s, i) => {
         const c = COPY[s.key];
         const o = opacityFor(progress, i);
+        if (!c) return null; // threshold: intentionally silent
         return (
           <figure
             key={s.key}
