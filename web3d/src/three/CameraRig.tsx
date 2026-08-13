@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore, spaceAt, SpaceKey, SPACES } from "../store";
 
-// Camera scrubs a spline through the seven spaces, one control point per space.
+// Camera scrubs a spline through the nine spaces, one control point per space.
 // Composition is deliberately off-center at the threshold (the Sun sits on a
 // third, black breathing above); the path then flies from the Sun at the origin
 // down to the Room far along -Z, so the light literally travels to the wall.
@@ -12,22 +12,26 @@ import { useStore, spaceAt, SpaceKey, SPACES } from "../store";
 // then settles into the home: "coming back to Earth, where I am", never diving
 // behind the Sun.
 const POS: [number, number, number][] = [
-  [2.0, 1.2, 10.6], // threshold — small Sun, lower-left third
+  [1.5, 0.95, 9.0], // threshold — larger Sun, pulled toward center-left to close the dead gulf under the headline
   [0, 0, 3.0], // surface — push in, awe
-  [0, 0, 6.6], // aperture — pull back so the filter wheel reads as a full ring
-  [0, 0.8, 24.0], // crossing — pulled way back toward the viewer: Sun small far, Earth near, beam
-  [0.9, -1.1, 17.5], // darkroom — following the light IN through the window
-  [2.4, -2.2, 17.5], // room — landed inside, facing the print as it materializes
-  [2.45, -2.25, 17.6], // gift — settle
+  [0, 0, 7.4], // aperture — pull back so the wheel reads as a full ring, clear of the title
+  [3.0, -1.2, 34.0], // crossing — pulled back toward the viewer: Sun small+far, Earth near, beam
+  [5.5, -5.9, 42.0], // sky — standing back in the field, the whole log cabin in view
+  [4.3, -6.75, 28.5], // darkroom — dolly right up to the cabin's warm, lit window
+  [5.2, -6.4, 25.5], // room — just inside the (dissolved) window, a proper viewing distance from the print
+  [5.45, -6.35, 26.6], // gift — settle, still on the ground floor
+  [11.5, -6.2, 31.5], // gallery — pull back to fit the whole product display (frames + object shelf)
 ];
 const TGT: [number, number, number][] = [
-  [1.05, 0.68, 0], // sun pushed to lower-left of frame
+  [0.72, 0.46, 0], // sun sits on the lower-left third, but nearer center so it and the headline read as one composition
   [0, 0, 0],
   [0, 0, 0], // aperture — the wheel around the Sun
-  [1.6, -1.1, 9], // crossing — frame the Sun (far) + Earth (near) vista
-  [0.65, -1.4, 12.6], // darkroom — the glowing window we enter through
-  [3.3, -2.7, 13], // room — the print on the wall where the light lands
-  [3.3, -2.6, 13], // gift
+  [5.7, -3.8, 17], // crossing — frame Earth's sun-facing limb (where we descend), Sun off to the side
+  [5.4, -6.7, 24.6], // sky — the cabin sitting in the field, mountains behind
+  [4.2, -6.9, 24.6], // darkroom — the glowing window we zoom into
+  [6.3, -6.8, 22], // room — the print on the wall where the light lands
+  [6.3, -6.75, 22], // gift
+  [12.0, -7.1, 21.6], // gallery — look slightly down so the object shelf sits in frame below the wall art
 ];
 
 const REACT: Record<SpaceKey, number> = {
@@ -35,9 +39,11 @@ const REACT: Record<SpaceKey, number> = {
   surface: 0.4,
   crossing: 0.1,
   aperture: 0.18, // keep the wheel centered/stable, not drifting with the cursor
+  sky: 0.15, // a gentle up-look; too much parallax here reads as a wobble
   darkroom: 0.3,
   room: 0.5,
   gift: 0.4,
+  gallery: 0.35,
 };
 
 const smooth = (f: number) => f * f * (3 - 2 * f); // cine dwell: slow at both ends
@@ -45,7 +51,7 @@ const smooth = (f: number) => f * f * (3 - 2 * f); // cine dwell: slow at both e
 // Remap raw scroll into an eased curve parameter that HOLDS at each space and
 // moves quickly between them — film cutting, not linear scrubbing.
 function easedParam(progress: number) {
-  const n = SPACES.length; // 7 points
+  const n = SPACES.length; // one control point per space
   let i = 0;
   for (let k = 0; k < n; k++) if (progress >= SPACES[k].start) i = k;
   if (i >= n - 1) return 1;

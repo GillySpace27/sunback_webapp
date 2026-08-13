@@ -104,6 +104,10 @@ export default function Sun() {
   // the real texture is loaded centrally (useSunTextureLoader) and published to
   // the store; null while loading/on error, so we fall back to the plasma
   const tex = useStore((s) => s.currentTexture);
+  // the origin Sun belongs to the space beats; hide it UNDER the atmosphere flash
+  // (~0.51) so the red AIA disk never lingers in the daytime sky (the ground has
+  // its own warm sun) or shows through the fading ground
+  const visible = useStore((s) => s.progress < 0.51);
 
   const uniforms = useMemo(
     () => ({
@@ -141,7 +145,7 @@ export default function Sun() {
   });
 
   return (
-    <mesh>
+    <mesh visible={visible}>
       <icosahedronGeometry args={[1.6, 12]} />
       <shaderMaterial
         vertexShader={vertex}

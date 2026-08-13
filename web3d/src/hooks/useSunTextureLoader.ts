@@ -16,6 +16,13 @@ const cache = new Map<string, THREE.Texture>(); // insertion-ordered LRU
 const loader = new THREE.TextureLoader();
 loader.setCrossOrigin("anonymous");
 
+// A real, correctly-framed AIA 304 disk baked at build time. Painted on the
+// very first frame so the hero opens on an actual Sun, not the procedural
+// plasma — the live fetch for the true identity crossfades over it a beat later.
+// ponytail: static asset == the money frame with zero network wait; refresh it
+// by re-hitting /api/helioviewer_thumb and dropping the PNG back in place.
+const DEFAULT_SUN = "/asset/default/sun_304.png";
+
 function put(url: string, tex: THREE.Texture) {
   cache.set(url, tex);
   while (cache.size > CAP) {
@@ -33,6 +40,23 @@ export function useSunTextureLoader() {
   const setTexture = useStore((s) => s.setTexture);
   const setTexStatus = useStore((s) => s.setTexStatus);
   const url = thumbUrl(date, time, CHANNELS[channel].angstrom);
+
+  // One-shot: paint the baked default Sun immediately, but only while nothing
+  // real has arrived yet, so it can never clobber the live texture on a race.
+  useEffect(() => {
+    let alive = true;
+    loader.load(DEFAULT_SUN, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const s = useStore.getState();
+      if (alive && s.currentTexture === null && s.texStatus !== "ready") {
+        s.setTexture(tex);
+        // keep status "loading": the true-identity fetch is still in flight
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const cached = cache.get(url);

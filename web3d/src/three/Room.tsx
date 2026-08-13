@@ -9,24 +9,40 @@ import { useStore } from "../store";
 // print of the real SDO/AIA disk for the chosen day. Cosmic -> domestic.
 // Hidden until approached so nothing floats into the earlier beats.
 // On the viewer side (+Z), near Earth — the home you settle back into.
-const ROOM_POS: [number, number, number] = [2.5, -2.5, 13];
+// Ground-floor interior: sits low so the camera ENTERS the cabin at standing
+// height (through the window) and is already in the room — not risen above it.
+const ROOM_POS: [number, number, number] = [5.5, -6.6, 22];
 
-// warm daylight sky with a bright sun glow, seen through the window
+// The view OUT the window: the same blue sky + warm Sun we crossed the field
+// under, so the star that made the print is still up there in the background
+// while we're inside. (Matches SkyGround's sky gradient + sun disk.)
 function makeSky() {
   const c = document.createElement("canvas");
   c.width = 128;
   c.height = 160;
   const g = c.getContext("2d")!;
+  // daytime blue, deeper at the top, hazier toward the horizon
   const grad = g.createLinearGradient(0, 0, 0, 160);
-  grad.addColorStop(0, "#ffe6c0");
-  grad.addColorStop(1, "#ffcf97");
+  grad.addColorStop(0, "#3f7ec9");
+  grad.addColorStop(0.55, "#8fbce8");
+  grad.addColorStop(1, "#dce9f4");
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 160);
-  const sun = g.createRadialGradient(64, 46, 2, 64, 46, 46);
-  sun.addColorStop(0, "#fffdf5");
-  sun.addColorStop(0.5, "rgba(255,240,200,0.85)");
-  sun.addColorStop(1, "rgba(255,220,160,0)");
-  g.fillStyle = sun;
+  // the Sun, warm, in the upper-left of the pane
+  const sx = 44;
+  const sy = 46;
+  const halo = g.createRadialGradient(sx, sy, 0, sx, sy, 66);
+  halo.addColorStop(0, "rgba(255,247,224,0.95)");
+  halo.addColorStop(0.28, "rgba(255,228,150,0.5)");
+  halo.addColorStop(0.6, "rgba(255,214,110,0.16)");
+  halo.addColorStop(1, "rgba(255,214,110,0)");
+  g.fillStyle = halo;
+  g.fillRect(0, 0, 128, 160);
+  const core = g.createRadialGradient(sx, sy, 0, sx, sy, 15);
+  core.addColorStop(0, "#fffdf3");
+  core.addColorStop(0.7, "#fff2cf");
+  core.addColorStop(1, "rgba(255,240,200,0)");
+  g.fillStyle = core;
   g.fillRect(0, 0, 128, 160);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -96,7 +112,7 @@ function MaterializingPrint({ tex }: { tex: THREE.Texture }) {
     // scroll-driven inkblot bloom as you settle into the room
     uniforms.uReveal.value = reducedMotion
       ? 1
-      : THREE.MathUtils.clamp((progress - 0.76) / 0.16, 0, 1);
+      : THREE.MathUtils.clamp((progress - 0.74) / 0.09, 0, 1);
   });
   return (
     <mesh position={[0, 0, 0.02]}>
@@ -128,8 +144,10 @@ function Shimmer() {
 
 export default function Room() {
   const tex = useStore((s) => s.currentTexture);
-  // reveal only once we've left the Earth vista and are descending to the home
-  const near = useStore((s) => s.progress > 0.66);
+  // reveal as the cabin exterior dissolves — a hair earlier than the wall-cross
+  // so the interior is already present UNDER the warm entry bloom (no see-through
+  // gap while the exterior front wall has faded but the interior hasn't shown)
+  const near = useStore((s) => s.progress > 0.7);
   const showPrint = near && !!tex;
   const sky = useMemo(makeSky, []);
   const shaft = useMemo(makeShaft, []);
@@ -144,9 +162,9 @@ export default function Room() {
   return (
     <group position={ROOM_POS} visible={near}>
       {/* warm tungsten room light + a stronger warm key from the window side */}
-      <ambientLight intensity={0.45} color="#ffe0bf" />
-      <directionalLight position={[-3, 3, 6]} intensity={2.1} color="#ffddab" />
-      <pointLight position={[-1.8, 1.2, 4]} intensity={16} distance={26} color="#ffcf90" />
+      <ambientLight intensity={0.5} color="#ffe0bf" />
+      <directionalLight position={[-3, 3, 6]} intensity={1.3} color="#ffddab" />
+      <pointLight position={[-1.8, 1.2, 4]} intensity={7} distance={26} color="#ffcf90" />
 
       {/* back wall, warm; a soft light pool from the window keeps it from
           reading as a flat plane */}
@@ -154,10 +172,12 @@ export default function Room() {
         <planeGeometry args={[60, 36]} />
         <meshStandardMaterial color="#3a2717" roughness={1} />
       </mesh>
-      {/* floor, to give the room depth instead of a floating frame */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -4.2, 3]}>
-        <planeGeometry args={[60, 16]} />
-        <meshStandardMaterial color="#241812" roughness={1} />
+      {/* wood floor at standing height (just below the eye), wide + deep enough
+          to fully cover the field grass behind it as we step inside — so the
+          interior never shows green underfoot */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.9, 6]}>
+        <planeGeometry args={[80, 40]} />
+        <meshStandardMaterial color="#2a1c12" roughness={1} />
       </mesh>
 
       {/* ── the window: the Sun, outside ── */}
@@ -197,18 +217,21 @@ export default function Room() {
       </mesh>
 
       {/* ── the framed print, where the light lands ── */}
-      <group position={[1.2, -0.2, 0]}>
+      <group position={[1.2, 0.1, 0]}>
         <mesh position={[0, 0, -0.02]}>
           <planeGeometry args={[2.36, 2.36]} />
           <meshStandardMaterial color="#0f0b08" roughness={0.6} metalness={0.1} />
         </mesh>
+        {/* muted paper mat — a near-white mat blooms into a harsh white rim */}
         <mesh position={[0, 0, 0]}>
           <planeGeometry args={[2.12, 2.12]} />
-          <meshStandardMaterial color="#efe9dc" roughness={0.9} />
+          <meshStandardMaterial color="#a89a7e" roughness={0.95} />
         </mesh>
+        {/* warm-dark backing so the print reads as a dim image while it
+            materializes, not a black void inside a glowing frame */}
         <mesh position={[0, 0, 0.01]}>
           <planeGeometry args={[1.8, 1.8]} />
-          <meshBasicMaterial color="#0b0705" toneMapped={false} />
+          <meshBasicMaterial color="#1c120c" toneMapped={false} />
         </mesh>
         {near && !showPrint && <Shimmer />}
         {showPrint && tex && <MaterializingPrint tex={tex} />}

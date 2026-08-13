@@ -67,6 +67,23 @@ body {
   );
   filter: blur(10px);
 }
+/* light-background beats (sky, sunlit room): a tight opaque scrim would read as
+   a dark stain, so use a much softer, wider, warmer halo — a gentle shadow
+   behind the copy, not a plate. Legibility then leans on the text-shadow. */
+.overlay-line--light::before {
+  inset: -100% -70%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(8, 6, 4, 0.42) 0%,
+    rgba(8, 6, 4, 0.2) 38%,
+    transparent 66%
+  );
+  filter: blur(26px);
+}
+.overlay-line--light .line {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 2px 16px rgba(0, 0, 0, 0.7),
+    0 0 44px rgba(0, 0, 0, 0.55);
+}
 .eyebrow {
   font-family: var(--sans);
   text-transform: uppercase;
@@ -119,15 +136,48 @@ body {
     text-align: left;
   }
 }
-/* Climax line sits high, clear of the pinned buy bar at the bottom. */
+/* Climax line: the print is the hero here, so the copy clears it — a tight block
+   in the upper area on wide screens (print center, window upper-left, copy upper
+   -right), staying centered on phones where it reads fine. */
 .overlay-line--climax {
   align-self: start;
-  margin-top: 9vh;
+  margin-top: 6vh;
+}
+@media (min-width: 768px) {
+  /* print center, window upper-left, gallery frame upper-right — drop the copy
+     into the empty lower-left so it never lands on any of them */
+  .overlay-line--climax {
+    justify-self: start;
+    align-self: end;
+    text-align: left;
+    max-width: 10ch;
+    margin: 0 0 24vh 5vw;
+  }
 }
 /* "Select a color." sits at the top, not overlaid on the wheel. */
 .overlay-line--top {
   align-self: start;
   margin-top: 8vh;
+}
+/* crossing: Sun upper-left, Earth enters lower-right — keep the caption in the
+   empty left band so it never sits on the Earth or the beam. */
+@media (min-width: 768px) {
+  .overlay-line--crossing {
+    justify-self: start;
+    align-self: center;
+    text-align: left;
+    max-width: 16ch;
+    margin-left: 6vw;
+  }
+  /* gallery: frames + a shelf of objects fill the lower two-thirds — put the copy
+     in the empty upper-right wall, clear of every piece. */
+  .overlay-line--gallery {
+    justify-self: end;
+    align-self: start;
+    text-align: right;
+    max-width: 11ch;
+    margin: 6vh 6vw 0 0;
+  }
 }
 .cta,
 .fallback .cta {
@@ -236,6 +286,46 @@ body {
   transform: translateY(0);
   pointer-events: auto;
 }
+/* collapse toggle: a slim pill header; collapsed hides the body so the bar is a
+   small handle through the film, expanding on click / focus / at the gallery */
+.picker-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: center;
+  padding: 0.15rem 0.4rem;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.picker-toggle:hover {
+  color: var(--ink);
+}
+.picker-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.picker-chevron {
+  color: currentColor;
+}
+.picker-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.picker--collapsed {
+  padding-bottom: 0.6rem;
+}
+.picker--collapsed .picker-body {
+  display: none;
+}
 .picker-readout {
   font-family: var(--sans);
   font-size: 0.7rem;
@@ -291,6 +381,7 @@ body {
   gap: clamp(0.2rem, 1vw, 0.6rem);
 }
 .swatch {
+  position: relative;
   display: grid;
   justify-items: center;
   align-content: center;
@@ -300,6 +391,76 @@ body {
   min-height: 44px;
   border-radius: 12px;
   cursor: pointer;
+}
+/* "what it sees" tooltip, above the dot, on hover or keyboard focus */
+.swatch-tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  white-space: nowrap;
+  background: rgba(12, 12, 18, 0.96);
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10;
+}
+.swatch:hover .swatch-tip,
+.swatch input:focus-visible ~ .swatch-tip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.picker-sees {
+  color: var(--ink);
+  opacity: 0.82;
+}
+/* wheel wedge tooltip: reuse the swatch-tip box, but it lives inside a drei
+   <Html> (positioned in 3D), so undo the swatch-relative absolute placement and
+   make it visible */
+.wheel-tip {
+  position: static;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+}
+/* SDO spacecraft hover tooltip (drei Html) */
+.sdo-html {
+  pointer-events: none;
+}
+.sdo-tip {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  white-space: nowrap;
+  background: rgba(12, 12, 18, 0.96);
+  border: 1px solid rgba(244, 239, 230, 0.2);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--sans);
+  transform: translateY(-50%);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+.sdo-tip-name {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.sdo-tip-link {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: #ffd9a0;
+  text-decoration: none;
+}
+.sdo-tip-link:hover {
+  text-decoration: underline;
 }
 .swatch input {
   position: absolute;
@@ -335,9 +496,13 @@ body {
   color: var(--muted);
   white-space: nowrap;
 }
+/* keep the nm label on every swatch even on phones — color alone can't
+   separate nine tints (two blues, a green, an olive), and the picker row
+   scrolls horizontally so the labels never crowd. */
 @media (max-width: 640px) {
   .swatch-label {
-    display: none;
+    font-size: 0.56rem;
+    letter-spacing: 0.02em;
   }
 }
 
@@ -359,12 +524,13 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  border: 1px solid rgba(244, 239, 230, 0.22);
-  background: rgba(8, 9, 14, 0.5);
+  border: 1px solid rgba(244, 239, 230, 0.34);
+  background: rgba(8, 9, 14, 0.62);
   backdrop-filter: blur(6px);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
   color: var(--ink);
   cursor: pointer;
-  opacity: 0.55;
+  opacity: 0.72;
   transition: opacity 0.25s ease, background 0.25s ease, transform 0.25s ease;
 }
 .arrow:hover {
@@ -462,6 +628,122 @@ body {
 }
 .skip:focus {
   top: 1rem;
+}
+
+/* persistent "skip straight to the store" escape hatch, top-right */
+.skip-store {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
+  z-index: 6;
+  pointer-events: auto;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 0.5rem 0.9rem;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(244, 239, 230, 0.28);
+  border-radius: 999px;
+  background: rgba(8, 9, 14, 0.42);
+  backdrop-filter: blur(6px);
+  transition: background 0.4s, border-color 0.4s, color 0.4s;
+}
+.skip-store:hover {
+  background: var(--ink);
+  color: #0a0a0f;
+  border-color: var(--ink);
+}
+.skip-store:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+
+/* Hero date prompt — asked first, sits low-center on the opening beat, clear of
+   the lower-left Sun and the upper-right headline. Fades out as you scroll in. */
+.hero-date {
+  position: fixed;
+  left: 50%;
+  bottom: 16vh;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  text-align: center;
+  transition: opacity 0.4s ease;
+}
+.hero-date-field {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--sans);
+}
+.hero-date-label {
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+}
+.hero-date input[type="date"] {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(244, 239, 230, 0.3);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  padding: 0.55rem 1.1rem;
+  color-scheme: dark;
+  min-height: 44px;
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+.hero-date input[type="date"]:hover {
+  border-color: rgba(244, 239, 230, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+.hero-date input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.hero-date input[type="date"]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+.hero-date-hint {
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+/* soft nudge until a date is picked: the input breathes, the "next" arrow
+   pulses. Reduced-motion users get no animation (handled globally below). */
+@keyframes date-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 236, 190, 0); }
+  50% { box-shadow: 0 0 0 5px rgba(255, 236, 190, 0.18); }
+}
+.hero-date--nudge input[type="date"] {
+  animation: date-breathe 2.4s ease-in-out infinite;
+  border-color: rgba(255, 236, 190, 0.55);
+}
+@keyframes arrow-nudge {
+  0%, 100% { transform: translateX(0); opacity: 0.85; }
+  50% { transform: translateX(4px); opacity: 1; }
+}
+.arrow--nudge {
+  animation: arrow-nudge 1.8s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

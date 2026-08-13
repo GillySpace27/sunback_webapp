@@ -13,17 +13,19 @@ export default function BuyLink({
   children,
   decorative,
   style,
+  cat,
 }: {
   className?: string;
   children: ReactNode;
   decorative?: boolean;
   style?: CSSProperties;
+  cat?: string; // optional product-category anchor (from a gallery piece)
 }) {
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
   const channel = useStore((s) => s.channel);
   const [preparing, setPreparing] = useState(false);
-  const href = buyUrl(date, time, CHANNELS[channel].angstrom);
+  const href = buyUrl(date, time, CHANNELS[channel].angstrom, cat ? { cat } : undefined);
 
   const go = (e: MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return; // let new-tab work

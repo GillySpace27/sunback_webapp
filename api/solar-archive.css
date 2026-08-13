@@ -151,7 +151,7 @@ html:not(.dark) {
 }
 
 body {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   background: var(--bg-deep);
   color: var(--text-primary);
   min-height: 100vh;
@@ -946,7 +946,7 @@ select {
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   font-size: 16px;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   color: var(--text-primary);
   transition: border-color var(--transition), box-shadow var(--transition);
   width: 100%;
@@ -1376,7 +1376,7 @@ select:focus-visible {
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   letter-spacing: 0.02em;
 }
 .btn-preview:hover:not(:disabled) {
@@ -1402,7 +1402,7 @@ select:focus-visible {
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   letter-spacing: 0.02em;
 }
 
@@ -1675,7 +1675,7 @@ html.dark .image-stage.image-stage--checker {
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   color: var(--text-secondary);
   font-size: 0.82rem;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   cursor: pointer;
   transition: all var(--transition);
 }
@@ -1757,7 +1757,7 @@ html.dark .image-stage.image-stage--checker {
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 0.82rem;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   cursor: pointer;
   transition: all var(--transition);
 }
@@ -2282,7 +2282,7 @@ input[type="range"]::-moz-range-thumb {
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
 }
 
 .btn-order:hover:not(:disabled) {
@@ -2302,7 +2302,7 @@ input[type="range"]::-moz-range-thumb {
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 0.9rem;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   cursor: pointer;
   transition: all var(--transition);
   text-decoration: none;
@@ -2363,7 +2363,7 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
 .modal-actions button {
   padding: 8px 18px;
   border-radius: var(--radius-sm);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   font-size: 0.9rem;
   cursor: pointer;
   border: 1px solid var(--border);
@@ -3420,7 +3420,7 @@ body.step-editor .vibe-reveal-btn {
 .backend-banner .banner-btn {
   padding: 6px 14px;
   border-radius: 6px;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   font-size: 0.82rem;
   cursor: pointer;
   border: 1px solid var(--border);
@@ -3615,7 +3615,7 @@ body.step-editor .toast { bottom: 104px; }
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
 }
 
 .btn-hq:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(52,152,219,0.3); }
@@ -3699,7 +3699,7 @@ body.step-editor .toast { bottom: 104px; }
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 16px;
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   color: var(--text-primary);
   flex: 1;
   min-width: 0;
@@ -3757,7 +3757,7 @@ body.step-editor .toast { bottom: 104px; }
 }
 
 #textFontSelect optgroup {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   font-weight: 600;
   color: var(--text-secondary);
   font-size: 0.82rem;
@@ -4012,7 +4012,7 @@ body.step-editor .toast { bottom: 104px; }
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
 }
 
 .product-buy-btn:hover:not(:disabled) {
@@ -4048,7 +4048,7 @@ body.step-editor .toast { bottom: 104px; }
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
 }
 
 .btn-buy-in-editor:hover {
@@ -4123,7 +4123,7 @@ body.step-editor .toast { bottom: 104px; }
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--sans);
   text-decoration: none;
 }
 
@@ -6602,4 +6602,188 @@ html:not(.dark) .confirm-variant-tile.active {
 .data-credits-card-close:hover {
   background: rgba(128, 128, 128, 0.15);
   color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Restyle-to-match + 3D-experience handoff (2026-08-13)
+   Matches web3d/src/styles.css: Fraunces serif headings, Inter body, on
+   the store's existing warm-dark palette. Self-hosted variable fonts
+   (the store isn't Vite-built, so it can't import @fontsource). Fonts are
+   copied to /asset/fonts/ by infra/worker/build-public.sh.
+   ═══════════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/asset/fonts/inter.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fraunces Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/asset/fonts/fraunces.woff2") format("woff2");
+}
+:root {
+  --sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --serif: "Fraunces Variable", ui-serif, Georgia, serif;
+}
+/* serif for the display headings, to echo the 3D experience */
+#appTitle,
+.hero-tagline,
+.section-title {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+/* ── Handoff: suppress marketing so an arriving buyer lands on intent ── */
+body.fromHandoff .hero,
+body.fromHandoff #qualityStrip {
+  display: none !important;
+}
+/* lock scroll under the confirm overlay + hide any floating store chrome so the
+   "confirm your Sun" screen reads as a clean, branded bridge */
+body.handoff-confirm {
+  overflow: hidden;
+}
+body.handoff-confirm #vibeRevealCta,
+body.handoff-confirm #vibeMasterToggle,
+body.handoff-confirm #feedbackFabGroup,
+body.handoff-confirm #workflowBreadcrumb {
+  display: none !important;
+}
+
+/* ── "Confirm your Sun" bridge overlay ── */
+.handoff-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6vh 6vw;
+  background: radial-gradient(ellipse at 50% 38%, #141210 0%, #0a0908 70%, #050505 100%);
+}
+.handoff-overlay[hidden] {
+  display: none;
+}
+.handoff-card {
+  max-width: 26rem;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  animation: handoff-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes handoff-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.handoff-eyebrow {
+  margin: 0;
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.34em;
+  font-size: 0.66rem;
+  color: var(--text-secondary);
+}
+.handoff-thumb {
+  width: min(58vw, 20rem);
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 50%;
+  box-shadow: 0 0 60px -10px rgba(217, 169, 26, 0.5), 0 10px 40px rgba(0, 0, 0, 0.6);
+  background: #0a0908;
+}
+.handoff-meta {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(1.15rem, 3.4vw, 1.6rem);
+  color: var(--text-primary);
+}
+.handoff-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.4rem;
+}
+.handoff-continue {
+  font-family: var(--sans);
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0a0908;
+  background: var(--text-primary);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.85rem 2.6rem;
+  min-height: 48px;
+  cursor: pointer;
+  transition: background 0.4s, transform 0.4s;
+}
+.handoff-continue:hover {
+  background: #fffdf7;
+  transform: translateY(-1px);
+}
+.handoff-edit {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  min-height: 40px;
+}
+.handoff-edit:hover {
+  color: var(--text-primary);
+}
+
+/* ── Persistent editable Sun summary chip (rides after Continue) ── */
+.sun-summary-chip {
+  position: fixed;
+  top: max(0.8rem, env(safe-area-inset-top));
+  right: max(0.8rem, env(safe-area-inset-right));
+  z-index: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.7rem 0.35rem 0.4rem;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  color: var(--text-primary);
+  background: rgba(37, 34, 28, 0.92);
+  border: 1px solid rgba(232, 226, 208, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.sun-summary-chip[hidden] {
+  display: none;
+}
+.chip-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0a0908;
+}
+.chip-meta {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.chip-pen {
+  color: var(--accent-sun);
+  font-size: 0.7rem;
+}
+.sun-summary-chip:hover {
+  border-color: rgba(217, 169, 26, 0.5);
 }

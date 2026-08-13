@@ -17,6 +17,9 @@ type State = {
   // the image identity date/time (fed to the Helioviewer texture + deep link)
   date: string; // YYYY-MM-DD
   setDate: (d: string) => void;
+  // has the visitor explicitly picked a date yet? drives the soft "nudge"
+  // (pulsing prompt/arrow) on the opening beat until they do
+  dateChosen: boolean;
   time: string; // HH:MM
   setTime: (t: string) => void;
 
@@ -51,7 +54,8 @@ export const useStore = create<State>((set) => ({
 
   // default a few days back so a real AIA frame exists (data has some latency)
   date: new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10),
-  setDate: (d) => set({ date: d }),
+  setDate: (d) => set({ date: d, dateChosen: true }),
+  dateChosen: false,
   time: "12:00",
   setTime: (t) => set({ time: t }),
 
@@ -78,24 +82,37 @@ export function spaceCenters(): number[] {
   });
 }
 
+// The best-framed moment of each of the nine beats, in order. The timeline arrows
+// step through THESE (not the geometric slice centers) so the whole film — every
+// beat at its intended composition — is reachable scroll-free. Keep in sync with
+// the camera dwell + copy peaks (aperture peaks at its start, Earth after it slides
+// in, the print once materialized, etc.).
+export const BEAT_STOPS = [0.02, 0.16, 0.235, 0.45, 0.585, 0.69, 0.82, 0.885, 0.965];
+
 // dev-only handle for driving progress in tests (stripped from prod builds)
 if (import.meta.env.DEV && typeof window !== "undefined") {
   (window as unknown as { __store?: unknown }).__store = useStore;
 }
 
-// The seven spaces, as progress thresholds. Ordered as one outward journey:
-// the Sun (hero -> awe -> choose the light), then out across the dark to Earth
-// lit by a sunbeam, then down to the surface and into a home where the print
+// The eight spaces, as progress thresholds. Ordered as one journey home: the
+// Sun (hero -> awe -> choose the light), then out across the dark to Earth lit
+// by a sunbeam, then DOWN to the surface (the same star, from your own backyard
+// sky), then in backwards through a window to the home where the print
 // materializes on the wall. Aperture sits BEFORE the crossing so you aim the
-// instrument at the Sun before leaving it.
+// instrument at the Sun before leaving it. The crossing dwells long so the
+// god-ray reaching Earth gets a beat to breathe before you land.
 export const SPACES = [
   { key: "threshold", start: 0.0 },
-  { key: "surface", start: 0.13 },
-  { key: "aperture", start: 0.28 },
-  { key: "crossing", start: 0.45 },
-  { key: "darkroom", start: 0.63 },
-  { key: "room", start: 0.82 },
-  { key: "gift", start: 0.94 },
+  { key: "surface", start: 0.1 },
+  { key: "aperture", start: 0.22 },
+  { key: "crossing", start: 0.37 },
+  { key: "sky", start: 0.53 },
+  { key: "darkroom", start: 0.64 },
+  { key: "room", start: 0.74 },
+  { key: "gift", start: 0.84 },
+  // pan right from the wall print to a small gallery of products, all bearing
+  // the same Sun — the "make one on anything" beat
+  { key: "gallery", start: 0.93 },
 ] as const;
 
 export type SpaceKey = (typeof SPACES)[number]["key"];

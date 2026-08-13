@@ -5,9 +5,13 @@ import * as THREE from "three";
 import { useStore } from "../store";
 import Sun from "./Sun";
 import Heliograph from "./Heliograph";
-import Dust from "./Dust";
+import SDOModel from "./SDOModel";
+import Starfield from "./Starfield";
 import Earth from "./Earth";
+import SkyGround from "./SkyGround";
+import Cabin from "./Cabin";
 import Room from "./Room";
+import Gallery from "./Gallery";
 import CameraRig from "./CameraRig";
 import Effects from "./Effects";
 
@@ -24,7 +28,7 @@ export default function Scene() {
       className="canvas"
       dpr={dpr}
       gl={{ antialias: true, powerPreference: "high-performance" }}
-      camera={{ fov: 45, position: [0, 0, 7.2], near: 0.1, far: 100 }}
+      camera={{ fov: 45, position: [0, 0, 7.2], near: 0.1, far: 260 }}
       onCreated={(state) => {
         state.gl.toneMapping = THREE.ACESFilmicToneMapping;
         state.gl.toneMappingExposure = 1.0;
@@ -40,9 +44,13 @@ export default function Scene() {
       <Suspense fallback={null}>
         <Sun />
         <Heliograph />
-        <Dust />
+        <SDOModel />
+        <Starfield />
         <Earth />
+        <SkyGround />
+        <Cabin />
         <Room />
+        <Gallery />
       </Suspense>
       <CameraRig />
       <Effects />

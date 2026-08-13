@@ -3,18 +3,35 @@
 // (date + wavelength); the deep link carries it and the original hydrates the
 // same path a real date submit uses (see PRODUCT_CREATION_CONTRACT.md).
 
-// Where the original front end lives (its origin is also the API origin).
+// Where the original front end lives (its origin is also the API origin). The
+// store is served at the site ROOT (the 3D experience is hosted under
+// /experience/). NOTE: /store/ 404s in production — the store is at "/".
 export const ORIGINAL_SITE =
   import.meta.env.VITE_ORIGINAL_SITE || "https://myheliograph.com";
+export const STORE_PATH = import.meta.env.VITE_STORE_PATH || "/";
 
 // Texture API base. "" = same-origin (prod when co-hosted; dev via Vite proxy).
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-// Deep link that lands the buyer at product/editor with identity preloaded.
-export function buyUrl(date: string, time: string, angstrom: number, product?: string) {
+// Which product CATEGORY each 3D gallery object represents, so clicking a piece
+// deep-links to that section of the store's product grid (not a specific product).
+// One object per PRODUCT_CATEGORY_ORDER category in api/products.js (values must match).
+export const GALLERY_CATEGORY = {
+  print: "wall",
+  pillow: "home",
+  mug: "drink",
+  tee: "apparel",
+  phone: "desk",
+  ornament: "gifts",
+} as const;
+export type GalleryKind = keyof typeof GALLERY_CATEGORY;
+
+// Deep link that lands the buyer at the store with identity preloaded. Optional
+// `cat` scrolls the product grid to a category group (from a gallery piece).
+export function buyUrl(date: string, time: string, angstrom: number, opts?: { cat?: string }) {
   const q = new URLSearchParams({ d: date, t: time || "12:00", wl: String(angstrom) });
-  if (product) q.set("p", product);
-  return `${ORIGINAL_SITE}/?${q.toString()}`;
+  if (opts?.cat) q.set("cat", opts.cat);
+  return `${ORIGINAL_SITE}${STORE_PATH}?${q.toString()}`;
 }
 
 // Wake the scale-to-zero backend on buy-intent so the handoff isn't a cold

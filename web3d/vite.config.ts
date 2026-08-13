@@ -7,9 +7,9 @@ import react from "@vitejs/plugin-react";
 // same-origin (no CORS taint on the WebGL texture). Override with VITE_DEV_API.
 const DEV_API = process.env.VITE_DEV_API || "https://myheliograph.com";
 
-// Served same-origin as the store, under /experience/, by the Cloudflare Worker
-// (public/experience/). Dev stays at root. Override with VITE_BASE if the deploy
-// path changes.
+// Served same-origin under /experience/ by the Cloudflare Worker
+// (public/experience/); the store is the site root. Dev stays at root.
+// Override with VITE_BASE if the deploy path changes.
 export default defineConfig(({ command }) => ({
   base: command === "build" ? process.env.VITE_BASE || "/experience/" : "/",
   plugins: [react()],

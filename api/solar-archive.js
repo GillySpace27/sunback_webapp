@@ -186,18 +186,28 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var _shareParams = (function () {
       try {
         var q = new URLSearchParams(window.location.search);
+        // cat = a product CATEGORY to scroll to on handoff (from the 3D gallery,
+        // e.g. mug->drink). Distinct from p (which commits a specific product).
+        var rawCat = (q.get("cat") || "").toLowerCase();
+        var validCat = PRODUCT_CATEGORY_ORDER.some(function (c) { return c.key === rawCat; })
+          ? rawCat : "";
         return {
           p: q.get("p") || "",
           d: q.get("d") || "",
           t: q.get("t") || "",
           wl: q.get("wl") || "",
           vibe: q.get("vibe") || "",
+          cat: validCat,
         };
       } catch (_e) {
-        return { p: "", d: "", t: "", wl: "", vibe: "" };
+        return { p: "", d: "", t: "", wl: "", vibe: "", cat: "" };
       }
     })();
-    if (_shareParams.p) {
+    // A specific product (p) only wins when there's no category deep-link. A
+    // handoff from the 3D gallery sends cat=<category> (browse that group), and
+    // a stray p from a prior session's URL write-back must NOT pin a random,
+    // contradictory product (e.g. cat=wall + p=shower_curtain).
+    if (_shareParams.p && !_shareParams.cat) {
       var _sharedProduct = PRODUCTS.filter(function (p) { return p.id === _shareParams.p; })[0];
       if (_sharedProduct) state.selectedProduct = _sharedProduct.id;
     }
@@ -2526,7 +2536,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       } else {
         if (state.scrollToProductsOnLoad) {
           state.scrollToProductsOnLoad = false;
-          _scrollToEl(productSection, "start");
+          // deep-linked from the 3D gallery: land on the matching category group
+          var _catEl = state.scrollToCategoryOnLoad &&
+            document.getElementById("cat-" + state.scrollToCategoryOnLoad);
+          _scrollToEl(_catEl || productSection, "start");
+          state.scrollToCategoryOnLoad = null;
         }
         // No step hop here. The 2026-08-10 cart QA fix used to force
         // "product" → "image" at this point, back when the funnel was
@@ -5299,8 +5313,79 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // implementation of it. URL params win over the localStorage snapshot
     // restored later in bootstrap: a shared link must show the SENDER's
     // Sun, not the recipient's last session.
+    // ── Handoff bridge (from the 3D experience) ───────────────────
+    // Build the same Helioviewer thumb the wl tiles use, so the confirm screen
+    // and summary chip show the sender's actual Sun.
+    function _handoffThumbUrl(dateStr, timeStr, wlNum, size) {
+      var hh = (/^\d{2}:\d{2}$/.test(timeStr) ? timeStr : "12:00").slice(0, 2);
+      var scale = Math.max(1, Math.round(3072 / size));
+      return API_BASE + "/api/helioviewer_thumb?date=" +
+        encodeURIComponent(dateStr + "T" + hh + ":00:00Z") +
+        "&wavelength=" + encodeURIComponent(wlNum) +
+        "&image_scale=" + scale + "&size=" + size;
+    }
+    function _fmtHandoffDate(dateStr) {
+      try {
+        return new Date(dateStr + "T12:00:00").toLocaleDateString(undefined,
+          { year: "numeric", month: "long", day: "numeric" });
+      } catch (_e) { return dateStr; }
+    }
+    // Let the buyer change date/colour: drop the overlay and reveal config.
+    function _editHandoffSun() {
+      try {
+        var ov = document.getElementById("confirmOverlay");
+        if (ov) ov.hidden = true;
+        document.body.classList.remove("handoff-confirm");
+        if (typeof setStep === "function") setStep("image");
+        var cfg = document.getElementById("configSection");
+        if (cfg) {
+          cfg.classList.remove("section-collapsed");
+          var tog = document.getElementById("configSectionToggle");
+          if (tog) tog.setAttribute("aria-expanded", "true");
+          cfg.scrollIntoView({ behavior: "auto", block: "start" });
+        }
+      } catch (_e) {}
+    }
+    function _showHandoffConfirm(dateStr, timeStr, wlNum) {
+      try {
+        document.body.classList.add("fromHandoff");
+        var nm = (wlNum / 10).toFixed(1) + " nm";
+        var dateHuman = _fmtHandoffDate(dateStr);
+        var cThumb = document.getElementById("confirmThumb");
+        var cMeta = document.getElementById("confirmMeta");
+        if (cThumb) cThumb.src = _handoffThumbUrl(dateStr, timeStr, wlNum, 384);
+        if (cMeta) cMeta.textContent = dateHuman + "  ·  AIA " + nm;
+        var chip = document.getElementById("sunSummaryChip");
+        var chT = document.getElementById("chipThumb");
+        var chM = document.getElementById("chipMeta");
+        if (chT) chT.src = _handoffThumbUrl(dateStr, timeStr, wlNum, 96);
+        if (chM) chM.textContent = nm + " · " + dateStr;
+        if (chip) { chip.hidden = false; chip.onclick = _editHandoffSun; }
+        var ov = document.getElementById("confirmOverlay");
+        if (ov) ov.hidden = false;
+        document.body.classList.add("handoff-confirm");
+        var cont = document.getElementById("confirmContinue");
+        if (cont) cont.onclick = function () {
+          if (ov) ov.hidden = true;
+          document.body.classList.remove("handoff-confirm");
+          // land on the product picker, scrolled to the deep-linked category
+          if (typeof setStep === "function") setStep("product");
+          var catKey = state.scrollToCategoryOnLoad;
+          setTimeout(function () {
+            var el = catKey && document.getElementById("cat-" + catKey);
+            if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "auto", block: "start" });
+          }, 260);
+        };
+        var ed = document.getElementById("confirmEdit");
+        if (ed) ed.onclick = _editHandoffSun;
+      } catch (_e) {}
+    }
+
     function _hydrateFromUrlParams() {
       try {
+        // a category from the 3D gallery: scroll the product grid to that group
+        // once the image installs (honored in the install-image latch)
+        if (_shareParams.cat) state.scrollToCategoryOnLoad = _shareParams.cat;
         if (_shareParams.vibe) {
           // Curated slug — the card already carries its own date/wl/time via
           // static HTML attributes, so this is exactly a vibe-card click.
@@ -5335,6 +5420,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // as a normal birthday-card submit.
         bdayCard.setAttribute("data-vibe-wl", hasWl ? String(wlNum) : "");
         if (!hasWl && typeof _armAutoSun === "function") _armAutoSun();
+        // A wl in the link means this is a 3D-experience handoff: show the
+        // branded "confirm your Sun" bridge on top while the pipeline warms.
+        if (hasWl) _showHandoffConfirm(_shareParams.d, t, wlNum);
         _activateVibe(bdayCard, { fromBirthday: true });
       } catch (_e) {}
     }
@@ -10601,6 +10689,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var wrap = document.createElement("div");
         wrap.className = "product-group";
         wrap.dataset.group = key;
+        // stable anchor so the 3D gallery can deep-link to a category section
+        // (e.g. #cat-drink); "_featured" → "cat-featured"
+        wrap.id = "cat-" + (key === "_featured" ? "featured" : key);
         var h = document.createElement("h3");
         h.className = "product-group-header";
         h.textContent = label;

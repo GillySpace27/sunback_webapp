@@ -6,6 +6,9 @@ import { warmBackend } from "./lib/handoff";
 import ErrorBoundary from "./ui/ErrorBoundary";
 import Loader from "./ui/Loader";
 import Overlay from "./ui/Overlay";
+import AtmosphereFlash from "./ui/AtmosphereFlash";
+import HeroDate from "./ui/HeroDate";
+import SkipToStore from "./ui/SkipToStore";
 import Arrows from "./ui/Arrows";
 import WavelengthPicker from "./ui/WavelengthPicker";
 
@@ -40,6 +43,9 @@ export default function App() {
           A gift made of light: the Sun exactly as it burned on the date that matters to you, in the
           wavelength you choose, printed on the object you love.
         </p>
+        <p className="credit">
+          Spacecraft model: “Solar Dynamics Observatory” by uperesito, licensed under CC BY.
+        </p>
       </header>
 
       <div className="stage" aria-hidden="true">
@@ -51,6 +57,9 @@ export default function App() {
       </div>
 
       <Overlay />
+      <AtmosphereFlash />
+      <SkipToStore />
+      <HeroDate />
       <Arrows />
 
       <nav id="buy" aria-label="Customize your Heliograph">
