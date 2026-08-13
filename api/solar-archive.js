@@ -2181,6 +2181,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         return;
       }
 
+      // A wavelength tile is a TUNING control, not a commit. Clicking one used
+      // to run the whole pipeline and jump straight out of this step, which
+      // made the fine-tune section impossible to actually fine-tune with — you
+      // could never compare two wavelengths because the first click took you
+      // away. Holding the step keeps the preview updating in place; the
+      // "See this wavelength" button below is the only thing that moves on.
+      // (_wlCommitting is set when the button drives this same handler
+      // programmatically, which IS a commit.)
+      if (!_wlCommitting) state.holdImageStep = true;
+
       // Request a scroll to the product section once it becomes visible.
       // Suppressed via state.suppressNextProductScroll (one-shot) when
       // the wavelength tile is being clicked programmatically by the
@@ -2206,13 +2216,45 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // guards, stale-slug clearing, and the forward scroll) — clicking the
     // already-selected card still regenerates, so this also re-submits the
     // same wavelength after a time change.
+    // Set while the submit button drives the tile handler, so that handler can
+    // tell a user tuning from an explicit commit.
+    var _wlCommitting = false;
+    function _selectedWlCard() {
+      return wlGrid.querySelector(".wl-card.selected")
+          || wlGrid.querySelector('.wl-card[data-wl="' + (state.wavelength || 193) + '"]')
+          || wlGrid.querySelector(".wl-card");
+    }
     var wlSubmitBtn = document.getElementById("wlSubmitBtn");
     if (wlSubmitBtn) {
       wlSubmitBtn.addEventListener("click", function () {
-        var sel = wlGrid.querySelector(".wl-card.selected")
-               || wlGrid.querySelector('.wl-card[data-wl="' + (state.wavelength || 193) + '"]')
-               || wlGrid.querySelector(".wl-card");
-        if (sel) sel.click();
+        var sel = _selectedWlCard();
+        if (!sel) return;
+        _wlCommitting = true;
+        state.holdImageStep = false;   // this click is the transition
+        try { sel.click(); } finally { _wlCommitting = false; }
+      });
+    }
+    // Straight to the store: commit the chosen Sun but SKIP the editor. The
+    // editor is a dense surface to be dropped into before you have decided you
+    // want anything, so this is the "it already looks right" path — it goes to
+    // the product picker, or straight to the variant/buy modal when a product
+    // is already chosen.
+    var wlSkipBtn = document.getElementById("wlSkipEditorBtn");
+    if (wlSkipBtn) {
+      wlSkipBtn.addEventListener("click", function () {
+        var sel = _selectedWlCard();
+        if (sel) {
+          _wlCommitting = true;
+          // Stay held: the image loads, but nothing auto-opens the editor.
+          state.holdImageStep = true;
+          try { sel.click(); } finally { _wlCommitting = false; }
+        }
+        var _prod = (typeof _currentSelectedProductObj === "function")
+          ? _currentSelectedProductObj() : null;
+        if (_prod && typeof showConfirmSelectModal === "function") {
+          try { showConfirmSelectModal(_prod); return; } catch (_e) {}
+        }
+        if (typeof setStep === "function") setStep("product");
       });
     }
 
@@ -2725,12 +2767,15 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     function updateWavelengthSectionDateState() {
       if (!wlGrid || !dateInput) return;
       var wlSubmit = document.getElementById("wlSubmitBtn");
+      var wlSkip = document.getElementById("wlSkipEditorBtn");
       if (dateInput.value && String(dateInput.value).trim()) {
         wlGrid.classList.remove("hidden");
         if (wlSubmit) wlSubmit.classList.remove("hidden");
+        if (wlSkip) wlSkip.classList.remove("hidden");
       } else {
         wlGrid.classList.add("hidden");
         if (wlSubmit) wlSubmit.classList.add("hidden");
+        if (wlSkip) wlSkip.classList.add("hidden");
       }
     }
 
@@ -10843,6 +10888,41 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       }
       _mkGroup("_featured", "Most popular");
       PRODUCT_CATEGORY_ORDER.forEach(function (c) { _mkGroup(c.key, c.label); });
+
+      // Category table of contents. The picker is a long page of nine groups,
+      // and until now the only way to reach "Drinkware" was to scroll past
+      // everything before it — the categories existed as anchors for the 3D
+      // gallery deep-links but were invisible to anyone browsing normally.
+      // Built from the same list that builds the groups, so it can never drift
+      // out of sync with them.
+      function _buildCategoryToc() {
+        var existing = document.getElementById("productToc");
+        if (existing) existing.remove();
+        var toc = document.createElement("nav");
+        toc.id = "productToc";
+        toc.className = "product-toc";
+        toc.setAttribute("aria-label", "Product categories");
+        var entries = [{ key: "_featured", label: "Most popular" }]
+          .concat(PRODUCT_CATEGORY_ORDER);
+        entries.forEach(function (c) {
+          var id = "cat-" + (c.key === "_featured" ? "featured" : c.key);
+          var target = document.getElementById(id);
+          // Skip groups that ended up empty so the TOC never offers a dead end.
+          if (!target || !target.querySelector(".product-card")) return;
+          var a = document.createElement("a");
+          a.className = "product-toc-link";
+          a.href = "#" + id;
+          a.textContent = c.label;
+          a.addEventListener("click", function (e) {
+            e.preventDefault();
+            // Routed through _scrollToEl so it uses Lenis when Lenis owns the
+            // scroll; a raw anchor jump would fight it.
+            _scrollToEl(document.getElementById(id), "start");
+          });
+          toc.appendChild(a);
+        });
+        if (toc.children.length > 1) productGrid.parentNode.insertBefore(toc, productGrid);
+      }
       var _lastGroupKey = PRODUCT_CATEGORY_ORDER[PRODUCT_CATEGORY_ORDER.length - 1].key;
       function _targetGridFor(p) {
         if (FEATURED_PRODUCT_IDS.indexOf(p.id) !== -1) return _groupEls._featured.inner;
@@ -11149,6 +11229,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           }
         }
       }
+
+      // Built LAST, once every card exists. Built any earlier and the groups
+      // are still empty, so the skip-empty-groups guard skips all of them and
+      // the TOC silently comes out blank.
+      _buildCategoryToc();
     }
 
     // ── Shared commit path ───────────────────────────────────────

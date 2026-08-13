@@ -752,9 +752,21 @@
          fine-tune section a discoverable commit that regenerates the image
          for the currently-selected wavelength + the current date/time.
          Shown only once a date is set (same gate as #wlGrid). -->
-    <button type="button" class="wl-submit-btn hidden" id="wlSubmitBtn">
-      <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> See this wavelength
-    </button>
+    <!-- Two ways out of the fine-tune step. Clicking a wavelength tile now only
+         RETUNES the preview in place (you cannot compare wavelengths if the
+         first click carries you away), so these buttons are the transitions:
+         one into the editor, one straight past it. -->
+    <div class="wl-commit-row">
+      <button type="button" class="wl-submit-btn hidden" id="wlSubmitBtn">
+        <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> See this wavelength
+      </button>
+      <!-- The editor is a dense surface to be dropped into before you have
+           decided you want anything. This is the "it already looks right"
+           path. -->
+      <button type="button" class="wl-skip-btn hidden" id="wlSkipEditorBtn">
+        Skip the editor &mdash; use it as is <i class="fas fa-arrow-right" aria-hidden="true"></i>
+      </button>
+    </div>
     </div><!-- /#configSectionBody -->
   </div>
 

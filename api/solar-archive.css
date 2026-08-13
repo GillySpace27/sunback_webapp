@@ -7440,3 +7440,80 @@ body:has(#imageStage.loading) .field-cell {
 /* Safari has historically mis-rendered SVG filters on canvas; if the filter
    cannot resolve, the tile simply shows its uncorrected self rather than
    disappearing, so no fallback is required. */
+
+/* ── Product category TOC ──────────────────────────────────────────────
+   Nine groups is a long page, and the categories previously existed only as
+   deep-link anchors for the 3D gallery — invisible to anyone browsing. This
+   surfaces them as a jump list. Scrolls horizontally rather than wrapping to
+   three lines on a phone. */
+.product-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.product-toc-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--transition), border-color var(--transition),
+              background var(--transition);
+}
+.product-toc-link:hover,
+.product-toc-link:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--accent-sun);
+  background: rgba(217, 169, 26, 0.12);
+}
+@media (max-width: 600px) {
+  /* One scrollable row beats three wrapped lines above the fold. */
+  .product-toc {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .product-toc::-webkit-scrollbar { display: none; }
+}
+
+/* ── Fine-tune commit row ──────────────────────────────────────────────
+   A wavelength tile retunes the preview in place; these move you on. */
+.wl-commit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.wl-skip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.wl-skip-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-sun);
+}
+.wl-skip-btn.hidden { display: none; }
