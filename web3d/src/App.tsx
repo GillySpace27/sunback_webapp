@@ -40,8 +40,8 @@ export default function App() {
       <header className="visually-hidden">
         <h1>My Heliograph — your day, written in sunlight</h1>
         <p>
-          A gift made of light: the Sun exactly as it burned on the date that matters to you, in the
-          wavelength you choose, printed on the object you love.
+          A gift made of light: real NASA/SDO telescope imagery of the Sun on the date that matters
+          to you, in the wavelength you choose, printed on the object you love.
         </p>
         <p className="credit">
           Spacecraft model: “Solar Dynamics Observatory” by uperesito, licensed under CC BY.
