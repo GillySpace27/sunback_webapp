@@ -386,10 +386,15 @@ function buildPass() {
 // Elements rise through a waterline. The desync IS the effect: clarity lands
 // at ~0.55s while position keeps settling to 0.9s, so the thing is readable
 // before it has finished arriving.
-function buildSurface() {
+function buildSurface(skipSet) {
   const targets = [];
   document.querySelectorAll(".flow-inner").forEach((fi) => {
-    for (const child of fi.children) targets.push(child);
+    for (const child of fi.children) {
+      // Anything an inscription already owns is skipped: running both would
+      // fade the block in while its own characters were separately igniting.
+      if (skipSet && skipSet.has(child)) continue;
+      targets.push(child);
+    }
   });
   if (!targets.length) return;
 
@@ -467,7 +472,23 @@ function buildFieldTemperature() {
 // deforms in a current, not the page furniture. It also means a stretch can
 // never touch a click target, which was the constraint the plan was trying to
 // protect in the first place.
-function buildVelocity() {
+// One ticker for both the velocity stretch and the breathing, because two rAF
+// loops writing to the same elements is pure overhead.
+//
+// Breathing is the Sun's real 5-minute p-mode (~3 mHz), compressed 60:1 to a
+// 5-second period. The two cells breathe in ANTIPHASE, which is what gives it
+// spatial structure: a standing wave with a node between them, rather than the
+// whole page pulsing in unison. That is also closer to the physics than
+// per-element phase offsets would have been, since a p-mode is a global
+// resonance of the whole body.
+//
+// It rides opacity, never colour or text-shadow. Those are paint properties,
+// and an ambient oscillation on them would repaint continuously for as long as
+// the page stays open — a real battery cost for a decorative effect.
+const BREATH_PERIOD = 5;
+const BREATH_AMP = 0.14;
+
+function buildFieldTicker() {
   // The CORE, not the cell: the cell's transform belongs to the CSS drift
   // animation, which outranks anything written inline.
   const cells = Array.from(document.querySelectorAll(".field-cell-core"));
@@ -479,7 +500,16 @@ function buildVelocity() {
       raw = self.getVelocity();
     },
   });
-  gsap.ticker.add(() => {
+  gsap.ticker.add((time) => {
+    // Breathing rides ambient amplitude, so pools and the tier system damp it
+    // to nothing without this loop knowing they exist.
+    if (motionState.amp > 0) {
+      const phase = (time / BREATH_PERIOD) * Math.PI * 2;
+      cells.forEach((c, i) => {
+        const swing = Math.sin(phase + (i ? Math.PI : 0)); // antiphase
+        c.style.opacity = String(0.55 * motionState.amp * (1 + BREATH_AMP * swing));
+      });
+    }
     if (!motionState.velGain) {
       if (smooth !== 0) {
         smooth = 0;
@@ -502,6 +532,193 @@ function buildVelocity() {
   });
 }
 
+// ── Phase 4: signature moments ─────────────────────────────────────────
+
+// Hand-rolled character splitter. GSAP's SplitText is a paid Club plugin and
+// is not in the vendored set, so this is the minimum that does the job
+// ACCESSIBLY:
+//   - the container keeps the full string as aria-label, and every generated
+//     span is aria-hidden, so assistive tech reads one sentence rather than
+//     spelling it out letter by letter;
+//   - words are wrapped and kept nowrap, so line breaking is unchanged and the
+//     split cannot cause a layout shift;
+//   - the split is REVERTED when the animation finishes, returning real text
+//     that is selectable, searchable and translatable. Since every entrance
+//     here runs once, reverting costs nothing.
+function splitChars(el) {
+  const text = el.textContent;
+  const frag = document.createDocumentFragment();
+  const chars = [];
+  text.split(/(\s+)/).forEach((token) => {
+    if (!token) return;
+    if (!/\S/.test(token)) {
+      frag.appendChild(document.createTextNode(token));
+      return;
+    }
+    const word = document.createElement("span");
+    word.className = "mr-word";
+    for (const ch of token) {
+      const c = document.createElement("span");
+      c.className = "mr-char";
+      c.textContent = ch;
+      word.appendChild(c);
+      chars.push(c);
+    }
+    frag.appendChild(word);
+  });
+  el.setAttribute("aria-label", text);
+  el.setAttribute("data-mr-split", "1");
+  el.textContent = "";
+  el.appendChild(frag);
+  return {
+    chars,
+    revert() {
+      el.textContent = text;
+      el.removeAttribute("aria-label");
+      el.removeAttribute("data-mr-split");
+    },
+  };
+}
+
+// The heliograph writes with sunlight, so headlines are INSCRIBED rather than
+// revealed: a write-head travels the reading direction and each glyph ignites
+// white-hot then cools behind it.
+function buildInscriptions(skipSet) {
+  if (motionState.tier >= 2) return;
+  const fold = window.innerHeight * 0.85;
+  document.querySelectorAll(".section-title").forEach((el) => {
+    // Same above-fold rule as SURFACE: never re-animate what the visitor can
+    // already see, and never touch the checkout path.
+    let top;
+    try {
+      top = el.getBoundingClientRect().top;
+    } catch (e) {
+      return;
+    }
+    if (top < fold) return;
+    if (el.closest("#confirmSelectModal, #editSection")) return;
+
+    const split = splitChars(el);
+    if (!split.chars.length) return;
+    skipSet.add(el.closest(".section-header") || el);
+
+    gsap
+      .timeline({
+        scrollTrigger: { trigger: el, start: "top 85%", once: true },
+        onComplete: () => split.revert(),
+      })
+      // `amount` caps the TOTAL stagger regardless of how many characters the
+      // headline has. Using `each` would make a 52-character line take over a
+      // second before it finished arriving, which is an unacceptable delay in
+      // front of the value proposition.
+      .fromTo(
+        split.chars,
+        { "--heat": 0, opacity: 0, yPercent: 8, scaleY: 1.12, scaleX: 0.94 },
+        {
+          "--heat": 1,
+          opacity: 1,
+          yPercent: 0,
+          scaleY: 1,
+          scaleX: 1,
+          duration: 0.34,
+          ease: "surface",
+          stagger: { amount: 0.55, from: "start" },
+        }
+      )
+      // Cooling starts BEFORE the ignition finishes so it chases the
+      // write-head down the line instead of waiting for it.
+      .to(
+        split.chars,
+        { "--heat": 0, duration: 0.62, ease: "settle", stagger: { amount: 0.55, from: "start" } },
+        0.16
+      );
+  });
+}
+
+// The RHEF reveal: the filtered panel resolves from a dark, high-contrast
+// state (what the raw telescope frame looks like) up to the equalized version
+// where the faint outer atmosphere is visible. The animation performs the
+// product claim instead of describing it.
+function buildRhefReveal() {
+  const strip = document.getElementById("qualityStrip");
+  if (!strip || motionState.tier >= 2) return;
+  // Once per session: a demonstration that replays every time you scroll past
+  // stops reading as a demonstration and starts reading as decoration.
+  try {
+    if (sessionStorage.getItem("mr_rhef_seen") === "1") return;
+  } catch (e) {
+    /* private mode: just play it */
+  }
+
+  const tween = gsap.fromTo(
+    strip,
+    { "--rhef": 0 },
+    {
+      "--rhef": 1,
+      duration: 2.2,
+      ease: "settle",
+      paused: true,
+      // Without this, fromTo applies its "from" state the moment it is
+      // created, so a visitor who never scrolls to the strip would be left
+      // staring at the unequalized panel forever. Only dim it once the reveal
+      // is actually about to run.
+      immediateRender: false,
+    }
+  );
+
+  ScrollTrigger.create({
+    trigger: strip,
+    start: "top 60%",
+    once: true,
+    onEnter: () => {
+      tween.play();
+      try {
+        sessionStorage.setItem("mr_rhef_seen", "1");
+      } catch (e) {
+        /* non-fatal */
+      }
+    },
+  });
+
+  // If the visitor scrolls away mid-reveal, SNAP to the finished state. A
+  // half-played reveal leaves the UNEQUALIZED image on screen, which means the
+  // failure mode of this animation would be advertising the inferior version
+  // of the product. The end state is the only acceptable resting state.
+  ScrollTrigger.create({
+    trigger: strip,
+    start: "top bottom",
+    end: "bottom top",
+    onLeave: () => tween.progress(1),
+    onLeaveBack: () => tween.progress(1),
+  });
+}
+
+// The Sun surge: still, surge, still. Fired when the visitor's chosen Sun
+// finishes loading — the emotional peak of the funnel, and the one moment the
+// page is allowed to shout. One crest, never a second bob.
+export function sunSurge(el) {
+  if (!motionState.ready || !gsap || motionState.tier >= 3 || !el) return;
+  try {
+    gsap
+      .timeline()
+      .set(el, { scale: 0.94, opacity: 0, filter: "brightness(1.6)" })
+      .to({}, { duration: 0.15 }) // the breath before
+      .to(el, {
+        opacity: 1,
+        scale: 1.02,
+        filter: "brightness(1.12)",
+        duration: 0.7,
+        ease: "surface",
+      })
+      .to(el, { scale: 1, filter: "brightness(1)", duration: 1.1, ease: "settle" })
+      // The field warms and cools with it, so their Sun visibly lights the room.
+      .to(".field-warm", { opacity: 1.35, duration: 0.5, ease: "surface" }, "-=1.5")
+      .to(".field-warm", { opacity: 1, duration: 1.4, ease: "settle" });
+  } catch (e) {
+    /* a decorative surge must never break the image pipeline */
+  }
+}
+
 let choreographyBuilt = false;
 export function initChoreography() {
   if (choreographyBuilt || !motionState.ready || !gsap || !ScrollTrigger) return;
@@ -509,8 +726,13 @@ export function initChoreography() {
   try {
     buildFieldTemperature();
     buildPass();
-    buildSurface();
-    buildVelocity();
+    // Inscriptions first: they claim their section headers so SURFACE does not
+    // also animate the same block.
+    const claimed = new Set();
+    buildInscriptions(claimed);
+    buildSurface(claimed);
+    buildRhefReveal();
+    buildFieldTicker();
     ScrollTrigger.refresh();
   } catch (e) {
     /* choreography is enhancement: a failure here must not break the store */

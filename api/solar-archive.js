@@ -21,7 +21,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 // GSAP/Lenis bundle with a dynamic import inside a try/catch, so a missing or
 // broken vendor directory leaves the store on its phase-1 CSS experience
 // rather than taking the page down.
-import { initMotion, scrollToTarget, refreshTriggers } from "./motion.js";
+import { initMotion, scrollToTarget, refreshTriggers, sunSurge } from "./motion.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -2388,6 +2388,10 @@ import { initMotion, scrollToTarget, refreshTriggers } from "./motion.js";
       // Image is in — drop the "loading" spinner overlay.
       var _stage = document.getElementById("imageStage");
       if (_stage) _stage.classList.remove("loading");
+      // The emotional peak of the funnel: this is the instant the visitor
+      // first sees THEIR Sun. Still, surge, still. Purely decorative and fully
+      // guarded, so it can never affect the image pipeline.
+      try { sunSurge(_stage); } catch (_eSurge) {}
       state.panX = img.naturalWidth / 2;
       state.panY = img.naturalHeight / 2;
       state.rhefImage = null;

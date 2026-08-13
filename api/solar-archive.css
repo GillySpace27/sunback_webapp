@@ -6830,7 +6830,17 @@ body.handoff-confirm #workflowBreadcrumb {
 @property --field-temp { syntax: "<number>"; initial-value: 0; inherits: true; }
 @property --motion-amp { syntax: "<number>"; initial-value: 1; inherits: true; }
 @property --heat       { syntax: "<number>"; initial-value: 0; inherits: false; }
-@property --rhef       { syntax: "<number>"; initial-value: 0; inherits: false; }
+/* --rhef defaults to 1, the FINISHED state, not 0. The reveal animates 0->1,
+   but if it never runs — no JavaScript, tier 3, vendor missing, visitor never
+   scrolls there — the panel must still rest on the equalized image. Defaulting
+   to 0 would leave the store permanently advertising the inferior version of
+   its own product. Safe direction only.
+
+   inherits:true is REQUIRED, not incidental: the value is animated on
+   #qualityStrip but consumed by a descendant image. With inherits:false the
+   descendant silently reads the initial value forever and the reveal does
+   nothing at all — which is exactly how it first failed. */
+@property --rhef       { syntax: "<number>"; initial-value: 1; inherits: true; }
 @property --ig         { syntax: "<number>"; initial-value: 0; inherits: false; }
 
 /* ── The field ─────────────────────────────────────────────────────────
@@ -7017,3 +7027,52 @@ body.handoff-confirm #workflowBreadcrumb {
 .trust-inline i { color: var(--accent-sun); margin-right: 5px; }
 .editor-actions .trust-inline,
 .confirm-modal-actions + .trust-inline { justify-content: center; }
+
+/* ── MOLTEN RECORD phase 4: signature moments ──────────────────────────
+   The heliograph writes with sunlight, so headlines are INSCRIBED: a
+   write-head travels the reading direction and each glyph ignites white-hot
+   then cools behind it. --heat is the single animated channel; colour and
+   glow are derived from it here so each character carries ONE animated
+   property instead of three.
+
+   Words are inline-block and nowrap so line breaking is identical to the
+   unsplit text — that is what keeps a per-character split from causing a
+   layout shift. The split is reverted once the animation finishes. */
+.mr-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+.mr-char {
+  display: inline-block;
+  will-change: transform, opacity;
+  /* Ignites toward white-hot, settles back to the inherited text colour.
+     color-mix in oklab so the ramp does not pass through a muddy midpoint. */
+  color: color-mix(in oklab, currentColor calc((1 - var(--heat)) * 100%), #fff8e8);
+  text-shadow: 0 0 calc(3px + 15px * var(--heat))
+               rgba(240, 199, 94, calc(0.10 + 0.72 * var(--heat)));
+}
+
+/* RHEF equalization. The filtered panel resolves FROM a dark, high-contrast
+   state (what the raw telescope frame looks like) UP to the equalized version
+   where the faint outer atmosphere is finally visible at the same time as the
+   bright disk. The animation performs the product claim rather than captioning
+   it — and it is the store's one genuinely unstealable transition, because it
+   comes out of the published research the product is built on.
+
+   Driven by --rhef on #qualityStrip, registered via @property so it
+   interpolates instead of stepping. */
+#qualityStrip .diptych-pane:nth-of-type(2) .diptych-img {
+  filter:
+    brightness(calc(0.62 + 0.38 * var(--rhef)))
+    contrast(calc(1.28 - 0.28 * var(--rhef)))
+    saturate(calc(0.82 + 0.18 * var(--rhef)));
+}
+
+/* Reduced motion: no inscription, no reveal, no breathing. The RHEF panel
+   still rests at its FINISHED state — the point of that image is the
+   equalized result, and a static visitor must never be left looking at the
+   unequalized one. */
+@media (prefers-reduced-motion: reduce) {
+  #qualityStrip .diptych-pane:nth-of-type(2) .diptych-img { filter: none; }
+  .mr-char { text-shadow: none; color: inherit; }
+}
