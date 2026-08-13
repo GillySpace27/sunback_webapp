@@ -695,8 +695,11 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
           mctx.fillStyle = grad;
           mctx.fillRect(wL, wT, wW, wH);
         }
-      } else if (productId === "wall_clock") {
-        // Round clock — 1:1 circle; rim/hand color derived from variant
+      } else if (productId === "wall_clock" || productId === "wall_clock_acrylic") {
+        // Round clock — 1:1 circle; rim/hand color derived from variant.
+        // Both the standard and acrylic wall clocks render here so they share
+        // the same numerals + live-hands preview. (Acrylic has no hands-colour
+        // variant option, so _colorForToken falls back to a neutral default.)
         var cx = 80, cy = 80, r = 65;
         mctx.save();
         mctx.beginPath();
@@ -753,7 +756,7 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
         // formula scaled mockup numerals against the live editor canvas
         // size, so when the editor canvas grew (HQ res bump) the mockup
         // numerals shrunk out of proportion.
-        if (state.clockNumbers && state.selectedProduct === "wall_clock") {
+        if (state.clockNumbers && (state.selectedProduct === "wall_clock" || state.selectedProduct === "wall_clock_acrylic")) {
           var cn = state.clockNumbers;
           var CLOCK_REF_HALF = 256;
           var radiusPct = (cn.radiusPct != null ? cn.radiusPct : 80) / 100;

@@ -80,8 +80,11 @@ export default function Overlay() {
               className={
                 s.key === "room"
                   ? "line climax"
-                  : s.key === "crossing"
-                    ? "line line--caption"
+                  : s.key === "crossing" || s.key === "aperture"
+                    ? // aperture "Select a color." is a wheel instruction, not a
+                      // story headline: the tracked-sans caption register gives it
+                      // clear hierarchy so it stops competing with the serif lines.
+                      "line line--caption"
                     : "line"
               }
             >

@@ -190,6 +190,13 @@
   <div class="workflow-breadcrumb hidden" id="workflowBreadcrumb" role="navigation"
        aria-label="Workflow progress">
     <div class="workflow-breadcrumb-pills" id="workflowBreadcrumbPills"></div>
+    <!-- Start over: wipe all choices and return to a clean first visit.
+         Uses the sanctioned ?fresh=1 reset switch (clears storage before any
+         restore runs). Confirms first so a design isn't lost by accident. -->
+    <button type="button" class="workflow-startover-btn js-start-over" id="btnStartOver"
+            title="Clear everything and start a new design from scratch">
+      <i class="fas fa-rotate-left" aria-hidden="true"></i> Start over
+    </button>
   </div>
 
   <!-- Step 1 (product-first flow): Choose your canvas — surface the
@@ -214,6 +221,17 @@
        never the continuous PASS drift. It is the proof moment, and you cannot
        compare two images while anything is moving. -->
   <div class="section quality-strip-section" id="qualityStrip" data-still>
+    <!-- Collapsed affordance: shown only when .collapsed is on the section
+         (added on the first step transition — see _wireQualityStripCollapse).
+         Clicking it re-expands the strip; it is the "bring it back" control.
+         Deliberately OUTSIDE .flow-inner: it is a control, not content, and it
+         must stay put rather than ride the entrance. -->
+    <button type="button" class="quality-strip-bar" id="qualityStripBar"
+            aria-expanded="true"
+            aria-label="Show the Original vs Filtered comparison">
+      <i class="fas fa-arrows-left-right" aria-hidden="true"></i>
+      Original vs Filtered &mdash; see what RHEF reveals
+    </button>
    <!-- .flow-inner carries the entrance only. This section is a stillness
         BASIN: it is the proof moment, and you cannot compare two images while
         anything is moving, so it is deliberately excluded from the continuous
@@ -259,9 +277,15 @@
               aria-label="Close the drag comparison and go back to the side-by-side view"
               title="Back to side-by-side">&#x2715;</button>
     </div>
-    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Every print gets the RHEF version.</strong></p>
+    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Pick whichever version you prefer &mdash; both are available on every print.</strong></p>
     <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
    </div>
+    <!-- Manual collapse: hides the strip on demand (mirrors the auto-collapse
+         on first step change). The pill above re-expands it. Outside
+         .flow-inner for the same reason as the bar: it is a control. -->
+    <button type="button" class="quality-strip-hide" id="qualityStripHide">
+      <i class="fas fa-chevron-up" aria-hidden="true"></i> Hide comparison
+    </button>
   </div>
 
   <div class="section" id="productSection">
@@ -712,6 +736,15 @@
         <div class="wl-label" aria-hidden="true">The visible surface<br><span class="wl-sci">1700 Å</span></div>
       </button>
     </div>
+
+    <!-- Explicit wavelength submit. Selecting a wl-card already regenerates,
+         but a colour swatch doesn't read as "submit" — this gives the
+         fine-tune section a discoverable commit that regenerates the image
+         for the currently-selected wavelength + the current date/time.
+         Shown only once a date is set (same gate as #wlGrid). -->
+    <button type="button" class="wl-submit-btn hidden" id="wlSubmitBtn">
+      <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> See this wavelength
+    </button>
     </div><!-- /#configSectionBody -->
   </div>
 
@@ -805,6 +838,11 @@
                refresh — or someone else's browser — lands on the same Sun. -->
           <button type="button" class="edit-btn edit-btn-nav" id="btnShareSun" title="Copy a link to this exact Sun">
             <i class="fas fa-share-nodes" aria-hidden="true"></i> Share this Sun
+          </button>
+          <!-- Start over from scratch — also reachable from the top breadcrumb
+               on desktop; here so it's available in the editor on mobile. -->
+          <button type="button" class="edit-btn edit-btn-nav js-start-over" title="Clear everything and start a new design from scratch">
+            <i class="fas fa-rotate-left" aria-hidden="true"></i> Start over
           </button>
         </div>
       </div>

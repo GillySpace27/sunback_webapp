@@ -422,8 +422,18 @@ function buildSurface(skipSet) {
     }
     const mayBlur = motionState.tier === 0 && box > 0 && box < window.innerHeight * 0.4;
 
+    // immediateRender:false on every fromTo here, for the same reason as the
+    // inscriptions: otherwise the "from" state is stamped on at BUILD time, and
+    // anything whose trigger never fires — a section hidden by a step change
+    // before it scrolled into view — stays at opacity 0 permanently. An
+    // animation must never be able to leave content invisible.
     const from = { opacity: 0, yPercent: 9, scale: 0.982 };
-    const to = { opacity: 1, duration: instant ? 0.12 : 0.4, ease: "surface" };
+    const to = {
+      opacity: 1,
+      duration: instant ? 0.12 : 0.4,
+      ease: "surface",
+      immediateRender: false,
+    };
     const tl = gsap.timeline({
       scrollTrigger: { trigger: el, start: "top 85%", once: true },
     });
@@ -432,14 +442,16 @@ function buildSurface(skipSet) {
       tl.fromTo(
         el,
         { filter: "blur(4px) saturate(0.75) brightness(0.75)" },
-        { filter: "blur(0px) saturate(1) brightness(1)", duration: 0.55, ease: "surface" },
+        { filter: "blur(0px) saturate(1) brightness(1)", duration: 0.55, ease: "surface",
+          immediateRender: false },
         0
       );
     }
     tl.fromTo(
       el,
       { yPercent: from.yPercent, scale: from.scale },
-      { yPercent: 0, scale: 1, duration: instant ? 0.12 : 0.9, ease: "crest" },
+      { yPercent: 0, scale: 1, duration: instant ? 0.12 : 0.9, ease: "crest",
+        immediateRender: false },
       0
     );
   });
@@ -597,6 +609,13 @@ function buildInscriptions(skipSet) {
     }
     if (top < fold) return;
     if (el.closest("#confirmSelectModal, #editSection")) return;
+    // Never inscribe a heading that is not currently rendered. A title inside
+    // a collapsed or hidden container has no reliable trigger point, so its
+    // ScrollTrigger may never fire — and an inscription that never fires is a
+    // heading that never appears. offsetParent is null for anything with a
+    // display:none ancestor, which is exactly the case to skip.
+    if (!el.offsetParent) return;
+    if (el.closest(".section-collapsed, [hidden], .hidden")) return;
 
     const split = splitChars(el);
     if (!split.chars.length) return;
@@ -623,13 +642,20 @@ function buildInscriptions(skipSet) {
           duration: 0.34,
           ease: "surface",
           stagger: { amount: 0.55, from: "start" },
+          // Without this, fromTo stamps opacity:0 onto every character the
+          // instant the timeline is BUILT, not when it plays. Any heading
+          // whose trigger had not fired yet was therefore invisible — which is
+          // exactly how the wavelength heading disappeared. Text must never be
+          // hidden by an animation that has not started.
+          immediateRender: false,
         }
       )
       // Cooling starts BEFORE the ignition finishes so it chases the
       // write-head down the line instead of waiting for it.
       .to(
         split.chars,
-        { "--heat": 0, duration: 0.62, ease: "settle", stagger: { amount: 0.55, from: "start" } },
+        { "--heat": 0, duration: 0.62, ease: "settle",
+          stagger: { amount: 0.55, from: "start" }, immediateRender: false },
         0.16
       );
   });
