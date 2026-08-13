@@ -331,6 +331,27 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // it goes on. date/image → product → editor(+size via modal).
     var _STEP_ORDER = ["image", "product", "editor", "review"];
     function _isValidStep(s) { return _STEP_ORDER.indexOf(s) >= 0; }
+    // Keeps the floating master-tier toggle (#vibeRevealCta) pinned BELOW
+    // the workflow breadcrumb on step "image" (the only step where both are
+    // visible at once) and back at the top otherwise. The toggle's position
+    // is set as an inline !important style (see bootstrap below) so it can
+    // never fall out of position — but that same inline !important also
+    // permanently wins over the step-aware CSS rule for `top`, so this must
+    // be the one place computing that value; a step-image top pin left over
+    // from a previous step drops the toggle right on top of the breadcrumb.
+    function _pinRevealCtaTop() {
+      var el = document.getElementById("vibeRevealCta");
+      if (!el) return;
+      var onImage = document.body && document.body.classList.contains("step-image");
+      el.style.setProperty(
+        "top",
+        onImage
+          ? "max(52px, calc(env(safe-area-inset-top, 0px) + 44px))"
+          : "max(8px, env(safe-area-inset-top, 0px))",
+        "important"
+      );
+    }
+
     function _applyStep(name, opts) {
       opts = opts || {};
       if (!_isValidStep(name)) return;
@@ -350,6 +371,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           body.classList.remove("single-preview-mode");
         }
       }
+      _pinRevealCtaTop();
       // STRESS-009: scroll-position reset on step transitions. Before
       // this, clicking "Pick a variant" while scrolled mid-page left
       // the user stranded at the previous scrollY relative to the now-
@@ -498,11 +520,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // doesn't pin" after multiple CSS-only fixes; pinning inline
         // closes the loop for good.
         _ctaInit.style.setProperty("position", "fixed", "important");
-        _ctaInit.style.setProperty("top", "max(8px, env(safe-area-inset-top, 0px))", "important");
         _ctaInit.style.setProperty("left", "50%", "important");
         _ctaInit.style.setProperty("transform", "translateX(-50%)", "important");
         _ctaInit.style.setProperty("z-index", "60", "important");
         _ctaInit.style.setProperty("margin", "0", "important");
+        _pinRevealCtaTop(); // sets `top`, step-aware (see definition)
       }
       var _bcInit = document.getElementById("workflowBreadcrumb");
       if (_bcInit) {
