@@ -7388,3 +7388,30 @@ body:has(#imageStage.loading) .field-cell {
   .vibe-grid-section .flow-inner,
   #productSection .flow-inner { margin-bottom: 0; }
 }
+
+/* ── Tier toggle: inline, not pinned ───────────────────────────────────
+   #vibeRevealCta used to be position:fixed at the top of the viewport (with
+   inline !important coordinates written by JS, and a matching top offset to
+   dodge the breadcrumb). It now sits under the section-1 headline, directly
+   above the cards it modifies.
+
+   Floating it made a comparison control the most prominent element on the
+   page — above the step the visitor is actually on — and a control that
+   follows you around reads as chrome rather than as part of the flow. These
+   rules override the old fixed positioning; the JS that wrote the inline
+   coordinates has been removed rather than disabled. */
+#vibeRevealCta {
+  position: static !important;
+  transform: none !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px !important;
+  margin: 0 0 18px !important;
+  z-index: auto !important;
+  pointer-events: auto;
+}
+/* The vibe grid reserved 64px for the toggle's old floating slot. */
+.vibe-grid-section { padding-top: 0; }

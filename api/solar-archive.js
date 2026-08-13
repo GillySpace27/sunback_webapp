@@ -344,18 +344,6 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // permanently wins over the step-aware CSS rule for `top`, so this must
     // be the one place computing that value; a step-image top pin left over
     // from a previous step drops the toggle right on top of the breadcrumb.
-    function _pinRevealCtaTop() {
-      var el = document.getElementById("vibeRevealCta");
-      if (!el) return;
-      var onImage = document.body && document.body.classList.contains("step-image");
-      el.style.setProperty(
-        "top",
-        onImage
-          ? "max(52px, calc(env(safe-area-inset-top, 0px) + 44px))"
-          : "max(8px, env(safe-area-inset-top, 0px))",
-        "important"
-      );
-    }
 
     function _applyStep(name, opts) {
       opts = opts || {};
@@ -376,7 +364,6 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           body.classList.remove("single-preview-mode");
         }
       }
-      _pinRevealCtaTop();
       // STRESS-009: scroll-position reset on step transitions. Before
       // this, clicking "Pick a variant" while scrolled mid-page left
       // the user stranded at the previous scrollY relative to the now-
@@ -528,26 +515,14 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // Idempotent — _loadVibeManifest does the same call later and
     // appendChild on an already-direct-body child is a no-op.
     try {
-      var _ctaInit = document.getElementById("vibeRevealCta");
-      if (_ctaInit) {
-        if (_ctaInit.parentElement !== document.body) {
-          document.body.appendChild(_ctaInit);
-        }
-        // Belt-and-suspenders: write the floating coords as inline
-        // styles so a future CSS regression (or a stacking-context
-        // surprise) can't quietly drop the toggle into the document
-        // flow. Inline styles win over every stylesheet rule short
-        // of another inline !important — and inline + !important is
-        // the strongest cascade. Gilly kept hitting "the toggle
-        // doesn't pin" after multiple CSS-only fixes; pinning inline
-        // closes the loop for good.
-        _ctaInit.style.setProperty("position", "fixed", "important");
-        _ctaInit.style.setProperty("left", "50%", "important");
-        _ctaInit.style.setProperty("transform", "translateX(-50%)", "important");
-        _ctaInit.style.setProperty("z-index", "60", "important");
-        _ctaInit.style.setProperty("margin", "0", "important");
-        _pinRevealCtaTop(); // sets `top`, step-aware (see definition)
-      }
+      // NOTE: #vibeRevealCta is NO LONGER hoisted or pinned. It now lives
+      // inline under the section-1 headline, next to the cards it actually
+      // modifies. It was floated to the top of the viewport so it stayed
+      // reachable while scrolling the picker, but that made a comparison
+      // control the most prominent thing on the page and put it above the
+      // step it belongs to. The pinning code (re-parent to <body> plus inline
+      // !important position/top/left/transform) is deliberately gone rather
+      // than disabled, so nothing re-pins it by accident.
       var _bcInit = document.getElementById("workflowBreadcrumb");
       if (_bcInit) {
         if (_bcInit.parentElement !== document.body) {
@@ -4631,18 +4606,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // show Raw (Helioviewer fallback) and no CTA appears.
         var cta = document.getElementById("vibeRevealCta");
         if (cta && anyHasTiers) cta.classList.remove("hidden");
-        // Hoist the floating toggle out of <main> and into <body> so
-        // position:fixed is guaranteed to anchor to the viewport
-        // regardless of any ancestor's transform/animation. Gilly saw
-        // the toggle scrolling out of view on prod — root cause was
-        // an animation transform on a .section ancestor that promoted
-        // it to a containing block, anchoring position:fixed children
-        // to the section instead of the viewport. Re-parenting to
-        // <body> removes the ambiguity for good. Idempotent: if the
-        // CTA is already a direct body child, do nothing.
-        if (cta && cta.parentElement !== document.body) {
-          document.body.appendChild(cta);
-        }
+        // The toggle is NOT hoisted any more. It used to be re-parented to
+        // <body> so position:fixed could not be captured by a transformed
+        // ancestor, but it no longer floats at all: it sits inline under the
+        // section-1 headline, beside the cards it modifies. Hoisting it now
+        // would tear it out of that section and strand it at the end of the
+        // document. (This was the second of two hoist sites; the bootstrap one
+        // is removed too.)
         // Commit the master toggle to the LOWEST tier to match the
         // just-painted cards. Gilly: "start them all at the lowest
         // tier, then step up to the higher tier every 2 seconds until

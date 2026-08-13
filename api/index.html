@@ -220,14 +220,19 @@
   <!-- data-still marks a stillness BASIN: this section gets an entrance but
        never the continuous PASS drift. It is the proof moment, and you cannot
        compare two images while anything is moving. -->
-  <div class="section quality-strip-section" id="qualityStrip" data-still>
+  <!-- Starts COLLAPSED. The before/after comparison is the store's strongest
+       proof, but it is proof for someone who is still deciding whether this is
+       worth anything — it should not be the first and largest thing between a
+       visitor and picking their date. The pill re-expands it on demand, and
+       the step machine still auto-collapses it after the first transition. -->
+  <div class="section quality-strip-section collapsed" id="qualityStrip" data-still>
     <!-- Collapsed affordance: shown only when .collapsed is on the section
          (added on the first step transition — see _wireQualityStripCollapse).
          Clicking it re-expands the strip; it is the "bring it back" control.
          Deliberately OUTSIDE .flow-inner: it is a control, not content, and it
          must stay put rather than ride the entrance. -->
     <button type="button" class="quality-strip-bar" id="qualityStripBar"
-            aria-expanded="true"
+            aria-expanded="false"
             aria-label="Show the Original vs Filtered comparison">
       <i class="fas fa-arrows-left-right" aria-hidden="true"></i>
       Original vs Filtered &mdash; see what RHEF reveals
@@ -338,36 +343,6 @@
        The card is a <div> (not <button type="button">) so it can legally contain
        child <button type="button">s (HTML disallows nested interactive content);
        the main click target is the inner .vibe-open button. -->
-  <!-- Master reveal CTA + tier toggle (hoisted out of .vibe-grid-section
-       so position:fixed isn't hidden by the parent's display:none when
-       body.step-product collapses the vibe grid). Visibility is owned by
-       JS-applied .hidden and by step-aware CSS rules in solar-archive.css. -->
-  <div class="vibe-reveal-cta hidden" id="vibeRevealCta">
-    <button type="button" class="vibe-reveal-btn" id="vibeRevealBtn"
-            title="Sharpen every card — brings out the Sun's faint outer glow, invisible in the original photo."
-            aria-label="Sharpen all Sun cards — brings out the faint outer glow invisible in the original photo">
-      <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-      Reveal the filtered view
-      <span class="vibe-reveal-sub">(brings out the faint outer glow)</span>
-    </button>
-    <!-- Labels: user-facing copy is Preview / Original / Filtered.
-         Internal data-tier values stay jpg/raw/rhef so the URL keys,
-         state.vibeMasterTier, and the manifest schema don't churn.
-         Mapping is documented at the top of solar-archive.js where the
-         toggle is wired. -->
-    <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
-         role="radiogroup" aria-label="Image stretch — original telescope frame or radial-equalized filtered">
-      <!-- No is-active on initial markup: JS (_wireVibeGrid) picks the
-           tier when the manifest resolves (rhef if cached, jpg
-           otherwise) and applies is-active to the matching pill.
-           Hardcoding is-active on `raw` caused a visible "Original"
-           flash on first paint before the JS override (reviewer M8). -->
-      <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
-              title="The conventional NASA SDO look — what astronomers see published.">Original</button>
-      <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
-              title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
-    </div>
-  </div>
 
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
    <!-- Header drifts; the card grid below does not. This is a decision zone,
@@ -376,10 +351,45 @@
    <div class="flow-inner">
     <div class="section-header">
       <div class="step-badge">1</div>
-      <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
+      <h2 class="section-title" id="vibeGridTitle">Pick a date — a famous moment, your birthday, or any day since 2010</h2>
       <button type="button" class="edit-btn edit-btn-nav share-image-step-btn hidden" id="btnShareSunImageStep" title="Copy a link to this exact Sun">
         <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
       </button>
+    </div>
+    <!-- Original vs Filtered lives HERE, under the section-1 headline,
+         rather than pinned to the top of the viewport. It modifies the cards
+         directly below it, so that is where it belongs; floating it over the
+         page implied it mattered more than picking a date, and a control that
+         follows you around reads as chrome rather than as part of the step. -->
+    <!-- Master reveal CTA + tier toggle (hoisted out of .vibe-grid-section
+         so position:fixed isn't hidden by the parent's display:none when
+         body.step-product collapses the vibe grid). Visibility is owned by
+         JS-applied .hidden and by step-aware CSS rules in solar-archive.css. -->
+    <div class="vibe-reveal-cta hidden" id="vibeRevealCta">
+      <button type="button" class="vibe-reveal-btn" id="vibeRevealBtn"
+              title="Sharpen every card — brings out the Sun's faint outer glow, invisible in the original photo."
+              aria-label="Sharpen all Sun cards — brings out the faint outer glow invisible in the original photo">
+        <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+        Reveal the filtered view
+        <span class="vibe-reveal-sub">(brings out the faint outer glow)</span>
+      </button>
+      <!-- Labels: user-facing copy is Preview / Original / Filtered.
+           Internal data-tier values stay jpg/raw/rhef so the URL keys,
+           state.vibeMasterTier, and the manifest schema don't churn.
+           Mapping is documented at the top of solar-archive.js where the
+           toggle is wired. -->
+      <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
+           role="radiogroup" aria-label="Image stretch — original telescope frame or radial-equalized filtered">
+        <!-- No is-active on initial markup: JS (_wireVibeGrid) picks the
+             tier when the manifest resolves (rhef if cached, jpg
+             otherwise) and applies is-active to the matching pill.
+             Hardcoding is-active on `raw` caused a visible "Original"
+             flash on first paint before the JS override (reviewer M8). -->
+        <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
+                title="The conventional NASA SDO look — what astronomers see published.">Original</button>
+        <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
+                title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
+      </div>
     </div>
    </div>
 

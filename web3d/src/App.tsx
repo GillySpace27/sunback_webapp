@@ -8,6 +8,7 @@ import Loader from "./ui/Loader";
 import Overlay from "./ui/Overlay";
 import AtmosphereFlash from "./ui/AtmosphereFlash";
 import HeroDate from "./ui/HeroDate";
+import Masthead from "./ui/Masthead";
 import SkipToStore from "./ui/SkipToStore";
 import Arrows from "./ui/Arrows";
 import WavelengthPicker from "./ui/WavelengthPicker";
@@ -37,8 +38,9 @@ export default function App() {
 
       {/* Crawlable, screen-reader-first content. The 3D is the experience; this
           is the meaning, and it survives with the WebGL removed. */}
+      {/* The masthead below is the visible h1 now, so this crawlable block
+          drops its duplicate heading and keeps only the prose. */}
       <header className="visually-hidden">
-        <h1>My Heliograph — your day, written in sunlight</h1>
         <p>
           A gift made of light: real NASA/SDO telescope imagery of the Sun on the date that matters
           to you, in the wavelength you choose, printed on the object you love.
@@ -56,6 +58,7 @@ export default function App() {
         </ErrorBoundary>
       </div>
 
+      <Masthead />
       <Overlay />
       <AtmosphereFlash />
       <SkipToStore />

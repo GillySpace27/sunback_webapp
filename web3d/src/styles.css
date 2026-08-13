@@ -782,3 +782,69 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Masthead ──────────────────────────────────────────────────────────
+   Mirrors the store's hero so both halves of the site open the same way:
+   same name, same tagline, same one-paragraph explanation of what is being
+   sold. Before this the 3D page's first frame carried no title at all — the
+   film began without a title card, and a visitor landing cold had no idea
+   whose site this was or what it did.
+
+   Fades out as the journey starts so it never competes with the crossing. */
+.masthead {
+  position: fixed;
+  top: max(3.2vh, 18px);
+  left: 50%;
+  z-index: 4;
+  width: min(760px, 88vw);
+  text-align: center;
+  will-change: opacity, transform;
+}
+.masthead-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 700;
+  font-size: clamp(2rem, 5.2vw, 3.1rem);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: #e8663a;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+.masthead-tagline {
+  margin: 0.35rem 0 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(1.05rem, 2.4vw, 1.5rem);
+  color: #f0c75e;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
+}
+.masthead-intro {
+  margin: 0.7rem auto 0;
+  max-width: 62ch;
+  font-family: var(--sans);
+  font-weight: 300;
+  font-size: clamp(0.86rem, 1.5vw, 1rem);
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: balance;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+.masthead-credit {
+  margin: 0.5rem auto 0;
+  max-width: 66ch;
+  font-family: var(--sans);
+  font-size: clamp(0.66rem, 1.1vw, 0.76rem);
+  line-height: 1.45;
+  color: var(--muted);
+  opacity: 0.72;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+}
+/* Phones: the hero Sun sits low, so the masthead keeps the top band but sheds
+   the credit line, which is the one part nobody reads on a 375px screen. */
+@media (max-width: 600px) {
+  .masthead-credit { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .masthead { transition: none; }
+}
