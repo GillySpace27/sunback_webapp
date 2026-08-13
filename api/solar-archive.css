@@ -6893,6 +6893,10 @@ body.handoff-confirm #workflowBreadcrumb {
 /* Convection. The blur is STATIC so it rasterizes exactly once; only
    transform animates. Amplitude rides --motion-amp so pools and the tier
    system can damp the ambience to nothing without touching these rules. */
+/* Outer: geometry + the CSS convection drift. Deliberately carries NO paint,
+   so the inner is free to own its own transform (see the markup note in
+   index.html — a running CSS animation outranks inline styles, so the drift
+   and the velocity stretch cannot share an element). */
 .field-cell {
   position: absolute;
   top: 50%;
@@ -6900,18 +6904,26 @@ body.handoff-confirm #workflowBreadcrumb {
   width: 62vmax;
   height: 62vmax;
   margin: -31vmax 0 0 -31vmax;
+  will-change: transform;
+}
+/* Inner: all the paint. The blur is STATIC so it rasterises exactly once;
+   only transform and opacity ever change, which keeps this compositor-only. */
+.field-cell-core {
+  display: block;
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
   filter: blur(70px);
   opacity: calc(0.55 * var(--motion-amp));
   will-change: transform;
 }
-.field-cell--a {
+.field-cell--a { animation: cellDriftA 47s ease-in-out infinite; }
+.field-cell--b { animation: cellDriftB 61s ease-in-out infinite; }
+.field-cell--a .field-cell-core {
   background: radial-gradient(circle, var(--field-cell-tint) 0%, transparent 68%);
-  animation: cellDriftA 47s ease-in-out infinite;
 }
-.field-cell--b {
+.field-cell--b .field-cell-core {
   background: radial-gradient(circle, var(--field-flare) 0%, transparent 68%);
-  animation: cellDriftB 61s ease-in-out infinite;
 }
 /* 47s and 61s are coprime, so the two cells never resynchronise and the
    pattern has no visible repeat period. */
@@ -6978,7 +6990,10 @@ body.handoff-confirm #workflowBreadcrumb {
    a courtesy. The field stays (it is the page's background, not an
    animation); everything that moves stops. */
 @media (prefers-reduced-motion: reduce) {
-  .field-cell { animation: none; opacity: 0.18; }
+  /* Drift stops on the outer, dimming applies to the inner, which is where
+     the paint moved when the velocity stretch needed its own element. */
+  .field-cell { animation: none; }
+  .field-cell-core { opacity: 0.18; }
   .field-warm { animation: none; }
   .hero .hero-icon,
   .hero h1,

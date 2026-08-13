@@ -99,8 +99,14 @@
 <div class="field" aria-hidden="true">
   <div class="field-warm"></div>
   <div class="field-cool"></div>
-  <div class="field-cell field-cell--a"></div>
-  <div class="field-cell field-cell--b"></div>
+  <!-- Two elements per cell on purpose. The OUTER carries the CSS convection
+       drift so the field still breathes with zero JavaScript; the INNER
+       carries the scroll-velocity stretch that motion.js writes inline. They
+       have to be separate because a running CSS animation outranks an inline
+       style, so a single element would silently discard the velocity response
+       (it was written every frame and never rendered). -->
+  <div class="field-cell field-cell--a"><i class="field-cell-core"></i></div>
+  <div class="field-cell field-cell--b"><i class="field-cell-core"></i></div>
 </div>
 
 <div class="app-container">
@@ -204,7 +210,10 @@
        Both webps are co-registered edge-static assets (~89 KB total,
        make_compare_pair.py); zero backend. If either 404s, the whole block is
        swapped for the baked quality_strip.webp so it can never render broken. -->
-  <div class="section quality-strip-section" id="qualityStrip">
+  <!-- data-still marks a stillness BASIN: this section gets an entrance but
+       never the continuous PASS drift. It is the proof moment, and you cannot
+       compare two images while anything is moving. -->
+  <div class="section quality-strip-section" id="qualityStrip" data-still>
    <!-- .flow-inner carries the entrance only. This section is a stillness
         BASIN: it is the proof moment, and you cannot compare two images while
         anything is moving, so it is deliberately excluded from the continuous
@@ -337,6 +346,10 @@
   </div>
 
   <div class="section vibe-grid-section" aria-labelledby="vibeGridTitle">
+   <!-- Header drifts; the card grid below does not. This is a decision zone,
+        so the grid stays anchored — see the .anchor-layer note in
+        #productSection. -->
+   <div class="flow-inner">
     <div class="section-header">
       <div class="step-badge">1</div>
       <h2 class="section-title" id="vibeGridTitle">Pick an image — a famous moment, your birthday, or a custom time</h2>
@@ -344,6 +357,7 @@
         <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
       </button>
     </div>
+   </div>
 
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
 

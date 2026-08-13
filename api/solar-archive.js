@@ -395,7 +395,14 @@ import { initMotion, scrollToTarget, refreshTriggers } from "./motion.js";
         // one paint for the body-class swap, then jump to the top of
         // the newly-revealed section.
         var _scrollName = name;
-        requestAnimationFrame(function () {
+        // setTimeout, not rAF — the same house rule already documented at the
+        // wavelength-config scroll below ("rAF freezes on hidden tabs, house
+        // rule since PR #48"). This call site predates that rule and still used
+        // rAF, which means the post-transition scroll silently never ran in a
+        // backgrounded or hidden tab: the step changed, the page stayed put.
+        // One tick is all that was ever needed to let the body-class swap
+        // repaint before measuring.
+        setTimeout(function () {
           try {
             var target = null;
             if (_scrollName === "product") {

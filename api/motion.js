@@ -177,8 +177,31 @@ export function scrollToTarget(target, opts) {
   const offset = o.offset || 0;
   const immediate = !!o.immediate;
   if (lenis) {
-    lenis.scrollTo(target, {
-      offset,
+    // Resolve elements to an ABSOLUTE position from the DOM rather than
+    // handing Lenis the node. Lenis computes an element target from its own
+    // internal animatedScroll, which desyncs from the real scrollY whenever
+    // the page reflows underneath it — and this app reflows hard on every step
+    // change, because whole sections are display:none'd. Measured symptom:
+    // returning from the editor to the product step landed 102px short, every
+    // time. Measuring here removes Lenis's bookkeeping from the equation.
+    let dest = target;
+    if (typeof target !== "number") {
+      try {
+        const el = typeof target === "string" ? document.querySelector(target) : target;
+        if (!el) return false;
+        dest = (window.scrollY || 0) + el.getBoundingClientRect().top;
+      } catch (e) {
+        return false;
+      }
+    }
+    // The document height changes on step transitions; without this Lenis can
+    // clamp to a stale limit.
+    try {
+      lenis.resize();
+    } catch (e) {
+      /* older builds may not expose resize() */
+    }
+    lenis.scrollTo(Math.max(0, dest + offset), {
       immediate,
       // A programmatic jump must win even if a pool has locked user scrolling.
       force: true,
@@ -306,6 +329,15 @@ export function initMotion() {
     // Establish the starting tier, then keep watching.
     if (isHandoffArrival()) setTier(1);
     else setTier(0);
+
+    // Build immediately rather than waiting on the 1.8s probe. Waiting would
+    // leave the first stretch of the page with no choreography at all, and any
+    // section the visitor scrolled past in the meantime would then fire its
+    // entrance late. The probe exists to catch sustained trouble and downgrade
+    // afterwards; velocity and ambient read motionState live, so they correct
+    // themselves the moment it does.
+    initChoreography();
+
     probeFrameRate(1800, (fps) => {
       if (fps < 30) setTier(3);
       else if (fps < 45) setTier(2);
@@ -316,6 +348,173 @@ export function initMotion() {
     return true;
   })();
   return initPromise;
+}
+
+// ── Phase 3: scroll choreography ───────────────────────────────────────
+//
+// Layering rule that keeps these from fighting each other: PASS animates the
+// `.flow-inner` WRAPPER, SURFACE animates its CHILDREN. Both want yPercent and
+// scale, so putting them on the same element would mean two tweens tearing at
+// the same matrix. Splitting by depth also reads better — the block drifts as
+// one mass while its contents surface individually.
+
+// Per-section drift as it traverses the viewport. Content flows past a fixed
+// camera; depth comes from scale and brightness rather than from movement
+// alone. Never applied to `.section` itself (containing-block trap, T1) and
+// never to a section marked data-still.
+function buildPass() {
+  const s = scrub(0.6);
+  if (!s) return; // tier 2+: no continuous scroll-linked motion at all
+  document.querySelectorAll(".section:not([data-still]) > .flow-inner").forEach((inner) => {
+    const section = inner.parentElement;
+    gsap
+      .timeline({
+        scrollTrigger: { trigger: section, start: "top bottom", end: "bottom top", scrub: s },
+      })
+      // ease:"none" is mandatory on a scrubbed tween. Scroll IS the timeline,
+      // so easing it warps the scroll-to-progress mapping and reads as input
+      // lag; all the liquidity comes from the scrub seconds value instead.
+      .fromTo(
+        inner,
+        { yPercent: 6, scale: 0.988 },
+        { yPercent: 0, scale: 1, ease: "none" }
+      )
+      .to(inner, { yPercent: -6, scale: 0.988, ease: "none" });
+  });
+}
+
+// Elements rise through a waterline. The desync IS the effect: clarity lands
+// at ~0.55s while position keeps settling to 0.9s, so the thing is readable
+// before it has finished arriving.
+function buildSurface() {
+  const targets = [];
+  document.querySelectorAll(".flow-inner").forEach((fi) => {
+    for (const child of fi.children) targets.push(child);
+  });
+  if (!targets.length) return;
+
+  const instant = motionState.tier >= 3;
+  const fold = window.innerHeight * 0.85;
+  targets.forEach((el) => {
+    // Skip anything already on screen. Choreography is built on an idle
+    // callback, several hundred ms after paint, so attaching a fromTo to
+    // visible content would snap it to opacity 0 and replay it — a flash of
+    // the page undoing itself. Above-fold elements already arrived via the
+    // phase-1 CSS pour and need no help.
+    try {
+      if (el.getBoundingClientRect().top < fold) return;
+    } catch (e) {
+      return;
+    }
+    // P6: blur is the one expensive property here, so it is spent only where
+    // it is cheap and visible — small elements, top tier only. Blurring a
+    // section-sized block forces a re-raster proportional to its area.
+    let box = 0;
+    try {
+      box = el.getBoundingClientRect().height;
+    } catch (e) {
+      box = 0;
+    }
+    const mayBlur = motionState.tier === 0 && box > 0 && box < window.innerHeight * 0.4;
+
+    const from = { opacity: 0, yPercent: 9, scale: 0.982 };
+    const to = { opacity: 1, duration: instant ? 0.12 : 0.4, ease: "surface" };
+    const tl = gsap.timeline({
+      scrollTrigger: { trigger: el, start: "top 85%", once: true },
+    });
+    tl.fromTo(el, from, to, 0);
+    if (mayBlur && !instant) {
+      tl.fromTo(
+        el,
+        { filter: "blur(4px) saturate(0.75) brightness(0.75)" },
+        { filter: "blur(0px) saturate(1) brightness(1)", duration: 0.55, ease: "surface" },
+        0
+      );
+    }
+    tl.fromTo(
+      el,
+      { yPercent: from.yPercent, scale: from.scale },
+      { yPercent: 0, scale: 1, duration: instant ? 0.12 : 0.9, ease: "crest" },
+      0
+    );
+  });
+}
+
+// The page cools as you descend: corona gold at the hero, cool blue by
+// checkout. Implemented as ONE registered custom property driving a static
+// layer's opacity — not a gradient interpolation, which would repaint the
+// full viewport every scroll frame (P1).
+function buildFieldTemperature() {
+  if (!document.querySelector(".field-cool")) return;
+  gsap.to(document.documentElement, {
+    "--field-temp": 1,
+    ease: "none",
+    scrollTrigger: {
+      trigger: document.documentElement,
+      start: "top top",
+      end: "max",
+      scrub: scrub(1.2) || 0.3,
+    },
+  });
+}
+
+// Scroll velocity stretches the FIELD, never the content.
+//
+// Deviation from the plan, deliberately: the design called for velocity
+// stretch on content wrappers, but those already carry PASS, and both want
+// scale — two animators on one matrix. Moving the response to the field
+// resolves that by construction AND is the better idea: plasma is what
+// deforms in a current, not the page furniture. It also means a stretch can
+// never touch a click target, which was the constraint the plan was trying to
+// protect in the first place.
+function buildVelocity() {
+  // The CORE, not the cell: the cell's transform belongs to the CSS drift
+  // animation, which outranks anything written inline.
+  const cells = Array.from(document.querySelectorAll(".field-cell-core"));
+  if (!cells.length) return;
+  let smooth = 0;
+  let raw = 0;
+  ScrollTrigger.create({
+    onUpdate: (self) => {
+      raw = self.getVelocity();
+    },
+  });
+  gsap.ticker.add(() => {
+    if (!motionState.velGain) {
+      if (smooth !== 0) {
+        smooth = 0;
+        cells.forEach((c) => gsap.set(c, { scaleY: 1, scaleX: 1 }));
+      }
+      return;
+    }
+    // Asymmetric smoothing: reacts faster than it recovers is WRONG here —
+    // we want the opposite, a quick return to rest the moment scrolling
+    // stops, or the field looks permanently deformed.
+    const k = Math.abs(raw) > Math.abs(smooth) ? 0.1 : 0.16;
+    smooth += (raw - smooth) * k;
+    const v = Math.max(-1, Math.min(1, smooth / 2600)) * motionState.velGain;
+    const a = Math.abs(v);
+    // Volume conservation: stretch along travel, narrow across it. A skew
+    // would read as paper; this reads as a droplet in a stream. Hard caps
+    // because past roughly 8% it stops looking physical and starts looking
+    // like a rendering bug.
+    cells.forEach((c) => gsap.set(c, { scaleY: 1 + a * 0.075, scaleX: 1 - a * 0.028 }));
+  });
+}
+
+let choreographyBuilt = false;
+export function initChoreography() {
+  if (choreographyBuilt || !motionState.ready || !gsap || !ScrollTrigger) return;
+  choreographyBuilt = true;
+  try {
+    buildFieldTemperature();
+    buildPass();
+    buildSurface();
+    buildVelocity();
+    ScrollTrigger.refresh();
+  } catch (e) {
+    /* choreography is enhancement: a failure here must not break the store */
+  }
 }
 
 // Convenience for later phases: resolve a scrub value through the ladder.
