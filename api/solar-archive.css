@@ -7415,3 +7415,28 @@ body:has(#imageStage.loading) .field-cell {
 }
 /* The vibe grid reserved 64px for the toggle's old floating slot. */
 .vibe-grid-section { padding-top: 0; }
+
+/* ── Gamma-match the live "Original" tiles ─────────────────────────────
+   The wavelength tiles paint a live Helioviewer canvas straight from the raw
+   telescope data, while the committed vibe thumbnails have a sqrt display
+   stretch BAKED INTO the PNG at build time. Same nominal "Original", two
+   different looks — the live tiles read as muddy and dark next to the
+   pre-baked ones, which is what made them look wrong beside the jpg tier.
+
+   #vibeRawGamma (defined in index.html, exponent 0.5, sRGB interpolation) was
+   written for exactly this case and then never referenced by anything. This
+   wires it up, applying the same stretch at display time that the committed
+   files get at build time.
+
+   DISPLAY ONLY, and deliberately scoped to .wl-thumb. The editor canvas is the
+   source of the print file, so a display-side filter there would silently
+   break WYSIWYG: the buyer would approve a corrected preview and receive an
+   uncorrected print. Matching the editor properly means baking the stretch
+   into the pixel pipeline, not the stylesheet. */
+.wl-thumb canvas,
+.wl-thumb img {
+  filter: url(#vibeRawGamma);
+}
+/* Safari has historically mis-rendered SVG filters on canvas; if the filter
+   cannot resolve, the tile simply shows its uncorrected self rather than
+   disappearing, so no fallback is required. */

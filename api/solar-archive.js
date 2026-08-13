@@ -11255,10 +11255,26 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (!raw) return null;
         var snap = JSON.parse(raw);
         if (!snap || typeof snap !== "object") return null;
-        // Stale guard: drop persisted state older than 24h.
-        if (snap._savedAt && (Date.now() - snap._savedAt) > 24 * 3600 * 1000) {
+        // Stale guard. This snapshot exists for ONE purpose: surviving a
+        // refresh in the middle of an edit. It was being kept for 24 hours,
+        // which meant any visit within a day of the last one silently resumed
+        // mid-flow — a product already chosen, a wavelength already set, the
+        // editor already open. The product picker was skipped entirely, the
+        // 3D handoff confirmation never appeared, and the store looked like it
+        // had opinions the visitor had never expressed.
+        //
+        // 30 minutes covers a real mid-edit refresh (which happens in seconds)
+        // without turning a return visit into a resumed session.
+        if (snap._savedAt && (Date.now() - snap._savedAt) > 30 * 60 * 1000) {
           localStorage.removeItem(_STATE_PERSIST_KEY);
           return null;
+        }
+        // Only a snapshot taken IN the editor represents work worth resuming.
+        // Persistence also fires on step "image", so merely browsing the
+        // pickers used to be enough to pin a product for the next visit.
+        if (snap.currentStep !== "editor" && snap.currentStep !== "review") {
+          snap.selectedProduct = null;
+          snap.activeVibeSlug = null;
         }
         // Drop if the persisted product no longer exists in the catalog.
         if (snap.selectedProduct && !PRODUCTS.some(function (p) { return p.id === snap.selectedProduct; })) {
@@ -11295,7 +11311,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // (commitProductChoice, _activateVibe re-pickup, etc.). The
         // image-state restore is deferred — clicking the same vibe
         // card or wavelength tile naturally regenerates the image.
-        if (_snap.selectedProduct) {
+        // A handoff from the 3D experience is an explicit fresh intent and
+        // must never be overridden by a resumed session — that is why the
+        // confirmation bridge was not appearing.
+        var _isHandoff = !!(_shareParams && _shareParams.d && _shareParams.wl);
+        if (_snap.selectedProduct && !_isHandoff) {
           state.selectedProduct = _snap.selectedProduct;
         }
         if (_snap.activeVibeSlug) state.activeVibeSlug = _snap.activeVibeSlug;
