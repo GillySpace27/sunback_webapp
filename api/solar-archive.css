@@ -58,11 +58,11 @@
      tokens were tuned for a decorative wash behind an opaque card layout; the
      field is now the page's actual ground and has to carry real luminosity or
      the whole surface reads flat. */
-  --field-core: rgba(245, 205, 100, 0.30);
-  --field-core-mid: rgba(217, 169, 26, 0.15);
+  --field-core: rgba(245, 205, 100, 0.44);
+  --field-core-mid: rgba(217, 169, 26, 0.22);
   --field-flare: rgba(232, 102, 58, 0.18);
   --field-vignette: rgba(4, 3, 2, 0.58);
-  --field-cell-tint: rgba(245, 205, 100, 0.26);
+  --field-cell-tint: rgba(245, 205, 100, 0.38);
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
@@ -7001,7 +7001,7 @@ body.handoff-confirm #workflowBreadcrumb {
   inset: 0;
   border-radius: 50%;
   filter: blur(70px);
-  opacity: calc(0.55 * var(--motion-amp));
+  opacity: calc(0.78 * var(--motion-amp));
   will-change: transform;
 }
 .field-cell--a { animation: cellDriftA 47s ease-in-out infinite; }

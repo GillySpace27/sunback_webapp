@@ -376,10 +376,10 @@ function buildPass() {
       // lag; all the liquidity comes from the scrub seconds value instead.
       .fromTo(
         inner,
-        { yPercent: 6, scale: 0.988 },
+        { yPercent: 13, scale: 0.965 },
         { yPercent: 0, scale: 1, ease: "none" }
       )
-      .to(inner, { yPercent: -6, scale: 0.988, ease: "none" });
+      .to(inner, { yPercent: -13, scale: 0.965, ease: "none" });
   });
 }
 
@@ -427,7 +427,7 @@ function buildSurface(skipSet) {
     // anything whose trigger never fires — a section hidden by a step change
     // before it scrolled into view — stays at opacity 0 permanently. An
     // animation must never be able to leave content invisible.
-    const from = { opacity: 0, yPercent: 9, scale: 0.982 };
+    const from = { opacity: 0, yPercent: 26, scale: 0.945 };
     const to = {
       opacity: 1,
       duration: instant ? 0.12 : 0.4,
@@ -498,7 +498,7 @@ function buildFieldTemperature() {
 // and an ambient oscillation on them would repaint continuously for as long as
 // the page stays open — a real battery cost for a decorative effect.
 const BREATH_PERIOD = 5;
-const BREATH_AMP = 0.14;
+const BREATH_AMP = 0.30;
 
 function buildFieldTicker() {
   // The CORE, not the cell: the cell's transform belongs to the CSS drift
@@ -519,7 +519,7 @@ function buildFieldTicker() {
       const phase = (time / BREATH_PERIOD) * Math.PI * 2;
       cells.forEach((c, i) => {
         const swing = Math.sin(phase + (i ? Math.PI : 0)); // antiphase
-        c.style.opacity = String(0.55 * motionState.amp * (1 + BREATH_AMP * swing));
+        c.style.opacity = String(0.78 * motionState.amp * (1 + BREATH_AMP * swing));
       });
     }
     if (!motionState.velGain) {
