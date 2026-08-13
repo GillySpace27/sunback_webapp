@@ -7364,3 +7364,36 @@ body:has(#checkoutProgress:not(:empty)) .field-cell,
 body:has(#imageStage.loading) .field-cell {
   animation-play-state: paused;
 }
+
+/* ── Room to arrive ────────────────────────────────────────────────────
+   The card entrances were firing at the very bottom edge of the viewport, so
+   they had finished before the card was comfortably on screen: the counter
+   incremented, but there was nothing to watch. Two changes fix that together —
+   the trigger now fires at 82% of viewport height (motion.js), and the grids
+   get real breathing room above them so a card rises into empty space rather
+   than into the fold.
+
+   This is also just better composition. An entrance needs somewhere to enter. */
+.product-grid,
+.vibe-grid {
+  margin-top: 26vh;
+}
+/* The first grid on the page already sits under a section header, so it needs
+   less. Only the run-on category grids need the full gap. */
+#productSection .anchor-layer > .product-grid:first-child,
+.vibe-grid-section .vibe-grid {
+  margin-top: 14vh;
+}
+@media (max-width: 749px) {
+  /* Phones: 26vh of empty space is most of a screen. Keep the effect, spend
+     far less of the viewport on it. */
+  .product-grid,
+  .vibe-grid { margin-top: 12vh; }
+  #productSection .anchor-layer > .product-grid:first-child,
+  .vibe-grid-section .vibe-grid { margin-top: 8vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No entrance to make room for. */
+  .product-grid,
+  .vibe-grid { margin-top: 20px; }
+}

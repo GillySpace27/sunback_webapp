@@ -391,9 +391,11 @@ export function initMotion() {
 // it lands. Cards already on screen when first seen are left alone — animating
 // content the visitor is already reading is the flash we keep having to avoid.
 const waved = new WeakSet();
+export const waveStats = { fired: 0 };
 const gridSweeps = [];
 
 function waveIn(card) {
+  waveStats.fired++;
   gsap.fromTo(
     card,
     { opacity: 0, y: 46, scale: 0.94 },
@@ -441,14 +443,14 @@ function buildCardWave() {
         if (!r.height) return; // hidden step: leave it for a later sweep
         // Already on screen when first seen: mark it done rather than
         // animating content the visitor is already reading.
-        if (r.top < window.innerHeight * 0.94 && r.bottom > 0) {
+        if (r.top < window.innerHeight * 0.82 && r.bottom > 0) {
           waved.add(c);
           return;
         }
         c.__mrWired = true;
         ScrollTrigger.create({
           trigger: c,
-          start: "top 94%",
+          start: "top 82%",
           // NO `once`. A trigger that fires while its step is hidden must be
           // able to fire again for real later.
           onEnter: () => {
@@ -1027,9 +1029,30 @@ function mountDebugPanel() {
     "color:#e8e2d0;font:11px/1.45 ui-monospace,monospace;padding:10px 12px;" +
     "border-radius:8px;border:1px solid rgba(240,199,94,.4);max-width:340px;" +
     "white-space:pre;pointer-events:none";
+  const txt = document.createElement("div");
+  box.appendChild(txt);
   document.body.appendChild(box);
-  const inner = document.querySelector(".section:not([data-still]) > .flow-inner");
   const core = document.querySelector(".field-cell-core");
+
+  // A GSAP TWEEN, running forever, visible. This is the decisive isolation:
+  // the ticker is known to run (it drives the breathing), so if this bar does
+  // not move then tweens specifically are not rendering, and every scroll
+  // animation is dead for a reason that has nothing to do with ScrollTrigger.
+  // If it DOES move, tweens are fine and the fault is trigger firing.
+  const probe = document.createElement("div");
+  probe.style.cssText =
+    "height:6px;width:40px;margin:6px 0;border-radius:3px;background:#f0c75e";
+  box.appendChild(probe);
+  // The panel mounts on DOMContentLoaded but the engine loads at idle, so gsap
+  // is still null here. Wait for it rather than silently never starting.
+  (function startProbe() {
+    if (!gsap) return void setTimeout(startProbe, 200);
+    try {
+      gsap.to(probe, { x: 250, duration: 1.4, repeat: -1, yoyo: true, ease: "none" });
+    } catch (e) {
+      probe.style.background = "#e8663a";
+    }
+  })();
   let frames = 0;
   let last = performance.now();
   let fps = 0;
@@ -1042,15 +1065,16 @@ function mountDebugPanel() {
       last = now;
     }
     const w = why();
-    const t = inner ? getComputedStyle(inner).transform : "n/a";
-    box.textContent =
+    txt.textContent =
       "MOTION  running=" + w.running + "  tier=" + w.tier + "\n" +
       "ready=" + w.ready + "  triggers=" + w.triggers + "  fps=" + fps + "\n" +
       "reducedMotion=" + w.reducedMotion + "\n" +
       "--field-temp=" +
       (+getComputedStyle(document.documentElement).getPropertyValue("--field-temp") || 0).toFixed(3) +
       "\n" +
-      "PASS y=" + (t && t !== "none" ? t.split(",").slice(-1)[0].replace(")", "").trim() : "none") + "\n" +
+      "card entrances fired=" + waveStats.fired + "\n" +
+      "scrollY=" + Math.round(window.scrollY) + "  STscroll=" +
+        (ScrollTrigger ? Math.round(ScrollTrigger.positionInViewport ? window.scrollY : 0) : 0) + "\n" +
       "cell opacity=" + (core ? (+getComputedStyle(core).opacity).toFixed(3) : "n/a") + "\n" +
       w.reasons.join("\n");
     requestAnimationFrame(tick);
