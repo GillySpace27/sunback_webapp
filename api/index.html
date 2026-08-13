@@ -220,79 +220,6 @@
   <!-- data-still marks a stillness BASIN: this section gets an entrance but
        never the continuous PASS drift. It is the proof moment, and you cannot
        compare two images while anything is moving. -->
-  <!-- Starts COLLAPSED. The before/after comparison is the store's strongest
-       proof, but it is proof for someone who is still deciding whether this is
-       worth anything — it should not be the first and largest thing between a
-       visitor and picking their date. The pill re-expands it on demand, and
-       the step machine still auto-collapses it after the first transition. -->
-  <div class="section quality-strip-section collapsed" id="qualityStrip" data-still>
-    <!-- Collapsed affordance: shown only when .collapsed is on the section
-         (added on the first step transition — see _wireQualityStripCollapse).
-         Clicking it re-expands the strip; it is the "bring it back" control.
-         Deliberately OUTSIDE .flow-inner: it is a control, not content, and it
-         must stay put rather than ride the entrance. -->
-    <button type="button" class="quality-strip-bar" id="qualityStripBar"
-            aria-expanded="false"
-            aria-label="Show the Original vs Filtered comparison">
-      <i class="fas fa-arrows-left-right" aria-hidden="true"></i>
-      Original vs Filtered &mdash; see what RHEF reveals
-    </button>
-   <!-- .flow-inner carries the entrance only. This section is a stillness
-        BASIN: it is the proof moment, and you cannot compare two images while
-        anything is moving, so it is deliberately excluded from the continuous
-        PASS drift in Phase 3. -->
-   <div class="flow-inner">
-    <button type="button" class="quality-diptych" id="qualityDiptych"
-            aria-label="The Sun before and after the contrast-equalization step, side by side. Activate to compare them hands-on with a draggable slider.">
-      <span class="diptych-pane">
-        <span class="diptych-label">Original</span>
-        <span class="diptych-sub">raw telescope data</span>
-        <img class="diptych-img" src="/asset/default/compare_raw.webp" width="900" height="900"
-             alt="The Sun as the telescope recorded it — the faint outer atmosphere is lost in the dark."
-             decoding="async" />
-      </span>
-      <span class="diptych-pane">
-        <span class="diptych-label">Filtered</span>
-        <span class="diptych-sub">RHEF reveals the corona</span>
-        <img class="diptych-img" src="/asset/default/compare_rhef.webp" width="900" height="900"
-             alt="The same moment after contrast equalization — the Sun's faint outer atmosphere is now visible."
-             decoding="async" />
-      </span>
-      <span class="diptych-hint" aria-hidden="true">
-        <i class="fas fa-arrows-left-right"></i> Tap to compare hands-on
-      </span>
-    </button>
-
-    <!-- Interactive upgrade, revealed only on activation. compare-under =
-         Filtered (right of divider), compare-over = Original clipped left. -->
-    <div class="compare-slider hidden" id="compareSlider" style="--split:50%">
-      <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
-           alt="The Sun after contrast equalization, revealing the faint outer atmosphere." decoding="async" />
-      <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
-           alt="" aria-hidden="true" decoding="async" />
-      <div class="compare-handle" role="slider" tabindex="0"
-           aria-label="Drag to compare the original telescope photo with the contrast-equalized version"
-           aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
-           aria-valuetext="50% original, 50% filtered">
-        <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
-      </div>
-      <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
-      <span class="compare-label compare-label-right" aria-hidden="true">Filtered</span>
-      <button type="button" class="compare-close-btn" id="compareCloseBtn"
-              aria-label="Close the drag comparison and go back to the side-by-side view"
-              title="Back to side-by-side">&#x2715;</button>
-    </div>
-    <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Pick whichever version you prefer &mdash; both are available on every print.</strong></p>
-    <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
-   </div>
-    <!-- Manual collapse: hides the strip on demand (mirrors the auto-collapse
-         on first step change). The pill above re-expands it. Outside
-         .flow-inner for the same reason as the bar: it is a control. -->
-    <button type="button" class="quality-strip-hide" id="qualityStripHide">
-      <i class="fas fa-chevron-up" aria-hidden="true"></i> Hide comparison
-    </button>
-  </div>
-
   <div class="section" id="productSection">
    <!-- Header and intro copy drift with the scroll; the grid does not. -->
    <div class="flow-inner">
@@ -391,6 +318,83 @@
                 title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
       </div>
     </div>
+
+    <!-- The proof panel lives directly under the toggle it explains. It used to
+         sit above the whole section, where a visitor met "Original / Filtered"
+         with no way to know what either word meant. Collapsed by default: the
+         answer should be one click away, not the largest thing on the page. -->
+  <!-- Starts COLLAPSED. The before/after comparison is the store's strongest
+         proof, but it is proof for someone who is still deciding whether this is
+         worth anything — it should not be the first and largest thing between a
+         visitor and picking their date. The pill re-expands it on demand, and
+         the step machine still auto-collapses it after the first transition. -->
+    <div class="section quality-strip-section collapsed" id="qualityStrip" data-still>
+      <!-- Collapsed affordance: shown only when .collapsed is on the section
+           (added on the first step transition — see _wireQualityStripCollapse).
+           Clicking it re-expands the strip; it is the "bring it back" control.
+           Deliberately OUTSIDE .flow-inner: it is a control, not content, and it
+           must stay put rather than ride the entrance. -->
+      <button type="button" class="quality-strip-bar" id="qualityStripBar"
+              aria-expanded="false"
+              aria-label="Show the Original vs Filtered comparison">
+        <i class="fas fa-arrows-left-right" aria-hidden="true"></i>
+        Original vs Filtered &mdash; see what RHEF reveals
+      </button>
+     <!-- .flow-inner carries the entrance only. This section is a stillness
+          BASIN: it is the proof moment, and you cannot compare two images while
+          anything is moving, so it is deliberately excluded from the continuous
+          PASS drift in Phase 3. -->
+     <div class="flow-inner">
+      <button type="button" class="quality-diptych" id="qualityDiptych"
+              aria-label="The Sun before and after the contrast-equalization step, side by side. Activate to compare them hands-on with a draggable slider.">
+        <span class="diptych-pane">
+          <span class="diptych-label">Original</span>
+          <span class="diptych-sub">raw telescope data</span>
+          <img class="diptych-img" src="/asset/default/compare_raw.webp" width="900" height="900"
+               alt="The Sun as the telescope recorded it — the faint outer atmosphere is lost in the dark."
+               decoding="async" />
+        </span>
+        <span class="diptych-pane">
+          <span class="diptych-label">Filtered</span>
+          <span class="diptych-sub">RHEF reveals the corona</span>
+          <img class="diptych-img" src="/asset/default/compare_rhef.webp" width="900" height="900"
+               alt="The same moment after contrast equalization — the Sun's faint outer atmosphere is now visible."
+               decoding="async" />
+        </span>
+        <span class="diptych-hint" aria-hidden="true">
+          <i class="fas fa-arrows-left-right"></i> Tap to compare hands-on
+        </span>
+      </button>
+
+      <!-- Interactive upgrade, revealed only on activation. compare-under =
+           Filtered (right of divider), compare-over = Original clipped left. -->
+      <div class="compare-slider hidden" id="compareSlider" style="--split:50%">
+        <img class="compare-under" src="/asset/default/compare_rhef.webp" width="900" height="900"
+             alt="The Sun after contrast equalization, revealing the faint outer atmosphere." decoding="async" />
+        <img class="compare-over" src="/asset/default/compare_raw.webp" width="900" height="900"
+             alt="" aria-hidden="true" decoding="async" />
+        <div class="compare-handle" role="slider" tabindex="0"
+             aria-label="Drag to compare the original telescope photo with the contrast-equalized version"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+             aria-valuetext="50% original, 50% filtered">
+          <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
+        </div>
+        <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
+        <span class="compare-label compare-label-right" aria-hidden="true">Filtered</span>
+        <button type="button" class="compare-close-btn" id="compareCloseBtn"
+                aria-label="Close the drag comparison and go back to the side-by-side view"
+                title="Back to side-by-side">&#x2715;</button>
+      </div>
+      <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Pick whichever version you prefer &mdash; both are available on every print.</strong></p>
+      <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
+     </div>
+      <!-- Manual collapse: hides the strip on demand (mirrors the auto-collapse
+           on first step change). The pill above re-expands it. Outside
+           .flow-inner for the same reason as the bar: it is a control. -->
+      <button type="button" class="quality-strip-hide" id="qualityStripHide">
+        <i class="fas fa-chevron-up" aria-hidden="true"></i> Hide comparison
+      </button>
+    </div>
    </div>
 
     <div class="vibe-grid" role="group" aria-labelledby="vibeGridTitle">
@@ -424,6 +428,20 @@
         </div>
       </div>
 
+      <!-- Examples are secondary. Eleven famous-moment cards ahead of the date
+           picker made choosing your own date look like one option among many
+           rather than the entire point of the product. Collapsed behind an
+           explicit ask, for people who genuinely cannot decide. -->
+      <button type="button" class="vibe-examples-toggle" id="vibeExamplesToggle"
+              aria-expanded="false" aria-controls="vibeExamples">
+        <i class="fas fa-lightbulb" aria-hidden="true"></i>
+        <span>Can&rsquo;t decide? See some examples here!</span>
+        <i class="fas fa-chevron-down vibe-examples-chevron" aria-hidden="true"></i>
+      </button>
+
+      <!-- display:contents while open, so these remain grid items of .vibe-grid
+           and every existing `.vibe-grid .vibe-card` selector keeps matching. -->
+      <div class="vibe-examples" id="vibeExamples" hidden>
       <div class="vibe-card" data-vibe-slug="ar2192"
            data-vibe-date="2014-10-24" data-vibe-wl="193" data-vibe-time="12:00">
         <div class="vibe-controls">
@@ -624,6 +642,7 @@
             <div class="vibe-date">Oct 24, 2014 · 1700 Å</div>
           </div>
         </button>
+      </div>
       </div>
 
     </div>

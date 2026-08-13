@@ -7517,3 +7517,56 @@ body:has(#imageStage.loading) .field-cell {
   border-color: var(--accent-sun);
 }
 .wl-skip-btn.hidden { display: none; }
+
+/* ── Examples are opt-in ───────────────────────────────────────────────
+   The date picker is what this page is for. Eleven famous-moment cards ahead
+   of it made picking your own date look like one option among many rather than
+   the entire product, so they now sit behind an explicit ask.
+
+   display:contents while open, so the cards remain grid items of .vibe-grid
+   and every existing `.vibe-grid .vibe-card` selector keeps matching — the
+   wrapper participates in no layout of its own. */
+.vibe-examples { display: contents; }
+.vibe-examples[hidden] { display: none; }
+
+.vibe-examples-toggle {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 11px 18px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition),
+              background var(--transition);
+}
+.vibe-examples-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-sun);
+  background: rgba(217, 169, 26, 0.07);
+}
+.vibe-examples-chevron { transition: transform var(--transition); }
+.vibe-examples-toggle.is-open .vibe-examples-chevron { transform: rotate(180deg); }
+
+/* The date card is the main event: it spans the grid instead of sitting as one
+   tile among twelve. */
+.vibe-card-birthday {
+  grid-column: 1 / -1;
+}
+.vibe-card-birthday .vibe-birthday-inner { padding: 20px; }
+
+/* The proof panel now lives inside section 1, under the toggle it explains, so
+   it no longer needs the standalone section's outer spacing. */
+#qualityStrip.quality-strip-section {
+  margin: 0 0 16px;
+  padding: 0;
+  background: transparent;
+}

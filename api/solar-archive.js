@@ -6023,6 +6023,26 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // re-open bar on the first real step transition; the bar toggles it
     // back. Guard on from!==to so the initial bootstrap sync (which can
     // dispatch step-change with from===to) doesn't collapse it on load.
+    // Examples are opt-in. The date picker is the point of this page; the
+    // famous-moment cards are a fallback for people who cannot think of a date.
+    (function _wireVibeExamplesToggle() {
+      var btn = document.getElementById("vibeExamplesToggle");
+      var box = document.getElementById("vibeExamples");
+      if (!btn || !box) return;
+      btn.addEventListener("click", function () {
+        var open = box.hasAttribute("hidden");
+        if (open) box.removeAttribute("hidden"); else box.setAttribute("hidden", "");
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        btn.classList.toggle("is-open", open);
+        // The cards were display:none until now, so their thumbnails may never
+        // have been measured or lazily rendered; re-measure once they exist.
+        if (open) {
+          try { refreshTriggers(); } catch (_e) {}
+          try { if (typeof loadWavelengthThumbnails === "function") loadWavelengthThumbnails(); } catch (_e) {}
+        }
+      });
+    })();
+
     (function _wireQualityStripCollapse() {
       var strip = document.getElementById("qualityStrip");
       var bar = document.getElementById("qualityStripBar");
