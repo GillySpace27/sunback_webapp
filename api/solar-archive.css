@@ -272,6 +272,29 @@ body::before {
 
 /* Landing quality-showcase strip (RHEF innovation, above the product picker). */
 .quality-strip-section { text-align: center; }
+/* Collapse-after-first-view: once .collapsed is set (first step transition),
+   hide the heavy showcase + copy and show only the thin re-open bar. */
+.quality-strip-bar { display: none; }
+.quality-strip-section.collapsed .quality-diptych,
+.quality-strip-section.collapsed .compare-slider,
+.quality-strip-section.collapsed .quality-strip-caption,
+.quality-strip-section.collapsed .quality-strip-fineprint { display: none !important; }
+.quality-strip-section.collapsed .quality-strip-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  background: var(--surface-2, rgba(255,255,255,0.04));
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
+  border-radius: 999px;
+  cursor: pointer;
+}
+.quality-strip-section.collapsed .quality-strip-bar:hover {
+  color: var(--accent-corona-text, #f3d385);
+}
 .quality-strip-section img {
   width: 100%;
   max-width: 1100px;

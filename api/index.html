@@ -148,6 +148,15 @@
        make_compare_pair.py); zero backend. If either 404s, the whole block is
        swapped for the baked quality_strip.webp so it can never render broken. -->
   <div class="section quality-strip-section" id="qualityStrip">
+    <!-- Collapsed affordance: shown only when .collapsed is on the section
+         (added on the first step transition — see _wireQualityStripCollapse).
+         Clicking it re-expands the strip; it is the "bring it back" control. -->
+    <button type="button" class="quality-strip-bar" id="qualityStripBar"
+            aria-expanded="true"
+            aria-label="Show the Original vs Filtered comparison">
+      <i class="fas fa-arrows-left-right" aria-hidden="true"></i>
+      Original vs Filtered &mdash; see what RHEF reveals
+    </button>
     <button type="button" class="quality-diptych" id="qualityDiptych"
             aria-label="The Sun before and after the contrast-equalization step, side by side. Activate to compare them hands-on with a draggable slider.">
       <span class="diptych-pane">

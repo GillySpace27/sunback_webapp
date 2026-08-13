@@ -5771,6 +5771,26 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       if (diptych) diptych.addEventListener("click", _activateSlider);
     })();
 
+    // ── Quality strip: collapse after first view ─────────────────
+    // The before/after showcase is worth seeing once, but pinned above
+    // every step it just eats vertical space. Collapse it to a thin
+    // re-open bar on the first real step transition; the bar toggles it
+    // back. Guard on from!==to so the initial bootstrap sync (which can
+    // dispatch step-change with from===to) doesn't collapse it on load.
+    (function _wireQualityStripCollapse() {
+      var strip = document.getElementById("qualityStrip");
+      var bar = document.getElementById("qualityStripBar");
+      if (!strip || !bar) return;
+      document.body.addEventListener("solar-archive:step-change", function (e) {
+        var d = (e && e.detail) || {};
+        if (d.from && d.from !== d.to) strip.classList.add("collapsed");
+      });
+      bar.addEventListener("click", function () {
+        var collapsed = strip.classList.toggle("collapsed");
+        bar.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      });
+    })();
+
     // ── Toast ────────────────────────────────────────────────────
     var toastTimer = null;
     function showToast(msg, type) {
