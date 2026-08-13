@@ -13,6 +13,9 @@ type State = {
   // selected wavelength (index into CHANNELS)
   channel: number;
   setChannel: (i: number) => void;
+  // has the visitor explicitly picked a wavelength yet? drives the "keep
+  // scrolling to continue" nudge once they've made a first choice
+  channelChosen: boolean;
 
   // the image identity date/time (fed to the Helioviewer texture + deep link)
   date: string; // YYYY-MM-DD
@@ -50,7 +53,8 @@ export const useStore = create<State>((set) => ({
   setProgress: (p) => set({ progress: p }),
 
   channel: DEFAULT_CHANNEL,
-  setChannel: (i) => set({ channel: i }),
+  setChannel: (i) => set({ channel: i, channelChosen: true }),
+  channelChosen: false,
 
   // default a few days back so a real AIA frame exists (data has some latency)
   date: new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10),

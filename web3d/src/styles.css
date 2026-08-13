@@ -129,8 +129,8 @@ body {
     justify-self: end;
     align-self: center;
     text-align: left;
-    max-width: 15ch;
-    margin-right: 4vw;
+    max-width: 26ch;
+    margin-right: 6vw;
   }
   .overlay-line--hero .eyebrow {
     text-align: left;
@@ -154,10 +154,40 @@ body {
     margin: 0 0 24vh 5vw;
   }
 }
-/* "Select a color." sits at the top, not overlaid on the wheel. */
+/* "Choose your wavelength." sits off to the side, clear of the color wheel,
+   which is centered in the frame during this beat. */
 .overlay-line--top {
-  align-self: start;
-  margin-top: 8vh;
+  align-self: center;
+  justify-self: start;
+  text-align: left;
+  max-width: 12ch;
+  margin-left: 5vw;
+}
+@media (max-width: 767px) {
+  /* phones: wheel fills more of the width, so push the copy to the top edge
+     instead of the side, where it stays clear */
+  .overlay-line--top {
+    align-self: start;
+    justify-self: center;
+    text-align: center;
+    max-width: 16ch;
+    margin: 6vh 0 0;
+  }
+}
+/* the post-pick nudge under "Choose your wavelength." */
+.scroll-hint {
+  margin: 1rem 0 0;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.85;
+  animation: hint-pulse 2.2s ease-in-out infinite;
+}
+@keyframes hint-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.95; }
 }
 /* crossing: Sun upper-left, Earth enters lower-right — keep the caption in the
    empty left band so it never sits on the Earth or the beam. */

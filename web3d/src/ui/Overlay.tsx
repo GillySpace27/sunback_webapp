@@ -5,15 +5,15 @@ import BuyLink from "./BuyLink";
 // scroll; opacity peaks mid-slice and falls at the edges. Text never animates
 // over a moving camera — it lives in the still center of each space.
 const COPY: Record<string, { eyebrow?: string; line: string }> = {
-  threshold: { eyebrow: "My Heliograph", line: "The Sun, on the day that mattered to you." },
+  threshold: { eyebrow: "My Heliograph", line: "Give the gift of the Sun, from the day that mattered." },
   surface: { line: "The light that lit your day." },
-  aperture: { line: "Select a color." },
+  aperture: { line: "Choose your wavelength." },
   crossing: { line: "Light that left the Sun eight minutes ago." },
-  sky: { line: "The same star, over your own backyard." },
+  sky: { line: "The same sunlight, over your own backyard." },
   darkroom: { line: "Through your window, onto your wall." },
   room: { line: "Your day, written in sunlight." },
   gift: { line: "Held still. Made to keep." },
-  gallery: { line: "On anything you'll keep." },
+  gallery: { line: "Printed on just about anything you can imagine." },
 };
 
 // One line per space. Each line HOLDS at full opacity across the middle of its
@@ -27,17 +27,22 @@ const HOLD = 0.5; // fraction of each half-slice held at full opacity before it 
 // already moved on. aperture: the wheel is only centered ~0.22–0.25, so it also
 // gets a narrow window (HALF_AT) so the copy is gone before the camera flies off.
 const PEAK_AT_START = new Set(["aperture"]);
-const HALF_AT: Record<string, number> = { aperture: 0.06 };
+// aperture peaks a beat AFTER its slice start (not at it) so its fade-in only
+// begins once "surface" has fully cleared — otherwise the two lines overlap
+// (surface was still fading out while "select a color" was already rising).
+const PEAK_OVERRIDE: Record<string, number> = { aperture: 0.25 };
+const HALF_AT: Record<string, number> = { aperture: 0.035 };
 function opacityFor(progress: number, i: number) {
   const key = SPACES[i].key;
   const start = SPACES[i].start;
   const end = i + 1 < SPACES.length ? SPACES[i + 1].start : 1.0001;
   const peak =
-    i === 0 || PEAK_AT_START.has(key)
+    PEAK_OVERRIDE[key] ??
+    (i === 0 || PEAK_AT_START.has(key)
       ? start
       : i === SPACES.length - 1
         ? end
-        : (start + end) / 2;
+        : (start + end) / 2);
   const half = HALF_AT[key] ?? Math.max(end - peak, peak - start, 1e-4);
   const d = Math.abs(progress - peak) / half; // 0 at peak, 1 at slice edge
   // full until d passes HOLD, then a quick linear fade to 0 at the edge
@@ -46,6 +51,7 @@ function opacityFor(progress: number, i: number) {
 
 export default function Overlay() {
   const progress = useStore((s) => s.progress);
+  const channelChosen = useStore((s) => s.channelChosen);
   return (
     <div className="overlay" aria-hidden="true">
       {SPACES.map((s, i) => {
@@ -81,6 +87,9 @@ export default function Overlay() {
             >
               {c.line}
             </p>
+            {s.key === "aperture" && channelChosen && (
+              <p className="scroll-hint">Keep scrolling to continue</p>
+            )}
             {s.key === "gift" && (
               // decorative twin of the real CTA in <nav id="buy">; kept out of the
               // tab order since the whole overlay is aria-hidden

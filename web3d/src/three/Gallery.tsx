@@ -100,6 +100,108 @@ const CHEST_GEO = (() => {
   return g;
 })();
 
+// engraved-brass plaque: a canvas texture (dark brass plate, embossed caps
+// text) on a thin plane — the cheap, lazy stand-in for a "real" engraved
+// look: a dark base fill, a slightly-offset light stroke, then the fill text.
+function plaqueTexture(text: string) {
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 128;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#3a2c14";
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = "rgba(201,163,78,0.5)";
+  g.lineWidth = 4;
+  g.strokeRect(8, 8, c.width - 16, c.height - 16);
+  g.font = '600 46px "Inter Variable", Inter, system-ui, sans-serif';
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.letterSpacing = "0.12em";
+  const x = c.width / 2 + 2;
+  const y = c.height / 2 + 2;
+  g.fillStyle = "rgba(0,0,0,0.55)";
+  g.fillText(text.toUpperCase(), x, y);
+  g.fillStyle = "#e8c877";
+  g.fillText(text.toUpperCase(), c.width / 2, c.height / 2);
+  return new THREE.CanvasTexture(c);
+}
+
+function Plaque({ x, y, z, text }: { x: number; y: number; z: number; text: string }) {
+  const tex = getPlaqueTexture(text);
+  return (
+    <mesh position={[x, y, z]} raycast={() => null}>
+      <planeGeometry args={[0.86, 0.215]} />
+      <meshBasicMaterial map={tex} toneMapped={false} />
+    </mesh>
+  );
+}
+
+// tiny memo cache so the same label's canvas isn't redrawn every render
+const plaqueCache = new Map<string, THREE.CanvasTexture>();
+function getPlaqueTexture(text: string) {
+  let t = plaqueCache.get(text);
+  if (!t) {
+    t = plaqueTexture(text);
+    plaqueCache.set(text, t);
+  }
+  return t;
+}
+
+// dial face UVs cropped to just the solar disk (matches CHEST_GEO/mug), so the
+// full circle fills with Sun instead of mostly the frame's black margin
+const DIAL_GEO = (() => {
+  const r = 1.02;
+  const g = new THREE.CircleGeometry(r, 40);
+  const pos = g.attributes.position;
+  const uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++)
+    uv.setXY(i, (pos.getX(i) / r) * DISC + 0.5, (pos.getY(i) / r) * DISC + 0.5);
+  uv.needsUpdate = true;
+  return g;
+})();
+
+// a wall clock: brass rim, the chosen Sun as the dial, two static hands
+// (fixed near 10:10 — the classic display pose) — stands in for one framed
+// print so the wall doesn't read as three identical posters.
+function ClockHand({ len, width, angle }: { len: number; width: number; angle: number }) {
+  // pivots at the clock center: offset half its length outward along `angle`
+  // (measured from 12 o'clock, clockwise), then rotated to point that way.
+  return (
+    <mesh
+      position={[Math.sin(angle) * (len / 2), Math.cos(angle) * (len / 2), 0.03]}
+      rotation={[0, 0, -angle]}
+    >
+      <planeGeometry args={[width, len]} />
+      <meshStandardMaterial color="#161208" />
+    </mesh>
+  );
+}
+
+function Clock({ pos, tex }: { pos: [number, number, number]; tex: THREE.Texture | null }) {
+  return (
+    <group position={pos}>
+      {/* matte-ish brass rim, set well behind the dial — rotating a cylinder
+          90° about X swaps its +Y cap to +Z, so a shallow z-offset here left
+          the rim's FRONT cap sitting in front of the dial and hiding it
+          entirely; -0.06 clears the dial's 0.08-thick front cap either side */}
+      <mesh position={[0, 0, -0.06]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[1.18, 1.18, 0.08, 40]} />
+        <meshStandardMaterial color="#a5793a" roughness={0.7} metalness={0.35} />
+      </mesh>
+      <mesh geometry={DIAL_GEO} position={[0, 0, 0.001]}>
+        {tex ? (
+          <meshBasicMaterial map={tex} toneMapped={false} />
+        ) : (
+          <meshStandardMaterial color="#1a0d08" roughness={1} />
+        )}
+      </mesh>
+      {/* hands, static at the classic 10:10 display pose */}
+      <ClockHand len={0.62} width={0.06} angle={-Math.PI / 3} />
+      <ClockHand len={0.42} width={0.08} angle={Math.PI / 3} />
+    </group>
+  );
+}
+
 function Frame({
   pos,
   w,
@@ -175,20 +277,23 @@ export default function Gallery() {
       <pointLight position={[11, -1.5, 24.5]} intensity={12} distance={26} color="#ffe0b0" />
       <pointLight position={[15, -2, 24]} intensity={8} distance={22} color="#ffd9a0" />
 
-      {/* wall pieces: poster, square canvas, small landscape — flat on the wall
+      {/* wall pieces: poster, wall clock, small landscape — flat on the wall
           (no toe-in), viewed nearly head-on by the centered gallery camera so the
           Suns read round; toe-in over-rotated them into tall ellipses and broke
-          the view from the room angle */}
+          the view from the room angle. The clock stands in for the old middle
+          poster so the wall doesn't read as three identical frames. */}
       <group {...hit("print")}>
         <Frame pos={[9.5, -3.6, WALL_Z]} w={2.0} h={2.7} tex={tex} />
-        <Frame pos={[12.4, -3.8, WALL_Z]} w={2.3} h={2.3} tex={tex} />
+        <Clock pos={[12.4, -3.7, WALL_Z]} tex={tex} />
         <Frame pos={[15.0, -4.1, WALL_Z]} w={2.0} h={1.5} tex={tex} />
+        <Plaque x={12.4} y={-5.25} z={WALL_Z + 0.05} text="Wall Art" />
       </group>
 
       {/* ── a pedestal row: one object per remaining product category, so every
              category the store sells is represented (home, drink, apparel, desk,
              gifts). All at plinth height, spread across the wall so the pan reveals
-             them; each is clickable and deep-links to its category. ── */}
+             them; each is clickable, deep-links to its category, and carries an
+             engraved-brass plaque naming the category. ── */}
 
       {/* HOME — a plump printed throw pillow */}
       <group {...hit("pillow")}>
@@ -200,11 +305,13 @@ export default function Gallery() {
             <meshStandardMaterial color="#c25a2a" roughness={0.95} />
           )}
         </mesh>
+        <Plaque x={8.7} y={-6.35} z={22.94} text="Home & Cozy" />
       </group>
 
       {/* DRINK — a mug, the Sun wrapped around it */}
       <group {...hit("mug")}>
         <Plinth x={10.3} z={23.4} />
+        <Plaque x={10.3} y={-6.35} z={22.94} text="Drinkware" />
         <group position={[10.3, -4.95, 23.4]} rotation={[0, -0.5, 0]}>
           <mesh>
             <cylinderGeometry args={[0.46, 0.42, 1.0, 28, 1, false]} />
@@ -224,6 +331,7 @@ export default function Gallery() {
       {/* APPAREL — a fabric t-shirt with the Sun printed on the chest */}
       <group {...hit("tee")}>
         <Plinth x={11.9} z={23.4} />
+        <Plaque x={11.9} y={-6.35} z={22.94} text="Apparel" />
         <group position={[11.9, -4.75, 23.5]} scale={0.92}>
           <mesh geometry={TEE_GEO}>
             <meshStandardMaterial color="#b7ada0" roughness={0.95} />
@@ -242,6 +350,7 @@ export default function Gallery() {
       {/* GIFTS — a glass ornament (bauble) with cap + hanging loop */}
       <group {...hit("ornament")}>
         <Plinth x={13.5} z={23.4} />
+        <Plaque x={13.5} y={-6.35} z={22.94} text="Gifts & Stationery" />
         <mesh position={[13.5, -4.95, 23.4]}>
           <sphereGeometry args={[0.5, 32, 32]} />
           {tex ? (
@@ -263,6 +372,7 @@ export default function Gallery() {
       {/* DESK & TECH — a phone case, the Sun printed on the back */}
       <group {...hit("phone")}>
         <Plinth x={15.1} z={23.4} />
+        <Plaque x={15.1} y={-6.35} z={22.94} text="Desk & Tech" />
         <group position={[15.1, -4.75, 23.4]} rotation={[-0.1, -0.12, 0]}>
           <mesh>
             <boxGeometry args={[0.62, 1.28, 0.08]} />

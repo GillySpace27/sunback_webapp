@@ -164,7 +164,17 @@ export default function Heliograph() {
       {/* "what it sees" tooltip on hover — identical copy + style to the toast's
           swatch tooltips */}
       {hoverIdx >= 0 && (
-        <Html position={wedges[hoverIdx].labelPos} center distanceFactor={8} zIndexRange={[20, 0]}>
+        <Html
+          position={[
+            wedges[hoverIdx].labelPos[0],
+            wedges[hoverIdx].labelPos[1] - 0.42,
+            wedges[hoverIdx].labelPos[2],
+          ]}
+          center
+          distanceFactor={8}
+          zIndexRange={[20, 0]}
+        >
+
           <span className="swatch-tip wheel-tip" role="tooltip">
             {CHANNELS[hoverIdx].sees}
           </span>
