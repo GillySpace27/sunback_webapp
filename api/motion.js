@@ -765,6 +765,64 @@ export function initChoreography() {
   }
 }
 
+// ── Diagnostics ────────────────────────────────────────────────────────
+// Exposed unconditionally and deliberately. When motion "isn't working" the
+// cause is almost never visible from the page: it is an OS reduce-motion
+// setting, a frame-rate downgrade, a once-per-session flag that already fired,
+// or the vendor bundle failing to load. Guessing between those from a
+// screenshot is hopeless; `__motion.why()` answers it in one line.
+export function why() {
+  const reasons = [];
+  let rm = false;
+  try {
+    rm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (e) {
+    /* ignore */
+  }
+  if (rm) reasons.push("OS 'reduce motion' is ON — this alone disables everything");
+  if (QUERY_AT_LOAD.get("fast") === "1") reasons.push("?fast=1 in the URL");
+  try {
+    const c = navigator.connection;
+    if (c && c.saveData) reasons.push("browser data-saver is ON");
+  } catch (e) {
+    /* ignore */
+  }
+  if (!motionState.ready) reasons.push("engine never initialised (vendor bundle failed to load?)");
+  if (motionState.tier >= 2) reasons.push(`tier ${motionState.tier} (frame rate probe downgraded it)`);
+  let seen = null;
+  try {
+    seen = sessionStorage.getItem("mr_rhef_seen");
+  } catch (e) {
+    /* ignore */
+  }
+  if (seen === "1") reasons.push("RHEF reveal already played this session (reload clears nothing — use __motion.replay())");
+  return {
+    running: motionState.ready && motionState.tier < 2 && !rm,
+    tier: motionState.tier,
+    ready: motionState.ready,
+    reducedMotion: rm,
+    triggers: ScrollTrigger ? ScrollTrigger.getAll().length : 0,
+    reasons: reasons.length ? reasons : ["nothing is suppressing motion"],
+  };
+}
+
+// Clear the once-per-session gates so the signature moments can be watched
+// again without opening a new private window.
+export function replay() {
+  try {
+    sessionStorage.removeItem("mr_rhef_seen");
+  } catch (e) {
+    /* ignore */
+  }
+  location.reload();
+}
+
+try {
+  window.__motion = { state: motionState, why, replay, setTier };
+} catch (e) {
+  /* debug handle only */
+}
+
 // Convenience for later phases: resolve a scrub value through the ladder.
 // Returns false when scrubbing is disabled, which ScrollTrigger treats as
 // "no scrub" — the animation then plays on entry instead of tracking scroll.
