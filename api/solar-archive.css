@@ -7296,3 +7296,71 @@ body.handoff-confirm #workflowBreadcrumb {
   .app-footer a::after,
   .handoff-card a::after { transition: none; }
 }
+
+/* ── MOLTEN RECORD phase 6: stillness ──────────────────────────────────
+   The concept's endpoint. The pour cools into a solid object, and the object
+   does not move.
+
+   Stillness is the conversion mechanic, not a compromise against the design.
+   Three things happen when ambient motion stops: attention is released for
+   reading (you cannot compare two images or check a price while something
+   drifts); stillness becomes the page's loudest gesture, since a page where
+   everything moves has no way to say "this matters"; and continuous motion
+   builds low-grade tension, so arriving at stillness on a CTA reads as
+   resolution rather than commitment.
+
+   Implemented as body classes + CSS rather than through the tween engine, so
+   suppression is reliable even when the engine is not. Suppression failing
+   open would be the expensive direction of that bet. */
+
+/* NOTE: only .field-cell pauses. .field-warm carries fieldPour, a one-shot
+   entrance, and pausing that would freeze the page's own arrival partway if a
+   modal or focus happened within the first second of load. */
+body.mr-still .field-cell { animation-play-state: paused; }
+body.mr-still .field-cell-core { transition: opacity 650ms cubic-bezier(0.33,1,0.68,1); }
+
+/* Motion is NEVER suppressed for user-initiated feedback. That contrast is the
+   entire point: inside a cooled, still checkout the button is the one live
+   element, which is what makes it read as the thing to press. Hover, press and
+   the link ignition therefore survive every rule above. */
+
+/* The checkout zero-motion zone: from the variant modal through to the Shopify
+   handoff. No convection, no breathing, no entrance animation. Only button
+   feedback and the progress indicator are permitted to move. */
+body.step-review .field-cell,
+body:has(#confirmSelectModal:not(.hidden)) .field-cell {
+  animation-play-state: paused;
+}
+body.step-review .field-cell-core,
+body:has(#confirmSelectModal:not(.hidden)) .field-cell-core {
+  opacity: calc(0.42 * var(--motion-amp));
+  transition: opacity 650ms cubic-bezier(0.33,1,0.68,1);
+}
+
+/* A form field with focus is a stillness basin. The date input especially:
+   someone is about to type a wedding, a birth, possibly a death. Motion around
+   that moment is noise at best. The page holds its breath. */
+body:has(input:focus, textarea:focus, select:focus) .field-cell {
+  animation-play-state: paused;
+}
+
+/* Proof and price both have to be READ, so neither competes with ambience. */
+body:has(#qualityStrip:hover) .field-cell { animation-play-state: paused; }
+
+/* Errors stop everything, so the visitor can read what went wrong.
+   Deliberately NOT keyed on `.status-msg:not(:empty)`: that element carries
+   ordinary backend-status text during normal operation, so the rule matched
+   permanently and the field never convected at all. Stillness that never lifts
+   is just a dead page. Gated on an explicit error class instead. */
+body:has(.status-msg.error, .status-msg.err, #alertRegion:not(:empty)) .field-cell {
+  animation-play-state: paused;
+}
+
+/* Async waits: ambient yields to DETERMINATE progress. During a cold backend
+   wake (~20s), an image generation, or an HQ render (1-3 min), idle convection
+   reads as "is this broken?" — a wait feels shorter when exactly one thing is
+   visibly advancing and everything else holds still. */
+body:has(#checkoutProgress:not(:empty)) .field-cell,
+body:has(#imageStage.loading) .field-cell {
+  animation-play-state: paused;
+}
