@@ -4937,6 +4937,7 @@ _FRONTEND_MODULES = {
     "feedback.js",
     "stats.js",
     "bundler.js",
+    "motion.js",
 }
 
 @app.get("/{module_name}")

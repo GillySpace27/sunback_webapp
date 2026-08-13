@@ -18,6 +18,7 @@ mkdir -p "$OUT"
 # api/main.py so .py source is never served.
 for f in index.html solar-archive.js solar-archive.css \
          state.js products.js colors.js mockups.js feedback.js stats.js bundler.js \
+         motion.js \
          favicon.svg robots.txt sitemap.xml; do
   cp "$API_DIR/$f" "$OUT/$f"
 done
@@ -48,6 +49,39 @@ cp "$FONTS_SRC/inter/files/inter-latin-standard-normal.woff2" "$OUT/asset/fonts/
   || echo "WARN: inter woff2 not found (run npm i in web3d) — store falls back to system sans"
 cp "$FONTS_SRC/fraunces/files/fraunces-latin-opsz-normal.woff2" "$OUT/asset/fonts/fraunces.woff2" 2>/dev/null \
   || echo "WARN: fraunces woff2 not found — store headings fall back to serif"
+
+# ── Vendored motion libraries (GSAP + Lenis) for the store ──────────────
+# Same trick as the fonts directly above: the store has no build step, so the
+# libraries are file-copied out of web3d's node_modules (where they are already
+# real dependencies) and imported as plain browser ESM.
+#
+# CRITICAL: copy the ESM at the gsap PACKAGE ROOT, not gsap/dist/*.js. The dist
+# builds are UMD — they contain no `export` statements at all, so
+# `import gsap from ".../gsap.js"` throws "does not provide an export named
+# 'default'". The package-root files are true ESM but import their own siblings
+# by RELATIVE path (index.js -> ./gsap-core.js, ./CSSPlugin.js;
+# ScrollTrigger.js -> ./Observer.js), which is why they must land FLAT in one
+# directory with their original filenames.
+GSAP_SRC="../../web3d/node_modules/gsap"
+LENIS_SRC="../../web3d/node_modules/lenis/dist"
+mkdir -p "$OUT/asset/vendor/utils"
+_vendor_ok=1
+for f in gsap-core.js CSSPlugin.js index.js Observer.js ScrollTrigger.js CustomEase.js; do
+  cp "$GSAP_SRC/$f" "$OUT/asset/vendor/$f" 2>/dev/null || _vendor_ok=0
+done
+# NOT flat: CustomEase.js imports "./utils/paths.js", so that subdirectory has
+# to survive the copy. paths.js has no imports of its own, so it is the only
+# file needed from utils/. (Verified: gsap-core, CSSPlugin, Observer and
+# ScrollTrigger import only flat siblings.)
+cp "$GSAP_SRC/utils/paths.js" "$OUT/asset/vendor/utils/paths.js" 2>/dev/null || _vendor_ok=0
+cp "$LENIS_SRC/lenis.mjs" "$OUT/asset/vendor/lenis.mjs" 2>/dev/null || _vendor_ok=0
+if [ "$_vendor_ok" = "1" ]; then
+  echo "motion vendor: $(find "$OUT/asset/vendor" -type f | wc -l | tr -d ' ') files -> public/asset/vendor/"
+else
+  # Non-fatal by design: motion.js feature-detects and the store degrades to
+  # the phase-1 CSS-only experience, which is complete on its own.
+  echo "WARN: GSAP/Lenis not found (run npm i in web3d) — store falls back to static"
+fi
 
 # Landing assets served STATIC from the edge so the landing page + product
 # grid + vibe gallery need ZERO backend (no waiting on a cold Fly wake).

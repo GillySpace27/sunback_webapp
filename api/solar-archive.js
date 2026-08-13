@@ -17,6 +17,11 @@ import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mocku
 import { setupFeedback } from "./feedback.js";
 import { recordStatEvent, addStatsBadge, productsByPopularity, initStats } from "./stats.js";
 import { saveDesignLocally, initBundler } from "./bundler.js";
+// MOLTEN RECORD motion engine. Safe to import unconditionally: it pulls the
+// GSAP/Lenis bundle with a dynamic import inside a try/catch, so a missing or
+// broken vendor directory leaves the store on its phase-1 CSS experience
+// rather than taking the page down.
+import { initMotion, scrollToTarget, refreshTriggers } from "./motion.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -404,19 +409,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
                     || document.getElementById("editSection");
             }
             if (target && typeof target.getBoundingClientRect === "function") {
-              var rect = target.getBoundingClientRect();
               // Account for the fixed top bars: breadcrumb (~44px) +
               // master toggle (~40px) ≈ 100px on step image. Editor
               // hides both, so 0 there. Product hides them too.
               var topPad = _scrollName === "image" ? 100 : 0;
-              var dest = (window.scrollY || 0) + rect.top - topPad;
-              window.scrollTo({ top: Math.max(0, dest), behavior: "auto" });
-            } else {
+              // `immediate` because this is a step CUT, not a journey: the
+              // visitor asked to be somewhere else, and animating the travel
+              // would make every step change feel slower than it is.
+              if (!scrollToTarget(target, { offset: -topPad, immediate: true })) {
+                var rect = target.getBoundingClientRect();
+                var dest = (window.scrollY || 0) + rect.top - topPad;
+                window.scrollTo({ top: Math.max(0, dest), behavior: "auto" });
+              }
+            } else if (!scrollToTarget(0, { immediate: true })) {
               window.scrollTo({ top: 0, behavior: "auto" });
             }
           } catch (_e) {
             try { window.scrollTo(0, 0); } catch (_e2) {}
           }
+          // The body-class swap above changed which sections are displayed,
+          // which invalidates every measured ScrollTrigger start/end on the
+          // page. Without this, trigger points silently go stale the first
+          // time anyone advances a step.
+          refreshTriggers();
         });
       }
       // Hash sync — skip when coming from popstate (the browser
@@ -662,10 +677,31 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // Now that we're not iframe-embedded, native scrollIntoView is
     // the right tool everywhere. The embedded-mode parent-postMessage
     // dance was deleted alongside the rest of the iframe scaffolding.
-    function _scrollToEl(el, block) {
+    // Single funnel for every DOCUMENT scroll in the app. Once Lenis owns the
+    // scroll, a native scrollIntoView is a second animator competing for the
+    // same scrollTop, which shows up as stutter and overshoot rather than a
+    // clean move — so everything routes through here and motion.js decides.
+    // Falls back to native automatically when Lenis is absent (static tier,
+    // reduced motion, or vendor failed to load).
+    //
+    // Scrolls of INTERNAL containers (e.g. the variant list, which has its own
+    // overflow-y) must NOT come through here: Lenis only owns the document.
+    // `immediate` preserves the several call sites that deliberately used
+    // behavior:"auto" so the scroll lands SYNCHRONOUSLY, before downstream
+    // layout mutations (HEK un-hide, product grid reveal) can cancel a smooth
+    // scroll mid-flight. Dropping that would reintroduce a fixed bug.
+    function _scrollToEl(el, block, immediate) {
       if (!el) return;
       block = block || "start";
-      try { el.scrollIntoView({ behavior: "smooth", block: block }); }
+      // "center"/"nearest" have no Lenis equivalent, so approximate by offset.
+      var offset = 0;
+      try {
+        if (block === "center") {
+          offset = -Math.max(0, (window.innerHeight - el.getBoundingClientRect().height) / 2);
+        }
+      } catch (_e0) { offset = 0; }
+      if (scrollToTarget(el, { offset: offset, immediate: !!immediate })) return;
+      try { el.scrollIntoView({ behavior: immediate ? "auto" : "smooth", block: block }); }
       catch (_e2) { try { el.scrollIntoView(); } catch (_e3) {} }
     }
 
@@ -878,6 +914,24 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         document.documentElement.classList.remove("dark");
       }
     });
+
+    // ── MOLTEN RECORD motion engine ──────────────────────────────
+    // Fire-and-forget. Everything inside is optional enhancement over a store
+    // that already works, so a rejection here must never surface as a broken
+    // page — it just means the visitor keeps the CSS-only experience.
+    // Deferred to idle so the ~100KB vendor bundle never competes with the
+    // product grid, mockups, or the backend warm-up for bandwidth.
+    (function () {
+      var go = function () { initMotion().catch(function () {}); };
+      if (typeof window.requestIdleCallback === "function") {
+        // Always pass a timeout: without one, requestIdleCallback can go
+        // unfired indefinitely on a page that stays busy, and this page is
+        // busy for a while on a cold load.
+        window.requestIdleCallback(go, { timeout: 2500 });
+      } else {
+        setTimeout(go, 600);
+      }
+    })();
 
     // ── State + Phase B manifest ─────────────────────────────────
     // The state singleton and the default-mockup manifest now live in
@@ -1814,13 +1868,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
             cfg.classList.remove("section-collapsed");
             var tog = document.getElementById("configSectionToggle");
             if (tog) tog.setAttribute("aria-expanded", "true");
-            cfg.scrollIntoView({ behavior: "smooth", block: "start" });
+            _scrollToEl(cfg, "start");
             return;
           }
           var wlGrid = document.getElementById("wlGrid")
                     || document.querySelector(".vibe-grid-section");
-          if (wlGrid) wlGrid.scrollIntoView({ behavior: "smooth", block: "start" });
-          else window.scrollTo({ top: 0, behavior: "smooth" });
+          if (wlGrid) _scrollToEl(wlGrid, "start");
+          else scrollToTarget(0, {});
         }, 0);
       });
     }
@@ -5201,7 +5255,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // synchronously before downstream layout mutations (HEK
         // un-hide, product grid reveal) cancel a smooth scroll.
         if (productSection && !productSection.classList.contains("hidden")) {
-          productSection.scrollIntoView({ behavior: "auto", block: "start" });
+          _scrollToEl(productSection, "start", true);
         } else {
           // Product section may still be .hidden if no image has
           // loaded yet — leave the auto-scroll-on-load latch and
@@ -5215,7 +5269,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           configSection.classList.remove("section-collapsed");
           var toggle = document.getElementById("configSectionToggle");
           if (toggle) toggle.setAttribute("aria-expanded", "true");
-          configSection.scrollIntoView({ behavior: "auto", block: "start" });
+          _scrollToEl(configSection, "start", true);
         }
         if (configSection) {
           setTimeout(function () {
@@ -5364,7 +5418,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           cfg.classList.remove("section-collapsed");
           var tog = document.getElementById("configSectionToggle");
           if (tog) tog.setAttribute("aria-expanded", "true");
-          cfg.scrollIntoView({ behavior: "auto", block: "start" });
+          _scrollToEl(cfg, "start", true);
         }
       } catch (_e) {}
     }
@@ -5395,7 +5449,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           var catKey = state.scrollToCategoryOnLoad;
           setTimeout(function () {
             var el = catKey && document.getElementById("cat-" + catKey);
-            if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "auto", block: "start" });
+            if (el) _scrollToEl(el, "start", true);
           }, 260);
         };
         var ed = document.getElementById("confirmEdit");
@@ -12606,7 +12660,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         '</div>';
 
       // Scroll checkout progress into view
-      checkoutProgress.scrollIntoView({ behavior: "smooth", block: "center" });
+      _scrollToEl(checkoutProgress, "center");
 
       // Disable all buy buttons during checkout
       productGrid.querySelectorAll(".product-buy-btn").forEach(function(btn) { btn.disabled = true; });
