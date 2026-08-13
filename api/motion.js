@@ -358,28 +358,89 @@ export function initMotion() {
 // the same matrix. Splitting by depth also reads better — the block drifts as
 // one mass while its contents surface individually.
 
-// Per-section drift as it traverses the viewport. Content flows past a fixed
-// camera; depth comes from scale and brightness rather than from movement
-// alone. Never applied to `.section` itself (containing-block trap, T1) and
-// never to a section marked data-still.
-function buildPass() {
-  const s = scrub(0.6);
-  if (!s) return; // tier 2+: no continuous scroll-linked motion at all
-  document.querySelectorAll(".section:not([data-still]) > .flow-inner").forEach((inner) => {
-    const section = inner.parentElement;
-    gsap
-      .timeline({
-        scrollTrigger: { trigger: section, start: "top bottom", end: "bottom top", scrub: s },
-      })
-      // ease:"none" is mandatory on a scrubbed tween. Scroll IS the timeline,
-      // so easing it warps the scroll-to-progress mapping and reads as input
-      // lag; all the liquidity comes from the scrub seconds value instead.
-      .fromTo(
-        inner,
-        { yPercent: 13, scale: 0.965 },
-        { yPercent: 0, scale: 1, ease: "none" }
-      )
-      .to(inner, { yPercent: -13, scale: 0.965, ease: "none" });
+// PASS (per-section parallax drift) was REMOVED, not tuned.
+//
+// It animated `.flow-inner`, which in this layout wraps a section heading and
+// at most one line of intro: measured at 30px tall. Worse, the store is a
+// stepped wizard that display:none's whole sections, and a hidden section has a
+// degenerate ScrollTrigger range, so the scrub never advanced at all —
+// translateY sat at its start value across every scroll position (measured
+// range: 0px). It was invisible by construction, and no amount of raising the
+// amplitude was going to change that.
+//
+// The motion budget moved to buildCardWave() below, which animates the product
+// and vibe grids: dozens of large elements that are actually on screen when the
+// visitor is looking at them.
+
+// The wave: the product and vibe grids are the only large, numerous, reliably
+// on-screen content this page has, so they carry the visible motion.
+//
+// Stagger is by SPATIAL DISTANCE from a wave origin (grid:"auto" with no axis),
+// not by DOM index. That is the whole difference between a wavefront crossing a
+// layout and a list animating one item at a time.
+//
+// The grids are rendered by JS after the catalog resolves, so this cannot be a
+// one-shot at init: it observes for cards appearing and animates each batch as
+// it lands. Cards already on screen when first seen are left alone — animating
+// content the visitor is already reading is the flash we keep having to avoid.
+const wavedGrids = new WeakSet();
+function waveIn(cards) {
+  if (!cards.length) return;
+  gsap.fromTo(
+    cards,
+    { opacity: 0, y: 46, scale: 0.94 },
+    {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      duration: 0.75,
+      ease: "crest",
+      immediateRender: false,
+      stagger: { each: 0.055, from: "start", grid: "auto", ease: "none" },
+      overwrite: "auto",
+    }
+  );
+}
+
+function buildCardWave() {
+  if (motionState.tier >= 3) return;
+  const grids = document.querySelectorAll(".product-grid, .vibe-grid");
+  grids.forEach((grid) => {
+    const sweep = () => {
+      // Only cards that are in view and have not already been waved.
+      const fresh = [];
+      grid.querySelectorAll(".product-card, .vibe-card").forEach((c) => {
+        if (wavedGrids.has(c)) return;
+        let r;
+        try {
+          r = c.getBoundingClientRect();
+        } catch (e) {
+          return;
+        }
+        if (!r.height) return; // not laid out yet (hidden step)
+        wavedGrids.add(c);
+        // Below the fold: let it wave in on arrival. Already on screen: mark it
+        // seen and leave it alone.
+        if (r.top < window.innerHeight * 0.92 && r.bottom > 0) return;
+        fresh.push(c);
+      });
+      if (!fresh.length) return;
+      fresh.forEach((c) => {
+        ScrollTrigger.create({
+          trigger: c,
+          start: "top 92%",
+          once: true,
+          onEnter: () => waveIn([c]),
+        });
+      });
+    };
+    sweep();
+    // Grids are populated asynchronously and re-rendered on step changes.
+    try {
+      new MutationObserver(() => sweep()).observe(grid, { childList: true });
+    } catch (e) {
+      /* observer is an optimisation, not a requirement */
+    }
   });
 }
 
@@ -427,7 +488,7 @@ function buildSurface(skipSet) {
     // anything whose trigger never fires — a section hidden by a step change
     // before it scrolled into view — stays at opacity 0 permanently. An
     // animation must never be able to leave content invisible.
-    const from = { opacity: 0, yPercent: 26, scale: 0.945 };
+    const from = { opacity: 0, y: 64, scale: 0.94 };
     const to = {
       opacity: 1,
       duration: instant ? 0.12 : 0.4,
@@ -449,8 +510,8 @@ function buildSurface(skipSet) {
     }
     tl.fromTo(
       el,
-      { yPercent: from.yPercent, scale: from.scale },
-      { yPercent: 0, scale: 1, duration: instant ? 0.12 : 0.9, ease: "crest",
+      { y: from.y, scale: from.scale },
+      { y: 0, scale: 1, duration: instant ? 0.12 : 0.9, ease: "crest",
         immediateRender: false },
       0
     );
@@ -751,7 +812,7 @@ export function initChoreography() {
   choreographyBuilt = true;
   try {
     buildFieldTemperature();
-    buildPass();
+    buildCardWave();
     // Inscriptions first: they claim their section headers so SURFACE does not
     // also animate the same block.
     const claimed = new Set();
@@ -821,6 +882,59 @@ try {
   window.__motion = { state: motionState, why, replay, setTier };
 } catch (e) {
   /* debug handle only */
+}
+
+// On-page readout at ?debug=motion. The console handle above assumes someone
+// can open devtools and knows the difference between a JS console and a shell
+// prompt; this needs nothing but a URL. It reports live values, so "is anything
+// actually animating" is answerable by looking rather than by inference.
+function mountDebugPanel() {
+  if (QUERY_AT_LOAD.get("debug") !== "motion") return;
+  const box = document.createElement("div");
+  box.setAttribute("aria-hidden", "true");
+  box.style.cssText =
+    "position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(0,0,0,.86);" +
+    "color:#e8e2d0;font:11px/1.45 ui-monospace,monospace;padding:10px 12px;" +
+    "border-radius:8px;border:1px solid rgba(240,199,94,.4);max-width:340px;" +
+    "white-space:pre;pointer-events:none";
+  document.body.appendChild(box);
+  const inner = document.querySelector(".section:not([data-still]) > .flow-inner");
+  const core = document.querySelector(".field-cell-core");
+  let frames = 0;
+  let last = performance.now();
+  let fps = 0;
+  const tick = () => {
+    frames++;
+    const now = performance.now();
+    if (now - last > 500) {
+      fps = Math.round(frames / ((now - last) / 1000));
+      frames = 0;
+      last = now;
+    }
+    const w = why();
+    const t = inner ? getComputedStyle(inner).transform : "n/a";
+    box.textContent =
+      "MOTION  running=" + w.running + "  tier=" + w.tier + "\n" +
+      "ready=" + w.ready + "  triggers=" + w.triggers + "  fps=" + fps + "\n" +
+      "reducedMotion=" + w.reducedMotion + "\n" +
+      "--field-temp=" +
+      (+getComputedStyle(document.documentElement).getPropertyValue("--field-temp") || 0).toFixed(3) +
+      "\n" +
+      "PASS y=" + (t && t !== "none" ? t.split(",").slice(-1)[0].replace(")", "").trim() : "none") + "\n" +
+      "cell opacity=" + (core ? (+getComputedStyle(core).opacity).toFixed(3) : "n/a") + "\n" +
+      w.reasons.join("\n");
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+try {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mountDebugPanel);
+  } else {
+    mountDebugPanel();
+  }
+} catch (e) {
+  /* debug only */
 }
 
 // Convenience for later phases: resolve a scrub value through the ladder.
