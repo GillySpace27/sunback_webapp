@@ -318,6 +318,24 @@ export function initMotion() {
       duration: 1.05,
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
       smoothWheel: true,
+      // Lenis captures the wheel for the whole document, which silently breaks
+      // every INTERNAL scroll container: the variant picker inside the modal
+      // could not be scrolled at all, the page just moved behind it. That sits
+      // directly on the purchase path — you cannot buy what you cannot scroll
+      // to. Anything with its own overflow opts out here.
+      prevent: (node) => {
+        try {
+          return !!(
+            node.closest &&
+            node.closest(
+              ".confirm-variant-picker, .confirm-size-chips, .confirm-modal, " +
+                "#confirmSelectModal, .modal, .feedback-panel, [data-lenis-prevent]"
+            )
+          );
+        } catch (e) {
+          return false;
+        }
+      },
     });
     lenis.on("scroll", ScrollTrigger.update);
     // Lenis is driven by GSAP's ticker rather than its own rAF so the two
@@ -396,14 +414,20 @@ const gridSweeps = [];
 
 function waveIn(card) {
   waveStats.fired++;
+  // Deliberately slow (1.5s). The trigger has to fire early, while the card is
+  // still entering from the bottom, because firing late on a visible card
+  // would blink it out and re-raise it. A long ease means the card is still
+  // visibly arriving as it travels up into the readable part of the viewport,
+  // instead of finishing off-screen — which is what "the entrance happens off
+  // the bottom" actually was.
   gsap.fromTo(
     card,
-    { opacity: 0, y: 46, scale: 0.94 },
+    { opacity: 0, y: 64, scale: 0.93 },
     {
       opacity: 1,
       y: 0,
       scale: 1,
-      duration: 0.75,
+      duration: 1.5,
       ease: "crest",
       immediateRender: false,
       overwrite: "auto",
@@ -433,6 +457,15 @@ function buildCardWave() {
   document.querySelectorAll(".product-grid, .vibe-grid").forEach((grid) => {
     const sweep = () => {
       grid.querySelectorAll(".product-card, .vibe-card").forEach((c) => {
+        // Safety net for the pre-hidden state: if a wired card is on screen and
+        // somehow never waved (a trigger lost to a step change, a refresh that
+        // skipped it), show it. Content must never be left invisible, and that
+        // guarantee cannot depend on a trigger firing.
+        if (c.__mrWired && !waved.has(c) && cardIsLive(c)) {
+          waved.add(c);
+          waveIn(c);
+          return;
+        }
         if (waved.has(c) || c.__mrWired) return;
         let r;
         try {
@@ -448,9 +481,14 @@ function buildCardWave() {
           return;
         }
         c.__mrWired = true;
+        // NOT pre-hidden. Setting the hidden state up front left every card
+        // stranded at opacity 0 — the tweens fired but the cards never came
+        // back. Content that is invisible unless an animation succeeds is the
+        // one failure mode worth refusing outright, so the from-state is
+        // applied by the tween itself and only once it is actually running.
         ScrollTrigger.create({
           trigger: c,
-          start: "top 82%",
+          start: "top 86%",
           // NO `once`. A trigger that fires while its step is hidden must be
           // able to fire again for real later.
           onEnter: () => {
