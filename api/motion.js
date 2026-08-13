@@ -247,10 +247,17 @@ let refreshQueued = false;
 export function refreshTriggers() {
   if (!ScrollTrigger || refreshQueued) return;
   refreshQueued = true;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
+  // setTimeout, not rAF: rAF is suspended in hidden/backgrounded tabs, and a
+  // step change that happens there would otherwise never re-measure — leaving
+  // a grid that just became visible with no triggers at all. Same house rule
+  // the step scroll follows.
+  setTimeout(() => {
+    setTimeout(() => {
       refreshQueued = false;
       try {
+        // A step change is the moment a hidden grid becomes measurable, so
+        // wire up any cards that had no layout the last time we looked.
+        resweepGrids();
         ScrollTrigger.refresh();
       } catch (e) {
         /* a failed refresh must never break navigation */
@@ -383,11 +390,12 @@ export function initMotion() {
 // one-shot at init: it observes for cards appearing and animates each batch as
 // it lands. Cards already on screen when first seen are left alone — animating
 // content the visitor is already reading is the flash we keep having to avoid.
-const wavedGrids = new WeakSet();
-function waveIn(cards) {
-  if (!cards.length) return;
+const waved = new WeakSet();
+const gridSweeps = [];
+
+function waveIn(card) {
   gsap.fromTo(
-    cards,
+    card,
     { opacity: 0, y: 46, scale: 0.94 },
     {
       opacity: 1,
@@ -396,50 +404,79 @@ function waveIn(cards) {
       duration: 0.75,
       ease: "crest",
       immediateRender: false,
-      stagger: { each: 0.055, from: "start", grid: "auto", ease: "none" },
       overwrite: "auto",
     }
   );
 }
 
+// Is this card actually on screen and laid out RIGHT NOW? A card in a
+// display:none step has height 0 and sits at position 0, which is what made
+// the first version fail: its trigger start collapsed to ~0, so the next
+// ScrollTrigger.refresh() fired onEnter while the card was invisible and
+// `once:true` destroyed the trigger. Every card burned its entrance without
+// ever being seen, and by the time the visitor scrolled there was nothing left
+// to play. Hence: no `once`, and an explicit visibility guard in onEnter.
+function cardIsLive(c) {
+  let r;
+  try {
+    r = c.getBoundingClientRect();
+  } catch (e) {
+    return false;
+  }
+  return r.height > 0 && r.top < window.innerHeight && r.bottom > 0;
+}
+
 function buildCardWave() {
   if (motionState.tier >= 3) return;
-  const grids = document.querySelectorAll(".product-grid, .vibe-grid");
-  grids.forEach((grid) => {
+  document.querySelectorAll(".product-grid, .vibe-grid").forEach((grid) => {
     const sweep = () => {
-      // Only cards that are in view and have not already been waved.
-      const fresh = [];
       grid.querySelectorAll(".product-card, .vibe-card").forEach((c) => {
-        if (wavedGrids.has(c)) return;
+        if (waved.has(c) || c.__mrWired) return;
         let r;
         try {
           r = c.getBoundingClientRect();
         } catch (e) {
           return;
         }
-        if (!r.height) return; // not laid out yet (hidden step)
-        wavedGrids.add(c);
-        // Below the fold: let it wave in on arrival. Already on screen: mark it
-        // seen and leave it alone.
-        if (r.top < window.innerHeight * 0.92 && r.bottom > 0) return;
-        fresh.push(c);
-      });
-      if (!fresh.length) return;
-      fresh.forEach((c) => {
+        if (!r.height) return; // hidden step: leave it for a later sweep
+        // Already on screen when first seen: mark it done rather than
+        // animating content the visitor is already reading.
+        if (r.top < window.innerHeight * 0.94 && r.bottom > 0) {
+          waved.add(c);
+          return;
+        }
+        c.__mrWired = true;
         ScrollTrigger.create({
           trigger: c,
-          start: "top 92%",
-          once: true,
-          onEnter: () => waveIn([c]),
+          start: "top 94%",
+          // NO `once`. A trigger that fires while its step is hidden must be
+          // able to fire again for real later.
+          onEnter: () => {
+            if (waved.has(c) || !cardIsLive(c)) return;
+            waved.add(c);
+            waveIn(c);
+          },
         });
       });
     };
+    gridSweeps.push(sweep);
     sweep();
-    // Grids are populated asynchronously and re-rendered on step changes.
     try {
-      new MutationObserver(() => sweep()).observe(grid, { childList: true });
+      new MutationObserver(sweep).observe(grid, { childList: true });
     } catch (e) {
       /* observer is an optimisation, not a requirement */
+    }
+  });
+}
+
+// Re-scan every grid. Called on step transitions, where a previously hidden
+// grid becomes measurable for the first time.
+export function resweepGrids() {
+  gridSweeps.forEach((fn) => {
+    try {
+      fn();
+    } catch (e) {
+      /* non-fatal */
     }
   });
 }
