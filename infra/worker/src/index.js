@@ -75,7 +75,14 @@ async function cacheThumb(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname } = url;
+    // The 3D experience lives at /experience/ (a directory index). Static Assets
+    // only serves the trailing-slash form, so the bare /experience falls through
+    // to here and would proxy to Fly (404). Redirect it to the canonical path.
+    if (pathname === "/experience") {
+      return Response.redirect(url.origin + "/experience/" + url.search, 301);
+    }
     if (pathname === "/asset" || pathname.startsWith("/asset/")) {
       return serveAsset(request, env);
     }
