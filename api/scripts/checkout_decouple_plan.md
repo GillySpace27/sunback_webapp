@@ -15,6 +15,25 @@ the window. Phase 0 proves that on real infrastructure before we build anything.
 
 ---
 
+## Phase 0 RESULT (probe run 2026-08-13, manual approval ON): GO
+
+Ran `printify_swap_probe.py` against the live shop. Confirmed to high confidence:
+- The order's `line_items` carry NO print file, only `product_id` + `variant_id`
+  + `print_provider_id` + `blueprint_id`. There is nowhere on the order for a
+  stale image to be pinned, so the print file must resolve from the product at
+  production time.
+- Swapping the product's print image via `PUT product` works. Constraint learned:
+  `print_areas.*.variant_ids` must cover EVERY variant on the product, not just
+  the enabled one (Printify re-validates the whole product on PUT). The Phase 3
+  job must fetch the product's variants and include them all in the PUT.
+- API orders land `pending`/`cost-calculation` briefly, then settle to `on-hold`
+  under manual approval (never auto-produce), and are cancellable once on-hold.
+  Both probe orders ended `canceled`; no charge, no production, no leftovers.
+
+Only residual: the actual factory file. Since the order stores no print file, the
+risk that image A still prints is low, but the plan keeps the one real held-order
+production-proof as the final gate before full rollout (Phase 0 step 3).
+
 ## Phase 0 — Validate the mechanism (do this first, ~1 hour, no code shipped)
 
 1. In the Printify dashboard set order approval to MANUAL
@@ -108,7 +127,9 @@ Job steps (idempotent, keyed by Shopify order id):
 3. Upload the HQ file to Printify (`POST /uploads/images.json`, by URL for large
    files, exactly as checkout does today).
 4. `PUT /shops/{shop}/products/{product_id}.json` with `print_areas` pointing at
-   the new image id.
+   the new image id. IMPORTANT (from the probe): `print_areas.*.variant_ids` must
+   list every variant on the product, so GET the product first and pass them all,
+   or the PUT 400s with code 8251.
 5. `POST /shops/{shop}/orders/{order_id}/send_to_production.json`.
 6. Record success on the order record.
 

@@ -153,8 +153,14 @@ def main() -> int:
         }
         r = _req("POST", f"/shops/{shop}/products.json", json=prod_payload)
         r.raise_for_status()
-        product_id = r.json()["id"]
+        product = r.json()
+        product_id = product["id"]
         print(f"  product_id = {product_id}")
+        # Printify's product PUT re-validates the WHOLE product: print_areas
+        # variant_ids must cover EVERY variant present on the product, not just
+        # the one we enabled. Collect them all for the swap PUT below.
+        all_variant_ids = [v["id"] for v in (product.get("variants") or [])] or [args.variant]
+        print(f"  product has {len(all_variant_ids)} variants; swap PUT will cover all")
 
         # 3) create ON-HOLD order (NO send_to_production). external_id keeps it
         #    idempotent-ish and easy to spot in the dashboard.
@@ -188,7 +194,7 @@ def main() -> int:
         # 5) swap the PRODUCT image to B
         print("\n[product] PUT update print_areas -> image B (blue)")
         put_payload = {"print_areas": [{
-            "variant_ids": [args.variant],
+            "variant_ids": all_variant_ids,
             "placeholders": [{"position": args.position, "images": [
                 {"id": img_b, "x": 0.5, "y": 0.5, "scale": 1.0, "angle": 0}
             ]}],
@@ -228,10 +234,23 @@ def main() -> int:
 
         return 0
     finally:
-        # ALWAYS clean up: cancel the order (free while on-hold), delete product.
+        # ALWAYS clean up: cancel the order (free while on-hold), THEN delete the
+        # product. API orders are briefly "pending" (not cancellable) before they
+        # settle to "on-hold" — poll until cancellable so nothing is left behind.
         if order_id:
-            print("\n[cleanup] cancel order")
-            _req("POST", f"/shops/{shop}/orders/{order_id}/cancel.json")
+            print("\n[cleanup] cancel order (waiting for on-hold if needed)")
+            for _ in range(10):
+                st = _req("GET", f"/shops/{shop}/orders/{order_id}.json").json().get("status")
+                c = _req("POST", f"/shops/{shop}/orders/{order_id}/cancel.json")
+                if c.status_code == 200:
+                    print("  order cancelled")
+                    break
+                if st and "production" in str(st).lower():
+                    print("  !! order in production; cannot cancel — check the dashboard")
+                    break
+                time.sleep(3)
+            else:
+                print("  !! could not cancel; delete it from the Printify dashboard")
         if product_id and not args.keep:
             print("[cleanup] delete product")
             _req("DELETE", f"/shops/{shop}/products/{product_id}.json")
