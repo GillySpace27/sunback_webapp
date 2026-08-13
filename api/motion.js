@@ -863,6 +863,99 @@ export function initChoreography() {
   }
 }
 
+// ── Phase 5: micro-interactions ────────────────────────────────────────
+//
+// Deliberately built with ZERO GSAP and zero requestAnimationFrame. Everything
+// here is a CSS transition driven by custom properties that plain pointer
+// handlers write. Two reasons:
+//
+//   1. It works even when the tween engine does not. The field's CSS drift was
+//      the one thing visibly running on Gilly's machine while every GSAP-driven
+//      effect appeared dead, so anything that must be seen should not depend on
+//      the part that is in question.
+//   2. Hover feedback has to be instant. Routing a pointermove through a tween
+//      engine adds latency to the one interaction where latency is most
+//      obvious.
+//
+// This also isolates the outstanding mystery: if these appear and the scroll
+// choreography still does not, the fault is squarely in GSAP's rendering.
+//
+// Cursor work is gated to real pointers. On touch, `:hover` sticks after a tap
+// and tilt fires on contact, both of which read as broken.
+export function initInteractions() {
+  let fine = false;
+  try {
+    fine = window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches;
+  } catch (e) {
+    fine = false;
+  }
+  if (!fine || staticModeRequested()) return;
+
+  const CARD = ".product-card, .vibe-card";
+  const BTN =
+    ".product-select-btn, .vibe-open, .btn-buy-in-editor, .cta, " +
+    ".handoff-continue, .confirm-modal-btn, .vibe-master-btn, .wl-submit-btn";
+
+  // Rects are cached on enter and invalidated on leave. Calling
+  // getBoundingClientRect() inside pointermove forces synchronous layout on
+  // every event, which is the classic way to destroy interaction latency.
+  let rect = null;
+
+  document.addEventListener(
+    "pointerover",
+    (e) => {
+      const el = e.target.closest ? e.target.closest(CARD + "," + BTN) : null;
+      if (!el) return;
+      try {
+        rect = el.getBoundingClientRect();
+      } catch (err) {
+        rect = null;
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    "pointermove",
+    (e) => {
+      const el = e.target.closest ? e.target.closest(CARD + "," + BTN) : null;
+      if (!el) return;
+      if (!rect) {
+        try {
+          rect = el.getBoundingClientRect();
+        } catch (err) {
+          return;
+        }
+      }
+      const nx = (e.clientX - rect.left) / (rect.width || 1);
+      const ny = (e.clientY - rect.top) / (rect.height || 1);
+      // Where the light is: drives the button's reconnection glow and the
+      // card's limb heating.
+      el.style.setProperty("--lx", (nx * 100).toFixed(1) + "%");
+      el.style.setProperty("--ly", (ny * 100).toFixed(1) + "%");
+      if (el.matches(CARD)) {
+        // Capped at 3.5deg. Past about 5 a card stops being a card and starts
+        // being a gimmick, and the parallax fights the product photo.
+        el.style.setProperty("--mr-ry", ((nx - 0.5) * 7).toFixed(2) + "deg");
+        el.style.setProperty("--mr-rx", ((0.5 - ny) * 7).toFixed(2) + "deg");
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    "pointerout",
+    (e) => {
+      const el = e.target.closest ? e.target.closest(CARD + "," + BTN) : null;
+      if (!el) return;
+      rect = null;
+      el.style.removeProperty("--mr-rx");
+      el.style.removeProperty("--mr-ry");
+    },
+    true
+  );
+}
+
 // ── Diagnostics ────────────────────────────────────────────────────────
 // Exposed unconditionally and deliberately. When motion "isn't working" the
 // cause is almost never visible from the page: it is an OS reduce-motion

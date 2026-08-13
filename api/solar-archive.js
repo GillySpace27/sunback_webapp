@@ -21,7 +21,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 // GSAP/Lenis bundle with a dynamic import inside a try/catch, so a missing or
 // broken vendor directory leaves the store on its phase-1 CSS experience
 // rather than taking the page down.
-import { initMotion, scrollToTarget, refreshTriggers, sunSurge } from "./motion.js";
+import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions } from "./motion.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -928,6 +928,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge } from "./motion.
     // page — it just means the visitor keeps the CSS-only experience.
     // Deferred to idle so the ~100KB vendor bundle never competes with the
     // product grid, mockups, or the backend warm-up for bandwidth.
+    // Micro-interactions run IMMEDIATELY and independently of the motion
+    // engine: they are pure CSS transitions driven by pointer handlers, with
+    // no GSAP and no rAF, so hover feedback is instant and survives the tween
+    // engine failing to load at all.
+    try { initInteractions(); } catch (_eInter) {}
+
     (function () {
       var go = function () { initMotion().catch(function () {}); };
       if (typeof window.requestIdleCallback === "function") {

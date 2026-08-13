@@ -7153,3 +7153,146 @@ body.handoff-confirm #workflowBreadcrumb {
   #qualityStrip .diptych-pane:nth-of-type(2) .diptych-img { filter: none; }
   .mr-char { text-shadow: none; color: inherit; }
 }
+
+/* ── MOLTEN RECORD phase 5: micro-interactions ─────────────────────────
+   Pure CSS transitions driven by custom properties that plain pointer
+   handlers write (see initInteractions in motion.js). No GSAP, no rAF: hover
+   feedback has to be instant, and it must not depend on the tween engine.
+
+   Retuned for plasma rather than water throughout. A cursor here is a MAGNETIC
+   FOOTPOINT that organises light toward itself, not a paddle displacing a
+   fluid; a press is magnetic RECONNECTION, elongated along the field, not a
+   ripple expanding as a ring. --lx/--ly are the pointer position within the
+   element, in percent. */
+
+/* Buttons: reconnection. The 60%/140% gradient is the whole idea — energy
+   elongates ALONG the button's long axis because plasma runs along field
+   lines, where a Material-style ripple would expand as a circle. */
+.product-select-btn,
+.vibe-open,
+.btn-buy-in-editor,
+.cta,
+.handoff-continue,
+.confirm-modal-btn,
+.vibe-master-btn {
+  position: relative;
+  isolation: isolate;
+  --lx: 50%;
+  --ly: 50%;
+}
+.product-select-btn::before,
+.vibe-open::before,
+.btn-buy-in-editor::before,
+.cta::before,
+.handoff-continue::before,
+.confirm-modal-btn::before,
+.vibe-master-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  background: radial-gradient(60% 140% at var(--lx) var(--ly),
+    rgba(255, 248, 232, 0.55) 0%,
+    rgba(240, 199, 94, 0.30) 38%,
+    transparent 72%);
+}
+.product-select-btn:hover::before,
+.vibe-open:hover::before,
+.btn-buy-in-editor:hover::before,
+.cta:hover::before,
+.handoff-continue:hover::before,
+.confirm-modal-btn:hover::before,
+.vibe-master-btn:hover::before { opacity: 1; }
+
+/* The press: impulsive rise, long decay. Real flares rise in seconds and decay
+   over minutes, roughly 1:15, and that asymmetry is why this reads as a
+   release of energy rather than a generic button bounce. */
+@keyframes mrReconnect {
+  0%   { opacity: 0; transform: scale(0.96); }
+  8%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+.product-select-btn:active::before,
+.vibe-open:active::before,
+.btn-buy-in-editor:active::before,
+.cta:active::before,
+.handoff-continue:active::before,
+.confirm-modal-btn:active::before,
+.vibe-master-btn:active::before {
+  animation: mrReconnect 900ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/* Cards: tilt toward the footpoint plus directional limb heating on the edge
+   nearest the cursor. Deliberately NOT a wobble — a settle time in front of a
+   click target is a tax on the one zone where time-to-click must not rise, and
+   jelly physics reads as rubber, which is the wrong material entirely. */
+@media (hover: hover) and (pointer: fine) {
+  .product-card,
+  .vibe-card { --mr-rx: 0deg; --mr-ry: 0deg; --lx: 50%; --ly: 50%; }
+
+  .product-card:hover {
+    transform: translateY(-3px) perspective(900px)
+               rotateX(var(--mr-rx)) rotateY(var(--mr-ry));
+  }
+  .vibe-card:hover {
+    transform: translateY(-1px) perspective(900px)
+               rotateX(var(--mr-rx)) rotateY(var(--mr-ry));
+  }
+  /* Compression heating on the near limb. */
+  .product-card::after,
+  .vibe-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 220ms ease;
+    background: radial-gradient(38% 38% at var(--lx) var(--ly),
+      rgba(245, 205, 100, 0.20) 0%, transparent 70%);
+  }
+  .product-card { position: relative; }
+  .product-card:hover::after,
+  .vibe-card:hover::after { opacity: 1; }
+}
+
+/* Links: filament ignition. The underline runs OUTWARD from wherever the
+   cursor approached rather than wiping left-to-right, which is both more
+   physical and free — it is one transform-origin read from the pointer. */
+.quality-strip-fineprint a,
+.app-footer a,
+.handoff-card a {
+  position: relative;
+  text-decoration: none;
+  --lx: 50%;
+}
+.quality-strip-fineprint a::after,
+.app-footer a::after,
+.handoff-card a::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -2px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    var(--accent-sun), var(--accent-corona) 50%, var(--accent-sun));
+  transform: scaleX(0);
+  transform-origin: var(--lx) 50%;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.quality-strip-fineprint a:hover::after,
+.app-footer a:hover::after,
+.handoff-card a:hover::after { transform: scaleX(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .product-card:hover,
+  .vibe-card:hover { transform: none; }
+  .product-card::after,
+  .vibe-card::after { display: none; }
+  .quality-strip-fineprint a::after,
+  .app-footer a::after,
+  .handoff-card a::after { transition: none; }
+}
