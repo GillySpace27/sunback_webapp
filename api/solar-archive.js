@@ -1107,11 +1107,19 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
     }
 
+    // A "wall clock" for clock-FEATURE purposes (numerals, live hands,
+    // Clock tab) = the standard wall_clock plus the acrylic wall clock, which
+    // gets the same treatment. Shape gates (circular clip/preview) use
+    // printShape === "circle" instead and already cover both clocks.
+    function _isWallClock(id) {
+      return id === "wall_clock" || id === "wall_clock_acrylic";
+    }
+
     function updateClockNumbersButtonVisibility() {
       var clockTab = document.querySelector('.edit-tab[data-tab="clock"]');
       var clockPanel = document.getElementById("tabPanel_clock");
       if (!clockTab || !clockPanel) return;
-      if (state.selectedProduct === "wall_clock") {
+      if (_isWallClock(state.selectedProduct)) {
         clockTab.classList.remove("hidden");
       } else {
         clockTab.classList.add("hidden");
@@ -1164,12 +1172,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // no-ops when there's nothing to draw; only pay for the redraw when
     // the tab is actually visible.
     setInterval(function () {
-      if (state.selectedProduct === "wall_clock" && document.visibilityState === "visible") {
+      if (_isWallClock(state.selectedProduct) && document.visibilityState === "visible") {
         refreshLivePreview();
       }
     }, 60000);
     document.addEventListener("visibilitychange", function () {
-      if (document.visibilityState === "visible" && state.selectedProduct === "wall_clock") {
+      if (document.visibilityState === "visible" && _isWallClock(state.selectedProduct)) {
         refreshLivePreview();
       }
     });
@@ -1352,8 +1360,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       state.selectedProduct = productId;
 
-      // Clear clock numbers when switching away from wall_clock
-      if (productId !== "wall_clock" && state.clockNumbers) {
+      // Clear clock numbers when switching away from a clock product
+      if (!_isWallClock(productId) && state.clockNumbers) {
         state.clockNumbers = null;
         var clockPanel = document.getElementById("tabPanel_clock");
         if (clockPanel) clockPanel.classList.add("hidden");
@@ -1803,6 +1811,29 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       });
     }
 
+    // ── Start over from scratch ──────────────────────────────────
+    // Wipe every persisted choice and reload as a clean first visit.
+    // Reuses the sanctioned ?fresh=1 switch (clears storage BEFORE any
+    // restore path runs — see the bootstrap reset above), which also
+    // sidesteps the pagehide re-persist that defeats a manual clear.
+    function _startOver() {
+      try { localStorage.clear(); sessionStorage.clear(); } catch (_e) {}
+      // ?fresh=1 clears again pre-restore, belt-and-suspenders against
+      // the pagehide re-persist race.
+      window.location.assign(window.location.pathname + "?fresh=1");
+    }
+    // Wire every Start-over control (breadcrumb on desktop + editor nav on
+    // mobile both carry .js-start-over).
+    document.querySelectorAll(".js-start-over").forEach(function (b) {
+      b.addEventListener("click", function () {
+        // Confirm — this discards the current design. Prevents an
+        // accidental tap from wiping work (don't-simplify-away: data loss).
+        if (window.confirm("Start over? This clears your current image, product, and edits.")) {
+          _startOver();
+        }
+      });
+    });
+
     // Re-open the variant picker for the currently-selected product.
     // Falls back to clicking the matching product card's "Pick a
     // variant" button if showConfirmSelectModal isn't reachable yet
@@ -2104,6 +2135,22 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 
       loadHelioviewerPreview(state.wavelength, dateInput.value);
     });
+
+    // Explicit "See this wavelength" submit for the fine-tune section.
+    // Re-fires the pipeline for the currently-selected wavelength by
+    // routing through the wl-card click above (which owns date-range
+    // guards, stale-slug clearing, and the forward scroll) — clicking the
+    // already-selected card still regenerates, so this also re-submits the
+    // same wavelength after a time change.
+    var wlSubmitBtn = document.getElementById("wlSubmitBtn");
+    if (wlSubmitBtn) {
+      wlSubmitBtn.addEventListener("click", function () {
+        var sel = wlGrid.querySelector(".wl-card.selected")
+               || wlGrid.querySelector('.wl-card[data-wl="' + (state.wavelength || 193) + '"]')
+               || wlGrid.querySelector(".wl-card");
+        if (sel) sel.click();
+      });
+    }
 
     /**
      * Load a Helioviewer image into the preview canvas when a tile is clicked.
@@ -2609,10 +2656,13 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // ── Show/hide wavelength grid based on whether a date is set ──
     function updateWavelengthSectionDateState() {
       if (!wlGrid || !dateInput) return;
+      var wlSubmit = document.getElementById("wlSubmitBtn");
       if (dateInput.value && String(dateInput.value).trim()) {
         wlGrid.classList.remove("hidden");
+        if (wlSubmit) wlSubmit.classList.remove("hidden");
       } else {
         wlGrid.classList.add("hidden");
+        if (wlSubmit) wlSubmit.classList.add("hidden");
       }
     }
 
@@ -5877,6 +5927,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         var collapsed = strip.classList.toggle("collapsed");
         bar.setAttribute("aria-expanded", collapsed ? "false" : "true");
       });
+      // Manual "Hide comparison" — collapse on demand.
+      var hide = document.getElementById("qualityStripHide");
+      if (hide) hide.addEventListener("click", function () {
+        strip.classList.add("collapsed");
+        bar.setAttribute("aria-expanded", "false");
+      });
     })();
 
     // ── Toast ────────────────────────────────────────────────────
@@ -7454,7 +7510,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // must be numeral-free, or the mockup's own numeral pass doubles them
       // (2026-07-25, Conner's clock report). drawProductMockup is the single
       // source of truth for numerals on every displayed/exported surface.
-      if (!state._burningCanvas && state.clockNumbers && state.selectedProduct === "wall_clock") {
+      if (!state._burningCanvas && state.clockNumbers && _isWallClock(state.selectedProduct)) {
         var cn = state.clockNumbers;
         var cw = solarCanvas.width;
         var ch = solarCanvas.height;
@@ -7774,7 +7830,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // immediately — without this the user had to wiggle a slider
         // before any numerals showed up at all.
         if (tab.dataset.tab === "clock"
-            && state.selectedProduct === "wall_clock"
+            && _isWallClock(state.selectedProduct)
             && !state.clockNumbers
             && typeof applyClockNumbersFromPanel === "function") {
           applyClockNumbersFromPanel();
@@ -10407,7 +10463,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (currentId == null && variants.length) currentId = variants[0].id;
         select.value = currentId != null ? String(currentId) : (variants[0] ? String(variants[0].id) : "");
         wrap.classList.remove("hidden");
-        if (note) note.classList.toggle("hidden", product.id !== "wall_clock");
+        if (note) note.classList.toggle("hidden", !_isWallClock(product.id));
       }
 
       if (variantCache[cacheKey]) {
@@ -11328,7 +11384,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // controls — beta tester noticed they couldn't add 12 numerals around
       // the clock face anymore.
       if (typeof updateClockNumbersButtonVisibility === "function") updateClockNumbersButtonVisibility();
-      if (product.id === "wall_clock") {
+      if (_isWallClock(product.id)) {
         var clockTabBtn = document.querySelector('.edit-tab[data-tab="clock"]');
         if (clockTabBtn && !clockTabBtn.classList.contains("active")) clockTabBtn.click();
       }
