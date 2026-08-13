@@ -203,9 +203,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           wl: q.get("wl") || "",
           vibe: q.get("vibe") || "",
           cat: validCat,
+          // tune=1: the 3D gallery already settled date + wavelength, so land
+          // on the fine-tune panel where the day's HEK events make the one
+          // remaining question — which MOMENT of that day — answerable.
+          tune: q.get("tune") === "1",
         };
       } catch (_e) {
-        return { p: "", d: "", t: "", wl: "", vibe: "", cat: "" };
+        return { p: "", d: "", t: "", wl: "", vibe: "", cat: "", tune: false };
       }
     })();
     // A specific product (p) only wins when there's no category deep-link. A
@@ -5526,7 +5530,25 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (cont) cont.onclick = function () {
           if (ov) ov.hidden = true;
           document.body.classList.remove("handoff-confirm");
-          // land on the product picker, scrolled to the deep-linked category
+          // Arriving from a gallery piece (tune=1): the date and wavelength are
+          // already decided, so open the fine-tune panel instead of the product
+          // picker. The day's HEK events are listed there, which is what makes
+          // "which moment of that day" a real choice rather than a guess at a
+          // time field.
+          if (_shareParams.tune) {
+            if (typeof setStep === "function") setStep("image");
+            setTimeout(function () {
+              var cfg = document.getElementById("configSection");
+              if (cfg) {
+                cfg.classList.remove("section-collapsed");
+                var tog = document.getElementById("configSectionToggle");
+                if (tog) tog.setAttribute("aria-expanded", "true");
+                _scrollToEl(cfg, "start", true);
+              }
+            }, 260);
+            return;
+          }
+          // Otherwise land on the product picker, scrolled to the category.
           if (typeof setStep === "function") setStep("product");
           var catKey = state.scrollToCategoryOnLoad;
           setTimeout(function () {

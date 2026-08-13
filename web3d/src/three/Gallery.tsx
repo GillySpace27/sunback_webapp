@@ -1,4 +1,5 @@
-import { ThreeEvent } from "@react-three/fiber";
+import { useRef, useState } from "react";
+import { ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "../store";
 import { CHANNELS } from "../data/wavelengths";
@@ -239,6 +240,52 @@ function Frame({
   );
 }
 
+
+// Golden hover rim. Bloom is already running over this scene (Effects.tsx), so
+// an additive gold plane behind a piece reads as a glowing outline around it
+// without a second render pass or an Outline effect — the bloom does the
+// spreading for free.
+//
+// The shimmer is a slow sine on opacity plus a barely-there scale breath: it
+// has to say "this is clickable" without turning the gallery into a fairground.
+function HoverGlow({
+  active,
+  pos,
+  size,
+}: {
+  active: boolean;
+  pos: [number, number, number];
+  size: number;
+}) {
+  const mat = useRef<THREE.MeshBasicMaterial>(null!);
+  const grp = useRef<THREE.Group>(null!);
+  useFrame((state) => {
+    if (!mat.current || !grp.current) return;
+    const t = state.clock.elapsedTime;
+    const target = active ? 0.5 + 0.16 * Math.sin(t * 3.1) : 0;
+    // eased so the glow arrives and leaves softly rather than snapping
+    mat.current.opacity += (target - mat.current.opacity) * 0.15;
+    const s = active ? 1 + 0.02 * Math.sin(t * 2.3) : 0.94;
+    grp.current.scale.setScalar(grp.current.scale.x + (s - grp.current.scale.x) * 0.15);
+  });
+  return (
+    <group ref={grp} position={pos}>
+      <mesh raycast={() => null}>
+        <planeGeometry args={[size, size]} />
+        <meshBasicMaterial
+          ref={mat}
+          color="#f5cd64"
+          transparent
+          opacity={0}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
 export default function Gallery() {
   const tex = useStore((s) => s.currentTexture);
   const date = useStore((s) => s.date);
@@ -247,23 +294,37 @@ export default function Gallery() {
   // present from the room beat on; off-frame (to the right) until the pan
   const show = useStore((s) => s.progress > 0.8);
 
-  // clicking a piece hands off to the store, scrolled to that product category
+  const [hovered, setHovered] = useState<GalleryKind | null>(null);
+
+  // Clicking a piece hands off to the store. The experience has ALREADY chosen
+  // the date and the wavelength, so dropping the visitor at the top of the
+  // funnel would ask them to re-answer questions they just answered. Instead
+  // they land on the fine-tune panel, where the day's HEK events are listed and
+  // the one thing still genuinely open — which moment of that day — can be
+  // chosen with the flares and CMEs in front of them.
   const go = (kind: GalleryKind) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     warmBackend();
     window.location.href = buyUrl(date, time, CHANNELS[channel].angstrom, {
       cat: GALLERY_CATEGORY[kind],
+      tune: true,
     });
   };
-  const over = (e: ThreeEvent<PointerEvent>) => {
+  const over = (kind: GalleryKind) => (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     warmBackend();
+    setHovered(kind);
     document.body.style.cursor = "pointer";
   };
   const out = () => {
+    setHovered(null);
     document.body.style.cursor = "auto";
   };
-  const hit = (kind: GalleryKind) => ({ onClick: go(kind), onPointerOver: over, onPointerOut: out });
+  const hit = (kind: GalleryKind) => ({
+    onClick: go(kind),
+    onPointerOver: over(kind),
+    onPointerOut: out,
+  });
 
   if (!show) return null;
 
@@ -283,10 +344,11 @@ export default function Gallery() {
           the view from the room angle. The clock stands in for the old middle
           poster so the wall doesn't read as three identical frames. */}
       <group {...hit("print")}>
+        <HoverGlow active={hovered === "print"} pos={[12.3, -3.7, WALL_Z - 0.12]} size={9.2} />
         <Frame pos={[9.5, -3.6, WALL_Z]} w={2.0} h={2.7} tex={tex} />
         <Clock pos={[12.4, -3.7, WALL_Z]} tex={tex} />
         <Frame pos={[15.0, -4.1, WALL_Z]} w={2.0} h={1.5} tex={tex} />
-        <Plaque x={12.4} y={-5.25} z={WALL_Z + 0.05} text="Wall Art" />
+        <Plaque x={12.4} y={-1.95} z={WALL_Z + 0.05} text="Wall Art" />
       </group>
 
       {/* ── a pedestal row: one object per remaining product category, so every
@@ -297,6 +359,7 @@ export default function Gallery() {
 
       {/* HOME — a plump printed throw pillow */}
       <group {...hit("pillow")}>
+        <HoverGlow active={hovered === "pillow"} pos={[8.7, -5.0, 23.0]} size={2.4} />
         <Plinth x={8.7} z={23.4} />
         <mesh geometry={PILLOW_GEO} position={[8.7, -5.0, 23.5]} rotation={[-0.18, 0.18, 0.05]}>
           {tex ? (
@@ -305,13 +368,14 @@ export default function Gallery() {
             <meshStandardMaterial color="#c25a2a" roughness={0.95} />
           )}
         </mesh>
-        <Plaque x={8.7} y={-6.35} z={22.94} text="Home & Cozy" />
+        <Plaque x={8.7} y={-5.8} z={22.93} text="Home & Cozy" />
       </group>
 
       {/* DRINK — a mug, the Sun wrapped around it */}
       <group {...hit("mug")}>
+        <HoverGlow active={hovered === "mug"} pos={[10.3, -4.95, 23.0]} size={2.2} />
         <Plinth x={10.3} z={23.4} />
-        <Plaque x={10.3} y={-6.35} z={22.94} text="Drinkware" />
+        <Plaque x={10.3} y={-5.8} z={22.93} text="Drinkware" />
         <group position={[10.3, -4.95, 23.4]} rotation={[0, -0.5, 0]}>
           <mesh>
             <cylinderGeometry args={[0.46, 0.42, 1.0, 28, 1, false]} />
@@ -330,8 +394,9 @@ export default function Gallery() {
 
       {/* APPAREL — a fabric t-shirt with the Sun printed on the chest */}
       <group {...hit("tee")}>
+        <HoverGlow active={hovered === "tee"} pos={[11.9, -4.75, 23.05]} size={2.5} />
         <Plinth x={11.9} z={23.4} />
-        <Plaque x={11.9} y={-6.35} z={22.94} text="Apparel" />
+        <Plaque x={11.9} y={-5.8} z={22.93} text="Apparel" />
         <group position={[11.9, -4.75, 23.5]} scale={0.92}>
           <mesh geometry={TEE_GEO}>
             <meshStandardMaterial color="#b7ada0" roughness={0.95} />
@@ -349,8 +414,9 @@ export default function Gallery() {
 
       {/* GIFTS — a glass ornament (bauble) with cap + hanging loop */}
       <group {...hit("ornament")}>
+        <HoverGlow active={hovered === "ornament"} pos={[13.5, -4.9, 23.0]} size={2.2} />
         <Plinth x={13.5} z={23.4} />
-        <Plaque x={13.5} y={-6.35} z={22.94} text="Gifts & Stationery" />
+        <Plaque x={13.5} y={-5.8} z={22.93} text="Gifts & Stationery" />
         <mesh position={[13.5, -4.95, 23.4]}>
           <sphereGeometry args={[0.5, 32, 32]} />
           {tex ? (
@@ -371,8 +437,9 @@ export default function Gallery() {
 
       {/* DESK & TECH — a phone case, the Sun printed on the back */}
       <group {...hit("phone")}>
+        <HoverGlow active={hovered === "phone"} pos={[15.1, -4.75, 23.0]} size={2.3} />
         <Plinth x={15.1} z={23.4} />
-        <Plaque x={15.1} y={-6.35} z={22.94} text="Desk & Tech" />
+        <Plaque x={15.1} y={-5.8} z={22.93} text="Desk & Tech" />
         <group position={[15.1, -4.75, 23.4]} rotation={[-0.1, -0.12, 0]}>
           <mesh>
             <boxGeometry args={[0.62, 1.28, 0.08]} />

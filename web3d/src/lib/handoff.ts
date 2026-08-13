@@ -28,9 +28,20 @@ export type GalleryKind = keyof typeof GALLERY_CATEGORY;
 
 // Deep link that lands the buyer at the store with identity preloaded. Optional
 // `cat` scrolls the product grid to a category group (from a gallery piece).
-export function buyUrl(date: string, time: string, angstrom: number, opts?: { cat?: string }) {
+export function buyUrl(
+  date: string,
+  time: string,
+  angstrom: number,
+  opts?: { cat?: string; tune?: boolean }
+) {
   const q = new URLSearchParams({ d: date, t: time || "12:00", wl: String(angstrom) });
   if (opts?.cat) q.set("cat", opts.cat);
+  // `tune` lands the visitor on the store's fine-tune panel with that day's HEK
+  // events listed. The experience has already settled the date and wavelength,
+  // so the one genuinely open question is WHICH MOMENT of the day — and that is
+  // far easier to answer with the day's flares and CMEs in front of you than
+  // from a bare time field.
+  if (opts?.tune) q.set("tune", "1");
   return `${ORIGINAL_SITE}${STORE_PATH}?${q.toString()}`;
 }
 
