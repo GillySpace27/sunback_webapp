@@ -142,15 +142,44 @@
   <!-- Handoff bridge from the 3D experience: a branded "confirm your Sun"
        screen shown ONLY when arriving with an identity in the URL (?d&t&wl).
        Sits above the store while the image pipeline warms behind it. -->
+  <!-- The handoff is now the LOOK CHOICE, not just a confirmation.
+       A meaningful share of people prefer the unfiltered frame — it reads more
+       obviously as a star — so silently shipping everyone the filtered version
+       hands some of them the one they did not want. Asking is cheaper than
+       being wrong.
+
+       It is asked with PICTURES rather than words on purpose. "Original or
+       Filtered?" is a vocabulary question and people stall on those; two
+       versions of their own Sun side by side is a glance. -->
   <div id="confirmOverlay" class="handoff-overlay" hidden>
-    <div class="handoff-card">
+    <div class="handoff-card handoff-card--choice">
       <p class="handoff-eyebrow">Your Sun</p>
-      <img id="confirmThumb" class="handoff-thumb" alt="Your chosen Sun" />
       <p id="confirmMeta" class="handoff-meta"></p>
+      <p class="handoff-question">Which look do you want?</p>
+
+      <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
+        <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw">
+          <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun, unprocessed telescope frame" />
+          <span class="handoff-choice-name">Original</span>
+          <span class="handoff-choice-sub">As the telescope saw it</span>
+        </button>
+        <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
+          <span class="handoff-choice-imgwrap">
+            <img id="confirmThumbRhef" class="handoff-choice-img" alt="Your Sun with the corona revealed" />
+            <span class="handoff-choice-pending" id="rhefPending">Developing…</span>
+          </span>
+          <span class="handoff-choice-name">Enhanced</span>
+          <span class="handoff-choice-sub">Reveals the faint outer corona</span>
+        </button>
+      </div>
+
       <div class="handoff-actions">
-        <button type="button" id="confirmContinue" class="handoff-continue">Continue</button>
         <button type="button" id="confirmEdit" class="handoff-edit">Change date or colour</button>
       </div>
+      <!-- Kept for older deep links and for anything still calling the old
+           confirm flow; hidden, since the two images above are the action. -->
+      <button type="button" id="confirmContinue" class="handoff-continue" hidden>Continue</button>
+      <img id="confirmThumb" alt="" hidden />
     </div>
   </div>
 

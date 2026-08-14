@@ -5508,54 +5508,108 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         }
       } catch (_e) {}
     }
+    // Kick the RHEF render off HERE, at the handoff, and nowhere earlier.
+    // This is the first moment intent is real: the visitor has left the film
+    // and arrived at the store. Starting it during the 3D scroll would mean
+    // rendering for everyone who merely looks, which is the same queue
+    // pressure already timing HQ out at four minutes.
+    // Returns BOTH tiers: generate_preview hands back preview_raw_url (the real
+    // FITS frame) and preview_url (that same frame with RHEF applied). Once the
+    // FITS is in hand the RHEF pass on a 1k frame is quick — the cost here is
+    // fetching the file, not filtering it, and the synoptic path makes even
+    // that about a second.
+    function _warmBothPreviews(dateStr, timeStr, wlNum, onTier) {
+      var tries = 0;
+      function ask() {
+        tries++;
+        fetchWithTimeout(API_BASE + "/api/generate_preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: dateStr, time: timeStr || "12:00", wavelength: wlNum }),
+        }, 90000).then(function (r) {
+          return r.ok ? r.json() : null;
+        }).then(function (j) {
+          if (!j) return;
+          if (j.preview_raw_url) onTier("raw", j.preview_raw_url);
+          if (j.preview_url) onTier("rhef", j.preview_url);
+          // 202 with nothing ready yet: it is generating in the background.
+          // Poll a few times rather than leaving a panel pending forever.
+          if (!j.preview_url && tries < 12) setTimeout(ask, 1500);
+        }).catch(function () { /* Original stays pickable; that is a complete answer */ });
+      }
+      ask();
+    }
+
     function _showHandoffConfirm(dateStr, timeStr, wlNum) {
       try {
         document.body.classList.add("fromHandoff");
         var nm = (wlNum / 10).toFixed(1) + " nm";
         var dateHuman = _fmtHandoffDate(dateStr);
-        var cThumb = document.getElementById("confirmThumb");
         var cMeta = document.getElementById("confirmMeta");
-        if (cThumb) cThumb.src = _handoffThumbUrl(dateStr, timeStr, wlNum, 384);
         if (cMeta) cMeta.textContent = dateHuman + "  ·  AIA " + nm;
+
+        // Original is instant: it is the Helioviewer JPG, already cached at the
+        // edge. Enhanced needs a real FITS fetch plus RHEF, so its panel starts
+        // in a pending state and fills in — the visitor can choose Original
+        // before it ever arrives, which is the point.
+        var rawImg = document.getElementById("confirmThumbRaw");
+        var rhefImg = document.getElementById("confirmThumbRhef");
+        var pending = document.getElementById("rhefPending");
+        var rhefBtn = document.getElementById("chooseRhef");
+        // The Helioviewer JPG paints instantly so neither panel is ever empty,
+        // then each is replaced by its real tier as it lands. The JPG is
+        // already display-stretched, so it must NOT carry the sqrt filter —
+        // only the raw FITS frame that replaces it does.
+        var instant = _handoffThumbUrl(dateStr, timeStr, wlNum, 384);
+        if (rawImg) { rawImg.src = instant; rawImg.classList.add("is-placeholder"); }
+        if (rhefImg) { rhefImg.src = instant; }
+        if (rhefBtn) rhefBtn.classList.add("is-pending");
+        _warmBothPreviews(dateStr, timeStr, wlNum, function (tier, url) {
+          if (tier === "raw" && rawImg) {
+            rawImg.src = url;
+            rawImg.classList.remove("is-placeholder"); // now a real FITS frame
+          }
+          if (tier === "rhef" && rhefImg) {
+            rhefImg.src = url;
+            if (pending && pending.parentNode) pending.remove();
+            if (rhefBtn) rhefBtn.classList.remove("is-pending");
+          }
+        });
+
         var chip = document.getElementById("sunSummaryChip");
         var chT = document.getElementById("chipThumb");
         var chM = document.getElementById("chipMeta");
         if (chT) chT.src = _handoffThumbUrl(dateStr, timeStr, wlNum, 96);
         if (chM) chM.textContent = nm + " · " + dateStr;
         if (chip) { chip.hidden = false; chip.onclick = _editHandoffSun; }
+
         var ov = document.getElementById("confirmOverlay");
         if (ov) ov.hidden = false;
         document.body.classList.add("handoff-confirm");
-        var cont = document.getElementById("confirmContinue");
-        if (cont) cont.onclick = function () {
+
+        // Picking a look IS the continue. One screen, one decision, and the
+        // decision is made by looking rather than by reading a label.
+        function pick(tier) {
+          state.editorFilter = tier;
+          state.vibeMasterTier = tier;
+          try { localStorage.setItem("mh_look", tier); } catch (_e) {}
           if (ov) ov.hidden = true;
           document.body.classList.remove("handoff-confirm");
-          // Arriving from a gallery piece (tune=1): the date and wavelength are
-          // already decided, so open the fine-tune panel instead of the product
-          // picker. The day's HEK events are listed there, which is what makes
-          // "which moment of that day" a real choice rather than a guess at a
-          // time field.
-          if (_shareParams.tune) {
-            if (typeof setStep === "function") setStep("image");
-            setTimeout(function () {
-              var cfg = document.getElementById("configSection");
-              if (cfg) {
-                cfg.classList.remove("section-collapsed");
-                var tog = document.getElementById("configSectionToggle");
-                if (tog) tog.setAttribute("aria-expanded", "true");
-                _scrollToEl(cfg, "start", true);
-              }
-            }, 260);
-            return;
-          }
-          // Otherwise land on the product picker, scrolled to the category.
           if (typeof setStep === "function") setStep("product");
           var catKey = state.scrollToCategoryOnLoad;
           setTimeout(function () {
             var el = catKey && document.getElementById("cat-" + catKey);
             if (el) _scrollToEl(el, "start", true);
           }, 260);
-        };
+        }
+        var braw = document.getElementById("chooseRaw");
+        var brhef = document.getElementById("chooseRhef");
+        if (braw) braw.onclick = function () { pick("raw"); };
+        if (brhef) brhef.onclick = function () { pick("rhef"); };
+        // Legacy path: anything still clicking the old Continue gets the
+        // enhanced look, which is what it silently did before.
+        var cont = document.getElementById("confirmContinue");
+        if (cont) cont.onclick = function () { pick("rhef"); };
         var ed = document.getElementById("confirmEdit");
         if (ed) ed.onclick = _editHandoffSun;
       } catch (_e) {}

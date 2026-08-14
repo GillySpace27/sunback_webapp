@@ -7416,30 +7416,25 @@ body:has(#imageStage.loading) .field-cell {
 /* The vibe grid reserved 64px for the toggle's old floating slot. */
 .vibe-grid-section { padding-top: 0; }
 
-/* ── Gamma-match the live "Original" tiles ─────────────────────────────
-   The wavelength tiles paint a live Helioviewer canvas straight from the raw
-   telescope data, while the committed vibe thumbnails have a sqrt display
-   stretch BAKED INTO the PNG at build time. Same nominal "Original", two
-   different looks — the live tiles read as muddy and dark next to the
-   pre-baked ones, which is what made them look wrong beside the jpg tier.
+/* ── Gamma: correct the RAW FITS renders, not the JPGs ─────────────────
+   Earlier this applied #vibeRawGamma to .wl-thumb. That was wrong: those tiles
+   are Helioviewer JPGs, which are already display-stretched, so the sqrt was a
+   SECOND correction on top and washed them out.
 
-   #vibeRawGamma (defined in index.html, exponent 0.5, sRGB interpolation) was
-   written for exactly this case and then never referenced by anything. This
-   wires it up, applying the same stretch at display time that the committed
-   files get at build time.
+   The image that actually needs it is the raw FITS render — the true
+   "Original" tier — which comes out dark next to the JPG preview of the same
+   moment. That is the mismatch worth fixing, and it is what the filter was
+   written for ("live/custom-date raw frames that can't be pre-baked").
 
-   DISPLAY ONLY, and deliberately scoped to .wl-thumb. The editor canvas is the
-   source of the print file, so a display-side filter there would silently
-   break WYSIWYG: the buyer would approve a corrected preview and receive an
-   uncorrected print. Matching the editor properly means baking the stretch
-   into the pixel pipeline, not the stylesheet. */
-.wl-thumb canvas,
-.wl-thumb img {
-  filter: url(#vibeRawGamma);
-}
-/* Safari has historically mis-rendered SVG filters on canvas; if the filter
-   cannot resolve, the tile simply shows its uncorrected self rather than
-   disappearing, so no fallback is required. */
+   Still display-only, and still NOT on the editor canvas: that canvas is the
+   source of the print file, so a display-side stretch there would mean the
+   buyer approves a corrected preview and receives an uncorrected print.
+   Matching the editor means baking it into the pixel pipeline server-side. */
+#confirmThumbRaw { filter: url(#vibeRawGamma); }
+/* While the panel is still showing the Helioviewer JPG placeholder it must NOT
+   be stretched: that image is already display-ready, and correcting it twice
+   washes it out. The filter applies only once the real FITS frame swaps in. */
+#confirmThumbRaw.is-placeholder { filter: none; }
 
 /* ── Product category TOC ──────────────────────────────────────────────
    Nine groups is a long page, and the categories previously existed only as
@@ -7569,4 +7564,85 @@ body:has(#imageStage.loading) .field-cell {
   margin: 0 0 16px;
   padding: 0;
   background: transparent;
+}
+
+/* ── Handoff: the look choice ──────────────────────────────────────────
+   Two versions of the visitor's own Sun, side by side, both clickable. Asked
+   with pictures rather than words because "Original or Filtered?" is a
+   vocabulary question and people stall on those; two images is a glance.
+
+   Picking one IS the continue, so the screen keeps a single decision. */
+.handoff-card--choice { max-width: 720px; }
+
+.handoff-question {
+  margin: 4px 0 14px;
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  color: var(--text-primary);
+}
+.handoff-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.handoff-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 12px 14px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition),
+              transform var(--transition);
+}
+.handoff-choice:hover,
+.handoff-choice:focus-visible {
+  border-color: var(--accent-sun);
+  background: rgba(217, 169, 26, 0.10);
+  transform: translateY(-2px);
+}
+.handoff-choice-imgwrap { position: relative; display: block; width: 100%; }
+.handoff-choice-img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: #0d0b08;
+  display: block;
+}
+.handoff-choice-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+}
+.handoff-choice-sub {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.35;
+}
+/* Enhanced needs a real FITS fetch plus RHEF, so it arrives a beat later. The
+   panel holds its place and says so, rather than the layout jumping when it
+   lands — and Original stays pickable the whole time. */
+.handoff-choice.is-pending .handoff-choice-img { opacity: 0.25; }
+.handoff-choice-pending {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  animation: pulse 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+@media (max-width: 560px) {
+  .handoff-choices { grid-template-columns: 1fr; }
+  .handoff-choice-img { aspect-ratio: 16 / 10; }
 }
