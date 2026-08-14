@@ -1,5 +1,5 @@
-import { Suspense } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Suspense, useEffect } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { PerformanceMonitor } from "@react-three/drei";
 import * as THREE from "three";
 import { useStore } from "../store";
@@ -14,6 +14,34 @@ import Room from "./Room";
 import Gallery from "./Gallery";
 import CameraRig from "./CameraRig";
 import Effects from "./Effects";
+
+// Every shot in CameraRig is composed off-center for a landscape frame — the
+// threshold deliberately puts the Sun on the lower-left third. three's `fov` is
+// the VERTICAL angle, so on a 375x812 phone the horizontal field collapses to
+// about 22 degrees and that off-center Sun simply falls off the left edge.
+//
+// Widen the vertical fov as the viewport gets narrower, which buys back
+// horizontal room without touching a single composed control point. Capped,
+// because full compensation would need ~116 degrees and the wide-angle
+// distortion would cost more than the clipping does.
+const BASE_FOV = 45;
+const REF_ASPECT = 1.6; // the aspect these shots were framed for
+// 1.45 still left the Sun's left limb clipped by a few px at 375x812; 1.65
+// clears it with margin and is the most wide-angle the shot takes before the
+// perspective starts to read as a fisheye.
+const MAX_WIDEN = 1.65;
+
+function ResponsiveFov() {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const size = useThree((s) => s.size);
+  useEffect(() => {
+    const aspect = size.width / Math.max(1, size.height);
+    const widen = THREE.MathUtils.clamp(REF_ASPECT / Math.max(aspect, 0.01), 1, MAX_WIDEN);
+    camera.fov = BASE_FOV * widen;
+    camera.updateProjectionMatrix();
+  }, [camera, size]);
+  return null;
+}
 
 // Single persistent Canvas for the whole film. Sections are state, never
 // remounted. Quality tier drops adaptively on sustained frame loss.
@@ -36,6 +64,7 @@ export default function Scene() {
       }}
     >
       <color attach="background" args={["#05060a"]} />
+      <ResponsiveFov />
       <PerformanceMonitor
         onDecline={() => setQuality("medium")}
         onFallback={() => setQuality("low")}

@@ -279,7 +279,9 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: max(2.4vh, env(safe-area-inset-bottom));
+  /* the footer credit sits below this bar and now carries the legal row too,
+     so reserve its height (~2 lines) or the two collide */
+  bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + 1.9rem);
   z-index: 3;
   padding-top: 14px; /* room for the plate's drop shadow */
   overflow-x: auto;
@@ -845,6 +847,14 @@ body {
 @media (max-width: 600px) {
   .masthead-credit { display: none; }
 }
+/* Below ~560px the centered masthead grows wide enough to run under the
+   top-right "skip to the store" pill, which drew straight over the wordmark:
+   "My Heliograph" rendered as "My Heli▓▓▓▓▓▓" on a 375px phone. Drop the
+   masthead clear of the pill rather than shrinking either — the opening beat
+   has a large empty band beneath the intro copy to give back. */
+@media (max-width: 560px) {
+  .masthead { top: calc(max(1rem, env(safe-area-inset-top)) + 3.4rem); }
+}
 @media (prefers-reduced-motion: reduce) {
   .masthead { transition: none; }
 }
@@ -869,9 +879,44 @@ body {
   pointer-events: none;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
 }
+.data-credit-line {
+  margin: 0;
+}
+/* The container stays click-through so it never steals a drag from the scene;
+   only the links themselves take the pointer back. */
+.data-credit-legal {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.data-credit-legal a {
+  pointer-events: auto;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.data-credit-legal a:hover {
+  color: var(--ink);
+}
+.data-credit-legal a:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
 @media (max-width: 600px) {
-  /* the picker bar owns the bottom of a phone screen */
-  .data-credit { display: none; }
+  /* The picker plate owns the bottom of a phone screen, but only once it is
+     open — hiding the footer unconditionally left phones with no attribution
+     and no route to any policy page. Give the collapsed state the ~1rem it
+     needs and drop the credit only while the plate is expanded. */
+  /* the footer runs three lines at this width (attribution wraps to two, plus
+     the legal row), which measures ~49px — reserve that plus a gap */
+  #buy {
+    bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + 3.1rem);
+  }
+  body:has(.picker-toggle[aria-expanded="true"]) .data-credit {
+    display: none;
+  }
 }
 
 /* "Start over" shares the top-right bar with "Skip to the store" and sits to
