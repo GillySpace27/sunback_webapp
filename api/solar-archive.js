@@ -2697,11 +2697,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       } else {
         if (state.scrollToProductsOnLoad) {
           state.scrollToProductsOnLoad = false;
-          // deep-linked from the 3D gallery: land on the matching category group
-          var _catEl = state.scrollToCategoryOnLoad &&
-            document.getElementById("cat-" + state.scrollToCategoryOnLoad);
-          _scrollToEl(_catEl || productSection, "start");
-          state.scrollToCategoryOnLoad = null;
+          // deep-linked from the 3D gallery: land on the matching category
+          // group. _landOnCategory waits for the group to actually contain
+          // cards, so this no longer races renderProducts.
+          if (!_landOnCategory()) _scrollToEl(productSection, "start");
         }
         // No step hop here. The 2026-08-10 cart QA fix used to force
         // "product" → "image" at this point, back when the funnel was
@@ -5596,11 +5595,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (ov) ov.hidden = true;
           document.body.classList.remove("handoff-confirm");
           if (typeof setStep === "function") setStep("product");
-          var catKey = state.scrollToCategoryOnLoad;
-          setTimeout(function () {
-            var el = catKey && document.getElementById("cat-" + catKey);
-            if (el) _scrollToEl(el, "start", true);
-          }, 260);
+          setTimeout(function () { _landOnCategory(); }, 120);
         }
         var braw = document.getElementById("chooseRaw");
         var brhef = document.getElementById("chooseRhef");
@@ -5613,6 +5608,42 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var ed = document.getElementById("confirmEdit");
         if (ed) ed.onclick = _editHandoffSun;
       } catch (_e) {}
+    }
+
+    // A cat= in the URL is a strong, explicit signal: the visitor clicked a mug
+    // in the 3D gallery, so drinkware is where they want to be. Treat it as
+    // reliable rather than best-effort.
+    //
+    // Two things previously made it miss. state.scrollToCategoryOnLoad is
+    // CONSUMED (set to null) by the install-image latch, so whichever path ran
+    // second found nothing; and the scroll fired on a fixed timer that could
+    // easily beat renderProducts, landing on a group that existed but was still
+    // empty and therefore only a few pixels tall.
+    //
+    // So: read the durable _shareParams.cat, and wait until the group actually
+    // has cards in it before scrolling.
+    function _landOnCategory(maxTries) {
+      var key = (_shareParams && _shareParams.cat) || state.scrollToCategoryOnLoad;
+      if (!key) return false;
+      var tries = 0;
+      var limit = maxTries || 20;
+      (function attempt() {
+        tries++;
+        var el = document.getElementById("cat-" + key);
+        if (el && el.querySelector(".product-card")) {
+          _scrollToEl(el, "start", true);
+          state.scrollToCategoryOnLoad = null;
+          return;
+        }
+        if (tries < limit) {
+          setTimeout(attempt, 180);
+        } else if (el) {
+          // Group exists but never filled (empty category): the section top is
+          // still a better landing than wherever the page happened to be.
+          _scrollToEl(el, "start", true);
+        }
+      })();
+      return true;
     }
 
     function _hydrateFromUrlParams() {
