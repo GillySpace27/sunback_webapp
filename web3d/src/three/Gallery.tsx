@@ -292,13 +292,13 @@ function Selectable({
     for (const e of cache.current) {
       // Blend the material's own emissive toward gold rather than replacing it,
       // so pieces that already emit keep their character.
-      e.mat.emissive.setHex(e.hex).lerp(GOLD, 0.85 * L);
-      e.mat.emissiveIntensity = e.base + 0.9 * L;
+      e.mat.emissive.setHex(e.hex).lerp(GOLD, 0.55 * GLOW * L);
+      e.mat.emissiveIntensity = e.base + 0.9 * GLOW * L;
     }
     grp.current.position.y = 0.055 * L;
     if (ringMat.current) {
       const t = state.clock.elapsedTime;
-      ringMat.current.opacity = L * (0.34 + 0.12 * Math.sin(t * 2.6));
+      ringMat.current.opacity = L * GLOW * (0.34 + 0.12 * Math.sin(t * 2.6));
     }
   });
 
@@ -323,6 +323,14 @@ function Selectable({
   );
 }
 const GOLD = new THREE.Color("#f7d071");
+// Overall strength of the hover treatment, as a single knob.
+//
+// The first pass ran at 1.0 and was painful to look at: bloom is already
+// running over this scene with a low luminance threshold, so every unit of
+// emissive gets amplified before it reaches the eye. What reads as a tasteful
+// value in isolation arrives several times brighter on screen. 0.25 is a
+// rim that says "clickable" rather than one that makes you squint.
+const GLOW = 0.25;
 
 export default function Gallery() {
   const tex = useStore((s) => s.currentTexture);
