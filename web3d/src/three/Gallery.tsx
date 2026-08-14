@@ -241,50 +241,88 @@ function Frame({
 }
 
 
-// Golden hover rim. Bloom is already running over this scene (Effects.tsx), so
-// an additive gold plane behind a piece reads as a glowing outline around it
-// without a second render pass or an Outline effect — the bloom does the
-// spreading for free.
+// Selection affordance for a gallery piece.
 //
-// The shimmer is a slow sine on opacity plus a barely-there scale breath: it
-// has to say "this is clickable" without turning the gallery into a fairground.
-function HoverGlow({
+// The first version was an additive gold plane behind the object, which is
+// exactly what it sounds like: a glowing square sitting under a mug. It read as
+// a placeholder, not as "this is selectable".
+//
+// This lights the OBJECT instead. On hover it walks the group's own materials
+// and raises their emissive toward gold, so the shape that glows is the actual
+// silhouette — a mug rims like a mug, a t-shirt like a t-shirt. Bloom (already
+// running in Effects.tsx) spreads that into a halo for free, so the result is a
+// rim-lit object rather than a lightbox behind one.
+//
+// Plus two quiet cues that read as "interactive" without shouting: the piece
+// lifts very slightly, and a thin ring breathes on the surface beneath it —
+// a contact light, not a backdrop.
+function Selectable({
   active,
-  pos,
-  size,
+  children,
+  ring,
 }: {
   active: boolean;
-  pos: [number, number, number];
-  size: number;
+  children: React.ReactNode;
+  ring?: { pos: [number, number, number]; r: number };
 }) {
-  const mat = useRef<THREE.MeshBasicMaterial>(null!);
   const grp = useRef<THREE.Group>(null!);
-  useFrame((state) => {
-    if (!mat.current || !grp.current) return;
-    const t = state.clock.elapsedTime;
-    const target = active ? 0.5 + 0.16 * Math.sin(t * 3.1) : 0;
-    // eased so the glow arrives and leaves softly rather than snapping
-    mat.current.opacity += (target - mat.current.opacity) * 0.15;
-    const s = active ? 1 + 0.02 * Math.sin(t * 2.3) : 0.94;
-    grp.current.scale.setScalar(grp.current.scale.x + (s - grp.current.scale.x) * 0.15);
+  const ringMat = useRef<THREE.MeshBasicMaterial>(null!);
+  const level = useRef(0);
+  const cache = useRef<{ mat: THREE.MeshStandardMaterial; base: number; hex: number }[] | null>(null);
+
+  useFrame((state, dt) => {
+    if (!grp.current) return;
+    // Collect the standard materials once; skip basic materials (the printed
+    // Suns), which have no emissive channel and would throw.
+    if (!cache.current) {
+      const found: { mat: THREE.MeshStandardMaterial; base: number; hex: number }[] = [];
+      grp.current.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (m && (m as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+          const sm = m as THREE.MeshStandardMaterial;
+          found.push({ mat: sm, base: sm.emissiveIntensity ?? 1, hex: sm.emissive.getHex() });
+        }
+      });
+      cache.current = found;
+    }
+    const k = 1 - Math.pow(0.001, dt); // frame-rate independent ease
+    level.current += ((active ? 1 : 0) - level.current) * k;
+    const L = level.current;
+
+    for (const e of cache.current) {
+      // Blend the material's own emissive toward gold rather than replacing it,
+      // so pieces that already emit keep their character.
+      e.mat.emissive.setHex(e.hex).lerp(GOLD, 0.85 * L);
+      e.mat.emissiveIntensity = e.base + 0.9 * L;
+    }
+    grp.current.position.y = 0.055 * L;
+    if (ringMat.current) {
+      const t = state.clock.elapsedTime;
+      ringMat.current.opacity = L * (0.34 + 0.12 * Math.sin(t * 2.6));
+    }
   });
+
   return (
-    <group ref={grp} position={pos}>
-      <mesh raycast={() => null}>
-        <planeGeometry args={[size, size]} />
-        <meshBasicMaterial
-          ref={mat}
-          color="#f5cd64"
-          transparent
-          opacity={0}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
+    <group ref={grp}>
+      {children}
+      {ring && (
+        <mesh position={ring.pos} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+          <ringGeometry args={[ring.r * 0.82, ring.r, 48]} />
+          <meshBasicMaterial
+            ref={ringMat}
+            color="#f5cd64"
+            transparent
+            opacity={0}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+      )}
     </group>
   );
 }
+const GOLD = new THREE.Color("#f7d071");
 
 export default function Gallery() {
   const tex = useStore((s) => s.currentTexture);
@@ -296,18 +334,17 @@ export default function Gallery() {
 
   const [hovered, setHovered] = useState<GalleryKind | null>(null);
 
-  // Clicking a piece hands off to the store. The experience has ALREADY chosen
-  // the date and the wavelength, so dropping the visitor at the top of the
-  // funnel would ask them to re-answer questions they just answered. Instead
-  // they land on the fine-tune panel, where the day's HEK events are listed and
-  // the one thing still genuinely open — which moment of that day — can be
-  // chosen with the flares and CMEs in front of them.
+  // Clicking a piece hands off to the store at the PRODUCT PICKER, scrolled to
+  // the category that piece represents: click a mug, land on drinkware. The
+  // date and wavelength are already settled by the experience, so this is the
+  // next real decision. (An earlier version landed on the fine-tune panel,
+  // which put the visitor back on a date screen they had just come through —
+  // it answered a question nobody was asking at that point.)
   const go = (kind: GalleryKind) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     warmBackend();
     window.location.href = buyUrl(date, time, CHANNELS[channel].angstrom, {
       cat: GALLERY_CATEGORY[kind],
-      tune: true,
     });
   };
   const over = (kind: GalleryKind) => (e: ThreeEvent<PointerEvent>) => {
@@ -344,11 +381,13 @@ export default function Gallery() {
           the view from the room angle. The clock stands in for the old middle
           poster so the wall doesn't read as three identical frames. */}
       <group {...hit("print")}>
-        <HoverGlow active={hovered === "print"} pos={[12.3, -3.7, WALL_Z - 0.12]} size={9.2} />
-        <Frame pos={[9.5, -3.6, WALL_Z]} w={2.0} h={2.7} tex={tex} />
-        <Clock pos={[12.4, -3.7, WALL_Z]} tex={tex} />
-        <Frame pos={[15.0, -4.1, WALL_Z]} w={2.0} h={1.5} tex={tex} />
-        <Plaque x={12.4} y={-1.95} z={WALL_Z + 0.05} text="Wall Art" />
+        <Selectable active={hovered === "print"}>
+          <Frame pos={[9.5, -3.6, WALL_Z]} w={2.0} h={2.7} tex={tex} />
+          <Clock pos={[12.4, -3.7, WALL_Z]} tex={tex} />
+          <Frame pos={[15.0, -4.1, WALL_Z]} w={2.0} h={1.5} tex={tex} />
+          <Plaque x={12.4} y={-1.95} z={WALL_Z + 0.05} text="Wall Art" />
+        
+        </Selectable>
       </group>
 
       {/* ── a pedestal row: one object per remaining product category, so every
@@ -359,102 +398,112 @@ export default function Gallery() {
 
       {/* HOME — a plump printed throw pillow */}
       <group {...hit("pillow")}>
-        <HoverGlow active={hovered === "pillow"} pos={[8.7, -5.0, 23.0]} size={2.4} />
-        <Plinth x={8.7} z={23.4} />
-        <mesh geometry={PILLOW_GEO} position={[8.7, -5.0, 23.5]} rotation={[-0.18, 0.18, 0.05]}>
-          {tex ? (
-            <meshStandardMaterial map={tex} color="#ffffff" roughness={0.95} toneMapped={false} />
-          ) : (
-            <meshStandardMaterial color="#c25a2a" roughness={0.95} />
-          )}
-        </mesh>
-        <Plaque x={8.7} y={-5.8} z={22.93} text="Home & Cozy" />
+        <Selectable active={hovered === "pillow"} ring={{ pos: [8.7, -5.48, 23.4], r: 0.60 }}>
+          <Plinth x={8.7} z={23.4} />
+          <mesh geometry={PILLOW_GEO} position={[8.7, -5.0, 23.5]} rotation={[-0.18, 0.18, 0.05]}>
+            {tex ? (
+              <meshStandardMaterial map={tex} color="#ffffff" roughness={0.95} toneMapped={false} />
+            ) : (
+              <meshStandardMaterial color="#c25a2a" roughness={0.95} />
+            )}
+          </mesh>
+          <Plaque x={8.7} y={-5.8} z={22.93} text="Home & Cozy" />
+        
+        </Selectable>
       </group>
 
       {/* DRINK — a mug, the Sun wrapped around it */}
       <group {...hit("mug")}>
-        <HoverGlow active={hovered === "mug"} pos={[10.3, -4.95, 23.0]} size={2.2} />
-        <Plinth x={10.3} z={23.4} />
-        <Plaque x={10.3} y={-5.8} z={22.93} text="Drinkware" />
-        <group position={[10.3, -4.95, 23.4]} rotation={[0, -0.5, 0]}>
-          <mesh>
-            <cylinderGeometry args={[0.46, 0.42, 1.0, 28, 1, false]} />
-            {tex ? (
-              <meshStandardMaterial map={tex} color="#ffffff" roughness={0.35} toneMapped={false} />
-            ) : (
-              <meshStandardMaterial color="#c25a2a" roughness={0.4} />
-            )}
-          </mesh>
-          <mesh position={[0.52, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <torusGeometry args={[0.24, 0.07, 12, 24]} />
-            <meshStandardMaterial color="#f4efe6" roughness={0.4} />
-          </mesh>
-        </group>
+        <Selectable active={hovered === "mug"} ring={{ pos: [10.3, -5.48, 23.4], r: 0.58 }}>
+          <Plinth x={10.3} z={23.4} />
+          <Plaque x={10.3} y={-5.8} z={22.93} text="Drinkware" />
+          <group position={[10.3, -4.95, 23.4]} rotation={[0, -0.5, 0]}>
+            <mesh>
+              <cylinderGeometry args={[0.46, 0.42, 1.0, 28, 1, false]} />
+              {tex ? (
+                <meshStandardMaterial map={tex} color="#ffffff" roughness={0.35} toneMapped={false} />
+              ) : (
+                <meshStandardMaterial color="#c25a2a" roughness={0.4} />
+              )}
+            </mesh>
+            <mesh position={[0.52, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+              <torusGeometry args={[0.24, 0.07, 12, 24]} />
+              <meshStandardMaterial color="#f4efe6" roughness={0.4} />
+            </mesh>
+          </group>
+        
+        </Selectable>
       </group>
 
       {/* APPAREL — a fabric t-shirt with the Sun printed on the chest */}
       <group {...hit("tee")}>
-        <HoverGlow active={hovered === "tee"} pos={[11.9, -4.75, 23.05]} size={2.5} />
-        <Plinth x={11.9} z={23.4} />
-        <Plaque x={11.9} y={-5.8} z={22.93} text="Apparel" />
-        <group position={[11.9, -4.75, 23.5]} scale={0.92}>
-          <mesh geometry={TEE_GEO}>
-            <meshStandardMaterial color="#b7ada0" roughness={0.95} />
-          </mesh>
-          {/* chest print: a clean round Sun graphic on the shirt */}
-          <mesh geometry={CHEST_GEO} position={[0, 0.04, 0.13]}>
-            {tex ? (
-              <meshBasicMaterial map={tex} toneMapped={false} />
-            ) : (
-              <meshBasicMaterial color="#c25a2a" />
-            )}
-          </mesh>
-        </group>
+        <Selectable active={hovered === "tee"} ring={{ pos: [11.9, -5.48, 23.4], r: 0.60 }}>
+          <Plinth x={11.9} z={23.4} />
+          <Plaque x={11.9} y={-5.8} z={22.93} text="Apparel" />
+          <group position={[11.9, -4.75, 23.5]} scale={0.92}>
+            <mesh geometry={TEE_GEO}>
+              <meshStandardMaterial color="#b7ada0" roughness={0.95} />
+            </mesh>
+            {/* chest print: a clean round Sun graphic on the shirt */}
+            <mesh geometry={CHEST_GEO} position={[0, 0.04, 0.13]}>
+              {tex ? (
+                <meshBasicMaterial map={tex} toneMapped={false} />
+              ) : (
+                <meshBasicMaterial color="#c25a2a" />
+              )}
+            </mesh>
+          </group>
+        
+        </Selectable>
       </group>
 
       {/* GIFTS — a glass ornament (bauble) with cap + hanging loop */}
       <group {...hit("ornament")}>
-        <HoverGlow active={hovered === "ornament"} pos={[13.5, -4.9, 23.0]} size={2.2} />
-        <Plinth x={13.5} z={23.4} />
-        <Plaque x={13.5} y={-5.8} z={22.93} text="Gifts & Stationery" />
-        <mesh position={[13.5, -4.95, 23.4]}>
-          <sphereGeometry args={[0.5, 32, 32]} />
-          {tex ? (
-            <meshStandardMaterial map={tex} color="#ffffff" roughness={0.55} metalness={0.0} toneMapped={false} />
-          ) : (
-            <meshStandardMaterial color="#c25a2a" roughness={0.5} />
-          )}
-        </mesh>
-        <mesh position={[13.5, -4.42, 23.4]}>
-          <cylinderGeometry args={[0.12, 0.15, 0.16, 16]} />
-          <meshStandardMaterial color="#c9a34e" roughness={0.35} metalness={0.7} />
-        </mesh>
-        <mesh position={[13.5, -4.26, 23.4]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.1, 0.03, 10, 20]} />
-          <meshStandardMaterial color="#c9a34e" roughness={0.35} metalness={0.7} />
-        </mesh>
+        <Selectable active={hovered === "ornament"} ring={{ pos: [13.5, -5.48, 23.4], r: 0.58 }}>
+          <Plinth x={13.5} z={23.4} />
+          <Plaque x={13.5} y={-5.8} z={22.93} text="Gifts & Stationery" />
+          <mesh position={[13.5, -4.95, 23.4]}>
+            <sphereGeometry args={[0.5, 32, 32]} />
+            {tex ? (
+              <meshStandardMaterial map={tex} color="#ffffff" roughness={0.55} metalness={0.0} toneMapped={false} />
+            ) : (
+              <meshStandardMaterial color="#c25a2a" roughness={0.5} />
+            )}
+          </mesh>
+          <mesh position={[13.5, -4.42, 23.4]}>
+            <cylinderGeometry args={[0.12, 0.15, 0.16, 16]} />
+            <meshStandardMaterial color="#c9a34e" roughness={0.35} metalness={0.7} />
+          </mesh>
+          <mesh position={[13.5, -4.26, 23.4]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[0.1, 0.03, 10, 20]} />
+            <meshStandardMaterial color="#c9a34e" roughness={0.35} metalness={0.7} />
+          </mesh>
+        
+        </Selectable>
       </group>
 
       {/* DESK & TECH — a phone case, the Sun printed on the back */}
       <group {...hit("phone")}>
-        <HoverGlow active={hovered === "phone"} pos={[15.1, -4.75, 23.0]} size={2.3} />
-        <Plinth x={15.1} z={23.4} />
-        <Plaque x={15.1} y={-5.8} z={22.93} text="Desk & Tech" />
-        <group position={[15.1, -4.75, 23.4]} rotation={[-0.1, -0.12, 0]}>
-          <mesh>
-            <boxGeometry args={[0.62, 1.28, 0.08]} />
-            <meshStandardMaterial color="#15110c" roughness={0.5} metalness={0.2} />
-          </mesh>
-          {/* square Sun print centred on the back so the disk stays round */}
-          <mesh position={[0, 0.06, 0.045]}>
-            <planeGeometry args={[0.52, 0.52]} />
-            {tex ? (
-              <meshBasicMaterial map={tex} toneMapped={false} />
-            ) : (
-              <meshStandardMaterial color="#c25a2a" roughness={0.6} />
-            )}
-          </mesh>
-        </group>
+        <Selectable active={hovered === "phone"} ring={{ pos: [15.1, -5.48, 23.4], r: 0.58 }}>
+          <Plinth x={15.1} z={23.4} />
+          <Plaque x={15.1} y={-5.8} z={22.93} text="Desk & Tech" />
+          <group position={[15.1, -4.75, 23.4]} rotation={[-0.1, -0.12, 0]}>
+            <mesh>
+              <boxGeometry args={[0.62, 1.28, 0.08]} />
+              <meshStandardMaterial color="#15110c" roughness={0.5} metalness={0.2} />
+            </mesh>
+            {/* square Sun print centred on the back so the disk stays round */}
+            <mesh position={[0, 0.06, 0.045]}>
+              <planeGeometry args={[0.52, 0.52]} />
+              {tex ? (
+                <meshBasicMaterial map={tex} toneMapped={false} />
+              ) : (
+                <meshStandardMaterial color="#c25a2a" roughness={0.6} />
+              )}
+            </mesh>
+          </group>
+        
+        </Selectable>
       </group>
     </group>
   );

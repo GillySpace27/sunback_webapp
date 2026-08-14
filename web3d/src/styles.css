@@ -873,3 +873,43 @@ body {
   /* the picker bar owns the bottom of a phone screen */
   .data-credit { display: none; }
 }
+
+/* "Start over" shares the top-right bar with "Skip to the store" and sits to
+   its left. The film is a one-way scroll, so without this the only way back to
+   the opening is dragging the scrollbar or stepping the arrows beat by beat.
+   Deliberately quieter than its neighbour: going back is a recovery action,
+   not the thing we want people to do. */
+.start-over {
+  position: fixed;
+  top: max(1.6vh, 12px);
+  /* clears .skip-store, which is pinned to the right edge */
+  right: calc(max(1.6vw, 12px) + 190px);
+  z-index: 6;
+  padding: 0.5rem 0.95rem;
+  min-height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  background: rgba(5, 6, 10, 0.42);
+  backdrop-filter: blur(4px);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.35s, border-color 0.35s;
+}
+.start-over:hover {
+  color: var(--ink);
+  border-color: rgba(244, 239, 230, 0.5);
+}
+.start-over:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+@media (max-width: 600px) {
+  /* two pills eat the top of a phone screen; the store link is the one that
+     has to survive. */
+  .start-over { display: none; }
+}

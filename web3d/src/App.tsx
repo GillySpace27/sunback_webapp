@@ -11,6 +11,7 @@ import HeroDate from "./ui/HeroDate";
 import Masthead from "./ui/Masthead";
 import DataCredit from "./ui/DataCredit";
 import SkipToStore from "./ui/SkipToStore";
+import StartOver from "./ui/StartOver";
 import Arrows from "./ui/Arrows";
 import WavelengthPicker from "./ui/WavelengthPicker";
 
@@ -63,6 +64,7 @@ export default function App() {
       <DataCredit />
       <Overlay />
       <AtmosphereFlash />
+      <StartOver />
       <SkipToStore />
       <HeroDate />
       <Arrows />
