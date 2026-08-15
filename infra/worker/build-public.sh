@@ -37,7 +37,20 @@ if [ -d "$WEB3D" ]; then
   cp -r "$WEB3D" "$OUT/experience"
   echo "web3d: $(find "$OUT/experience" -type f | wc -l | tr -d ' ') files -> public/experience/"
 else
-  echo "WARN: web3d/dist not built — /experience/ will 404 (run: cd ../../web3d && npm run build)"
+  # HARD FAIL, not a warning. Static Assets deploys public/ atomically: a
+  # public/ built without web3d/dist does not merely "404 /experience/", it
+  # DELETES the entire live experience tree on the next `wrangler deploy`.
+  # That is exactly what happened on 2026-08-15 (version e8d32dcb): a session
+  # working in a checkout that had never run the web3d build ran this script,
+  # saw the old WARN scroll past in suppressed output, deployed, and took
+  # myheliograph.com/experience/ down. web3d/dist is gitignored, so EVERY
+  # fresh clone and worktree starts in this state.
+  echo "ERROR: web3d/dist is missing, so public/ would ship WITHOUT /experience/." >&2
+  echo "       Deploying that wipes the live 3D experience off the site." >&2
+  echo "       Build it first:  cd ../../web3d && npm ci && npm run build" >&2
+  echo "       (store-only change and you accept losing /experience/? ALLOW_NO_WEB3D=1)" >&2
+  [ "${ALLOW_NO_WEB3D:-}" = "1" ] || exit 1
+  echo "WARN: ALLOW_NO_WEB3D=1 set — continuing without /experience/." >&2
 fi
 
 # Self-host the two variable fonts for the store restyle (the store isn't
