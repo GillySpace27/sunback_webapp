@@ -10,7 +10,7 @@
    app while we move pieces out one commit at a time.
    =============================================================== */
 
-import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.js";
+import { state, defaultMockupManifest, setDefaultMockupManifest, defaultMockupEntry } from "./state.js";
 import { PRODUCTS, FEATURED_PRODUCT_IDS, PRODUCT_CATEGORY_ORDER } from "./products.js";
 import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
 import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mockups.js";
@@ -192,15 +192,33 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
           t: q.get("t") || "",
           wl: q.get("wl") || "",
           vibe: q.get("vibe") || "",
+          from: q.get("from") || "",
         };
       } catch (_e) {
-        return { p: "", d: "", t: "", wl: "", vibe: "" };
+        return { p: "", d: "", t: "", wl: "", vibe: "", from: "" };
       }
     })();
     if (_shareParams.p) {
       var _sharedProduct = PRODUCTS.filter(function (p) { return p.id === _shareParams.p; })[0];
       if (_sharedProduct) state.selectedProduct = _sharedProduct.id;
     }
+
+    // Experience → flat handoff. The experience site links in carrying a date
+    // + wavelength (sometimes a curated vibe slug). Those visitors get the
+    // confirmation gate (step "confirm") before the funnel, so the chosen date
+    // and wavelength are confirmed and can't be silently lost on the way into
+    // the product picker + editor. Direct / SEO / bookmark visitors don't.
+    // Requires an explicit ?from=experience flag (Gilly's Q1 option 2, adopted
+    // 2026-08-15): the experience site appends it to every handoff link. We
+    // cannot key off d/wl presence, because _syncUrlParams writes d/wl into the
+    // URL during ordinary editing, so a mid-edit refresh would be
+    // indistinguishable from a handoff. The flag is the only clean signal.
+    // Until /experience is the entry and sends the flag, this stays false, so
+    // "/" is the self-sufficient flat landing.
+    function isExperienceHandoff() {
+      return !!(_shareParams && _shareParams.from === "experience");
+    }
+    var _isHandoff = isExperienceHandoff();
 
     var HEALTH_TIMEOUT_MS = 12000;    // 12s to allow cold start
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
@@ -319,7 +337,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // 2026-08-09 funnel reorder (audit §6.6, Gilly's call): the image —
     // the emotional core of the product — comes FIRST, then the object
     // it goes on. date/image → product → editor(+size via modal).
-    var _STEP_ORDER = ["image", "product", "editor", "review"];
+    // "confirm" appended (not prepended) so it never disturbs the
+    // image/product/editor/review order that popStep + breadcrumbs rely on;
+    // it is a one-way gate the user never pops back into. _applyStep needs it
+    // in this list to accept the step and to clear body.step-confirm on exit.
+    var _STEP_ORDER = ["image", "product", "editor", "review", "confirm"];
     function _isValidStep(s) { return _STEP_ORDER.indexOf(s) >= 0; }
     function _applyStep(name, opts) {
       opts = opts || {};
@@ -428,6 +450,9 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     var _initialStep = "image";
     var _hashStep = (location.hash || "").replace(/^#/, "").trim();
     if (_isValidStep(_hashStep)) _initialStep = _hashStep;
+    // Experience handoff wins over any inbound hash: force the confirmation
+    // gate first. Cleared to the picker once the user confirms.
+    if (_isHandoff) _initialStep = "confirm";
     state.currentStep = state.currentStep || _initialStep;
     // STRESS-003: extract the cold-init "is the requested step
     // actually reachable" guard into a reusable helper so we can call
@@ -435,6 +460,14 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // navigated away and back from a deep-link like #image landed on
     // the wrong step.
     function _normalizeStepWithState() {
+      // The confirmation gate only exists for an actual experience handoff.
+      // A bookmarked/typed #confirm with no handoff params would strand the
+      // visitor on an empty page — send them to the browsable product grid.
+      if (state.currentStep === "confirm" && !_isHandoff) {
+        state.currentStep = "product";
+        try { history.replaceState({ step: "product" }, "", location.pathname + location.search); }
+        catch (_e) {}
+      }
       // Demote when the requested step needs state that isn't there:
       // editor/review need a product AND an image; product needs
       // nothing (it's a browsable grid). Land the user at the first
@@ -2034,10 +2067,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // keeps a pristine landing on step 1 instead of auto-advancing.
       state.userPickedImage = true;
       state.wavelength = parseInt(card.dataset.wl, 10);
-      // User picked their own wavelength — landing default no longer
-      // active, so product tiles stop using the pre-rendered Printify
-      // mockups (which were rendered against the default image) and
-      // fall back to live canvas mockups of the user's actual image.
+      // User picked their own wavelength — landing default no longer active.
+      // The grid still shows pre-rendered Printify mockups, but now sliced to
+      // THIS wavelength (defaultMockupEntry keys by wl × filter), so the cards
+      // stay photoreal instead of dropping to canvas. isDefaultActive=false
+      // still gates _hasRealMockup, so buy/download continue to require a
+      // freshly generated mockup of the user's actual edited image.
       if (state.wavelength !== 193) state.isDefaultActive = false;
       // Persona-sweep finding: when the user picks a vibe card with a
       // preset wavelength (e.g. AR 2192 at 193 Å) and then picks a
@@ -2299,7 +2334,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       state.panY = img.naturalHeight / 2;
       state.rhefImage = null;
       state.rawBackendImage = null;
-      state.editorFilter = "raw";  // Original (paints from the fast jpg fallback, sharpens to FITS)
+      // Normally a fresh image starts as Original ("raw"). A confirmed
+      // experience handoff, though, carries the visitor's raw/RHEF version
+      // choice: honour it once (this first install after the confirm step),
+      // then clear it so later date/wavelength changes reset to raw as before.
+      state.editorFilter = state._handoffFilter || "raw";
+      if (state._handoffFilter) state._handoffFilter = null;
       // Vibe-card entry detection. The vibe's Raw/RHEF/HQ files are
       // pre-warmed on disk and already loading (or cached) via
       // _preloadVibeTiersIntoState in _activateVibe — for that flow we
@@ -2515,12 +2555,15 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         if (typeof _renderBreadcrumb === "function") {
           try { _renderBreadcrumb(); } catch (_e) {}
         }
-      } else if (!state.holdImageStep && state.currentStep === "image" && state.userPickedImage) {
+      } else if (!state.holdImageStep && (state.currentStep === "image" || state.currentStep === "confirm") && state.userPickedImage) {
         // Image-first flow (2026-08-09 reorder): the user picked their
         // Sun and no product is selected — advance to the product step
         // so the funnel reads date → image → product → size. Gated on
         // userPickedImage: the landing's silent default-image preload
         // must NOT advance a pristine visitor past step 1.
+        // "confirm" is included so a confirmed experience→flat handoff, whose
+        // image lands while the confirmation gate is showing, advances into
+        // the picker exactly as it would from the image step.
         state.scrollToProductsOnLoad = false;
         if (typeof setStep === "function") setStep("product");
       } else {
@@ -5299,7 +5342,12 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // implementation of it. URL params win over the localStorage snapshot
     // restored later in bootstrap: a shared link must show the SENDER's
     // Sun, not the recipient's last session.
-    function _hydrateFromUrlParams() {
+    // The actual handoff activation — writes canonical date/time/wl into the
+    // pipeline exactly as a vibe-card / birthday-card click does, which loads
+    // the image and advances the funnel to the product picker. This is the
+    // former _hydrateFromUrlParams body, unchanged; it is now invoked by the
+    // confirm gate's Continue button (state._handoffFilter is already set).
+    function _commitHandoffActivation() {
       try {
         if (_shareParams.vibe) {
           // Curated slug — the card already carries its own date/wl/time via
@@ -5336,6 +5384,111 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         bdayCard.setAttribute("data-vibe-wl", hasWl ? String(wlNum) : "");
         if (!hasWl && typeof _armAutoSun === "function") _armAutoSun();
         _activateVibe(bdayCard, { fromBirthday: true });
+      } catch (_e) {}
+    }
+
+    // Resolve {date,time,wl} for the confirm gate from either a curated vibe
+    // slug's card attributes or the bare d/t/wl params.
+    function _handoffInfo() {
+      var date = "", time = "", wl = null;
+      if (_shareParams.vibe) {
+        var vCard = document.querySelector(
+          '.vibe-card[data-vibe-slug="' + _shareParams.vibe.replace(/[^a-z0-9_]/gi, "") + '"]'
+        );
+        if (vCard) {
+          date = vCard.getAttribute("data-vibe-date") || "";
+          time = vCard.getAttribute("data-vibe-time") || "";
+          var w = parseInt(vCard.getAttribute("data-vibe-wl"), 10);
+          wl = isNaN(w) ? null : w;
+        }
+      }
+      if (!date && /^\d{4}-\d{2}-\d{2}$/.test(_shareParams.d || "")) {
+        date = _shareParams.d;
+        time = /^\d{2}:\d{2}$/.test(_shareParams.t) ? _shareParams.t : "";
+        var wn = parseInt(_shareParams.wl, 10);
+        wl = isNaN(wn) ? null : wn;
+      }
+      return { date: date, time: time, wl: wl };
+    }
+
+    var _confirmWired = false;
+    // Populate + wire the confirmation gate (step "confirm", already made the
+    // active step by the bootstrap seed). Shows the image, date and wavelength
+    // the visitor chose on the experience plus the raw/RHEF version choice,
+    // then carries all of it into the picker + editor on Continue.
+    function _renderConfirmStep() {
+      var info = _handoffInfo();
+      // Can't confirm without a usable date + wavelength — don't strand the
+      // visitor on an empty gate; drop them into the browsable grid.
+      if (!info.date || !info.wl) { setStep("product"); return; }
+
+      var img = document.getElementById("confirmHandoffImg");
+      var dateEl = document.getElementById("confirmHandoffDate");
+      var wlEl = document.getElementById("confirmHandoffWl");
+      var iso = info.date + "T" + (info.time || "12:00") + ":00Z";
+      if (img) {
+        img.onload = function () {
+          var sp = document.getElementById("confirmHandoffSpinner");
+          if (sp) sp.style.display = "none";
+        };
+        img.src = API_BASE + "/api/helioviewer_thumb?date=" +
+          encodeURIComponent(iso) + "&wavelength=" + info.wl +
+          "&image_scale=12&size=512";
+      }
+      if (dateEl) {
+        var human = info.date;
+        try {
+          human = new Date(info.date + "T12:00:00Z").toLocaleDateString(undefined, {
+            timeZone: "UTC", year: "numeric", month: "long", day: "numeric",
+          });
+        } catch (_e) {}
+        dateEl.textContent = human + (info.time ? (" · " + info.time + " UTC") : "");
+      }
+      if (wlEl) {
+        var label = info.wl + " Å";
+        var tile0 = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + info.wl + '"]');
+        var aria = tile0 && tile0.getAttribute("aria-label");
+        if (aria) {
+          var word = aria.split(" — ")[0];   // "gold — feathery arcs, 171 angstrom"
+          if (word) label += " · " + word;
+        }
+        wlEl.textContent = label;
+      }
+
+      if (_confirmWired) return;   // wire the handlers once
+      _confirmWired = true;
+      var cont = document.getElementById("confirmHandoffContinue");
+      var change = document.getElementById("confirmHandoffChange");
+      if (cont) cont.addEventListener("click", function () {
+        var picked = document.querySelector('input[name="confirmVersion"]:checked');
+        // One-shot: honoured by the next image install (see editorFilter reset).
+        state._handoffFilter = (picked && picked.value === "rhef") ? "rhef" : "raw";
+        cont.disabled = true;
+        cont.textContent = "Loading your Sun…";
+        // Activation loads the image and advances the funnel to "product".
+        _commitHandoffActivation();
+      });
+      if (change) change.addEventListener("click", function () {
+        // Escape hatch: pre-fill their date/time and drop them into the image
+        // step to adjust date/wavelength before committing. No auto-load — a
+        // wavelength-tile click there loads and advances as usual.
+        if (dateInput && info.date) dateInput.value = info.date;
+        if (timeInput && info.time) timeInput.value = info.time;
+        var tile1 = wlGrid && wlGrid.querySelector('.wl-card[data-wl="' + info.wl + '"]');
+        if (tile1) {
+          wlGrid.querySelectorAll(".wl-card.selected").forEach(function (c) { c.classList.remove("selected"); });
+          tile1.classList.add("selected");
+        }
+        setStep("image");
+      });
+    }
+
+    function _hydrateFromUrlParams() {
+      try {
+        if (_isHandoff) { _renderConfirmStep(); return; }
+        // Non-handoff loads never carry d/vibe, so this is a no-op; kept for
+        // symmetry/safety.
+        _commitHandoffActivation();
       } catch (_e) {}
     }
     // Deferred to a fresh task: _activateVibe() (called synchronously from
@@ -10648,7 +10801,10 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         // is a PRODUCT chooser; a real photo of the product (each showing a
         // different archive Sun) beats a rough canvas of the right Sun. Their
         // own Sun appears in the size modal and the editor.
-        var defEntry = (defaultMockupManifest && defaultMockupManifest[p.id]) || null;
+        // Slice by the CURRENT wavelength + raw/RHEF version so the grid
+        // matches what the visitor chose on the handoff. Absent cell → null →
+        // falls through to the canvas approximation below.
+        var defEntry = defaultMockupEntry(state.wavelength, state.editorFilter, p.id);
         var hasDefaultMockup = !!(defEntry && defEntry.url);
         var hasMockup = hasGeneratedMockup || hasDefaultMockup;
         var statusDot = hasMockup
@@ -11058,8 +11214,17 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
     // vibe slug, wavelength, slider values, crop/vignette/timestamp)
     // and let the rest of the pipeline rehydrate naturally when the
     // user clicks back into the same vibe.
+    // Bare-landing rule (2026-08-15, Gilly): a fresh visit to "/" with no query
+    // and no step hash shows the self-sufficient flat landing — it must NOT
+    // silently resume a prior session's product/vibe/editor into the URL
+    // (that was the ?p=&vibe=&#editor a bare visit kept growing). A mid-edit
+    // refresh DOES carry ?p=/#editor via _syncUrlParams, so those still resume.
+    // Experience handoffs bring their own intent, so a stale snapshot must not
+    // override them either.
+    var _bareLanding = !window.location.search &&
+                       (!window.location.hash || window.location.hash === "#");
     try {
-      var _snap = _restoreEditorState();
+      var _snap = (_bareLanding || _isHandoff) ? null : _restoreEditorState();
       if (_snap) {
         // Stash the snapshot for downstream code paths that need it
         // (commitProductChoice, _activateVibe re-pickup, etc.). The
@@ -11408,9 +11573,7 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
       // their image. _saveDesignLocally synthesizes a mockup entry from
       // the manifest URL so the download bundle still gets the photo.
       if (state.isDefaultActive
-          && defaultMockupManifest
-          && defaultMockupManifest[pid]
-          && defaultMockupManifest[pid].url) {
+          && defaultMockupEntry(state.wavelength, state.editorFilter, pid)) {
         return true;
       }
       return false;
@@ -12824,6 +12987,11 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
         aspectRatio: (ar && ar.w && ar.h) ? { w: ar.w, h: ar.h } : null,
         cropZoom: state.cropZoom,
         panX: state.panX, panY: state.panY,
+        // resolution panX/panY are measured in (the editor reference image), so
+        // the server can scale the pan into the full-res HQ print space — without
+        // this the disk lands in a corner of the composed print (see print_compose)
+        panRefW: (state.originalImage && state.originalImage.naturalWidth) || null,
+        panRefH: (state.originalImage && state.originalImage.naturalHeight) || null,
         rotation: state.rotation || 0,
         flipH: !!state.flipH, flipV: !!state.flipV,
         brightness: state.brightness || 0,

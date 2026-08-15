@@ -75,6 +75,7 @@ export const state = {
   mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
   uploadedPrintifyId: null,  // reusable image ID from Printify upload
   editorFilter: "raw",       // "raw" | "rhef" — HQ is separate; "jpg" is raw's fast first-paint, not a tier
+  _handoffFilter: null,      // one-shot raw/rhef choice from the experience→flat confirm gate; consumed by the next image install
   jpgImage: null,            // JPG = Helioviewer-derived from backend; distinct from raw and RHEF
   rhefImage: null,            // RHE-processed preview image
   rawBackendImage: null,     // backend raw preview (no RHEF) for toggling with rhefImage
@@ -123,4 +124,24 @@ export const state = {
 export let defaultMockupManifest = null;
 export function setDefaultMockupManifest(manifest) {
   defaultMockupManifest = manifest;
+}
+
+// Nested-manifest slice lookup (2026-08-15). The default-mockup manifest is
+// now keyed {wavelength: {filter: {productId: entry}}} so the product grid can
+// show the mockup matching the CURRENT wavelength + raw/RHEF version the
+// visitor chose on the experience/confirm handoff (instead of one varied-
+// gallery photo per product). Returns the entry for (wl, editorFilter, pid),
+// or null so callers fall through to the JS canvas approximation.
+//
+// Back-compat: also accepts the legacy flat {productId: entry} shape, so a
+// deploy where the frontend ships before the nested warm can't blank the grid.
+export function defaultMockupEntry(wl, editorFilter, pid) {
+  const m = defaultMockupManifest;
+  if (!m) return null;
+  const flt = (String(editorFilter) === "rhef" || String(editorFilter) === "hq_rhef") ? "rhef" : "raw";
+  const slice = m[String(wl)] && m[String(wl)][flt];
+  const entry = slice && slice[pid];
+  if (entry && entry.url) return entry;
+  const flat = m[pid];   // legacy flat shape
+  return (flat && flat.url) ? flat : null;
 }

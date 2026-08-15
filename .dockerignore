@@ -21,3 +21,7 @@ Dockerfile
 infra/
 MIGRATION.md
 default_cache/
+# Dev-only render output + legacy backups — never COPY'd into the image, but
+# they were still uploaded in the build context (~2 GB) on every deploy.
+solar_archive_output/
+dep/

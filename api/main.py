@@ -2597,108 +2597,237 @@ def _ensure_mockup_thumb(pid: str, manifest: dict) -> bool:
     return True
 
 
-def _phase_b_warm(image_id_cache, force=False):
-    """Synchronously pre-render + cache real Printify mockups for every
-    product in `_DEFAULT_MOCKUP_PRODUCTS`. Idempotent: skips products
-    whose mockup file already exists on disk (unless `force`, which
-    regenerates everything — used when the selection logic or the
-    per-product source images change). Per-product try/except so
-    one failure doesn't break the batch.
+# ──────────────────────────────────────────────────────────────────
+# Wavelength × filter × product mockup grid  (2026-08-15, Gilly)
+#
+# The landing/handoff funnel lets the visitor pick a wavelength on the
+# experience site and a raw/RHEF "version" at the confirmation step, so the
+# product picker must show mockups matching THAT (wavelength, filter), not one
+# varied-gallery photo per product. We cache a full grid:
+#     9 wavelengths × {raw, rhef} × 36 products = 648 cells.
+# Files:    mockups/{wl}/{filter}/{pid}.png   (+ .thumb.webp)
+# Manifest: default_mockups.json is nested   {wl: {filter: {pid: entry}}}.
+# Source art is the 1k render of the canonical landing date (AR 2192) so the
+# grid reads as one coherent Sun; the 1k tier (not the 3–4k HQ) keeps uploads
+# and the edge mirror light ("use the 1k path" — Gilly). Materialisation is
+# demand/deploy-driven: the sweep warms one wavelength (~72 cells) at a time,
+# rate-limited, and the frontend falls back to its canvas approximation for
+# any cell not yet cached.
+# ──────────────────────────────────────────────────────────────────
+_GRID_WAVELENGTHS = [94, 131, 171, 193, 211, 304, 335, 1600, 1700]
+_GRID_WL_STR = set(str(w) for w in _GRID_WAVELENGTHS)
+_GRID_FILTERS = ["raw", "rhef"]
+_GRID_SOURCE_DATE = DEFAULT_LANDING_DATE   # "2014-10-24" (AR 2192)
+_GRID_SOURCE_TIME = "12:00"
+_GRID_SRC_DIR = DEFAULT_CACHE_DIR / "grid_src"   # 1k per-(wl,filter) source PNGs
+_GRID_SOURCE_SIZE = 1024
+_WARM_PACING_SEC = 1.2   # sleep between Printify product-creates (rate limit)
 
-    Source images: each product entry may carry a `vibe` slug — its
-    pre-warmed rhef_full.png becomes the mockup art, giving the landing
-    grid a spread of dates and wavelength palettes instead of one image
-    everywhere (Gilly, 2026-08-08). Products without a slug (or with the
-    artifact missing on disk) fall back to the Phase A default HQ.
 
-    `image_id_cache` is a dict cache {source_key: uploaded_image_id} —
-    each distinct source uploads at most once per run.
+def _grid_filter_key(editor_filter):
+    """Collapse the frontend's editorFilter ('raw'|'rhef'|'hq_rhef'|'jpg') to
+    the two-value grid axis. Mirrors solar-archive.js's own collapse."""
+    return "rhef" if str(editor_filter) in ("rhef", "hq_rhef") else "raw"
 
-    Returns a summary dict with counts + per-product status + the
-    written manifest path."""
-    # Lazy imports so module load order stays clean.
-    from api.printify_routes import _printify_request, _headers, _shop_id, PRINTIFY_BASE
-    import json, time, requests as _requests
 
-    DEFAULT_MOCKUPS_DIR.mkdir(parents=True, exist_ok=True)
+def _grid_source_path(wl, filt):
+    return _GRID_SRC_DIR / str(wl) / f"{filt}.png"
 
-    # Load any existing manifest so re-runs preserve previous entries.
-    manifest = {}
+
+def _grid_cell_paths(wl, filt, pid):
+    d = DEFAULT_MOCKUPS_DIR / str(wl) / str(filt)
+    return d / f"{pid}.png", d / f"{pid}.thumb.webp"
+
+
+def _crop_to_aspect(raw_bytes, ar):
+    """Center cover-crop the (square) 1k source to the product's print aspect.
+
+    ponytail: crop, not pad (Gilly, 2026-08-15). Filling the print area edge
+    to edge previews the product as it actually looks. Tradeoff, deliberately
+    accepted: for tall/wide products a center crop clips the disk's edge (an
+    11:14 poster loses ~20% of the disk's width). Acceptable for a
+    representative grid thumbnail, and the editor still lets the buyer re-crop
+    their own frame. The alternative, if the whole disk must survive, is to pad
+    (letterbox) to the aspect instead of cropping."""
+    try:
+        import io
+        from PIL import Image
+        ratio = float(ar[0]) / float(ar[1])
+        im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        w, h = im.size
+        if abs((w / h) - ratio) < 0.02:
+            return raw_bytes
+        if (w / h) > ratio:
+            new_w, new_h = int(round(h * ratio)), h   # too wide → crop width
+        else:
+            new_w, new_h = w, int(round(w / ratio))   # too tall → crop height
+        left = max(0, (w - new_w) // 2)
+        top = max(0, (h - new_h) // 2)
+        im = im.crop((left, top, left + new_w, top + new_h))
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        return buf.getvalue()
+    except Exception as _e:
+        print(f"[warm_grid] crop_to_aspect failed (using original): {_e}", flush=True)
+        return raw_bytes
+
+
+def _ensure_grid_sources_for_wl(wl, force=False):
+    """Ensure the 1k raw + 1k rhef source PNGs exist for the canonical landing
+    date at wavelength `wl`. One fido fetch feeds both filters. Renders through
+    the existing vibe pipeline (~3k²) then LANCZOS-resizes each to 1024². Idem-
+    potent. Returns {"raw": Path, "rhef": Path}."""
+    dst = {f: _grid_source_path(wl, f) for f in _GRID_FILTERS}
+    if not force and all(p.exists() and p.stat().st_size > 1000 for p in dst.values()):
+        return dst
+    slug = f"grid_{int(wl)}"
+    _render_vibe_pair({
+        "slug": slug, "date": _GRID_SOURCE_DATE, "wavelength": int(wl),
+        "time": _GRID_SOURCE_TIME, "mission": "SDO", "detector": "AIA",
+    })
+    vibe_dir = DEFAULT_VIBE_DIR / slug
+    fulls = {"raw": vibe_dir / "raw_full.png", "rhef": vibe_dir / "rhef_full.png"}
+    for f in _GRID_FILTERS:
+        if not (fulls[f].exists() and fulls[f].stat().st_size > 1000):
+            raise RuntimeError(f"grid source render missing {f}_full.png for wl {wl}")
+        dst[f].parent.mkdir(parents=True, exist_ok=True)
+        _vibe_write_thumb(str(fulls[f]), str(dst[f]), size=_GRID_SOURCE_SIZE)
+    return dst
+
+
+def _load_default_manifest():
+    import json
     if DEFAULT_MOCKUPS_MANIFEST.exists():
         try:
-            manifest = json.loads(DEFAULT_MOCKUPS_MANIFEST.read_text()) or {}
+            return json.loads(DEFAULT_MOCKUPS_MANIFEST.read_text()) or {}
         except Exception:
-            manifest = {}
+            return {}
+    return {}
 
+
+def _persist_default_manifest(manifest):
+    """Atomic write of the nested manifest. Drops legacy flat per-product
+    top-level keys (pre-2026-08-15) so the file stays clean once the grid warm
+    has run."""
+    import json
+    clean = {k: v for k, v in manifest.items() if k in _GRID_WL_STR}
+    tmp = DEFAULT_MOCKUPS_MANIFEST.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(clean, indent=2))
+    os.replace(tmp, DEFAULT_MOCKUPS_MANIFEST)
+
+
+def _ensure_grid_thumb(wl, filt, pid, entry):
+    """WebP grid thumbnail for a nested cell; adds thumb_url to `entry`.
+    Idempotent — (re)generates only when the thumb is missing or the entry
+    lacks the url. Requires the full mockup PNG on disk. Returns True if it
+    (re)generated."""
+    png, thumb = _grid_cell_paths(wl, filt, pid)
+    thumb_url = f"/asset/default/mockups/{wl}/{filt}/{pid}.thumb.webp"
+    have = thumb.exists() and thumb.stat().st_size > 200
+    if have and entry.get("thumb_url") == thumb_url:
+        return False
+    if not (png.exists() and png.stat().st_size > 1000):
+        return False
+    _write_mockup_thumb(str(png), str(thumb))
+    entry["thumb_url"] = thumb_url
+    entry["thumb_size_bytes"] = thumb.stat().st_size
+    return True
+
+
+def _grid_all_cells():
+    return [(wl, f, prod)
+            for wl in _GRID_WAVELENGTHS
+            for f in _GRID_FILTERS
+            for prod in _DEFAULT_MOCKUP_PRODUCTS]
+
+
+def _grid_cell_present(manifest, wl, filt, pid):
+    png, _t = _grid_cell_paths(wl, filt, pid)
+    entry = (((manifest or {}).get(str(wl)) or {}).get(filt) or {}).get(pid)
+    return bool(entry and entry.get("url")) and png.exists() and png.stat().st_size > 1000
+
+
+def _grid_missing_cells(manifest):
+    return [(wl, f, prod) for (wl, f, prod) in _grid_all_cells()
+            if not _grid_cell_present(manifest, wl, f, prod["id"])]
+
+
+def _mockup_coverage():
+    """Coverage of the wl × filter × product grid vs disk+manifest. The
+    self-updating deploy check reads this before/after every deploy."""
+    manifest = _load_default_manifest()
+    all_cells = _grid_all_cells()
+    missing = _grid_missing_cells(manifest)
+    by_wl = {}
+    per_wl_total = len(_GRID_FILTERS) * len(_DEFAULT_MOCKUP_PRODUCTS)
+    for wl in _GRID_WAVELENGTHS:
+        miss = sum(1 for (w, _f, _p) in missing if w == wl)
+        by_wl[str(wl)] = {"present": per_wl_total - miss, "total": per_wl_total}
+    return {
+        "total": len(all_cells),
+        "present": len(all_cells) - len(missing),
+        "missing": len(missing),
+        "complete": len(missing) == 0,
+        "wavelengths": _GRID_WAVELENGTHS,
+        "filters": _GRID_FILTERS,
+        "products": len(_DEFAULT_MOCKUP_PRODUCTS),
+        "by_wavelength": by_wl,
+        "missing_sample": [{"wl": w, "filter": f, "id": p["id"]} for (w, f, p) in missing[:40]],
+    }
+
+
+def _next_incomplete_wavelength():
+    """First wavelength (in canonical order) with any missing cell, or None."""
+    manifest = _load_default_manifest()
+    for wl in _GRID_WAVELENGTHS:
+        for f in _GRID_FILTERS:
+            for prod in _DEFAULT_MOCKUP_PRODUCTS:
+                if not _grid_cell_present(manifest, wl, f, prod["id"]):
+                    return wl
+    return None
+
+
+def _phase_b_warm(image_id_cache, force=False, wavelengths=None, filters=None, max_cells=None):
+    """Pre-render + cache real Printify mockups for the (wavelength × filter ×
+    product) grid. Idempotent: skips cells whose PNG + manifest entry already
+    exist (unless `force`). Per-cell try/except so one failure doesn't break
+    the batch. Rate-limited (_WARM_PACING_SEC between creates) so a big warm
+    doesn't hammer Printify.
+
+    wavelengths : subset to warm (default all 9). Pass ONE for the "~72 cells
+        at a time" rate-limited batch the deploy sweep uses.
+    filters     : subset of {"raw","rhef"} (default both).
+    max_cells   : stop after this many *created* cells (sweep budget).
+
+    Source art per (wl, filter) is the 1k render of the canonical landing date,
+    cropped to each product's print aspect. Manifest is nested
+    {wl: {filter: {pid: entry}}}. `image_id_cache` is {upload_key: image_id} —
+    one Printify upload per distinct (wl, filter, print-aspect)."""
+    from api.printify_routes import (
+        _printify_request, _headers, _shop_id, PRINTIFY_BASE, _expand_print_areas,
+    )
+    import time
+
+    wavelengths = [int(w) for w in (wavelengths if wavelengths is not None else _GRID_WAVELENGTHS)]
+    filters = [f for f in (filters if filters is not None else _GRID_FILTERS) if f in _GRID_FILTERS] or list(_GRID_FILTERS)
+    DEFAULT_MOCKUPS_DIR.mkdir(parents=True, exist_ok=True)
     if not isinstance(image_id_cache, dict):
         image_id_cache = {}
 
-    def _source_for(prod):
-        """(source_key, loader) for this product's mockup art: the vibe
-        slug's rhef_full.png when present on disk, else the default HQ."""
-        slug = prod.get("vibe")
-        if slug:
-            p = DEFAULT_CACHE_DIR / "vibe" / slug / "rhef_full.png"
-            if p.exists() and p.stat().st_size > 1000:
-                return slug, p
-        return "_default", None
+    manifest = _load_default_manifest()
 
-    def _pad_to_aspect(raw_bytes, ar):
-        """Pad (never crop) the square source to the product's print
-        aspect, filling with the image's own corner-average colour so the
-        extension reads as more corona-dark sky, not white paper. Cropping
-        was rejected: an 11:14 cover-crop of the square art would clip
-        ~20% off the Sun's disk. Returns PNG bytes; on any failure returns
-        the input unchanged (mockup then letterboxes, the old behavior)."""
-        try:
-            import io
-            from PIL import Image
-            ratio = float(ar[0]) / float(ar[1])
-            im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-            w, h = im.size
-            if abs((w / h) - ratio) < 0.02:
-                return raw_bytes
-            if (w / h) < ratio:
-                new_w, new_h = int(round(h * ratio)), h
-            else:
-                new_w, new_h = w, int(round(w / ratio))
-            px = im.load()
-            k = max(2, min(w, h) // 50)
-            corners = [(0, 0), (w - k, 0), (0, h - k), (w - k, h - k)]
-            tot = [0, 0, 0]; n = 0
-            for cx, cy in corners:
-                for dx in range(0, k, 2):
-                    for dy in range(0, k, 2):
-                        p = px[cx + dx, cy + dy]
-                        tot[0] += p[0]; tot[1] += p[1]; tot[2] += p[2]; n += 1
-            fill = tuple(int(t / n) for t in tot)
-            canvas = Image.new("RGB", (new_w, new_h), fill)
-            canvas.paste(im, ((new_w - w) // 2, (new_h - h) // 2))
-            buf = io.BytesIO()
-            canvas.save(buf, "PNG")
-            return buf.getvalue()
-        except Exception as _e:
-            print(f"[warm_default][phase_b] pad_to_aspect failed (using original): {_e}", flush=True)
-            return raw_bytes
-
-    def _ensure_uploaded(prod):
+    def _ensure_uploaded(wl, filt, prod):
         import base64
-        key, path = _source_for(prod)
         ar = prod.get("ar")
-        # One upload per distinct (source, print-aspect) pair.
-        ckey = key + (f"_{ar[0]:g}x{ar[1]:g}" if ar else "")
+        ckey = f"{wl}_{filt}" + (f"_{ar[0]:g}x{ar[1]:g}" if ar else "")
         if image_id_cache.get(ckey):
             return image_id_cache[ckey]
-        if path is not None:
-            raw = path.read_bytes()
-            fname = f"{ckey}_rhef_full.png"
-        else:
-            raw = base64.b64decode(_phase_b_load_default_image_b64())
-            fname = DEFAULT_HQ_FILENAME
+        src = _grid_source_path(wl, filt)      # 1k square PNG (ensured per-wl by caller)
+        raw = src.read_bytes()
         if ar:
-            raw = _pad_to_aspect(raw, ar)
+            raw = _crop_to_aspect(raw, ar)
         b64 = base64.b64encode(raw).decode("ascii")
-        body = {"file_name": fname, "contents": b64}
+        body = {"file_name": f"grid_{ckey}.png", "contents": b64}
         r = _printify_request(
             "POST", f"{PRINTIFY_BASE}/uploads/images.json",
             headers=_headers(), json=body, timeout=120,
@@ -2714,137 +2843,146 @@ def _phase_b_warm(image_id_cache, force=False):
     created = 0
     skipped = 0
     failed = []
-    per_product = []
+    per_cell = []
     shop_id = _shop_id()
 
-    # Clean up any orphan drafts from a previous failed warm run so we
-    # don't accumulate "[MOCKUP-WARM]" garbage on the Printify dashboard.
-    # Best-effort — a failure here doesn't block the actual warm.
+    # Clean orphan drafts from a prior failed run (best-effort).
     try:
-        orphan_count = _phase_b_cleanup_orphan_drafts()
-        if orphan_count:
-            print(f"[warm_default][phase_b] cleaned {orphan_count} orphan draft(s) from prior run", flush=True)
+        oc = _phase_b_cleanup_orphan_drafts()
+        if oc:
+            print(f"[warm_grid] cleaned {oc} orphan draft(s) from prior run", flush=True)
     except Exception as _e:
-        print(f"[warm_default][phase_b] orphan cleanup error (continuing): {_e}", flush=True)
+        print(f"[warm_grid] orphan cleanup error (continuing): {_e}", flush=True)
 
-    for prod in _DEFAULT_MOCKUP_PRODUCTS:
-        pid = prod["id"]
-        mock_path = DEFAULT_MOCKUPS_DIR / f"{pid}.png"
-        status = {"id": pid}
-        # Idempotent skip: file on disk AND manifest entry → done.
-        if not force and mock_path.exists() and mock_path.stat().st_size > 1000 and pid in manifest:
-            skipped += 1
-            status["status"] = "skipped_cached"
-            # Backfill the WebP grid thumbnail even for cached mockups so a
-            # plain re-run of warm_default heals old caches (no Printify calls).
-            try:
-                if _ensure_mockup_thumb(pid, manifest):
-                    status["thumb"] = "created"
-            except Exception as _te:
-                print(f"[warm_default][phase_b] thumb gen failed for {pid}: {_te}", flush=True)
-            per_product.append(status)
-            continue
-
-        # Pace ourselves so Printify doesn't rate-limit a 25-product blast.
-        time.sleep(1.2)
-
+    stop = False
+    for wl in wavelengths:
+        if stop:
+            break
+        # Ensure the 1k source(s) for this wavelength (one fido fetch feeds
+        # both filters). A source failure fails this wl's whole group, not the
+        # run.
         try:
-            image_id = _ensure_uploaded(prod)
-            payload = {
-                "title": f"[MOCKUP-WARM] Solar Archive default — {pid}",
-                "description": "Auto-generated default mockup; will be deleted.",
-                "blueprint_id": prod["blueprintId"],
-                "print_provider_id": prod["printProviderId"],
-                "variants": [{"id": prod["variantId"], "price": 100, "is_enabled": True}],
-                "print_areas": [{
-                    "variant_ids": [prod["variantId"]],
-                    "placeholders": [{
-                        "position": prod.get("position", "front"),
-                        "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}],
-                    }],
-                }],
-            }
-            # Reuse the same _expand_print_areas helper the public route uses,
-            # so blueprints with multi-position panel layouts (crew socks,
-            # journal, pillow) get all their placeholders filled.
-            from api.printify_routes import _expand_print_areas
-            payload = _expand_print_areas(payload)
-
-            r = _printify_request(
-                "POST", f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
-                headers=_headers(), json=payload, timeout=120,
-            )
-            if r.status_code >= 400:
-                raise RuntimeError(f"create failed: {r.status_code} {r.text[:200]}")
-            product_json = r.json()
-            printify_product_id = product_json.get("id")
-            # try/finally: even if the download fails, we still attempt to
-            # DELETE the draft so failed runs don't accumulate orphans.
-            try:
-                mockup_url = _phase_b_pick_mockup_url(product_json)
-                if not mockup_url:
-                    raise RuntimeError("create succeeded but no mockup images in response")
-                # certifi-verified, retried download — plain requests.get
-                # fails on this CDN because our process has SSL_CERT_FILE
-                # pointed at a NASA-augmented bundle for VSO/FITS work.
-                img_bytes = _phase_b_cdn_download(mockup_url)
-                _atomic_image_write(mock_path, lambda _p: Path(_p).write_bytes(img_bytes))
-                manifest[pid] = {
-                    "url": f"/asset/default/mockups/{pid}.png",
-                    "size_bytes": mock_path.stat().st_size,
-                    "source_mockup_url": mockup_url,
-                }
-                # Generate the lightweight WebP grid thumbnail (adds thumb_url
-                # to the entry above) before the incremental write below.
-                try:
-                    _ensure_mockup_thumb(pid, manifest)
-                except Exception as _te:
-                    print(f"[warm_default][phase_b] thumb gen failed for {pid}: {_te}", flush=True)
-                # Incremental manifest write: persists partial progress so a
-                # Render edge-cut on a long-running warm doesn't lose
-                # everything. Re-runs read this manifest + skip cached.
-                try:
-                    _tmp_mockup = DEFAULT_MOCKUPS_MANIFEST.with_suffix(".json.tmp"); _tmp_mockup.write_text(json.dumps(manifest, indent=2)); os.replace(_tmp_mockup, DEFAULT_MOCKUPS_MANIFEST)
-                except Exception as _e:
-                    print(f"[warm_default][phase_b] manifest incremental-write failed: {_e}", flush=True)
-                created += 1
-                status["status"] = "created"
-                status["size_bytes"] = mock_path.stat().st_size
-            finally:
-                if printify_product_id:
-                    try:
-                        dr = _printify_request(
-                            "DELETE",
-                            f"{PRINTIFY_BASE}/shops/{shop_id}/products/{printify_product_id}.json",
-                            headers=_headers(), timeout=60,
-                        )
-                        if dr.status_code >= 400:
-                            print(f"[warm_default][phase_b] delete failed for {pid} ({printify_product_id}): "
-                                  f"{dr.status_code} {dr.text[:120]}", flush=True)
-                    except Exception as _e:
-                        print(f"[warm_default][phase_b] delete error for {pid}: {_e}", flush=True)
+            _ensure_grid_sources_for_wl(wl, force=False)
         except Exception as e:
-            failed.append({"id": pid, "error": str(e)[:240]})
-            status["status"] = "failed"
-            status["error"] = str(e)[:240]
-        per_product.append(status)
+            for filt in filters:
+                for prod in _DEFAULT_MOCKUP_PRODUCTS:
+                    failed.append({"wl": wl, "filter": filt, "id": prod["id"],
+                                   "error": f"source: {str(e)[:180]}"})
+            continue
+        for filt in filters:
+            if stop:
+                break
+            entry_slot = manifest.setdefault(str(wl), {}).setdefault(filt, {})
+            for prod in _DEFAULT_MOCKUP_PRODUCTS:
+                pid = prod["id"]
+                png_path, _thumb = _grid_cell_paths(wl, filt, pid)
+                cell = {"wl": wl, "filter": filt, "id": pid}
+                # Idempotent skip: PNG on disk AND manifest entry → done.
+                if (not force and png_path.exists() and png_path.stat().st_size > 1000
+                        and entry_slot.get(pid)):
+                    skipped += 1
+                    cell["status"] = "skipped_cached"
+                    try:
+                        if _ensure_grid_thumb(wl, filt, pid, entry_slot[pid]):
+                            cell["thumb"] = "created"
+                    except Exception as _te:
+                        print(f"[warm_grid] thumb gen failed {wl}/{filt}/{pid}: {_te}", flush=True)
+                    per_cell.append(cell)
+                    continue
 
-    # Persist the manifest. Always rewrite (with any new entries merged in
-    # via the existing dict).
+                time.sleep(_WARM_PACING_SEC)  # pace Printify
+                printify_product_id = None
+                try:
+                    image_id = _ensure_uploaded(wl, filt, prod)
+                    payload = {
+                        "title": f"[MOCKUP-WARM] grid {wl}/{filt} — {pid}",
+                        "description": "Auto-generated grid mockup; will be deleted.",
+                        "blueprint_id": prod["blueprintId"],
+                        "print_provider_id": prod["printProviderId"],
+                        "variants": [{"id": prod["variantId"], "price": 100, "is_enabled": True}],
+                        "print_areas": [{
+                            "variant_ids": [prod["variantId"]],
+                            "placeholders": [{
+                                "position": prod.get("position", "front"),
+                                "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}],
+                            }],
+                        }],
+                    }
+                    payload = _expand_print_areas(payload)
+                    r = _printify_request(
+                        "POST", f"{PRINTIFY_BASE}/shops/{shop_id}/products.json",
+                        headers=_headers(), json=payload, timeout=120,
+                    )
+                    if r.status_code >= 400:
+                        raise RuntimeError(f"create failed: {r.status_code} {r.text[:200]}")
+                    product_json = r.json()
+                    printify_product_id = product_json.get("id")
+                    try:
+                        mockup_url = _phase_b_pick_mockup_url(product_json)
+                        if not mockup_url:
+                            raise RuntimeError("create succeeded but no mockup images in response")
+                        img_bytes = _phase_b_cdn_download(mockup_url)
+                        _atomic_image_write(png_path, lambda _p: Path(_p).write_bytes(img_bytes))
+                        entry = {
+                            "url": f"/asset/default/mockups/{wl}/{filt}/{pid}.png",
+                            "size_bytes": png_path.stat().st_size,
+                            "source_mockup_url": mockup_url,
+                            "wavelength": wl,
+                            "filter": filt,
+                        }
+                        entry_slot[pid] = entry
+                        try:
+                            _ensure_grid_thumb(wl, filt, pid, entry)
+                        except Exception as _te:
+                            print(f"[warm_grid] thumb gen failed {wl}/{filt}/{pid}: {_te}", flush=True)
+                        # Incremental write: a mid-run edge-cut keeps prior cells.
+                        try:
+                            _persist_default_manifest(manifest)
+                        except Exception as _e:
+                            print(f"[warm_grid] manifest incremental-write failed: {_e}", flush=True)
+                        created += 1
+                        cell["status"] = "created"
+                        cell["size_bytes"] = entry["size_bytes"]
+                    finally:
+                        if printify_product_id:
+                            try:
+                                dr = _printify_request(
+                                    "DELETE",
+                                    f"{PRINTIFY_BASE}/shops/{shop_id}/products/{printify_product_id}.json",
+                                    headers=_headers(), timeout=60,
+                                )
+                                if dr.status_code >= 400:
+                                    print(f"[warm_grid] delete failed {wl}/{filt}/{pid}: "
+                                          f"{dr.status_code} {dr.text[:120]}", flush=True)
+                            except Exception as _e:
+                                print(f"[warm_grid] delete error {wl}/{filt}/{pid}: {_e}", flush=True)
+                except Exception as e:
+                    failed.append({"wl": wl, "filter": filt, "id": pid, "error": str(e)[:240]})
+                    cell["status"] = "failed"
+                    cell["error"] = str(e)[:240]
+                per_cell.append(cell)
+                if max_cells and created >= max_cells:
+                    stop = True
+                    break
+
     try:
-        _tmp_mockup = DEFAULT_MOCKUPS_MANIFEST.with_suffix(".json.tmp"); _tmp_mockup.write_text(json.dumps(manifest, indent=2)); os.replace(_tmp_mockup, DEFAULT_MOCKUPS_MANIFEST)
+        _persist_default_manifest(manifest)
     except Exception as e:
-        print(f"[warm_default][phase_b] manifest write failed: {e}", flush=True)
+        print(f"[warm_grid] final manifest write failed: {e}", flush=True)
 
+    total = len(wavelengths) * len(filters) * len(_DEFAULT_MOCKUP_PRODUCTS)
     return {
         "phase": "B",
-        "total_products": len(_DEFAULT_MOCKUP_PRODUCTS),
+        "grid": True,
+        "wavelengths": wavelengths,
+        "filters": filters,
+        "total_cells": total,
         "created": created,
         "skipped_cached": skipped,
         "failed": len(failed),
-        "failures": failed,
+        "failures": failed[:50],
         "manifest_url": "/asset/default/default_mockups.json",
-        "per_product": per_product,
+        "per_cell": per_cell[:200],
     }
 
 
@@ -2930,21 +3068,156 @@ async def warm_default(request: Request):
             "phase": "A",
         }
 
-    # Phase B — pre-render real Printify mockups for every product using the
-    # Phase A HQ image. Idempotent per product (skips cached ones), so a
-    # client timeout can re-trigger and pick up where it left off. Runs in
-    # a thread to avoid blocking the asyncio loop for the heavy Printify
-    # orchestration.
+    # Phase B — pre-render real Printify mockups for the wavelength × filter ×
+    # product grid. Idempotent per cell (skips cached ones), so a client
+    # timeout can re-trigger and pick up where it left off. Runs in a thread to
+    # avoid blocking the asyncio loop for the heavy Printify orchestration.
+    #
+    # Query params (all optional):
+    #   force=1              regenerate cached cells too
+    #   wavelength=171       warm just this wavelength (both filters, ~72 cells)
+    #   filters=raw,rhef     restrict the filter axis
+    #   sweep=1              warm the NEXT wavelength that still has gaps (one
+    #                        rate-limited batch); no-op when the grid is full.
+    #                        This is the self-updating deploy driver.
+    #   max_cells=N          cap created cells this call (sweep budget)
+    qp = request.query_params
+    _truthy = ("1", "true", "yes")
+    _force = str(qp.get("force", "")).strip().lower() in _truthy
+    _sweep = str(qp.get("sweep", "")).strip().lower() in _truthy
+    _wl_param = str(qp.get("wavelength", "")).strip()
+    _filters_param = str(qp.get("filters", "")).strip()
+    _max_cells = qp.get("max_cells")
     try:
-        _force = str(request.query_params.get("force", "")).strip().lower() in ("1", "true", "yes")
-        phase_b_result = await asyncio.to_thread(_phase_b_warm, {}, _force)
+        _max_cells = int(_max_cells) if _max_cells else None
+    except Exception:
+        _max_cells = None
+
+    _wavelengths = None
+    if _wl_param:
+        try:
+            _wavelengths = [int(_wl_param)]
+        except Exception:
+            _wavelengths = None
+    elif _sweep:
+        _next = _next_incomplete_wavelength()
+        if _next is None:
+            return {"phase_a": phase_a_result,
+                    "phase_b": {"phase": "B", "grid": True, "complete": True,
+                                "coverage": _mockup_coverage()}}
+        _wavelengths = [_next]
+
+    _filters = [f.strip() for f in _filters_param.split(",") if f.strip()] or None
+
+    try:
+        phase_b_result = await asyncio.to_thread(
+            _phase_b_warm, {}, _force, _wavelengths, _filters, _max_cells,
+        )
+        phase_b_result["coverage"] = _mockup_coverage()
     except Exception as e:
-        # Phase B failed wholesale (likely Phase A image missing or
-        # Printify creds). Return Phase A success + the B error so the
-        # operator can fix and re-trigger.
+        # Phase B failed wholesale (likely Printify creds or source render).
+        # Return Phase A success + the B error so the operator can fix and
+        # re-trigger.
         return {"phase_a": phase_a_result, "phase_b": {"phase": "B", "ok": False, "error": str(e)}}
 
     return {"phase_a": phase_a_result, "phase_b": phase_b_result}
+
+
+# ── Background grid warm (async) ──────────────────────────────────────
+# A wavelength's warm (1k source render + ~72 Printify creates) takes minutes.
+# Holding ONE HTTP request open that long is fragile behind a proxy / the
+# scale-to-zero edge (observed: curl "error in the HTTP2 framing layer" reset).
+# So warm_grid?background=1 starts the warm in a daemon thread and returns
+# immediately; the sweep script polls mockup_coverage (short requests, which
+# also keep the machine awake). Progress persists per-cell, so an interruption
+# just resumes on the next round.
+_GRID_WARM_STATUS = {"active": False, "wavelength": None, "last": None}
+_GRID_WARM_LOCK = threading.Lock()
+
+
+def _run_grid_warm(wavelengths, filters, force, max_cells):
+    try:
+        res = _phase_b_warm({}, force, wavelengths, filters, max_cells)
+        summary = {k: res.get(k) for k in
+                   ("wavelengths", "created", "skipped_cached", "failed")}
+        # Keep a few failure reasons so mockup_coverage can show WHY cells fail
+        # without needing the Fly logs (the source/Printify error text).
+        summary["failures"] = (res.get("failures") or [])[:5]
+        _GRID_WARM_STATUS["last"] = summary
+    except Exception as e:
+        _GRID_WARM_STATUS["last"] = {"error": str(e)[:240]}
+    finally:
+        _GRID_WARM_STATUS["active"] = False
+        _GRID_WARM_STATUS["wavelength"] = None
+
+
+@app.post("/api/admin/warm_grid")
+async def warm_grid(request: Request):
+    """Warm the wavelength × filter × product mockup grid (no Phase-A landing
+    render). Query params (all optional): force; wavelength=NNN; filters=raw,rhef;
+    sweep=1 (warm the next wavelength that still has gaps); max_cells=N;
+    background=1 (start in a thread and return immediately — the deploy sweep
+    uses this). Admin-gated (x-admin-key)."""
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
+    qp = request.query_params
+    truthy = ("1", "true", "yes")
+    force = str(qp.get("force", "")).strip().lower() in truthy
+    sweep = str(qp.get("sweep", "")).strip().lower() in truthy
+    background = str(qp.get("background", "")).strip().lower() in truthy
+    wl_param = str(qp.get("wavelength", "")).strip()
+    filters_param = str(qp.get("filters", "")).strip()
+    mc = qp.get("max_cells")
+    try:
+        max_cells = int(mc) if mc else None
+    except Exception:
+        max_cells = None
+
+    wavelengths = None
+    if wl_param:
+        try:
+            wavelengths = [int(wl_param)]
+        except Exception:
+            wavelengths = None
+    elif sweep:
+        nxt = _next_incomplete_wavelength()
+        if nxt is None:
+            return {"complete": True, "coverage": _mockup_coverage()}
+        wavelengths = [nxt]
+    filters = [f.strip() for f in filters_param.split(",") if f.strip()] or None
+
+    if background:
+        with _GRID_WARM_LOCK:
+            if _GRID_WARM_STATUS["active"]:
+                return {"started": False, "already_running": True,
+                        "warming_wl": _GRID_WARM_STATUS["wavelength"],
+                        "coverage": _mockup_coverage()}
+            _GRID_WARM_STATUS["active"] = True
+            _GRID_WARM_STATUS["wavelength"] = wavelengths[0] if wavelengths else None
+        threading.Thread(target=_run_grid_warm,
+                         args=(wavelengths, filters, force, max_cells),
+                         daemon=True).start()
+        return {"started": True,
+                "wavelength": _GRID_WARM_STATUS["wavelength"],
+                "coverage": _mockup_coverage()}
+
+    # Synchronous path (small/manual use only — can be long, avoid via a proxy).
+    res = await asyncio.to_thread(_phase_b_warm, {}, force, wavelengths, filters, max_cells)
+    res["coverage"] = _mockup_coverage()
+    return res
+
+
+@app.get("/api/admin/mockup_coverage")
+async def mockup_coverage(request: Request):
+    """Coverage of the wavelength × filter × product mockup grid vs what is
+    cached on disk + in the manifest, plus live warm status. The deploy pipeline
+    reads this BEFORE (report gaps) and AFTER (confirm backfill) every deploy,
+    and the sweep polls it while a background warm runs. Admin-gated."""
+    _check_warm_admin_key(request.headers.get("x-admin-key"))
+    cov = _mockup_coverage()
+    cov["warming"] = _GRID_WARM_STATUS["active"]
+    cov["warming_wl"] = _GRID_WARM_STATUS["wavelength"]
+    cov["last_warm"] = _GRID_WARM_STATUS["last"]
+    return cov
 
 
 # ──────────────────────────────────────────────────────────────────────

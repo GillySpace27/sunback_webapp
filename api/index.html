@@ -99,6 +99,44 @@
        via the skip-link, and screen-readers expose region navigation. -->
   <main id="mainContent">
 
+  <!-- Experience → flat handoff confirmation (2026-08-15). Unmissable gate,
+       shown ONLY when the visitor arrives from the experience site carrying a
+       date + wavelength (see isExperienceHandoff / step "confirm" in
+       solar-archive.js). Confirms the image, date and wavelength, and lets
+       them pick the raw/RHEF version before it carries into the product picker
+       and editor. A dismissible modal was rejected: the whole point is that the
+       chosen date can't be silently lost across the handoff. -->
+  <div class="section" id="confirmSection" role="region" aria-label="Confirm your Sun">
+    <div class="confirm-handoff">
+      <h2 class="confirm-handoff-title">Is this your Sun?</h2>
+      <p class="confirm-handoff-sub">Confirm the moment you chose, then pick how you'd like it processed. This carries straight into your product.</p>
+      <div class="confirm-handoff-preview">
+        <img id="confirmHandoffImg" alt="Your selected solar image" />
+        <div class="confirm-handoff-spinner" id="confirmHandoffSpinner" aria-hidden="true"></div>
+      </div>
+      <dl class="confirm-handoff-facts">
+        <div><dt>Date</dt><dd id="confirmHandoffDate">&mdash;</dd></div>
+        <div><dt>Wavelength</dt><dd id="confirmHandoffWl">&mdash;</dd></div>
+      </dl>
+      <fieldset class="confirm-handoff-version">
+        <legend>Which version?</legend>
+        <label class="confirm-version-opt">
+          <input type="radio" name="confirmVersion" value="rhef" checked>
+          <span><strong>Filtered (RHEF)</strong><small>Enhanced detail &mdash; faint structure brought out</small></span>
+        </label>
+        <label class="confirm-version-opt">
+          <input type="radio" name="confirmVersion" value="raw">
+          <span><strong>Original</strong><small>As the telescope saw it</small></span>
+        </label>
+      </fieldset>
+      <div class="confirm-handoff-actions">
+        <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmHandoffContinue" type="button">Continue to products &rarr;</button>
+        <button class="confirm-handoff-change" id="confirmHandoffChange" type="button">Change date or wavelength</button>
+      </div>
+    </div>
+  </div>
+
+
   <!-- CSP Notice — only revealed when a real securitypolicyviolation
        fires. Persona-sweep finding: the prior copy read like a malware
        warning above the fold; softened to user-language. -->

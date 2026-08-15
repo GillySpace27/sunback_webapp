@@ -2677,6 +2677,115 @@ body.step-editor .vibe-grid-section,
 body.step-editor #configSection {
   display: none !important;
 }
+
+/* ── Experience → flat handoff confirmation gate (step "confirm") ──
+   Hidden except on step "confirm", where it is the ONLY visible surface. */
+#confirmSection { display: none; }
+body.step-confirm #confirmSection { display: block; }
+body.step-confirm .vibe-grid-section,
+body.step-confirm #configSection,
+body.step-confirm #editSection,
+body.step-confirm #productSection,
+body.step-confirm #hekPickerSection,
+body.step-confirm #vibeRevealCta {
+  display: none !important;
+}
+.confirm-handoff {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 28px 16px 56px;
+  text-align: center;
+}
+.confirm-handoff-title { font-size: 1.6rem; margin: 0 0 6px; }
+.confirm-handoff-sub { opacity: 0.8; margin: 0 auto 22px; font-size: 0.95rem; max-width: 40ch; }
+.confirm-handoff-preview {
+  position: relative;
+  width: 320px;
+  max-width: 80vw;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto 20px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #14110c;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+}
+.confirm-handoff-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.confirm-handoff-spinner {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 34px; height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #e8a33d;
+  border-radius: 50%;
+  animation: confirm-spin 0.8s linear infinite;
+}
+@keyframes confirm-spin { to { transform: rotate(360deg); } }
+.confirm-handoff-facts {
+  display: flex;
+  gap: 30px;
+  justify-content: center;
+  margin: 0 0 22px;
+}
+.confirm-handoff-facts div { text-align: center; }
+.confirm-handoff-facts dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  margin: 0;
+}
+.confirm-handoff-facts dd { font-size: 1.05rem; margin: 3px 0 0; font-weight: 600; }
+.confirm-handoff-version {
+  border: none;
+  margin: 0 auto 24px;
+  padding: 0;
+  text-align: left;
+  max-width: 340px;
+}
+.confirm-handoff-version legend {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin-bottom: 10px;
+  text-align: center;
+  width: 100%;
+}
+.confirm-version-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid rgba(160, 140, 110, 0.35);
+  border-radius: 10px;
+  margin-bottom: 9px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.confirm-version-opt:has(input:checked) {
+  border-color: #e8a33d;
+  background: rgba(232, 163, 61, 0.10);
+}
+.confirm-version-opt input { margin-top: 3px; flex: 0 0 auto; }
+.confirm-version-opt span { display: flex; flex-direction: column; }
+.confirm-version-opt small { opacity: 0.65; font-size: 0.78rem; margin-top: 1px; }
+.confirm-handoff-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.confirm-handoff-actions .confirm-modal-btn-primary { min-width: 240px; }
+.confirm-handoff-change {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+}
+.confirm-handoff-change:hover { opacity: 1; }
 /* When a product is selected (step image/editor), .product-card
    stays in DOM but we override .hidden so the user can see their
    pick rendered with the editor canvas in scroll-back view. NOT
