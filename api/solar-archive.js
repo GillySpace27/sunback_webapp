@@ -2470,7 +2470,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       state.panY = img.naturalHeight / 2;
       state.rhefImage = null;
       state.rawBackendImage = null;
-      state.editorFilter = "raw";  // Original (paints from the fast jpg fallback, sharpens to FITS)
+      // Original (paints from the fast jpg fallback, sharpens to FITS) unless
+      // the visitor already chose a look on the handoff bridge.
+      state.editorFilter = state.handoffLook || "raw";
       // Vibe-card entry detection. The vibe's Raw/RHEF/HQ files are
       // pre-warmed on disk and already loading (or cached) via
       // _preloadVibeTiersIntoState in _activateVibe — for that flow we
@@ -3292,6 +3294,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       _cancelForcedQualityCycle();
       var token = (state._qualityCycleToken = (state._qualityCycleToken || 0) + 1);
       state._forcedCycleActive = true;
+      // A handoff look is a decision the visitor already made, on a screen
+      // whose whole job was making it. Honour it instead of clearing it and
+      // staging over the top: the staged cycle exists to show off quality to
+      // someone who has not chosen yet.
+      if (state.handoffLook) {
+        state._forcedCycleActive = false;
+        state._userFilterPick = state.handoffLook;
+        if (state.editorFilter !== state.handoffLook && _filterIsReady(state.handoffLook)) {
+          applyFilterInstant(state.handoffLook);
+        } else {
+          _syncFilterToggleUI(state.editorFilter);
+        }
+        return; // later tiers still promote up to the pin via _onTierReady
+      }
       state._userFilterPick = null;      // fresh image → clear any prior manual pin
       // Stage 1 — Original now (set to raw on install; paints instantly from
       // the fast jpg fallback, sharpens to FITS). Force a sync.
@@ -3468,6 +3484,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // existing handleFilterChange flow shows the right toast/dialog and
         // schedules the fetch).
         state._userFilterPick = radio.value;
+        // The editor toggle outranks the bridge: whichever look they chose
+        // LAST is the one that should survive the next image install.
+        state.handoffLook = radio.value;
         _cancelForcedQualityCycle();   // user took control — stop forcing the staged cycle
         radio.checked = true;
         _syncFilterToggleUI(radio.value);
@@ -3482,6 +3501,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (!radio || radio.name !== "editorFilter") return;
         if (radio.value === state.editorFilter) return;
         state._userFilterPick = radio.value;
+        state.handoffLook = radio.value;   // last explicit choice wins
         _cancelForcedQualityCycle();
         _syncFilterToggleUI(radio.value);
         handleFilterChange(radio);
@@ -5591,6 +5611,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         function pick(tier) {
           state.editorFilter = tier;
           state.vibeMasterTier = tier;
+          // This IS an explicit user pick, just made on the bridge instead of
+          // on the editor's own toggle. Without recording it that way the
+          // editor threw it away twice: the image-install path hardcodes
+          // editorFilter back to "raw", and _runForcedQualityCycle clears
+          // _userFilterPick and then stages raw → rhef on its own. Net effect
+          // was that "Original" still ended up Filtered, and "Enhanced" only
+          // looked right by accident. handoffLook is the durable record; the
+          // pin is what stops the forced cycle from taking over.
+          state.handoffLook = tier;
+          state._userFilterPick = tier;
           try { localStorage.setItem("mh_look", tier); } catch (_e) {}
           if (ov) ov.hidden = true;
           document.body.classList.remove("handoff-confirm");
