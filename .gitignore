@@ -24,3 +24,9 @@ infra/worker/.wrangler/
 
 # Committed secret removed from tracking (rotate PRINTFUL_API_KEY + purge history separately)
 .env
+
+# Agent session data. .claude/ holds per-session transcripts and worktrees and
+# reached 1.2 GB in the main checkout on 2026-08-15 while still untracked but
+# NOT ignored, which put it one `git add -A` away from being committed.
+.claude/
+.serena/
