@@ -917,6 +917,44 @@ body {
   body:has(.picker-toggle[aria-expanded="true"]) .data-credit {
     display: none;
   }
+
+  /* The open drawer did not fit the phone it was built for. The plate measured
+     474px inside a 375px viewport because .picker is width:max-content and the
+     nine swatches are a single non-wrapping flex row (9 x 44px + gaps). 1600 Å
+     began at x=356 and 1700 Å at x=406, so the last two channels sat off-screen
+     with only an undiscoverable horizontal scroll to reach them. Constrain the
+     plate to the viewport and wrap the swatches into a 3x3 grid, which fits
+     without any scrolling at 320px and up. */
+  #buy {
+    overflow-x: hidden;
+  }
+  .picker {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    justify-items: center;
+    gap: 0.35rem 0.2rem;
+    width: 100%;
+  }
+  /* the tip is nowrap for the desktop row; in the grid it would run off the
+     edge from the outer columns */
+  .swatch-tip {
+    white-space: normal;
+    width: max-content;
+    max-width: 40vw;
+    text-align: center;
+  }
+  /* The drawer carries its own date field, so the hero one underneath is both
+     a duplicate and an overlap (the plate opened over it). Remove it from
+     pointer and keyboard entirely while the drawer is open rather than leaving
+     two live controls for the same value stacked on each other. */
+  body:has(.picker-toggle[aria-expanded="true"]) .hero-date {
+    display: none;
+  }
 }
 
 /* "Start over" shares the top-right bar with "Skip to the store" and sits to

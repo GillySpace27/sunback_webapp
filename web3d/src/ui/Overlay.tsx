@@ -11,7 +11,13 @@ const COPY: Record<string, { eyebrow?: string; line: string }> = {
   // animates is "The light that lit your day", once the camera is already in.
   surface: { line: "The light that lit your day." },
   aperture: { line: "Choose your wavelength." },
-  crossing: { line: "Light that left the Sun eight minutes ago." },
+  // Distance, not elapsed time. "Eight minutes ago" is only true for an image
+  // taken right now, and almost every visitor is buying a historical date — for
+  // a 2017 frame the light left the Sun nine years ago, not eight minutes. The
+  // crossing is the same ~93 million miles (1 AU, within about 2% over the
+  // year) whatever date they picked, so the spatial framing is both the honest
+  // claim and the one this beat actually shows: the beam reaching Earth.
+  crossing: { line: "Ninety-three million miles, crossed to reach you." },
   sky: { line: "The same sunlight, over your own backyard." },
   darkroom: { line: "Through your window, onto your wall." },
   room: { line: "Your day, written in sunlight." },
