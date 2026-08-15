@@ -32,9 +32,12 @@ export default function Masthead() {
     >
       <h1 className="masthead-title">My Heliograph</h1>
       <p className="masthead-tagline">Your day, written in sunlight</p>
+      {/* The RHEF explanation ("enhanced with a published algorithm to reveal
+          coronal structure the raw data hides") lives on the store page only.
+          Here it is a fourth clause competing with the opening frame, and the
+          3D journey demonstrates the enhancement rather than asserting it. */}
       <p className="masthead-intro">
-        Pick any date since 2010: real NASA/SDO observations of the Sun from that day, enhanced
-        with a published algorithm to reveal coronal structure the raw data hides. Yours as a
+        Pick any date since 2010: real NASA/SDO observations of the Sun from that day. Yours as a
         print, poster, or canvas.
       </p>
     </header>
