@@ -15,7 +15,9 @@ export default function WavelengthPicker() {
   const setDate = useStore((s) => s.setDate);
   const status = useStore((s) => s.texStatus);
   const active = CHANNELS[channel];
-  const today = new Date().toISOString().slice(0, 10);
+  // archive bounds, shared with the hero field and the store (see setFrontier)
+  const minDate = useStore((s) => s.minDate);
+  const maxDate = useStore((s) => s.maxDate);
 
   // collapsed by default; opens on click or keyboard focus into the bar.
   const [open, setOpen] = useState(false);
@@ -54,8 +56,8 @@ export default function WavelengthPicker() {
         <input
           type="date"
           value={date}
-          min="2010-05-15"
-          max={today}
+          min={minDate}
+          max={maxDate}
           onChange={(e) => e.target.value && setDate(e.target.value)}
         />
       </label>

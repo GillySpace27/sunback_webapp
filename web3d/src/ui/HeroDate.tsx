@@ -8,7 +8,9 @@ export default function HeroDate() {
   const setDate = useStore((s) => s.setDate);
   const dateChosen = useStore((s) => s.dateChosen);
   const progress = useStore((s) => s.progress);
-  const today = new Date().toISOString().slice(0, 10);
+  // the archive's real bounds, not "today" — see setFrontier in the store
+  const minDate = useStore((s) => s.minDate);
+  const maxDate = useStore((s) => s.maxDate);
   // present only on the opening beat; fade + lift away as the camera moves in
   const o = Math.max(0, 1 - progress / 0.1);
 
@@ -26,8 +28,8 @@ export default function HeroDate() {
         <input
           type="date"
           value={date}
-          min="2010-05-15"
-          max={today}
+          min={minDate}
+          max={maxDate}
           onChange={(e) => e.target.value && setDate(e.target.value)}
           aria-label="The date whose Sun you want to see"
         />

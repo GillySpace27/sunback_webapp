@@ -2,7 +2,8 @@ import { Suspense, lazy, useEffect } from "react";
 import { useScrollProgress } from "./hooks/useScrollProgress";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 import { useSunTextureLoader } from "./hooks/useSunTextureLoader";
-import { warmBackend } from "./lib/handoff";
+import { warmBackend, API_BASE } from "./lib/handoff";
+import { useStore } from "./store";
 import ErrorBoundary from "./ui/ErrorBoundary";
 import Loader from "./ui/Loader";
 import Overlay from "./ui/Overlay";
@@ -22,6 +23,26 @@ export default function App() {
   usePrefersReducedMotion();
   useScrollProgress();
   useSunTextureLoader(); // loads the real Sun for the current identity
+
+  // The archive's real frontier. JSOC's ingest lag drifts (8 days on
+  // 2026-08-15), so a hardcoded ceiling silently offers dates that cannot be
+  // rendered or printed — the store learned this from a beta tester and added
+  // /api/data_frontier; this is the experience reading the same source, so the
+  // two halves agree on what is buyable. Failure is silent: the conservative
+  // static bound already in the store stands.
+  const setFrontier = useStore((s) => s.setFrontier);
+  useEffect(() => {
+    let live = true;
+    fetch(`${API_BASE}/api/data_frontier`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((f) => {
+        if (live && f) setFrontier(f.earliest || null, f.latest || null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [setFrontier]);
 
   // Warm the scale-to-zero backend at idle so its ~20s wake overlaps the heavy
   // chunk download instead of running after it (cuts time-to-real-Sun).
