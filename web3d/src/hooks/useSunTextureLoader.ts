@@ -39,6 +39,7 @@ export function useSunTextureLoader() {
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
   const channel = useStore((s) => s.channel);
+  const frontierReady = useStore((s) => s.frontierReady);
   const setTexture = useStore((s) => s.setTexture);
   const setTexStatus = useStore((s) => s.setTexStatus);
   const url = thumbUrl(date, time, CHANNELS[channel].angstrom);
@@ -61,6 +62,11 @@ export function useSunTextureLoader() {
   }, []);
 
   useEffect(() => {
+    // Wait for the real archive bounds before asking for a texture: firing
+    // against the still-conservative guess (or an empty, just-cleared date)
+    // is how a pre-frontier 404 burst happens. The baked default Sun painted
+    // by the effect above stays up for this whole wait.
+    if (!(frontierReady && date)) return;
     const cached = cache.get(url);
     if (cached) {
       setTexture(cached);
@@ -92,5 +98,5 @@ export function useSunTextureLoader() {
       alive = false;
       clearTimeout(t);
     };
-  }, [url, setTexture, setTexStatus]);
+  }, [url, setTexture, setTexStatus, frontierReady, date]);
 }

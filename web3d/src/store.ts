@@ -8,7 +8,58 @@ export type TexStatus = "idle" | "loading" | "ready" | "error";
 // Stand-in ceiling until /api/data_frontier answers, matching the value the
 // store falls back to. JSOC's ingest lag drifts, so this is deliberately
 // pessimistic: better to offer one fewer day than to offer a day with no data.
-const CONSERVATIVE_LATEST = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+//
+// Computed from UTC midnight of "today", not from Date.now() sliced through
+// toISOString(): Date.now() is a LOCAL instant, so in any UTC-negative
+// timezone an evening rolls it into the next UTC calendar day before the -7d
+// subtraction even runs, so "today-7" silently becomes "today-6": exactly
+// the 2026-08-09-vs-2026-08-08 mismatch the audit caught. Building the UTC
+// midnight explicitly first keeps the whole computation in one calendar.
+function utcTodayMinusDays(days: number): string {
+  const now = new Date();
+  const utcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return new Date(utcMidnight - days * 864e5).toISOString().slice(0, 10);
+}
+const CONSERVATIVE_LATEST = utcTodayMinusDays(7);
+
+// Last-known frontier, cached across visits so a fresh load doesn't have to
+// sit on the static, deliberately-stale CONSERVATIVE_LATEST until
+// /api/data_frontier answers again. lib/frontier.ts fetches on module import
+// and writes this cache whenever that fetch succeeds; here we only read it,
+// once, to seed the store's initial state. A TTL keeps a week-old cache from
+// outliving its usefulness (the real frontier drifts day to day).
+const FRONTIER_CACHE_KEY = "heliograph.frontier.v1";
+const FRONTIER_TTL_SECONDS = 24 * 3600; // ~1 day: about how often the real frontier moves
+
+type FrontierCache = { earliest: string; latest: string; fetchedAt: number; ttlSeconds: number };
+
+function readFrontierCache(): FrontierCache | null {
+  try {
+    const raw = localStorage.getItem(FRONTIER_CACHE_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw) as Partial<FrontierCache>;
+    if (!c.earliest || !c.latest || !c.fetchedAt || !c.ttlSeconds) return null;
+    if (Date.now() - c.fetchedAt > c.ttlSeconds * 1000) return null; // expired
+    return c as FrontierCache;
+  } catch {
+    return null; // localStorage unavailable (private browsing) or corrupt JSON
+  }
+}
+
+// Called by lib/frontier.ts wherever the live /api/data_frontier fetch
+// actually succeeds, so the next visit can seed warm instead of conservative.
+export function writeFrontierCache(earliest: string, latest: string) {
+  try {
+    const c: FrontierCache = { earliest, latest, fetchedAt: Date.now(), ttlSeconds: FRONTIER_TTL_SECONDS };
+    localStorage.setItem(FRONTIER_CACHE_KEY, JSON.stringify(c));
+  } catch {
+    /* private browsing / storage full; the live value still applies this session */
+  }
+}
+
+const frontierCache = readFrontierCache();
+const INITIAL_MIN_DATE = frontierCache?.earliest || "2010-05-15";
+const INITIAL_MAX_DATE = frontierCache?.latest || CONSERVATIVE_LATEST;
 
 type State = {
   // 0..1 scroll progress across the whole film. Single source of truth.
@@ -23,7 +74,12 @@ type State = {
   channelChosen: boolean;
 
   // the image identity date/time (fed to the Helioviewer texture + deep link)
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD, or "" when the visitor has cleared the field
+  // The only committer: validates before touching state. Commits d when it's
+  // non-empty and within [minDate, maxDate]; commits "" when the caller
+  // clears the field (so the UI can gate on an explicit "nothing chosen").
+  // An out-of-range non-empty d is silently ignored: DateField never sends
+  // one, but this stays defensive since setDate is a public store action.
   setDate: (d: string) => void;
   // Selectable range. The store already tracks the archive's real frontier via
   // /api/data_frontier because JSOC's ingest lag drifts (7 days measured
@@ -38,8 +94,12 @@ type State = {
   // has the visitor explicitly picked a date yet? drives the soft "nudge"
   // (pulsing prompt/arrow) on the opening beat until they do
   dateChosen: boolean;
-  time: string; // HH:MM
-  setTime: (t: string) => void;
+  // False until the archive's real bounds are known one way or the other:
+  // either lib/frontier.ts's fetch resolved (setFrontier ran) or it failed/
+  // timed out (frontierReady is set directly). Texture loaders gate on this
+  // so nothing fires a request against the conservative guess and 404s.
+  frontierReady: boolean;
+  time: string; // HH:MM, currently always "12:00" (no per-day time picker yet)
 
   // the real SDO/AIA texture for the CURRENT identity (null => procedural
   // fallback); status drives loading/error affordances. Never show a stale
@@ -63,7 +123,7 @@ type State = {
 
 // ponytail: refs/useFrame read these; components subscribe only where a
 // re-render is actually wanted (UI overlays), not in the render loop.
-export const useStore = create<State>((set) => ({
+export const useStore = create<State>((set, get) => ({
   progress: 0,
   setProgress: (p) => set({ progress: p }),
 
@@ -71,25 +131,37 @@ export const useStore = create<State>((set) => ({
   setChannel: (i) => set({ channel: i, channelChosen: true }),
   channelChosen: false,
 
-  // Default to the conservative static frontier (today-7), the same stand-in
-  // the store uses until /api/data_frontier answers. now-3d was inside JSOC's
+  // Seeded from a warm frontier cache when one exists (see readFrontierCache
+  // above); otherwise the conservative static fallback, same stand-in the
+  // store uses until /api/data_frontier answers. now-3d was inside JSOC's
   // ingest lag, so the pre-filled date was itself unfulfillable.
-  date: CONSERVATIVE_LATEST,
-  setDate: (d) => set({ date: d, dateChosen: true }),
-  minDate: "2010-05-15",
-  maxDate: CONSERVATIVE_LATEST,
+  date: INITIAL_MAX_DATE,
+  setDate: (d) => {
+    if (d === "") {
+      set({ date: "", dateChosen: true });
+      return;
+    }
+    const { minDate, maxDate } = get();
+    if (d < minDate || d > maxDate) return; // out of range: defensive no-op
+    set({ date: d, dateChosen: true });
+  },
+  minDate: INITIAL_MIN_DATE,
+  maxDate: INITIAL_MAX_DATE,
   setFrontier: (earliest, latest) =>
-    set((s) => ({
-      minDate: earliest || s.minDate,
-      maxDate: latest || s.maxDate,
-      // A date past the frontier cannot be rendered or printed, so clamp it
-      // rather than letting the handoff carry it. dateChosen is left alone:
-      // the visitor still chose, we just could not honour that exact day.
-      date: latest && s.date > latest ? latest : s.date,
-    })),
+    set((s) => {
+      const minDate = earliest || s.minDate;
+      const maxDate = latest || s.maxDate;
+      // Nobody's chosen a date yet, so keep the default TRACKING the frontier
+      // exactly rather than merely clamping it from above: a later, laxer
+      // answer should pull the default forward too, not leave it pinned to
+      // the first (possibly stale) guess. Once chosen, clamp on both ends
+      // (a narrower earliest can invalidate a pick just as a lower latest can).
+      const date = !s.dateChosen && latest ? latest : clampToRange(s.date, minDate, maxDate);
+      return { minDate, maxDate, date, frontierReady: true };
+    }),
   dateChosen: false,
+  frontierReady: false,
   time: "12:00",
-  setTime: (t) => set({ time: t }),
 
   currentTexture: null,
   setTexture: (t) => set({ currentTexture: t }),
@@ -105,6 +177,21 @@ export const useStore = create<State>((set) => ({
   scrollToProgress: () => {},
   setScrollToProgress: (fn) => set({ scrollToProgress: fn }),
 }));
+
+// Clamp a date into [min, max] on both ends: setFrontier's own helper, kept
+// standalone so the branch above stays readable.
+function clampToRange(d: string, min: string, max: string): string {
+  if (max && d > max) return max;
+  if (min && d < min) return min;
+  return d;
+}
+
+// Derived, not stored: true when the committed date is non-empty and falls
+// within the current [minDate, maxDate] window. Read via `useStore(dateValid)`
+// so every CTA gates on one definition instead of re-deriving the check.
+export function dateValid(s: State): boolean {
+  return s.date !== "" && s.date >= s.minDate && s.date <= s.maxDate;
+}
 
 // Center progress of each space — where its copy peaks; the arrows jump here.
 export function spaceCenters(): number[] {

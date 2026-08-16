@@ -11,7 +11,11 @@ const COPY: Record<string, { eyebrow?: string; line: string }> = {
   // frame was two competing hero statements at once. The first line that
   // animates is "The light that lit your day", once the camera is already in.
   surface: { line: "The light that lit your day." },
-  aperture: { line: "Choose your wavelength." },
+  // Not "Choose your wavelength": the wheel this beat frames is an
+  // illustration, and a command implied the wedges were tappable (they are
+  // not; the real controls live in the customizer drawer). Descriptive line
+  // instead; the drawer is where choosing happens.
+  aperture: { line: "One Sun, in nine kinds of light." },
   // Distance, not elapsed time. "Eight minutes ago" is only true for an image
   // taken right now, and almost every visitor is buying a historical date — for
   // a 2017 frame the light left the Sun nine years ago, not eight minutes. The
@@ -19,8 +23,15 @@ const COPY: Record<string, { eyebrow?: string; line: string }> = {
   // year) whatever date they picked, so the spatial framing is both the honest
   // claim and the one this beat actually shows: the beam reaching Earth.
   crossing: { line: "Ninety-three million miles, crossed to reach you." },
-  sky: { line: "The same sunlight, over your own backyard." },
-  darkroom: { line: "Through your window, onto your wall." },
+  // "The same Sun", not "the same sunlight": the imagery for sale is EUV/UV,
+  // which never reaches a backyard through the atmosphere. The star overhead
+  // is the honest (and stronger) claim; the false-colour caveat lives with
+  // the wavelength controls.
+  sky: { line: "The same Sun, over your own backyard." },
+  // Was "Through your window, onto your wall", which read as the pictured
+  // light physically streaming through household glass (EUV does not). The
+  // beat is the image arriving in the visitor's home; say that.
+  darkroom: { line: "Into your home, onto your wall." },
   room: { line: "Your day, written in sunlight." },
   gift: { line: "Held still. Made to keep." },
   gallery: { line: "Printed on just about anything you can imagine." },

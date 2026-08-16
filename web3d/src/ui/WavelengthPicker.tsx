@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useStore } from "../store";
+import { useStore, dateValid } from "../store";
 import { CHANNELS } from "../data/wavelengths";
 import BuyLink from "./BuyLink";
+import DateField from "./DateField";
 
 // The pinned "configure + commit" bar: date, wavelength (accessible counterpart
 // to the 3D filter wheel), a live readout, and a real visible "Make one". It is
@@ -11,13 +12,9 @@ import BuyLink from "./BuyLink";
 export default function WavelengthPicker() {
   const channel = useStore((s) => s.channel);
   const setChannel = useStore((s) => s.setChannel);
-  const date = useStore((s) => s.date);
-  const setDate = useStore((s) => s.setDate);
   const status = useStore((s) => s.texStatus);
+  const valid = useStore(dateValid);
   const active = CHANNELS[channel];
-  // archive bounds, shared with the hero field and the store (see setFrontier)
-  const minDate = useStore((s) => s.minDate);
-  const maxDate = useStore((s) => s.maxDate);
   // Reveal the plate once the opening beat's own controls have cleared —
   // HeroDate fades to opacity 0 at progress 0.1 (see HeroDate.tsx) — so the
   // two date fields are never both on screen. A derived boolean selector, not
@@ -58,16 +55,7 @@ export default function WavelengthPicker() {
 
       <div className="picker-body">
       {/* the day that mattered — feeds the real Sun image and the deep link */}
-      <label className="date-field">
-        <span className="date-label">Your date</span>
-        <input
-          type="date"
-          value={date}
-          min={minDate}
-          max={maxDate}
-          onChange={(e) => e.target.value && setDate(e.target.value)}
-        />
-      </label>
+      <DateField labelClassName="date-field" labelSpanClassName="date-label" labelText="Your date" />
 
       {/* live label + load state — the only wavelength cue on touch */}
       <output className="picker-readout" aria-live="polite">
@@ -103,6 +91,9 @@ export default function WavelengthPicker() {
       {/* commit — visible for mouse from the moment the bar is revealed */}
       <div className="picker-buy">
         <BuyLink className="cta cta--bar">Make one</BuyLink>
+        {/* the CTA above goes inert without a committed date: tell the
+            visitor why instead of leaving a dead-looking button */}
+        {!valid && <span className="picker-hint">Pick a date to continue</span>}
         <span className="price-anchor">Prints from $9.99</span>
       </div>
       </div>

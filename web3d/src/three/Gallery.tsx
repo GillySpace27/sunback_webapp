@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { useStore } from "../store";
+import { useStore, dateValid } from "../store";
 import { CHANNELS } from "../data/wavelengths";
 import { buyUrl, warmBackend, GALLERY_CATEGORY, GalleryKind } from "../lib/handoff";
 
@@ -341,6 +341,7 @@ export default function Gallery() {
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
   const channel = useStore((s) => s.channel);
+  const valid = useStore(dateValid);
   // present from the room beat on; off-frame (to the right) until the pan.
   // on-screen visibility keeps the original threshold.
   const show = useStore((s) => s.progress > 0.8);
@@ -368,6 +369,7 @@ export default function Gallery() {
   // it answered a question nobody was asking at that point.)
   const go = (kind: GalleryKind) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
+    if (!valid) return; // no committed date; a purchase click has nothing honest to buy
     warmBackend();
     window.location.href = buyUrl(date, time, CHANNELS[channel].angstrom, {
       cat: GALLERY_CATEGORY[kind],

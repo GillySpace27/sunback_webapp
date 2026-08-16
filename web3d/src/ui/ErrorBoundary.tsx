@@ -1,5 +1,5 @@
 import { Component, ReactNode } from "react";
-import { useStore } from "../store";
+import { useStore, dateValid } from "../store";
 import { CHANNELS } from "../data/wavelengths";
 import { buyUrl } from "../lib/handoff";
 
@@ -21,7 +21,9 @@ export default class ErrorBoundary extends Component<
   render() {
     if (this.state.failed) {
       const s = useStore.getState();
-      const href = buyUrl(s.date, s.time, CHANNELS[s.channel].angstrom);
+      // No committed date to carry (cleared field, or never resolved a
+      // frontier): land on the bare store rather than a broken d=.
+      const href = buyUrl(dateValid(s) ? s.date : "", s.time, CHANNELS[s.channel].angstrom);
       return (
         <div className="fallback" role="alert">
           <h1>My Heliograph</h1>

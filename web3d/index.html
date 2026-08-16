@@ -52,6 +52,25 @@
         ]
       }
     </script>
+
+    <!-- First-paint placeholder, pure CSS (no image request): #root is empty
+         until the React shell parses, which otherwise reads as a blank void.
+         A dark base + a soft warm glow roughly where the hero Sun sits
+         (center-right) says "something is coming" for the cost of one
+         gradient. The fixed .stage canvas covers this completely once it
+         mounts, so nothing here needs to be cleaned up. -->
+    <style>
+      #root {
+        min-height: 100dvh;
+        background:
+          radial-gradient(ellipse 55% 50% at 72% 46%, rgba(255, 154, 60, 0.32) 0%, rgba(255, 154, 60, 0.1) 40%, rgba(5, 6, 10, 0) 72%),
+          #05060a;
+      }
+    </style>
+    <!-- The Fraunces variable-weight woff2 is preloaded at runtime instead of
+         here (see src/main.tsx) because Vite hashes its filename at build
+         time — hand-writing a <link rel="preload"> would go stale the next
+         time the font asset rebuilds with a different hash. -->
   </head>
   <body>
     <div id="root"></div>

@@ -34,7 +34,13 @@ export function buyUrl(
   angstrom: number,
   opts?: { cat?: string; tune?: boolean }
 ) {
-  const q = new URLSearchParams({ d: date, t: time || "12:00", wl: String(angstrom) });
+  // date arrives "" when the visitor has cleared the date field (see
+  // store.ts's setDate) : SkipToStore leans on this to hand off a bare store
+  // link rather than ever carry a missing/invalid date as d=. Omitting t
+  // alongside it: a time with no date is meaningless.
+  const q = date
+    ? new URLSearchParams({ d: date, t: time || "12:00", wl: String(angstrom) })
+    : new URLSearchParams({ wl: String(angstrom) });
   if (opts?.cat) q.set("cat", opts.cat);
   // `tune` lands the visitor on the store's fine-tune panel with that day's HEK
   // events listed. The experience has already settled the date and wavelength,

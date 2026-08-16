@@ -234,6 +234,16 @@ body {
   background: var(--ink);
   color: #0a0a0f;
 }
+/* inert state for a CTA with no committed date to sell (cleared field, or a
+   frontier clamp still pending): dimmed and unclickable by mouse, keyboard,
+   or touch. SkipToStore never gets this; it stays a live bare-store link
+   instead (see its own comment for why). */
+.cta--disabled,
+.cta[aria-disabled="true"] {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: not-allowed;
+}
 /* the decorative "gift" CTA in the overlay: Overlay.tsx toggles this class
    once its figure has faded in enough to be legible (was an inline
    pointerEvents style previously computed on every scroll tick) */
@@ -268,7 +278,7 @@ body {
 }
 .price-anchor {
   font-family: var(--sans);
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   letter-spacing: 0.06em;
   color: var(--muted);
 }
@@ -278,6 +288,16 @@ body {
 }
 .picker-status.err {
   color: #e8a37a;
+}
+/* explains why the "Make one" CTA above just went inert (shown only while
+   the committed date is empty/out of range (see dateValid in store.ts) */
+.picker-hint {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-style: italic;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
 }
 
 /* ---- wavelength picker: nav is the full-width scroll container so nothing
@@ -337,7 +357,7 @@ body {
   border: 0;
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
@@ -379,7 +399,7 @@ body {
   font-family: var(--sans);
 }
 .date-label {
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
@@ -442,7 +462,7 @@ body {
   border: 1px solid rgba(244, 239, 230, 0.18);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.66rem;
+  font-size: 0.74rem;
   letter-spacing: 0.02em;
   padding: 0.35rem 0.6rem;
   border-radius: 8px;
@@ -493,7 +513,7 @@ body {
   color: var(--ink);
 }
 .sdo-tip-link {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   letter-spacing: 0.04em;
   color: #ffd9a0;
   text-decoration: none;
@@ -530,7 +550,7 @@ body {
 }
 .swatch-label {
   font-family: var(--sans);
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   letter-spacing: 0.05em;
   color: var(--muted);
   white-space: nowrap;
@@ -540,7 +560,7 @@ body {
    scrolls horizontally so the labels never crowd. */
 @media (max-width: 640px) {
   .swatch-label {
-    font-size: 0.56rem;
+    font-size: 0.66rem;
     letter-spacing: 0.02em;
   }
 }
@@ -590,8 +610,8 @@ body {
 }
 @media (max-width: 640px) {
   .arrow {
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
   }
 }
 
@@ -726,7 +746,7 @@ body {
   font-family: var(--sans);
 }
 .hero-date-label {
-  font-size: 0.66rem;
+  font-size: 0.74rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ink);
@@ -762,7 +782,7 @@ body {
 }
 .hero-date-hint {
   font-family: var(--sans);
-  font-size: 0.66rem;
+  font-size: 0.74rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
@@ -844,7 +864,7 @@ body {
   margin: 0.5rem auto 0;
   max-width: 66ch;
   font-family: var(--sans);
-  font-size: clamp(0.66rem, 1.1vw, 0.76rem);
+  font-size: clamp(0.74rem, 1.1vw, 0.8rem);
   line-height: 1.45;
   color: var(--muted);
   opacity: 0.72;
@@ -880,7 +900,7 @@ body {
   width: min(720px, 92vw);
   text-align: center;
   font-family: var(--sans);
-  font-size: clamp(0.58rem, 1vw, 0.68rem);
+  font-size: clamp(0.7rem, 1vw, 0.75rem);
   line-height: 1.4;
   color: var(--muted);
   opacity: 0.55;
