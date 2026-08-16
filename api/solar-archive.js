@@ -1333,7 +1333,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           var hint = document.getElementById("vibeBirthdayHint");
           if (hint) {
             var latestHuman = new Date(f.latest + "T12:00:00").toLocaleDateString(
-              undefined, { month: "long", day: "numeric" });
+              undefined, { month: "long", day: "numeric", year: "numeric" });
             hint.textContent = "Any date from May 15, 2010 through " + latestHuman +
               ". Leave the time blank and we'll pick the day's best moment.";
           }
@@ -5309,7 +5309,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         card.classList.add('is-loading');
         // Backstop: clear after 12s no matter what so a stuck card can't
         // stay dimmed forever if the network image silently times out.
-        setTimeout(function () { card.classList.remove('is-loading'); }, 12000);
+        // Guarded on still-is-loading: the normal success path clears the
+        // class within a second or two (_installPreviewImage, above), so an
+        // unconditional toast here fired a false "didn't load" error after
+        // EVERY successful click, 12s later, once one was added (2026-08-16).
+        setTimeout(function () {
+          if (card.classList.contains('is-loading')) {
+            card.classList.remove('is-loading');
+            showToast("That one didn't load. Try again", "error");
+          }
+        }, 12000);
       } catch (_e) {}
       state.isDefaultActive = false;
       // Track which slug is active so the master toggle can swap the
@@ -12118,19 +12127,19 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       }
       if (quality === "jpg_only") {
         showInfo("Waiting for Science Image",
-          "The full-resolution FITS image is still downloading from the SDO archive. " +
-          "Prints need at least medium-quality (Original / Filtered) data so they don't pixel-blow on a 12-inch canvas. " +
+          "The full-resolution image is still downloading from the SDO archive. " +
+          "Prints need a sharp enough image so they don't look blurry on a large canvas. " +
           "Hang tight — this usually finishes in 30–90 seconds, and the Quality timeline above the canvas shows progress.");
         confirmFn(false);
         return;
       }
       if (quality === "mq_ready") {
         showModal(
-          "HQ Filtered render is still cooking",
-          "You're about to submit at <strong>medium quality</strong> — the print will look good but " +
-          "the high-resolution Filtered render is still cooking in the background and produces the sharpest large-format prints " +
+          "Your sharpest image isn't ready yet",
+          "You're about to submit at <strong>medium quality</strong>: the print will look good, but " +
+          "we're still preparing your highest-resolution image in the background; it produces the sharpest large-format prints " +
           "(1&ndash;3 minutes). " +
-          "Wait for HQ, or proceed with MQ now?",
+          "Wait for it, or use what's ready now?",
           function() {
             // User explicitly chose to proceed at MQ. Promote the
             // editor filter to whichever MQ tier is loaded so the
@@ -12139,7 +12148,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             _promoteFilterToBest();
             confirmFn(true);
           },
-          "Submit at MQ anyway",
+          "Use what's ready now",
           "Submitting…"
         );
         // showModal's default close-on-cancel handles the "wait" path —
@@ -13026,7 +13035,8 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
       showModal(
         "Set up your " + product.name,
-        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + product.name + "</strong> and hand you a secure Shopify checkout link with your size and colour already locked in — you pay there, not here.<br><br>" +
+        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + product.name + "</strong> and hand you a secure Shopify checkout link with your size and colour already locked in — you pay there, not here. " +
+          "The checkout page's web address will show our Shopify store name rather than myheliograph.com; that's expected, it's Shopify's own secure checkout, not a different site.<br><br>" +
           hqNote + mockNote +
           // Delivery window = production 2–7 + US transit 3–6 business
           // days; keep in sync with /shipping and the trust bar.

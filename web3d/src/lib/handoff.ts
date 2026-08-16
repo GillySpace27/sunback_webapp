@@ -52,17 +52,18 @@ export function buyUrl(
 }
 
 // Wake the scale-to-zero backend on buy-intent so the handoff isn't a cold
-// start. Fire-and-forget; no-cors so it works cross-origin without a preflight.
+// start. Fire-and-forget by most callers; no-cors so it works cross-origin
+// without a preflight. Returns a promise that settles once the ping lands (or
+// fails) so BuyLink can race it against a real "is the backend up" signal
+// instead of holding a blind fixed delay before navigating.
 let lastWarm = 0;
-export function warmBackend() {
+export function warmBackend(): Promise<void> {
   const now = Date.now();
-  if (now - lastWarm < 5000) return;
+  if (now - lastWarm < 5000) return Promise.resolve();
   lastWarm = now;
-  try {
-    fetch(`${ORIGINAL_SITE}/api/health`, { mode: "no-cors", cache: "no-store" }).catch(() => {});
-  } catch {
-    /* warm-up only */
-  }
+  return fetch(`${ORIGINAL_SITE}/api/health`, { mode: "no-cors", cache: "no-store" })
+    .then(() => undefined)
+    .catch(() => undefined);
 }
 
 // Real full-disk SDO/AIA JPG for a date + wavelength. FOV is kept at ~3072"

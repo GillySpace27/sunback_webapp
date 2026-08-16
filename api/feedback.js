@@ -472,7 +472,7 @@ export function setupFeedback(deps) {
             // provider id). If /providers doesn't exist, show a manual provider
             // entry box instead of blocking the submission.
             if (!Array.isArray(providers) || !providers.length) {
-              providerSelect.innerHTML = '<option value="">(provider lookup unavailable — we\u2019ll assign one)</option>';
+              providerSelect.innerHTML = '<option value="">We\u2019ll pick a provider automatically</option>';
               variantSelect.innerHTML = '<option value="">(any)</option>';
               return;
             }
@@ -507,7 +507,7 @@ export function setupFeedback(deps) {
           .then(function(data) {
             var vs = (data && Array.isArray(data.variants)) ? data.variants : [];
             if (!vs.length) {
-              variantSelect.innerHTML = '<option value="">(no variants returned)</option>';
+              variantSelect.innerHTML = '<option value="">No options available for this product</option>';
               return;
             }
             variantSelect.innerHTML = '<option value="">Any variant is fine</option>' +

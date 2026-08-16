@@ -302,6 +302,11 @@ body {
 .quality-strip-section.collapsed .compare-slider,
 .quality-strip-section.collapsed .quality-strip-caption,
 .quality-strip-section.collapsed .quality-strip-fineprint { display: none !important; }
+/* .flow-inner's scroll-motion margin-bottom (12vh/6vh, below) is sized for
+   the section's full expanded content. Collapsed, the section is just the
+   thin re-open bar, so the same margin reserved an 86px+ blank band under
+   it (live-measured, 2026-08-16) — trim to match the bar's own spacing. */
+.quality-strip-section.collapsed .flow-inner { margin-bottom: 1.5rem; }
 .quality-strip-section.collapsed .quality-strip-bar {
   display: inline-flex;
   align-items: center;
@@ -935,6 +940,11 @@ body.beta-mode-active .beta-banner {
 .section-collapse-chevron {
   margin-left: auto;
   font-size: 14px;
+  /* The inherited --sans stack (Inter Variable, ...) renders U+25BE
+     as a near-invisible ~6.5px dot instead of a triangle. Force a
+     font stack with reliable symbol glyph coverage for this one
+     character. */
+  font-family: -apple-system, "Segoe UI Symbol", Arial, sans-serif;
   color: var(--text-secondary, #a0a0bd);
   transition: transform 0.15s ease;
   transform: rotate(180deg);  /* up when expanded */
@@ -6331,6 +6341,17 @@ html:not(.dark) .confirm-modal-btn-secondary { border-color: var(--border); }
   .product-price { font-size: 0.85rem; }
   .product-info { padding: 10px; }
 
+  /* ── F2b · Clear the feedback-FAB pair at the bottom of the grid ──
+     On step-product the FAB pair is fixed at bottom:88px, icon-only
+     (11px padding + 16px icon glyph = ~38px tall), so it occupies the
+     88-126px band above the viewport's bottom edge. .section's base
+     padding-bottom (24px) doesn't reach that band, so once the page
+     is scrolled to the true bottom the last grid row's price and
+     Choose-variant button land under the pills. Pad past the FAB. */
+  body.step-product #productSection {
+    padding-bottom: 130px;
+  }
+
   /* ── F3 · Product preview wastes pixels (square aspect) ────────
      `.product-preview { aspect-ratio: 1 }` reserves a full square
      even though the rendered canvas is `max-width/height: 70%` so
@@ -6372,6 +6393,13 @@ html:not(.dark) .confirm-modal-btn-secondary { border-color: var(--border); }
      — fine on desktop, undersized for a primary CTA on a phone. */
   .section-title { font-size: 1.25rem; }
   .birthday-cta-title { font-size: 1.3rem; }
+
+  /* ── F5b · Step-1 heading avoids a ragged wrap ──────────────────
+     "Pick a date - a famous moment, your birthday, or any day since
+     2010" wraps to 5 ragged lines at 390px once F5 bumps it to
+     1.25rem, orphaning "2010" alone on the last line. Same fix as
+     .hero p above: let the browser balance the line breaks. */
+  #vibeGridTitle { text-wrap: balance; }
 
   /* ── F6 · Wavelength labels readable on phone ──────────────────
      Default `.wl-label` is 0.72 rem (~11 px). Bump for legibility;
@@ -7556,6 +7584,10 @@ body:has(#imageStage.loading) .field-cell {
     overflow-x: auto;
     scrollbar-width: none;
     padding-bottom: 2px;
+    /* Fade the right edge so a scrollWidth > clientWidth row reads as
+       "more to scroll" instead of ending flush against the fold. */
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
   }
   .product-toc::-webkit-scrollbar { display: none; }
 }

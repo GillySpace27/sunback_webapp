@@ -38,16 +38,20 @@ export default function BuyLink({
     e.preventDefault();
     if (preparing) return;
     setPreparing(true);
-    warmBackend();
-    // brief hold gives the warm ping a head start, then hand off. Read FRESH
-    // state at fire time rather than this render's closed-over date/time/
-    // channel, so a frontier clamp landing during the 700ms hold can't send a
-    // now-superseded date.
-    window.setTimeout(() => {
+    // Race the real health ping against a short floor (so a fast reply never
+    // feels instant/jarring) capped by a ceiling (so a slow backend never
+    // feels stuck): a true status check instead of a blind fixed hold.
+    const healthCheck = warmBackend();
+    const floor = new Promise<void>((r) => setTimeout(r, 300));
+    const ceiling = new Promise<void>((r) => setTimeout(r, 2500));
+    Promise.race([Promise.all([healthCheck, floor]), ceiling]).then(() => {
+      // Read FRESH state at fire time rather than this render's closed-over
+      // date/time/channel, so a frontier clamp landing during the hold can't
+      // send a now-superseded date.
       const s = useStore.getState();
       if (!dateValid(s)) return; // went invalid mid-hold, nothing honest to send
       window.location.href = buyUrl(s.date, s.time, CHANNELS[s.channel].angstrom, cat ? { cat } : undefined);
-    }, 700);
+    });
   };
 
   return (

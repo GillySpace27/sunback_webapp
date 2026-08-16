@@ -292,8 +292,8 @@ export function initBundler(deps) {
 
       var startedMessage = mockupImages.length
         ? "Packaging your design + " + mockupImages.length + " mockup" + (mockupImages.length === 1 ? "" : "s") + "…"
-        : null;
-      if (startedMessage) _deps.showToast(startedMessage);
+        : "Packaging your design…";
+      _deps.showToast(startedMessage);
 
       _canvasToBlob(_deps.solarCanvas, "image/png").then(function(canvasBlob) {
         if (!mockupImages.length) {

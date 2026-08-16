@@ -103,6 +103,11 @@ export default function Heliograph() {
         mat.map = texes[i];
         mat.color.set("#ffffff");
         mat.needsUpdate = true;
+        // this wedge's own image just landed (arrival order varies per
+        // fetch, not group-wide): dip it back to a present-but-loading
+        // floor and let the aOp ease below carry it back up, so the reveal
+        // reads as this wedge finishing, not a hard pop-in
+        mat.opacity = Math.min(mat.opacity, 0.15);
       }
       // outside the aperture window: SNAP to rest instead of easing toward it,
       // so a fast scroll past-and-back never re-enters mid-fade

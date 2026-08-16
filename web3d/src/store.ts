@@ -78,8 +78,8 @@ type State = {
   // The only committer: validates before touching state. Commits d when it's
   // non-empty and within [minDate, maxDate]; commits "" when the caller
   // clears the field (so the UI can gate on an explicit "nothing chosen").
-  // An out-of-range non-empty d is silently ignored: DateField never sends
-  // one, but this stays defensive since setDate is a public store action.
+  // An out-of-range non-empty d is rejected rather than silently dropped:
+  // dateRejectReason is set so DateField can tell the visitor why.
   setDate: (d: string) => void;
   // Selectable range. The store already tracks the archive's real frontier via
   // /api/data_frontier because JSOC's ingest lag drifts (7 days measured
@@ -100,6 +100,14 @@ type State = {
   // so nothing fires a request against the conservative guess and 404s.
   frontierReady: boolean;
   time: string; // HH:MM, currently always "12:00" (no per-day time picker yet)
+
+  // Why the committed date isn't what the visitor last typed/expected: either
+  // setDate just rejected an out-of-range value, or setFrontier just clamped
+  // an already-chosen date out from under them. Null when there's nothing to
+  // explain. DateField renders this near the field; cleared on the next
+  // successful setDate or as soon as the visitor starts typing again.
+  dateRejectReason: string | null;
+  clearDateRejectReason: () => void;
 
   // the real SDO/AIA texture for the CURRENT identity (null => procedural
   // fallback); status drives loading/error affordances. Never show a stale
@@ -138,12 +146,21 @@ export const useStore = create<State>((set, get) => ({
   date: INITIAL_MAX_DATE,
   setDate: (d) => {
     if (d === "") {
-      set({ date: "", dateChosen: true });
+      set({ date: "", dateChosen: true, dateRejectReason: null });
       return;
     }
     const { minDate, maxDate } = get();
-    if (d < minDate || d > maxDate) return; // out of range: defensive no-op
-    set({ date: d, dateChosen: true });
+    if (d < minDate || d > maxDate) {
+      // too recent (inside JSOC's ingest lag) vs. before the mission's own
+      // archive start are different problems; say which one this is
+      const reason =
+        d > maxDate
+          ? `Our archive reaches ${maxDate}; recent observations can take about a week to arrive.`
+          : `Our archive starts ${minDate}.`;
+      set({ dateRejectReason: reason });
+      return;
+    }
+    set({ date: d, dateChosen: true, dateRejectReason: null });
   },
   minDate: INITIAL_MIN_DATE,
   maxDate: INITIAL_MAX_DATE,
@@ -157,11 +174,21 @@ export const useStore = create<State>((set, get) => ({
       // the first (possibly stale) guess. Once chosen, clamp on both ends
       // (a narrower earliest can invalidate a pick just as a lower latest can).
       const date = !s.dateChosen && latest ? latest : clampToRange(s.date, minDate, maxDate);
-      return { minDate, maxDate, date, frontierReady: true };
+      // A narrower frontier landing mid-session can silently move a date the
+      // visitor already committed to: tell them rather than let the field
+      // just change under them.
+      const rejectPatch =
+        s.dateChosen && date !== s.date
+          ? { dateRejectReason: `We had to adjust your date to ${date}; the archive doesn't have ${s.date} yet.` }
+          : {};
+      return { minDate, maxDate, date, frontierReady: true, ...rejectPatch };
     }),
   dateChosen: false,
   frontierReady: false,
   time: "12:00",
+
+  dateRejectReason: null,
+  clearDateRejectReason: () => set({ dateRejectReason: null }),
 
   currentTexture: null,
   setTexture: (t) => set({ currentTexture: t }),

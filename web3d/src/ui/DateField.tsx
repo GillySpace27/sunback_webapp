@@ -23,6 +23,8 @@ export default function DateField({
   const setDate = useStore((s) => s.setDate);
   const minDate = useStore((s) => s.minDate);
   const maxDate = useStore((s) => s.maxDate);
+  const dateRejectReason = useStore((s) => s.dateRejectReason);
+  const clearDateRejectReason = useStore((s) => s.clearDateRejectReason);
   const [draft, setDraft] = useState(date);
 
   useEffect(() => {
@@ -32,10 +34,13 @@ export default function DateField({
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     setDraft(v);
+    // the visitor is actively correcting the field; whatever explanation was
+    // showing (a rejection or a frontier-clamp notice) no longer applies
+    clearDateRejectReason();
     // A calendar-picker pick is one gesture with no separate blur: commit as
     // soon as the browser hands back a complete value. setDate validates and
-    // silently ignores anything outside [minDate, maxDate], so a complete but
-    // out-of-range date just sits in the draft, uncommitted, until corrected.
+    // sets dateRejectReason (rendered below) for anything outside
+    // [minDate, maxDate], leaving it uncommitted in the draft until corrected.
     if (v.length === 10) setDate(v);
   };
   const onBlur = () => setDate(draft); // empty draft commits "" (see setDate)
@@ -44,18 +49,28 @@ export default function DateField({
   };
 
   return (
-    <label className={labelClassName}>
-      <span className={labelSpanClassName}>{labelText}</span>
-      <input
-        type="date"
-        value={draft}
-        min={minDate}
-        max={maxDate}
-        onChange={onChange}
-        onBlur={onBlur}
-        onKeyDown={onKeyDown}
-        aria-label={ariaLabel}
-      />
-    </label>
+    <>
+      <label className={labelClassName}>
+        <span className={labelSpanClassName}>{labelText}</span>
+        <input
+          type="date"
+          value={draft}
+          min={minDate}
+          max={maxDate}
+          onChange={onChange}
+          onBlur={onBlur}
+          onKeyDown={onKeyDown}
+          aria-label={ariaLabel}
+        />
+      </label>
+      {/* why the field didn't take/kept the value it has: reuses the picker's
+          existing status-line styling (see WavelengthPicker's "no image for
+          this date" line) rather than inventing new markup */}
+      {dateRejectReason && (
+        <span className="picker-status err" role="status" aria-live="polite">
+          {dateRejectReason}
+        </span>
+      )}
+    </>
   );
 }
