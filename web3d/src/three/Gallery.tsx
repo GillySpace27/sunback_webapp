@@ -114,16 +114,25 @@ function plaqueTexture(text: string) {
   g.strokeStyle = "rgba(201,163,78,0.5)";
   g.lineWidth = 4;
   g.strokeRect(8, 8, c.width - 16, c.height - 16);
-  g.font = '600 46px "Inter Variable", Inter, system-ui, sans-serif';
   g.textAlign = "center";
   g.textBaseline = "middle";
   g.letterSpacing = "0.12em";
+  // Fit-to-width: a fixed 46px overflowed the plate on the longest label
+  // ("Gifts & Stationery", live 2026-08-15). Shrink until the engraved text
+  // clears the border with margin; measureText includes letterSpacing.
+  const label = text.toUpperCase();
+  let size = 46;
+  while (size > 24) {
+    g.font = `600 ${size}px "Inter Variable", Inter, system-ui, sans-serif`;
+    if (g.measureText(label).width <= c.width - 72) break;
+    size -= 2;
+  }
   const x = c.width / 2 + 2;
   const y = c.height / 2 + 2;
   g.fillStyle = "rgba(0,0,0,0.55)";
-  g.fillText(text.toUpperCase(), x, y);
+  g.fillText(label, x, y);
   g.fillStyle = "#e8c877";
-  g.fillText(text.toUpperCase(), c.width / 2, c.height / 2);
+  g.fillText(label, c.width / 2, c.height / 2);
   return new THREE.CanvasTexture(c);
 }
 

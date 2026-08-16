@@ -5588,27 +5588,31 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           cProv.textContent = "NASA SDO / AIA " + wlNum + " Å · " + band + " shown in false colour";
         }
 
-        // Original is instant: it is the Helioviewer JPG, already cached at the
-        // edge. Enhanced needs a real FITS fetch plus RHEF, so its panel starts
-        // in a pending state and fills in — the visitor can choose Original
-        // before it ever arrives, which is the point.
+        // Original is instant AND final: it is the Helioviewer rendering,
+        // which is exactly what the card's own caption promises ("the
+        // standard rendering of the telescope data"). It used to be swapped
+        // out for the backend's 384px linear FITS preview when that arrived,
+        // which REPLACED a despiked, display-stretched image with a smaller
+        // frame full of cosmic-ray speckle: a visible downgrade moments
+        // after first paint (Gilly, live, 2026-08-15). Enhanced still swaps
+        // in the real RHEF preview when it lands, because RHEF's character
+        // is the thing being chosen.
         var rawImg = document.getElementById("confirmThumbRaw");
         var rhefImg = document.getElementById("confirmThumbRhef");
         var pending = document.getElementById("rhefPending");
         var rhefBtn = document.getElementById("chooseRhef");
-        // The Helioviewer JPG paints instantly so neither panel is ever empty,
-        // then each is replaced by its real tier as it lands. The JPG is
-        // already display-stretched, so it must NOT carry the sqrt filter —
-        // only the raw FITS frame that replaces it does.
-        var instant = _handoffThumbUrl(dateStr, timeStr, wlNum, 384);
+        // 512, not 384: the cards render ~600px wide on desktop, and 512 is
+        // the size the rest of the funnel already requests (edge-cache hit).
+        // is-placeholder stays on the JPG for good — it gates OFF the sqrt
+        // display filter that only the (now unused) linear FITS frame needed.
+        var instant = _handoffThumbUrl(dateStr, timeStr, wlNum, 512);
         if (rawImg) { rawImg.src = instant; rawImg.classList.add("is-placeholder"); }
         if (rhefImg) { rhefImg.src = instant; }
         if (rhefBtn) rhefBtn.classList.add("is-pending");
+        // Still warm BOTH tiers server-side: the editor downstream reuses
+        // them, so the fetch is not wasted even though the raw card no
+        // longer repaints from it.
         _warmBothPreviews(dateStr, timeStr, wlNum, function (tier, url) {
-          if (tier === "raw" && rawImg) {
-            rawImg.src = url;
-            rawImg.classList.remove("is-placeholder"); // now a real FITS frame
-          }
           if (tier === "rhef" && rhefImg) {
             rhefImg.src = url;
             if (pending && pending.parentNode) pending.remove();
