@@ -2879,6 +2879,12 @@ def _phase_b_warm(image_id_cache, force=False, wavelengths=None, filters=None, m
             if stop:
                 break
             entry_slot = manifest.setdefault(str(wl), {}).setdefault(filt, {})
+            # The nested cell directory must exist BEFORE the atomic write:
+            # _atomic_image_write stages to <path>.tmp.png in the same dir, so a
+            # missing mockups/{wl}/{filt}/ made every cell do a full successful
+            # Printify round-trip and then throw the mockup away with ENOENT at
+            # the very last step (2026-08-15 — burned two whole warm rounds).
+            (DEFAULT_MOCKUPS_DIR / str(wl) / filt).mkdir(parents=True, exist_ok=True)
             for prod in _DEFAULT_MOCKUP_PRODUCTS:
                 pid = prod["id"]
                 png_path, _thumb = _grid_cell_paths(wl, filt, pid)
