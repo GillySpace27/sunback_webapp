@@ -5742,6 +5742,15 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // untouched.
     function _syncUrlParams() {
       try {
+        // Pristine-visit guard (Gilly, 2026-08-15): until the visitor has
+        // actually chosen something (a product, a vibe, their own image), a
+        // bare myheliograph.com must STAY bare. Without this, the persist
+        // interval stamped the untouched landing defaults (?d=&wl=) into the
+        // URL within seconds of arrival. Sharing a pristine page still works:
+        // a bare URL lands the recipient on those same defaults anyway.
+        if (!state.selectedProduct && !state.activeVibeSlug && !state.userPickedImage) {
+          return;
+        }
         var params = new URLSearchParams(window.location.search);
         function setOrClear(key, val) {
           if (val) params.set(key, val); else params.delete(key);
