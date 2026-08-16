@@ -2,6 +2,12 @@
 .vscode/settings.json
 dep/*
 *.png
+# Real favicon assets (rasterized from api/favicon.svg, 2026-08-15) — the
+# blanket *.png above is for render output/scratch, not brand assets.
+!api/favicon-16.png
+!api/favicon-32.png
+!api/apple-touch-icon.png
+!web3d/public/apple-touch-icon.png
 *.fits
 *.npz
 *.pyc

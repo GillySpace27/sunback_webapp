@@ -39,6 +39,12 @@ export default function WavelengthPicker() {
         className="picker-toggle"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
+        // the bar itself is opacity:0 + pointer-events:none until `revealed`
+        // (see .picker in styles.css) — without this, the button stayed in
+        // the tab order the whole time, so Enter could open the full panel
+        // mid-hero and collide with the hero date field/CTA. Pull it out of
+        // the a11y tree on the same condition that drives the CSS gating.
+        tabIndex={revealed ? 0 : -1}
       >
         <span className="picker-toggle-label">{open ? "Hide options" : "Make yours"}</span>
         <svg className="picker-chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">

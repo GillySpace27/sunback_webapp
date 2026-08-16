@@ -28,6 +28,8 @@ export default function DataCredit() {
         <span aria-hidden="true">·</span>
         <a href="/refund">Refunds</a>
         <span aria-hidden="true">·</span>
+        <a href="/shipping">Shipping</a>
+        <span aria-hidden="true">·</span>
         <a href="/accessibility">Accessibility</a>
       </nav>
     </div>

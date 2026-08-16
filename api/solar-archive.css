@@ -43,6 +43,12 @@
      (decorative uses — borders, focus rings, gradients — keep
      --accent-corona itself). 10.9:1 on the card: comfortable AA. */
   --accent-corona-text: #f3d385;
+  /* Fixed dark ink for text ON a gold/orange fill (buttons, pills).
+     The fill itself never themes (accent-sun/-corona/-flare are the
+     same values in both palettes), so this token isn't re-declared
+     in the light block either. 8.5-12.8:1 across every gold gradient
+     stop it's used on (Tier-1 polish pass, 2026-08-15). */
+  --text-on-gold: #1a1206;
   --border: #3a362c;         /* gilly.space --card-border */
   --border-active: #d9a91a;  /* focus rings are gold now, not purple */
   --glow-sun: rgba(217,169,26,0.25);
@@ -347,6 +353,12 @@ body {
 }
 .wl-submit-btn:hover { filter: brightness(1.06); }
 .wl-submit-btn.hidden { display: none; }
+/* Light theme: the dark-mode fill above is --accent-corona-text, which
+   in the light palette is a darkened GOLD-AS-TEXT token (#806200), not
+   a button fill — near-black text on it measured 3.23:1. Use the real
+   gold fill token instead (--accent-sun is the same value in both
+   themes, so this only needs a light-mode override). */
+html:not(.dark) .wl-submit-btn { background: var(--accent-sun); }
 .quality-strip-section img {
   width: 100%;
   max-width: 1100px;
@@ -1424,8 +1436,7 @@ select:focus-visible {
 /* The science, kept but quiet. */
 .wl-sci {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.68em;
-  opacity: 0.6;
+  font-size: 0.72rem;
 }
 
 .wl-label {
@@ -2934,7 +2945,10 @@ body.step-editor .vibe-reveal-btn {
 
 .vibe-master-btn {
   background: transparent;
-  color: var(--text-secondary, #d0c8d8);
+  /* Pinned, not var(--text-secondary) — .vibe-master-toggle's track
+     (rgba(0,0,0,0.55)) never themes, so the light-mode token (#555)
+     went unreadable on it (~1.4:1). */
+  color: rgba(255, 255, 255, 0.72);
   border: 0;
   padding: 8px 18px;
   border-radius: 999px;
@@ -3704,6 +3718,20 @@ body.handoff-confirm .toast.show { transform: translateX(-50%) translateY(0); }
 .toast { cursor: pointer; }
 .toast.success { border-color: #3ddc84; }
 .toast.error { border-color: var(--accent-flare); }
+.toast.info { border-color: var(--accent-cool); }
+/* Clear the cookie banner's footprint while it's open — otherwise the
+   toast renders inside/behind it (banner z-index 9995 vs toast 200).
+   Heights are estimated from the banner's own layout (not
+   live-measured): ~170px stacked on mobile, ~80px single-row on
+   desktop, plus the banner's own bottom offset and a 24px gap. */
+body:has(.cookie-banner:not(.hidden)) .toast {
+  bottom: calc(284px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 720px) {
+  body:has(.cookie-banner:not(.hidden)) .toast {
+    bottom: 120px;
+  }
+}
 
 /* HQ button */
 .btn-hq {
@@ -5033,7 +5061,7 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   padding: 10px 16px;
   border-radius: 999px;
   border: 0;
-  color: #fff;
+  color: var(--text-on-gold);
   font-weight: 600;
   font-size: 0.85rem;
   letter-spacing: 0.02em;
@@ -5191,7 +5219,10 @@ body.step-editor .feedback-fab { padding: 11px; }
 }
 .feedback-tab:hover { color: var(--text-primary, #e9eaf5); }
 .feedback-tab.active {
-  color: #fff;
+  /* Tab background stays transparent (the themed .feedback-modal-panel
+     shows through), so this needs the themed ink token, not a fixed
+     white — white-on-white on the light panel (bridge-bug family). */
+  color: var(--text-primary);
   border-bottom-color: var(--accent-corona, #d9a91a);
 }
 .feedback-tab i { margin-right: 6px; }
@@ -5309,7 +5340,7 @@ body.step-editor .feedback-fab { padding: 11px; }
   border: 0;
   border-radius: 8px;
   background: linear-gradient(135deg, var(--accent-corona, #d9a91a), #f0c75e);
-  color: #fff;
+  color: var(--text-on-gold);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
@@ -5323,8 +5354,15 @@ body.step-editor .feedback-fab { padding: 11px; }
 .feedback-submit-btn i { margin-right: 6px; }
 .feedback-submit-secondary {
   background: transparent;
+  /* Overrides the --text-on-gold inherited from .feedback-submit-btn —
+     this variant's background stays transparent (the themed modal
+     panel shows through), so it needs the themed ink token instead. */
+  color: var(--text-primary);
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
+/* Light theme: the border above (white-alpha) is invisible on the
+   light/white panel — swap to the opaque light border token. */
+html:not(.dark) .feedback-submit-secondary { border-color: var(--border); }
 
 .feedback-product-hint {
   margin-top: 10px;
@@ -5969,7 +6007,7 @@ body.step-editor .feedback-fab { padding: 11px; }
 }
 .confirm-modal-btn-primary {
   background: linear-gradient(135deg, var(--accent-corona, #d9a91a), #f0c75e);
-  color: #fff;
+  color: var(--text-on-gold);
 }
 .confirm-modal-btn-primary:hover { transform: translateY(-1px); }
 .confirm-modal-btn-secondary {
@@ -5978,6 +6016,9 @@ body.step-editor .feedback-fab { padding: 11px; }
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 .confirm-modal-btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
+/* Light theme: the dark-mode border above (white-alpha) is invisible
+   on the light/white panel — swap to the opaque light border token. */
+html:not(.dark) .confirm-modal-btn-secondary { border-color: var(--border); }
 
 /* ───────────────────────────────────────────────────────────────
    Variant picker inside the confirm modal (single-step selection).
@@ -6650,6 +6691,11 @@ html:not(.dark) .confirm-variant-tile.active {
   background: rgba(217, 169, 26, 0.16);
   box-shadow: 0 0 0 1px var(--accent-corona-text, #806200) inset;
 }
+/* Colour-swatch borders (rgba(255,255,255,.18) resting / .35 for
+   data-tone="dark") are invisible on a white panel regardless of the
+   swatch's own fill — White/White-Base swatches vanished entirely. */
+html:not(.dark) .confirm-color-swatch { border-color: rgba(0, 0, 0, 0.18); }
+html:not(.dark) .confirm-color-swatch[data-tone="dark"] { border-color: rgba(0, 0, 0, 0.35); }
 
 /* Citation link in the hero fineprint: inherit the fineprint gray
    (default UA blue looked unstyled and off-palette). */
@@ -6800,6 +6846,11 @@ body.handoff-confirm #workflowBreadcrumb {
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
 }
+#confirmOverlay.is-leaving { animation: handoff-fade-out 320ms ease forwards; }
+@keyframes handoff-fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
 .handoff-eyebrow {
   margin: 0;
   font-family: var(--sans);
@@ -6896,6 +6947,11 @@ body.handoff-confirm #workflowBreadcrumb {
 .chip-meta {
   white-space: nowrap;
   letter-spacing: 0.02em;
+  /* Pinned, not var(--text-primary) — .sun-summary-chip's background
+     is a hard-pinned dark rgba (never themes), so the theme-switching
+     ink token went navy-on-dark and disappeared in light mode (the
+     bridge invisible-text bug, 2026-08-15). */
+  color: #e8e2d0;
 }
 .chip-pen {
   color: var(--accent-sun);
@@ -7108,6 +7164,7 @@ body.handoff-confirm #workflowBreadcrumb {
   .hero h1,
   .hero-tagline,
   .hero p:not(.hero-tagline) { animation: none; }
+  #confirmOverlay.is-leaving { animation: none; }
 }
 
 /* Inline trust signals at the two hesitation points (variant modal, checkout

@@ -1907,9 +1907,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       b.addEventListener("click", function () {
         // Confirm — this discards the current design. Prevents an
         // accidental tap from wiping work (don't-simplify-away: data loss).
-        if (window.confirm("Start over? This clears your current image, product, and edits.")) {
-          _startOver();
-        }
+        showModal(
+          "Start over?",
+          "This clears your current image, product, and edits.",
+          function () { _startOver(); },
+          "Start over"
+        );
       });
     });
 
@@ -1922,7 +1925,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     if (btnChangeVariant) {
       btnChangeVariant.addEventListener("click", function() {
         if (!state.selectedProduct) {
-          showToast("Pick a product first.");
+          showToast("Pick a product first.", "error");
           return;
         }
         var product = (typeof PRODUCTS !== "undefined")
@@ -1961,7 +1964,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // No fallback to card-click — on step "editor" the product
         // card is hidden, so clicking it just scrolled the page (the
         // bug Gilly hit). Toast instead.
-        showToast("Variant picker isn't ready yet — try again in a moment.");
+        showToast("Variant picker isn't ready yet — try again in a moment.", "error");
       });
     }
 
@@ -2103,7 +2106,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
                 if (err) {
                   // Surface a short toast in addition to the mockupStatus
                   // bar so testers don't have to hunt for the error.
-                  showToast("Mockup failed: " + (err.message || "unknown error"));
+                  showToast("Mockup failed: " + (err.message || "unknown error"), "error");
                 }
               });
             } else {
@@ -2315,6 +2318,33 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     function _selStale(tok) { return tok !== _selToken; }
     function _staleJob() { var e = new Error("superseded"); e._stale = true; return e; }
 
+    // #statusMsg is display:none (dead channel: nobody ever saw anything
+    // written there). Every preview-failure path now routes through here:
+    // a real toast, plus a Retry button rendered INSIDE the stage itself,
+    // and the stage falls back to its authored "empty" look instead of
+    // sitting on a stale spinner forever.
+    function _reportPreviewError(msg, dateVal) {
+      console.warn("[preview]", msg);
+      if (typeof showToast === "function") showToast(msg, "error");
+      hideProgress();
+      var stage = document.getElementById("imageStage");
+      if (!stage) return;
+      stage.classList.remove("loading");
+      stage.classList.add("empty");
+      var old = stage.querySelector(".stage-retry-btn");
+      if (old) old.remove();
+      var retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "edit-btn stage-retry-btn";
+      retryBtn.style.cssText = "position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:6;";
+      retryBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
+      retryBtn.addEventListener("click", function() {
+        retryBtn.remove();
+        loadHelioviewerPreview(state.wavelength, dateVal);
+      });
+      stage.appendChild(retryBtn);
+    }
+
     function loadHelioviewerPreview(wl, dateVal) {
       var tok = ++_selToken;
       // Supersede anything still in flight for the previous selection.
@@ -2333,6 +2363,8 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       if (_stage) {
         _stage.classList.add("loading");
         _stage.classList.remove("empty");
+        var _staleRetry = _stage.querySelector(".stage-retry-btn");
+        if (_staleRetry) _staleRetry.remove();
       }
 
       // Get raw canvas from thumbCache or fetch fresh
@@ -2383,25 +2415,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             .catch(function() {
               // Fetch itself failed: the backend proxy isn't reachable at all.
               showPreviewError(
-                "Can't reach the backend at " + API_BASE + ". " +
-                "Check your connection, or wait for the server to finish waking up."
+                "Can't reach the backend right now. Check your connection, or " +
+                "wait for the server to finish waking up."
               );
             });
         };
         function showPreviewError(msg) {
-          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> ' + msg, false);
-          // Drop the canvas spinner so a stale animation doesn't sit
-          // over the error message; image-stage falls back to empty state.
-          var _errStage = document.getElementById("imageStage");
-          if (_errStage) _errStage.classList.remove("loading");
-          var retryDiv = document.createElement("div");
-          retryDiv.innerHTML = '<button class="retry-btn" style="margin-top:8px;padding:6px 12px;cursor:pointer;">Retry</button>';
-          statusMsg.appendChild(retryDiv);
-          retryDiv.querySelector(".retry-btn").addEventListener("click", function() {
-            statusMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Retrying…';
-            loadHelioviewerPreview(state.wavelength, dateVal);
-          });
-          hideProgress();
+          _reportPreviewError(msg, dateVal);
         }
         // NEEDS-FIX (workflow wx5fi2brl, helioviewer-client-timeout):
         // browsers will sit on a stalled Image() for up to ~60s before
@@ -2436,8 +2456,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       try {
         dataUrl = rawCanvas.toDataURL("image/png");
       } catch(e) {
-        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Preview failed — canvas read error: ' + e.message, false);
-        hideProgress();
+        _reportPreviewError("Preview failed — canvas read error: " + e.message, dateVal);
         return;
       }
       var rawImg = new Image();
@@ -2447,13 +2466,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           _installPreviewImage(rawImg, wl, dateVal, tok);
         } catch(e) {
           console.error("[preview] _installPreviewImage threw:", e);
-          setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Preview install failed: ' + e.message, false);
-          hideProgress();
+          _reportPreviewError("Preview install failed: " + e.message, dateVal);
         }
       };
       rawImg.onerror = function() {
-        setStatus('<i class="fas fa-exclamation-triangle" style="color:var(--accent-flare);"></i> Preview failed — could not decode image.', false);
-        hideProgress();
+        _reportPreviewError("Preview failed — could not decode image.", dateVal);
       };
       rawImg.src = dataUrl;
     }
@@ -2675,7 +2692,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       setProgress(100);
       setStatus('<i class="fas fa-check-circle" style="color:#3ddc84;"></i> ' + wl + ' Å loaded' +
         ((state.selectedProduct && !state.holdImageStep) ? ' — opening the editor.' : '.'));
-      showToast(wl + " Å loaded!");
+      // Only the landing's silent default-image preload skips this:
+      // state.userPickedImage is the same discriminator the step-advance
+      // logic above already uses to tell that apart from a real pick.
+      if (state.userPickedImage) showToast(wl + " Å loaded!");
 
       imageStage.classList.remove("empty");
       productSection.classList.remove("hidden");
@@ -4274,7 +4294,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         well.innerHTML = "";
         well.appendChild(img);
       };
-      img.onerror = function () { well.classList.remove("is-loading"); };
+      img.onerror = function () {
+        well.classList.remove("is-loading");
+        // Don't leave the PREVIOUS hour's Sun sitting under the new
+        // hour's label; clear it and say why.
+        well.innerHTML = '<span class="section-collapse-hint">No frame at this hour</span>';
+      };
       img.src = url;
     }
     function _scrubPrefetchHour(hour) {
@@ -4291,8 +4316,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (r.status === 429) {
           _scrubRateLimited = true;
           if (typeof showToast === "function") {
-            showToast("Scrubbing too fast — pausing hour previews for a bit.");
+            showToast("Scrubbing too fast — pausing hour previews for a bit.", "error");
           }
+          setTimeout(function () { _scrubRateLimited = false; }, 60000);
           return;
         }
         if (!r.ok) return null;
@@ -5548,8 +5574,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // FITS is in hand the RHEF pass on a 1k frame is quick — the cost here is
     // fetching the file, not filtering it, and the synoptic path makes even
     // that about a second.
-    function _warmBothPreviews(dateStr, timeStr, wlNum, onTier) {
+    function _warmBothPreviews(dateStr, timeStr, wlNum, onTier, onGiveUp) {
       var tries = 0;
+      function giveUp() { if (typeof onGiveUp === "function") onGiveUp(); }
       function ask() {
         tries++;
         fetchWithTimeout(API_BASE + "/api/generate_preview", {
@@ -5559,13 +5586,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         }, 90000).then(function (r) {
           return r.ok ? r.json() : null;
         }).then(function (j) {
-          if (!j) return;
+          if (!j) { giveUp(); return; }
           if (j.preview_raw_url) onTier("raw", j.preview_raw_url);
           if (j.preview_url) onTier("rhef", j.preview_url);
           // 202 with nothing ready yet: it is generating in the background.
           // Poll a few times rather than leaving a panel pending forever.
-          if (!j.preview_url && tries < 12) setTimeout(ask, 1500);
-        }).catch(function () { /* Original stays pickable; that is a complete answer */ });
+          if (!j.preview_url) {
+            if (tries < 12) setTimeout(ask, 1500);
+            else giveUp();
+          }
+        }).catch(function () { /* Original stays pickable; that is a complete answer */ giveUp(); });
       }
       ask();
     }
@@ -5618,6 +5648,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             if (pending && pending.parentNode) pending.remove();
             if (rhefBtn) rhefBtn.classList.remove("is-pending");
           }
+        }, function () {
+          // Poll gave up: the pill was stuck on "Developing…" forever.
+          // Say so, and un-pend the Enhanced card so it's pickable (it
+          // just shows the same instant frame as Original at that point).
+          if (pending) pending.textContent = "Enhanced isn't ready yet. Original is ready now.";
+          if (rhefBtn) rhefBtn.classList.remove("is-pending");
         });
 
         var chip = document.getElementById("sunSummaryChip");
@@ -5647,8 +5683,27 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           state.handoffLook = tier;
           state._userFilterPick = tier;
           try { localStorage.setItem("mh_look", tier); } catch (_e) {}
-          if (ov) ov.hidden = true;
-          document.body.classList.remove("handoff-confirm");
+          // Animate the exit instead of an instant hide (contract: CSS
+          // adds #confirmOverlay.is-leaving { animation: handoff-fade-out
+          // 320ms ease forwards }). animationend does the real cleanup;
+          // the 400ms timeout is a fallback if that event never fires
+          // (animation interrupted, reduced-motion override, etc.); the
+          // _leftOnce guard keeps the body class removal to exactly once.
+          if (ov) {
+            var _leftOnce = false;
+            var _finishLeave = function () {
+              if (_leftOnce) return;
+              _leftOnce = true;
+              ov.hidden = true;
+              ov.classList.remove("is-leaving");
+              document.body.classList.remove("handoff-confirm");
+            };
+            ov.classList.add("is-leaving");
+            ov.addEventListener("animationend", _finishLeave, { once: true });
+            setTimeout(_finishLeave, 400);
+          } else {
+            document.body.classList.remove("handoff-confirm");
+          }
           if (typeof setStep === "function") setStep("product");
           setTimeout(function () { _landOnCategory(); }, 120);
         }
@@ -5822,7 +5877,24 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       _shareFallbackPrompt(url);
     }
     function _shareFallbackPrompt(url) {
-      try { window.prompt("Copy this link:", url); } catch (_e) {}
+      // showModal's message is developer-authored HTML (see its own
+      // callers elsewhere), so a readonly input can ride along inside
+      // it: smallest way to host an input without a bespoke overlay.
+      showModal(
+        "Copy this link",
+        "Copy this link:<br>" +
+          '<input type="text" class="share-link-input" readonly ' +
+          'value="' + escapeHtml(url) + '" ' +
+          'style="width:100%;box-sizing:border-box;padding:8px 10px;margin-top:8px;' +
+          'font-size:0.9rem;" ' +
+          'onfocus="this.select()" onclick="this.select()">',
+        null,
+        "Done"
+      );
+      setTimeout(function () {
+        var inp = document.querySelector(".modal-overlay .share-link-input");
+        if (inp) { inp.focus(); inp.select(); }
+      }, 30);
     }
     (function _wireShareButtons() {
       ["btnShareSun", "btnShareSunImageStep"].forEach(function (id) {
@@ -6237,7 +6309,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // ── Toast ────────────────────────────────────────────────────
     var toastTimer = null;
     function showToast(msg, type) {
-      type = type || "success";
+      type = type || "info";
       toastEl.textContent = msg;
       toastEl.className = "toast " + type;
       // setTimeout, NOT requestAnimationFrame (root cause of the months-old
@@ -6693,7 +6765,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     });
 
     function checkBackendHealth() {
-      setBannerState("checking", "Checking backend status...", "Connecting to " + API_BASE, false);
+      setBannerState("checking", "Waking the telescope archive…", "", false);
 
       // Phase 1: lightweight health endpoint (no heavy app init)
       var abortCtrl = new AbortController();
@@ -6709,12 +6781,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           clearTimeout(timeout);
           healthRetries++;
           if (healthRetries <= MAX_HEALTH_RETRIES) {
-            var isTimeout = err.name === "AbortError";
             setBannerState("waking",
-              isTimeout
-                ? "Backend is waking up... (attempt " + healthRetries + "/" + MAX_HEALTH_RETRIES + ")"
-                : "Retrying connection... (attempt " + healthRetries + "/" + MAX_HEALTH_RETRIES + ")",
-              "The server sleeps between visits to save energy. Waking it up takes a few seconds.",
+              "The server sleeps between visits to save energy.",
+              "Waking it up takes a few seconds.",
               false
             );
             setTimeout(checkBackendHealth, WAKE_RETRY_DELAY);
@@ -6854,40 +6923,35 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
     function onBackendOnline() {
       state.backendOnline = true;
-      setBannerState("online", "Backend online", "Connected to " + API_BASE, false);
       fetchBuildTime();
-      // Auto-hide after 4s
-      setTimeout(function() {
-        backendBanner.style.transition = "opacity 0.5s ease, max-height 0.5s ease";
-        backendBanner.style.opacity = "0";
-        backendBanner.style.maxHeight = "0";
-        backendBanner.style.overflow = "hidden";
-        backendBanner.style.padding = "0 18px";
-        backendBanner.style.marginBottom = "0";
-      }, 4000);
+      // No user-visible "connected" banner: a visitor who never saw a
+      // problem doesn't need to be told everything is fine. Collapse
+      // whatever state the banner was in (checking/waking) immediately.
+      backendBanner.style.transition = "opacity 0.5s ease, max-height 0.5s ease";
+      backendBanner.style.opacity = "0";
+      backendBanner.style.maxHeight = "0";
+      backendBanner.style.overflow = "hidden";
+      backendBanner.style.padding = "0 18px";
+      backendBanner.style.marginBottom = "0";
     }
 
     function onBackendCORSBlocked() {
       state.backendOnline = false;
       cspNotice.classList.remove("hidden");
+      console.warn("[backend] CORS blocked: origin not in ALLOWED_ORIGINS.");
       setBannerState("offline",
-        "CORS blocked — backend is running but won't accept requests from this origin",
-        "The backend needs to allow this app's origin in its CORS config " +
-        "(the ALLOWED_ORIGINS env var / allowed_origins in main.py). " +
-        "Add this page's origin and redeploy.",
+        "We can't reach the image archive from this page right now.",
+        "Try refreshing in a minute.",
         true
       );
     }
 
     function onBackendOffline() {
       state.backendOnline = false;
+      console.warn("[backend] " + API_BASE + " is not accepting connections.");
       setBannerState("offline",
-        "Backend is offline — connection refused",
-        API_BASE + " is not accepting connections. This usually means: " +
-        "(1) The deploy failed or crashed on startup, " +
-        "(2) The service is suspended, or " +
-        "(3) It's still starting up (science-library imports can take a minute). " +
-        "Check the hosting dashboard's logs for the real error.",
+        "We can't reach the archive right now.",
+        "It usually wakes within a minute; try again shortly.",
         true
       );
     }
@@ -6942,6 +7006,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       var now = Date.now();
       if (now - _backendCrashLastShownAt < _BACKEND_CRASH_THROTTLE_MS) return;
       _backendCrashLastShownAt = now;
+      // Operator detail (status code, failing path) is for the console
+      // only; the banner below stays in plain customer language.
+      if (detail) console.warn("[backend]", detail);
       // Un-hide the banner in case onBackendOnline collapsed it.
       backendBanner.style.opacity = "";
       backendBanner.style.maxHeight = "";
@@ -6949,11 +7016,8 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       backendBanner.style.padding = "";
       backendBanner.style.marginBottom = "";
       setBannerState("offline",
-        "Backend appears to have crashed",
-        (detail || "A recent request failed. ") +
-        "The server may have run out of memory during a heavy render " +
-        "and restarted. Wait 30–60 seconds for it to come back online, " +
-        "then retry.",
+        "Something went wrong on our end.",
+        "Give it a minute and try again.",
         true);
       state.backendOnline = false;
     }
@@ -7006,12 +7070,14 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (err.name === "AbortError") {
             throw new Error("Request timed out after " + Math.round(timeoutMs / 1000) + "s — the backend may be down or overloaded.");
           }
-          // Network error — probably backend is offline
+          // Network error — probably backend is offline. Customer-facing
+          // message never names API_BASE or infra state (Tier 1 polish
+          // sweep, 2026-08-15 — same fix as the banner family below);
+          // operator detail goes to the console only.
           if (err.message === "Failed to fetch" || err.message === "NetworkError when attempting to fetch resource.") {
+            console.warn("[fetchWithTimeout] network error reaching " + API_BASE, err);
             throw new Error(
-              "Cannot reach backend (" + API_BASE + "). " +
-              "The service may be sleeping, suspended, or failed to deploy. " +
-              "Retry in a moment — it wakes automatically."
+              "We can't reach the archive right now. It usually wakes within a minute; try again shortly."
             );
           }
           throw err;
@@ -9147,7 +9213,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         state.timestampStamp = !state.timestampStamp;
         _syncTimestampBtn();
         if (state.timestampStamp && (!dateInput.value || !state.wavelength)) {
-          showToast("Pick an image first so the caption can read its timestamp.");
+          showToast("Pick an image first so the caption can read its timestamp.", "error");
         }
         renderCanvas();
         scheduleMockupRefresh();
@@ -9337,7 +9403,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           // Mode/Lighter Mode unavailable until the pixel pass has
           // computed the dominant colour. Nudge the user.
           if (typeof showToast === "function") {
-            showToast("Pick a vignette or brightness setting first so we can read the image's dominant color.");
+            showToast("Pick a vignette or brightness setting first so we can read the image's dominant color.", "error");
           }
           return;
         }
@@ -11156,9 +11222,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var defEntry = defaultMockupEntry(state.wavelength, state.editorFilter, p.id);
         var hasDefaultMockup = !!(defEntry && defEntry.url);
         var hasMockup = hasGeneratedMockup || hasDefaultMockup;
-        var statusDot = hasMockup
-          ? '<span style="color:#3ddc84;font-size:10px;" title="Printify mockup ready">●</span> '
-          : (state.originalImage ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> ' : '');
+        // Ready state used to show a green dot ("Printify mockup ready"),
+        // an internal QA signal with no customer meaning; dropped.
+        // The orange "generating" dot stays; that one IS useful feedback.
+        var statusDot = (!hasMockup && state.originalImage)
+          ? '<span style="color:#ff9800;font-size:10px;" title="Generating…">◌</span> '
+          : '';
 
         // The button is now a disclosure toggle: clicking it expands the
         // variant pane below. Each variant inside the pane carries its own
@@ -13150,22 +13219,28 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var msg = err.message || String(err);
         // Try to parse JSON error from backend
         try { msg = JSON.parse(msg).detail || msg; } catch(_e) {}
-        // Check for rate limit errors
-        if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("429")) {
-          msg = "Rate limit exceeded. Please wait a few minutes and try again.";
-        }
-        // Check for network errors
-        if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
-          msg = "Network error. Please check your internet connection and try again.";
+        var lower = msg.toLowerCase();
+        // displayMsg is what the DOM/toast show: never the raw backend
+        // body (it can be arbitrary text, or HTML off a 502/504 proxy
+        // page, and was going straight into innerHTML before this fix).
+        // `msg` itself stays the real detail for the Sentry/GA beacons
+        // below, truncated there same as always.
+        var displayMsg;
+        if (lower.includes("rate limit") || lower.includes("429")) {
+          displayMsg = "Rate limit exceeded. Please wait a few minutes and try again.";
+        } else if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
+          displayMsg = "Network error. Please check your internet connection and try again.";
+        } else {
+          displayMsg = "Checkout hit a snag on our end. Nothing was charged; try again in a minute.";
         }
         checkoutProgress.innerHTML +=
           '<div style="margin-top:14px;color:var(--accent-flare);">' +
-            '<i class="fas fa-exclamation-triangle"></i> ' + msg +
+            '<i class="fas fa-exclamation-triangle"></i> ' + escapeHtml(displayMsg) +
             '<br><button class="edit-btn" style="margin-top:8px;" ' +
               'onclick="document.getElementById(\'checkoutProgress\').classList.add(\'hidden\');">' +
               '<i class="fas fa-times"></i> Dismiss</button>' +
           '</div>';
-        showToast("Checkout failed: " + msg, "error");
+        showToast("Checkout failed: " + displayMsg, "error");
         // NEEDS-FIX (workflow wx5fi2brl, checkout-failure-observability):
         // beacon the failure to Sentry (when configured) so we can spot
         // outages or systemic Printify / Shopify errors quickly. Also
@@ -14366,7 +14441,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           html += '<button type="button" role="option" class="confirm-color-swatch' + isActive + '"' +
                   ' data-hex="' + hex + '"' +
                   ' data-tone="' + tone + '"' +
-                  ' title="' + escapeHtmlSimple(bucket.name) + ' (' + bucket.variants.length + ')"' +
+                  ' title="' + escapeHtmlSimple(bucket.name) + '"' +
                   ' style="background:' + hex + ';"></button>';
         });
         swatchesEl.innerHTML = html;
@@ -14468,7 +14543,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           html += '<button type="button" role="option" class="confirm-color-swatch' + isActive + '"' +
                   ' data-axis-value="' + escapeHtmlSimple(val) + '"' +
                   ' data-tone="' + tone + '"' +
-                  ' title="' + escapeHtmlSimple(val + " (" + bucketsByVal[val].variants.length + ")") + '"' +
+                  ' title="' + escapeHtmlSimple(val) + '"' +
                   ' style="background:' + hex + ';"></button>';
         });
         html += '</div>';

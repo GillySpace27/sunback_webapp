@@ -327,7 +327,9 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.9rem 1.3rem 1rem;
+  /* top padding moved onto .picker-toggle so the button itself has a
+     real hit box (was ~21px tall) instead of the fieldset shell around it */
+  padding: 0.3rem 1.3rem 1rem;
   /* solid plate so every control clears 4.5:1 over the bright plasma behind */
   background: rgba(8, 9, 14, 0.74);
   border: 1px solid rgba(244, 239, 230, 0.12);
@@ -354,7 +356,9 @@ body {
   align-items: center;
   gap: 0.4rem;
   align-self: center;
-  padding: 0.15rem 0.4rem;
+  /* was 0.15rem: a ~21px-tall hit box. The rest of the vertical room comes
+     from .picker's own padding above/below, moved here (WCAG 2.5.8). */
+  padding: 0.6rem 0.4rem;
   background: none;
   border: 0;
   color: var(--muted);
@@ -382,7 +386,7 @@ body {
   gap: 0.5rem;
 }
 .picker--collapsed {
-  padding-bottom: 0.6rem;
+  padding-bottom: 0.3rem;
 }
 .picker--collapsed .picker-body {
   display: none;
@@ -607,7 +611,7 @@ body {
   outline-offset: 3px;
 }
 .arrow:disabled {
-  opacity: 0.12;
+  visibility: hidden;
   cursor: default;
 }
 @media (max-width: 640px) {
@@ -895,7 +899,7 @@ body {
 .data-credit {
   position: fixed;
   left: 50%;
-  bottom: max(0.6vh, 6px);
+  bottom: calc(max(0.6vh, 6px) + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 3;
   margin: 0;
@@ -905,7 +909,9 @@ body {
   font-size: clamp(0.7rem, 1vw, 0.75rem);
   line-height: 1.4;
   color: var(--muted);
-  opacity: 0.55;
+  /* .55 measured ~3.68:1 against the dark stage background (fails AA 4.5:1);
+     .75 recomputes to ~6.1:1 against the same worst-case (darkest) background. */
+  opacity: 0.75;
   pointer-events: none;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
 }
@@ -934,6 +940,19 @@ body {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
+/* While the picker drawer is open it can overlap the footer credit, the hero
+   date prompt, the masthead, and the timeline arrows — measured at BOTH
+   desktop and phone widths, so this is unconditional rather than scoped to
+   a narrow-viewport media query like it used to be. Remove each from pointer
+   and keyboard entirely while the drawer is open rather than leaving stacked
+   controls (e.g. two live date fields) on top of each other. */
+body:has(.picker-toggle[aria-expanded="true"]) .data-credit,
+body:has(.picker-toggle[aria-expanded="true"]) .hero-date,
+body:has(.picker-toggle[aria-expanded="true"]) .masthead,
+body:has(.picker-toggle[aria-expanded="true"]) .arrows {
+  display: none;
+}
+
 @media (max-width: 600px) {
   /* The picker plate owns the bottom of a phone screen, but only once it is
      open — hiding the footer unconditionally left phones with no attribution
@@ -943,9 +962,6 @@ body {
      the legal row), which measures ~49px — reserve that plus a gap */
   #buy {
     bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + 3.1rem);
-  }
-  body:has(.picker-toggle[aria-expanded="true"]) .data-credit {
-    display: none;
   }
 
   /* The open drawer did not fit the phone it was built for. The plate measured
@@ -977,13 +993,6 @@ body {
     width: max-content;
     max-width: 40vw;
     text-align: center;
-  }
-  /* The drawer carries its own date field, so the hero one underneath is both
-     a duplicate and an overlap (the plate opened over it). Remove it from
-     pointer and keyboard entirely while the drawer is open rather than leaving
-     two live controls for the same value stacked on each other. */
-  body:has(.picker-toggle[aria-expanded="true"]) .hero-date {
-    display: none;
   }
 }
 

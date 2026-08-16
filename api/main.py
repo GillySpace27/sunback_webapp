@@ -3865,6 +3865,41 @@ async def root():
     return FileResponse(Path(__file__).parent / "index.html")
 
 
+_404_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found — My Heliograph</title>
+<style>
+  html,body{height:100%;margin:0;background:#141210;color:#e8e2d0;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;}
+  .wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;text-align:center;padding:24px;gap:14px;}
+  .sun{width:64px;height:64px;border-radius:16px;background:radial-gradient(circle,#fff7c2,#ffb347 60%,#ff5e3a 100%);
+    box-shadow:0 0 40px rgba(255,148,60,0.35);margin-bottom:6px;}
+  h1{font-size:1.4rem;margin:0;font-weight:600;}
+  p{color:#a8a094;margin:0;max-width:36ch;line-height:1.5;}
+  a{color:#f0c75e;text-decoration:none;font-weight:600;border-bottom:1px solid rgba(240,199,94,0.4);}
+  a:hover{border-bottom-color:#f0c75e;}
+</style></head>
+<body><div class="wrap">
+  <div class="sun"></div>
+  <h1>This page has set.</h1>
+  <p>We couldn't find what you were looking for.</p>
+  <a href="/">Back to My Heliograph &rarr;</a>
+</div></body></html>"""
+
+
+@app.exception_handler(404)
+async def not_found(request: Request, exc):
+    # A bare {"detail":"Not Found"} JSON body (FastAPI's default for any
+    # unmatched route) reads as API debris to a shopper on a mistyped or
+    # stale link. /api/* keeps the JSON contract API callers expect; every
+    # other path gets a branded page with a way home.
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return HTMLResponse(status_code=404, content=_404_HTML)
+
+
 # LAUNCH-BLOCKER fix (workflow wx5fi2brl, missing-legal-policies):
 # Four static policy pages (Privacy / Terms / Refund / Shipping) so
 # Shopify Payments + Stripe will operate without dispute freeze. Drafted
@@ -3886,10 +3921,24 @@ async def favicon_svg():
 
 @app.get("/favicon.ico")
 async def favicon_ico():
-    # Browsers expect /favicon.ico — serve the SVG and let the browser
-    # decide (modern browsers prefer the linked SVG; older ones tolerate
-    # the SVG response under .ico mime).
-    return FileResponse(Path(__file__).parent / "favicon.svg", media_type="image/svg+xml")
+    # A real multi-size ICO (16/32/48), rasterized from favicon.svg — the
+    # SVG-labeled-as-.ico this used to serve is invalid: browsers and OS
+    # chrome that fetch this path expect actual ICO bytes.
+    return FileResponse(Path(__file__).parent / "favicon.ico", media_type="image/x-icon")
+
+@app.get("/favicon-16.png")
+async def favicon_png_16():
+    return FileResponse(Path(__file__).parent / "favicon-16.png", media_type="image/png")
+
+@app.get("/favicon-32.png")
+async def favicon_png_32():
+    return FileResponse(Path(__file__).parent / "favicon-32.png", media_type="image/png")
+
+@app.get("/apple-touch-icon.png")
+async def apple_touch_icon():
+    # iOS ignores SVG for apple-touch-icon (silently falls back to a
+    # screenshot tile on add-to-home-screen) — this is a real 180x180 PNG.
+    return FileResponse(Path(__file__).parent / "apple-touch-icon.png", media_type="image/png")
 
 
 @app.get("/privacy", response_class=HTMLResponse)

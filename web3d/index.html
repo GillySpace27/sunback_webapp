@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#05060a" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- iOS ignores SVG for apple-touch-icon and silently falls back to a
+         screenshot tile, so this needs a real raster icon (180x180, matches
+         the store's api/apple-touch-icon.png). -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
     <title>My Heliograph — Your day, written in sunlight</title>
@@ -56,14 +59,16 @@
     <!-- First-paint placeholder, pure CSS (no image request): #root is empty
          until the React shell parses, which otherwise reads as a blank void.
          A dark base + a soft warm glow roughly where the hero Sun sits
-         (center-right) says "something is coming" for the cost of one
-         gradient. The fixed .stage canvas covers this completely once it
-         mounts, so nothing here needs to be cleaned up. -->
+         (~43% across the viewport, not center-right — the composed hero Sun
+         actually renders around 35-45vw depending on breakpoint) says
+         "something is coming" for the cost of one gradient. The fixed .stage
+         canvas covers this completely once it mounts, so nothing here needs
+         to be cleaned up. -->
     <style>
       #root {
         min-height: 100dvh;
         background:
-          radial-gradient(ellipse 55% 50% at 72% 46%, rgba(255, 154, 60, 0.32) 0%, rgba(255, 154, 60, 0.1) 40%, rgba(5, 6, 10, 0) 72%),
+          radial-gradient(ellipse 55% 50% at 43% 46%, rgba(255, 154, 60, 0.32) 0%, rgba(255, 154, 60, 0.1) 40%, rgba(5, 6, 10, 0) 72%),
           #05060a;
       }
     </style>
