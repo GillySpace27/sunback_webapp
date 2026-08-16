@@ -115,7 +115,14 @@ if [ -d "../../$DC" ] || [ -d "../$DC" ]; then
   cp "$SRC/compare_raw.webp"  "$DEST/" 2>/dev/null || true   # before/after slider pair
   cp "$SRC/compare_rhef.webp" "$DEST/" 2>/dev/null || true
   cp "$SRC/og_card.jpg" "$DEST/" 2>/dev/null || true         # social share card
-  cp "$SRC"/mockups/*.thumb.webp "$DEST/mockups/" 2>/dev/null || true
+  # Mockup thumbs, recursive: the grid cache is nested
+  # mockups/{wl}/{filter}/{pid}.thumb.webp (wavelength x filter grid,
+  # 2026-08-15). Copy only the webp thumbs, preserving the subdir tree; the
+  # full-res PNGs stay proxied to Fly. rsync preserves dirs; the flat cp is a
+  # fallback for the legacy layout / rsync-less environments.
+  rsync -am --include='*/' --include='*.thumb.webp' --exclude='*' \
+    "$SRC/mockups/" "$DEST/mockups/" 2>/dev/null \
+    || cp "$SRC"/mockups/*.thumb.webp "$DEST/mockups/" 2>/dev/null || true
   # vibe thumbnails (raw_thumb/rhef_thumb per slug) — small, makes the
   # gallery instant too. Full-res *_full.png deliberately excluded.
   for d in "$SRC"/vibe/*/; do
@@ -143,17 +150,36 @@ if [ -d "../../$DC" ] || [ -d "../$DC" ]; then
 import json, sys, pathlib
 dest, allow = pathlib.Path(sys.argv[1]), sys.argv[2] == "1"
 fly = json.loads(pathlib.Path(sys.argv[3]).read_text())
+PREFIX = "/asset/default/"
+
+def iter_entries(man):
+    # Nested {wl:{filter:{pid:entry}}} (wavelength x filter grid) + legacy flat.
+    for k, v in man.items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("thumb_url") or v.get("url"):
+            yield k, v
+        else:
+            for filt, cells in v.items():
+                if not isinstance(cells, dict):
+                    continue
+                for pid, entry in cells.items():
+                    if isinstance(entry, dict):
+                        yield f"{k}/{filt}/{pid}", entry
+
 problems = []
-for pid, entry in sorted(fly.items()):
+n = 0
+for label, entry in iter_entries(fly):
     thumb = entry.get("thumb_url")
-    if not thumb:
+    if not thumb or not thumb.startswith(PREFIX):
         continue
-    p = dest / "mockups" / pathlib.Path(thumb).name
+    n += 1
+    p = dest / thumb[len(PREFIX):]     # preserves mockups/{wl}/{filter}/ subdirs
     if not p.exists():
-        problems.append(f"{pid}: missing from mirror (origin has it)")
+        problems.append(f"{label}: missing from mirror (origin has it)")
     elif p.stat().st_size != entry.get("thumb_size_bytes"):
         problems.append(
-            f"{pid}: {p.stat().st_size} B in mirror vs {entry.get('thumb_size_bytes')} B on origin")
+            f"{label}: {p.stat().st_size} B in mirror vs {entry.get('thumb_size_bytes')} B on origin")
 if problems:
     print("\nSTALE MIRROR — public/ would shadow fresher assets on Fly:")
     for p in problems[:15]:
@@ -162,7 +188,7 @@ if problems:
         print(f"  ... and {len(problems) - 15} more")
     print("\nFix: ./infra/scripts/pull_fly_assets.sh   (or ALLOW_STALE_MIRROR=1 to ship anyway)")
     sys.exit(0 if allow else 1)
-print(f"staleness guard: OK, {len(fly)} entries match the origin")
+print(f"staleness guard: OK, {n} entries match the origin")
 PY
   else
     echo "WARN: could not reach $ORIGIN — skipping staleness check"

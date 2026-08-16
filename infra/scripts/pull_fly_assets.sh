@@ -42,23 +42,44 @@ python3 - "$ORIGIN" "$DEST" <<'PY'
 import json, subprocess, sys, pathlib
 origin, dest = sys.argv[1], pathlib.Path(sys.argv[2])
 man = json.loads((dest / "default_mockups.json").read_text())
+
+PREFIX = "/asset/default/"
+
+def iter_entries(man):
+    # Nested {wl:{filter:{pid:entry}}} (2026-08-15 wavelength x filter grid),
+    # with a fallback for the legacy flat {pid:entry} shape.
+    for k, v in man.items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("thumb_url") or v.get("url"):      # flat: k is a product id
+            yield v
+        else:                                       # nested: k is a wavelength
+            for filt, cells in v.items():
+                if not isinstance(cells, dict):
+                    continue
+                for pid, entry in cells.items():
+                    if isinstance(entry, dict):
+                        yield entry
+
 kept = set()
-for pid, entry in sorted(man.items()):
+for entry in iter_entries(man):
     thumb = entry.get("thumb_url")
-    if not thumb:
-        print(f"  skip {pid}: no thumb_url")
+    if not thumb or not thumb.startswith(PREFIX):
         continue
-    out = dest / "mockups" / pathlib.Path(thumb).name
+    rel = thumb[len(PREFIX):]        # mockups/{wl}/{filter}/{pid}.thumb.webp
+    out = dest / rel
+    out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["curl", "-fsS", "--max-time", "60", "-o", str(out),
                     origin + thumb], check=True)
-    kept.add(out.name)
+    kept.add(str(out.resolve()))
 print(f"  {len(kept)} thumbs")
-# Drop thumbs for products the manifest no longer lists (e.g. phone_case,
-# split into per-manufacturer ids) so the mirror can't accumulate orphans.
-for stale in sorted(p for p in (dest / "mockups").glob("*.thumb.webp")
-                    if p.name not in kept):
-    print(f"  removing orphan {stale.name}")
-    stale.unlink()
+# Drop thumbs no longer referenced by the manifest so the mirror can't
+# accumulate orphans (product renamed, wavelength dropped, etc.). Recursive
+# so it walks the nested {wl}/{filter}/ tree.
+for stale in sorted((dest / "mockups").rglob("*.thumb.webp")):
+    if str(stale.resolve()) not in kept:
+        print(f"  removing orphan {stale.relative_to(dest)}")
+        stale.unlink()
 PY
 
 # Vibe gallery thumbs, driven by the vibe manifest for the same reason.
@@ -80,6 +101,13 @@ PY
 echo
 echo "Mirror refreshed: $DEST"
 du -sh "$DEST"
-python3 -c "import json;print('  manifest entries:',len(json.load(open('$DEST/default_mockups.json'))))"
+python3 - "$DEST/default_mockups.json" <<'PY'
+import json, sys
+man = json.load(open(sys.argv[1]))
+cells = sum(len(cells) for wl, filts in man.items() if isinstance(filts, dict)
+            for f, cells in filts.items() if isinstance(cells, dict)) \
+        or len(man)   # fall back to flat count
+print("  manifest cells:", cells)
+PY
 echo
 echo "Next: cd infra/worker && ./build-public.sh && npx wrangler deploy"

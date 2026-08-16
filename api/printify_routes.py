@@ -467,6 +467,12 @@ def _create_product_sync(body: dict) -> dict:
 _MOCKUP_DRAFT_TTL_SECONDS = 2 * 60 * 60       # keep drafts < 2h old (still viewable)
 _MOCKUP_SWEEP_MIN_INTERVAL = 20 * 60          # run the sweep at most once per 20 min
 _last_mockup_sweep_at = 0.0
+# Personalized (PII) products are a throwaway fulfillment artifact. Delete them
+# once they are safely past fulfillment + returns. ponytail: a conservative
+# fixed TTL, not order-fulfillment linkage — 30 days is well past POD
+# production+shipping+returns, so no live order is ever cut. Upgrade to a
+# Shopify fulfillment-status check if the exposure window needs to shrink.
+_PERSONALIZED_TTL_SECONDS = int(os.getenv("PERSONALIZED_TTL_SECONDS") or 30 * 24 * 60 * 60)
 _mockup_sweep_lock = threading.Lock()
 
 
@@ -584,6 +590,129 @@ async def admin_sweep_mockup_drafts(request: Request):
         raise HTTPException(status_code=401, detail="Invalid admin key")
     deleted = await run_in_threadpool(_sweep_stale_mockup_drafts)
     return JSONResponse(content={"deleted": deleted})
+
+
+def _scan_checkout_products(limit_pages: int = 60) -> dict:
+    """Read-only pass over the shop's products, bucketed by our tags:
+    - personalized: carries the `personalized` PII marker (delete-eligible).
+    - catalog:      carries a `design-<hash>` reuse tag (the clean catalog).
+    - legacy:       published but neither marker — created before this change.
+                    NOT distinguishable as PII from metadata; manual review only.
+    Each record is {id, title, created_at, handle, age_days}."""
+    shop_id = _shop_id()
+    now = time.time()
+    buckets = {"personalized": [], "catalog": [], "legacy": []}
+    page = 1
+    while page <= limit_pages:
+        try:
+            resp = _printify_request(
+                "GET",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products.json?limit=50&page={page}",
+                headers=_headers(),
+                timeout=60,
+            )
+        except Exception as e:
+            _log(f"[pii-audit] list page {page} failed: {e}")
+            break
+        if resp.status_code != 200:
+            break
+        items = resp.json().get("data") or []
+        if not items:
+            break
+        for p in items:
+            tags = p.get("tags") or []
+            ext = p.get("external") or {}
+            created = _parse_printify_ts(p.get("created_at"))
+            rec = {
+                "id": p.get("id"),
+                "title": p.get("title"),
+                "created_at": p.get("created_at"),
+                "handle": ext.get("handle"),
+                "age_days": None if created is None else round((now - created) / 86400.0, 1),
+            }
+            if "personalized" in tags:
+                buckets["personalized"].append(rec)
+            elif any(isinstance(t, str) and t.startswith("design-") for t in tags):
+                buckets["catalog"].append(rec)
+            elif ext.get("handle") or ext.get("id"):
+                buckets["legacy"].append(rec)
+        if len(items) < 50:
+            break
+        page += 1
+    return buckets
+
+
+def _sweep_personalized_products(dry_run: bool = False, buckets: Optional[dict] = None) -> dict:
+    """Delete personalized (PII) products older than `_PERSONALIZED_TTL_SECONDS`.
+    Never touches catalog or legacy products. dry_run lists what WOULD go.
+    Returns {deleted:[ids], skipped_recent:n, dry_run:bool}."""
+    shop_id = _shop_id()
+    now = time.time()
+    if buckets is None:
+        buckets = _scan_checkout_products()
+    deleted, skipped = [], 0
+    for rec in buckets.get("personalized", []):
+        created = _parse_printify_ts(rec.get("created_at"))
+        if created is None or (now - created) < _PERSONALIZED_TTL_SECONDS:
+            skipped += 1
+            continue
+        pid = rec.get("id")
+        if not pid:
+            continue
+        if dry_run:
+            deleted.append(pid)
+            continue
+        try:
+            dr = _printify_request(
+                "DELETE",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products/{pid}.json",
+                headers=_headers(),
+                timeout=30,
+            )
+            if dr.status_code < 400:
+                deleted.append(pid)
+        except Exception:
+            pass
+    if deleted and not dry_run:
+        _log(f"[pii-sweep] deleted {len(deleted)} personalized product(s) past TTL")
+    return {"deleted": deleted, "skipped_recent": skipped, "dry_run": dry_run}
+
+
+@router.post("/admin/audit_personalized")
+async def admin_audit_personalized(request: Request):
+    """Audit + clean personalized (PII) products (admin-key gated).
+
+    POST (not GET) so the admin key rides in a header, never a logged URL.
+    Defaults to a dry run: reports the three buckets and lists which
+    personalized products are past TTL, deleting NOTHING. Send
+    {"dry_run": false} to actually delete the past-TTL personalized set.
+    Legacy products are report-only and never auto-deleted — they predate the
+    `personalized` marker and cannot be confirmed as PII from metadata."""
+    import hmac as _hmac
+    provided = (request.headers.get("X-Admin-Key") or "").strip()
+    expected = (os.getenv("FEEDBACK_ADMIN_KEY") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Admin access disabled — set FEEDBACK_ADMIN_KEY to enable.")
+    if not provided or not _hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    raw = body.get("dry_run", True)
+    dry = not (raw is False or str(raw).strip().lower() in ("0", "false", "no"))
+    buckets = await run_in_threadpool(_scan_checkout_products)
+    report = {k: {"count": len(v), "sample": v[:20]} for k, v in buckets.items()}
+    sweep = await run_in_threadpool(_sweep_personalized_products, dry, buckets)
+    return JSONResponse(content={
+        "dry_run": dry,
+        "buckets": report,
+        "sweep": sweep,
+        "note": "legacy = published products created before this change; not "
+                "distinguishable as PII from metadata, so review manually and "
+                "never auto-deleted.",
+    })
 
 
 @router.post("/product")
@@ -1231,6 +1360,75 @@ async def store_config():
 # ────────────────────────────────────────────────
 # 8.  Checkout: upload + create product + publish
 # ────────────────────────────────────────────────
+def _shrink_b64_png_under(image_b64: str, max_chars: int) -> str:
+    """Downscale a base64 PNG until its encoded length is under max_chars.
+
+    Safety valve for the personalized (PII) upload path only: those files may
+    not be staged to a public URL, so if they exceed Printify's base64 POST
+    ceiling we shrink rather than leak. ponytail: this is a size guard, not a
+    quality knob — most text prints are already under budget and untouched."""
+    if len(image_b64) <= max_chars:
+        return image_b64
+    import base64 as _b64
+    import io as _io
+    from PIL import Image as _Image
+    img = _Image.open(_io.BytesIO(_b64.b64decode(image_b64)))
+    out = image_b64
+    for _ in range(6):
+        w, h = img.size
+        img = img.resize((max(1, int(w * 0.85)), max(1, int(h * 0.85))), _Image.LANCZOS)
+        buf = _io.BytesIO()
+        img.save(buf, "PNG", optimize=True)
+        out = _b64.b64encode(buf.getvalue()).decode("ascii")
+        if len(out) <= max_chars:
+            _log(f"[checkout] Personalized print shrunk to {img.size} ({len(out)} chars) to fit base64 upload")
+            return out
+    _log("[checkout] WARNING: personalized print still over base64 budget after shrink; upload may 413")
+    return out
+
+
+def _find_reusable_product(design_hash: str) -> Optional[dict]:
+    """Return {printify_product_id, variant_count} for an already-published
+    product carrying tag `design-<hash>`, or None. Uses the Shopify Admin
+    GraphQL index (Printify's product list has no tag filter). The Printify
+    product id is recovered from the companion `pfy-<id>` tag written at
+    create time. Returns None (never raises to the caller's happy path) when
+    Shopify Admin isn't configured."""
+    from api import shopify_storefront as _ss
+    if not _ss._admin_configured():
+        return None
+    data = _ss._admin_graphql(
+        """
+        query($q: String!) {
+          products(first: 1, query: $q) {
+            edges { node { id tags handle
+              variants(first: 100) { edges { node { id } } } } }
+          }
+        }
+        """,
+        {"q": f"tag:design-{design_hash}"},
+    )
+    try:
+        edges = ((data or {}).get("products") or {}).get("edges") or []
+    except Exception:
+        return None
+    if not edges:
+        return None
+    node = edges[0].get("node") or {}
+    # Only reuse a product that actually reached the storefront.
+    if not node.get("handle"):
+        return None
+    pfy_id = None
+    for t in node.get("tags") or []:
+        if isinstance(t, str) and t.startswith("pfy-"):
+            pfy_id = t[4:]
+            break
+    if not pfy_id:
+        return None
+    vcount = len(((node.get("variants") or {}).get("edges")) or []) or None
+    return {"printify_product_id": pfy_id, "variant_count": vcount}
+
+
 def _do_checkout_sync(
     image_base64: str,
     file_name: str,
@@ -1243,15 +1441,44 @@ def _do_checkout_sync(
     position: str,
     tags: list,
     image_url: str = "",
+    design_hash: str = "",
+    personalized: bool = False,
 ) -> dict:
     """Blocking checkout logic — runs in a thread via run_in_threadpool.
 
     variant_ids is a list of all Printify variant IDs to enable on the product,
     so customers can choose their preferred size/color on the Shopify storefront.
+
+    design_hash is a PII-free fingerprint of the design; when present (and the
+    order is not personalized) an identical published product is reused instead
+    of creating a duplicate. personalized=True means the print file carries
+    customer text baked into the pixels — such orders are never staged to a
+    public URL and never dedupe/seed the catalog.
     """
     shop_id = _shop_id()
     if not variant_ids:
         raise Exception("No variant IDs provided")
+
+    # ── Reuse: an identical PII-free design already published? Hand back its
+    # product id and skip upload+create+publish entirely. Fail-open — any
+    # lookup problem falls through to the normal create path below. ──
+    if design_hash and not personalized:
+        try:
+            reused = _find_reusable_product(design_hash)
+        except Exception as e:
+            _log(f"[checkout] reuse lookup failed (creating fresh): {e}")
+            reused = None
+        if reused and reused.get("printify_product_id"):
+            _log(f"[checkout] Reusing existing product for design-{design_hash}: "
+                 f"{reused['printify_product_id']}")
+            return {
+                "printify_product_id": reused["printify_product_id"],
+                "printify_image_id": None,
+                "variant_count": reused.get("variant_count") or len(variant_ids),
+                "published": True,
+                "status": "published",
+                "reused": True,
+            }
 
     # Price integrity + per-variant pricing. The client sends one anchor
     # `price`; we recompute every variant's retail SERVER-SIDE from the trusted
@@ -1290,6 +1517,14 @@ def _do_checkout_sync(
         _abs = image_url if image_url.startswith("http") else f"{_public_base_url()}{image_url}"
         _log(f"[checkout] Server-composed print file, uploading by URL: {_abs}")
         upload_json = {"file_name": file_name, "url": _abs}
+    elif personalized:
+        # PII path: the print file has customer text baked in. Staging it under
+        # /asset would expose that text at a world-reachable URL for the upload
+        # window, so ALWAYS upload as base64 `contents` instead. If it exceeds
+        # Printify's ~35 MB POST ceiling, downscale to fit rather than leak.
+        image_base64 = _shrink_b64_png_under(image_base64, _URL_UPLOAD_THRESHOLD)
+        _log(f"[checkout] Personalized order — base64 upload ({len(image_base64)} chars), no /asset staging")
+        upload_json = {"file_name": file_name, "contents": image_base64}
     elif len(image_base64) > _URL_UPLOAD_THRESHOLD:
         import base64 as _b64
         import uuid as _uuid
@@ -1394,6 +1629,21 @@ def _do_checkout_sync(
         raise Exception("No product ID in creation response")
     _log(f"[checkout] Product created: {product_id}")
 
+    # Stamp the Printify id onto the product as a `pfy-<id>` tag so a later
+    # reuse lookup (which sees only the published Shopify product) can recover
+    # it. Catalog products only — personalized snowflakes are never reused.
+    if design_hash and not personalized:
+        try:
+            _printify_request(
+                "PUT",
+                f"{PRINTIFY_BASE}/shops/{shop_id}/products/{product_id}.json",
+                headers=_headers(),
+                json={"tags": list(tags) + [f"pfy-{product_id}"]},
+                timeout=60,
+            )
+        except Exception as e:
+            _log(f"[checkout] pfy-tag update failed (reuse may miss this design): {e}")
+
     # ── Step 3: Publish to Shopify ──
     _log(f"[checkout] Step 3: publishing product {product_id}")
     publish_resp = _printify_request(
@@ -1466,6 +1716,11 @@ async def checkout(request: Request):
         price = body.get("price", 0)
         position = body.get("position", "front")
         tags = body.get("tags", [])
+        design_hash = str(body.get("design_hash") or "").strip()
+        # Personalized (free-text) orders carry PII in the pixels: never stage
+        # them to a public URL, never dedupe them, never let them seed the
+        # catalog. Trust the explicit flag; fall back to the tag marker.
+        personalized = bool(body.get("personalized")) or ("personalized" in (tags or []))
 
         if not image_base64 and not image_url:
             raise HTTPException(status_code=400, detail="Missing image_base64 or image_url")
@@ -1482,6 +1737,7 @@ async def checkout(request: Request):
             image_base64, file_name, title, description,
             blueprint_id, print_provider_id, variant_ids,
             price, position, tags, image_url,
+            design_hash, personalized,
         )
         return JSONResponse(content=result)
 

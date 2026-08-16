@@ -105,10 +105,25 @@ def compose(src_path: str, params: dict, out_path: str) -> str:
     cw, ch, ref_cw, ref_ch = _canvas_size(src_w, src_h, rotation, aspect)
 
     zoom = float(params.get("cropZoom") or 100) / 100.0
+    # panX/panY are expressed in the EDITOR's reference resolution (the preview
+    # image, typically ~512 px), but this print composes against the full-res HQ
+    # source (~4096 px). Scale the pan into THIS source's pixel space by the
+    # (source / editor-reference) ratio, or a centered preview pan lands the
+    # solar disk in a corner of the print (every product; editor looked fine).
+    # panRefW/panRefH carry the editor reference dims; absent (older client) we
+    # fall back to the pre-fix behaviour.
+    pan_ref_w = params.get("panRefW")
+    pan_ref_h = params.get("panRefH")
     pan_x = params.get("panX")
     pan_y = params.get("panY")
-    pan_x = (ref_cw / 2.0) if pan_x is None else float(pan_x)
-    pan_y = (ref_ch / 2.0) if pan_y is None else float(pan_y)
+    if pan_x is None:
+        pan_x = ref_cw / 2.0
+    else:
+        pan_x = float(pan_x) * (src_w / float(pan_ref_w)) if pan_ref_w else float(pan_x)
+    if pan_y is None:
+        pan_y = ref_ch / 2.0
+    else:
+        pan_y = float(pan_y) * (src_h / float(pan_ref_h)) if pan_ref_h else float(pan_y)
     flip_h = bool(params.get("flipH"))
     flip_v = bool(params.get("flipV"))
 

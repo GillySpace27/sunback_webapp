@@ -27,7 +27,7 @@
    - renderProducts      — re-paint after workflow reset
    =============================================================== */
 
-import { state, defaultMockupManifest } from "./state.js";
+import { state, defaultMockupEntry } from "./state.js";
 import { PRODUCTS } from "./products.js";
 import { recordStatEvent } from "./stats.js";
 // captureContext lives in feedback.js (module-private to the
@@ -283,13 +283,11 @@ export function initBundler(deps) {
       // image and hasn't run a personalized real-mockup generation, use
       // the pre-rendered photorealistic mockup we cached on disk. Same
       // photo the showcase tile is already displaying — counts as "real".
-      if (!mockupImages.length
-          && state.isDefaultActive
-          && defaultMockupManifest
-          && pid
-          && defaultMockupManifest[pid]
-          && defaultMockupManifest[pid].url) {
-        mockupImages = [{ src: defaultMockupManifest[pid].url, position: "default" }];
+      if (!mockupImages.length && state.isDefaultActive && pid) {
+        var _defEntry = defaultMockupEntry(state.wavelength, state.editorFilter, pid);
+        if (_defEntry && _defEntry.url) {
+          mockupImages = [{ src: _defEntry.url, position: "default" }];
+        }
       }
 
       var startedMessage = mockupImages.length

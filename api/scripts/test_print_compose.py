@@ -143,4 +143,56 @@ assert _px(compose(str(op), {}, _out("noflip.png")), 5, 32)[2] > 200, "unflipped
 assert _px(compose(str(op), {"flipH": True}, _out("flip.png")), 58, 32)[2] > 200, \
     "flipH must move blue to the right"
 
+# ── pan is measured in the EDITOR reference resolution, not the source's ──
+# Regression for the corner-offset print bug (2026-08-13): panX/panY arrive in
+# the ~512px preview space, but compose runs on the ~4096px HQ source. Unscaled,
+# a *centred* preview pan (= refW/2) flung the solar disk into a corner of every
+# product's print (editor looked fine; cart/checkout did not). panRefW/panRefH
+# let compose scale the pan into source space: a centred pan must stay centred,
+# a real nudge must still shift — proportionally.
+def _disk_src(size, r_frac=0.31):
+    yy, xx = np.mgrid[0:size, 0:size]
+    d = np.hypot(xx - size / 2.0, yy - size / 2.0)
+    a = np.zeros((size, size, 4), np.uint8)
+    a[..., 3] = 255
+    m = d <= r_frac * size
+    a[..., 0][m], a[..., 1][m], a[..., 2][m] = 220, 90, 30
+    p = tmp / f"disk_{size}.png"
+    Image.fromarray(a, "RGBA").save(p)
+    return str(p)
+
+
+def _bright_centroid(path):
+    a = np.asarray(Image.open(path).convert("RGB")).astype(float)
+    ys, xs = np.nonzero(a.sum(2) > 120)
+    return (xs.mean(), ys.mean()) if len(xs) else (None, None)
+
+
+SRC, PREV = 512, 64  # 8x mismatch, mirroring a ~4096 HQ source vs ~512 preview
+_dsrc = _disk_src(SRC)
+_sq = {"aspectRatio": {"w": 1, "h": 1}}
+
+# centred pan in preview space, WITH the reference dims -> stays centred
+cx, cy = _bright_centroid(compose(
+    _dsrc, dict(_sq, panX=PREV / 2, panY=PREV / 2, panRefW=PREV, panRefH=PREV),
+    _out("panref_centre.png")))
+assert cx is not None and abs(cx - SRC / 2) <= 3 and abs(cy - SRC / 2) <= 3, \
+    f"centred preview pan + panRef must stay centred, got ({cx},{cy})"
+
+# WITHOUT the reference dims (legacy client) the same numbers mis-frame — this
+# asserts the scaling is what saves it, so a regression can't silently pass.
+bx, by = _bright_centroid(compose(
+    _dsrc, dict(_sq, panX=PREV / 2, panY=PREV / 2), _out("panref_legacy.png")))
+assert bx is None or abs(bx - SRC / 2) > SRC / 8, \
+    f"legacy pan (no panRef) is expected to mis-centre, got ({bx},{by})"
+
+# a real editor nudge still pans, scaled into source space by SRC/PREV
+nx, _ny = _bright_centroid(compose(
+    _dsrc, dict(_sq, panX=PREV / 2 - 8, panY=PREV / 2, panRefW=PREV, panRefH=PREV),
+    _out("panref_nudge.png")))
+assert nx is not None and abs((nx - SRC / 2) - 8 * SRC / PREV) <= 4, \
+    f"nudge must scale to source space (~{8 * SRC / PREV}px), got dx={nx - SRC / 2}"
+
+print("print_compose: all checks passed")
+
 print("print-compose formula self-check OK")

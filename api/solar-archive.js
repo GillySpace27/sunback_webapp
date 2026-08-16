@@ -10,7 +10,7 @@
    app while we move pieces out one commit at a time.
    =============================================================== */
 
-import { state, defaultMockupManifest, setDefaultMockupManifest } from "./state.js";
+import { state, defaultMockupManifest, setDefaultMockupManifest, defaultMockupEntry } from "./state.js";
 import { PRODUCTS, FEATURED_PRODUCT_IDS, PRODUCT_CATEGORY_ORDER } from "./products.js";
 import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
 import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mockups.js";
@@ -11115,7 +11115,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // is a PRODUCT chooser; a real photo of the product (each showing a
         // different archive Sun) beats a rough canvas of the right Sun. Their
         // own Sun appears in the size modal and the editor.
-        var defEntry = (defaultMockupManifest && defaultMockupManifest[p.id]) || null;
+        // Sliced by the CURRENT wavelength + raw/RHEF version (nested
+        // {wl:{filter:{pid}}} manifest, 2026-08-15) so the card matches what
+        // the visitor chose; falls back to the legacy flat manifest, then to
+        // the canvas approximation below when the cell isn't warmed yet.
+        var defEntry = defaultMockupEntry(state.wavelength, state.editorFilter, p.id);
         var hasDefaultMockup = !!(defEntry && defEntry.url);
         var hasMockup = hasGeneratedMockup || hasDefaultMockup;
         var statusDot = hasMockup
@@ -11546,8 +11550,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // vibe slug, wavelength, slider values, crop/vignette/timestamp)
     // and let the rest of the pipeline rehydrate naturally when the
     // user clicks back into the same vibe.
+    // Bare-landing rule (Gilly, 2026-08-15): a fresh visit to "/" with no
+    // query and no step hash is the self-sufficient flat landing — it must
+    // NOT silently resume a prior session (that was the ?p=&vibe=&#editor a
+    // bare visit kept acquiring via restore + _syncUrlParams). A mid-edit
+    // refresh still resumes: _syncUrlParams keeps ?p/?vibe/#editor in the
+    // URL, so those visits aren't "bare".
+    var _bareLanding = !window.location.search &&
+                       (!window.location.hash || window.location.hash === "#");
     try {
-      var _snap = _restoreEditorState();
+      var _snap = _bareLanding ? null : _restoreEditorState();
       if (_snap) {
         // Stash the snapshot for downstream code paths that need it
         // (commitProductChoice, _activateVibe re-pickup, etc.). The
@@ -11900,9 +11912,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // their image. _saveDesignLocally synthesizes a mockup entry from
       // the manifest URL so the download bundle still gets the photo.
       if (state.isDefaultActive
-          && defaultMockupManifest
-          && defaultMockupManifest[pid]
-          && defaultMockupManifest[pid].url) {
+          && defaultMockupEntry(state.wavelength, state.editorFilter, pid)) {
         return true;
       }
       return false;
