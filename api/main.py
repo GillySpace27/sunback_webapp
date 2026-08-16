@@ -1179,11 +1179,12 @@ async def helioviewer_thumb(
     size: int = Query(256, description="Width and height in pixels"),
 ):
     """Proxy Helioviewer screenshot API so the frontend can load tiles/canvas without CORS."""
-    # NEEDS-FIX (workflow wx5fi2brl, helioviewer-proxy-unrate-limited):
-    # gate the proxy with a per-IP rate limit so a bad actor can't
-    # DoS the Helioviewer upstream through us, and add the same Origin
-    # allowlist we apply to the printify routes.
-    enforce_origin(request)
+    # allow_missing: same-origin <img>/TextureLoader GETs send no Origin and
+    # often no Referer, and strict mode 403'd them (editor preview, handoff
+    # confirm image, web3d hero Sun — 2026-08-15). Cross-site hotlinkers still
+    # send Referer and still get blocked; abuse control is the per-IP rate
+    # limit below + the upstream _HELIOVIEWER_LIMITER + the 30-day edge cache.
+    enforce_origin(request, allow_missing=True)
     enforce_rate_limit(request, "helioviewer_thumb", 60, 60.0)  # 60/min per IP
     # `date` here is an ISO timestamp like 2026-02-10T12:00:00Z; pluck
     # the time portion if present so the future-time check covers

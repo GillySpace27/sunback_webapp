@@ -74,7 +74,7 @@ def _origin_of(value: str) -> Optional[str]:
     return f"{p.scheme.lower()}://{p.netloc.lower()}"
 
 
-def enforce_origin(request: Request) -> None:
+def enforce_origin(request: Request, allow_missing: bool = False) -> None:
     """Reject the request if Origin (or Referer fallback) is not in the
     allowlist. Raises HTTPException(403) on rejection.
 
@@ -82,6 +82,14 @@ def enforce_origin(request: Request) -> None:
     callers won't have Origin/Referer; for those, set the
     `X-Internal-Auth` header (matching `INTERNAL_AUTH_TOKEN` env) to
     bypass — used by the Slack approve/reject callbacks.
+
+    allow_missing: pass True on GET endpoints fetched via <img>/TextureLoader.
+    A same-origin image GET carries NO Origin header (even with
+    crossOrigin="anonymous"), so the gate rests entirely on Referer — and
+    privacy browsers, corporate filters, warm scripts, and THREE.js texture
+    loads all omit it. Strict mode 403'd the editor preview, the handoff
+    confirm image, and the 3D hero Sun for that whole population (2026-08-15).
+    Cross-site embeds still get blocked: hotlinking browsers do send Referer.
     """
     internal_token = os.getenv("INTERNAL_AUTH_TOKEN", "").strip()
     if internal_token and request.headers.get("x-internal-auth", "").strip() == internal_token:
@@ -91,6 +99,8 @@ def enforce_origin(request: Request) -> None:
     origin = _origin_of(request.headers.get("origin", ""))
     referer_origin = _origin_of(request.headers.get("referer", ""))
 
+    if allow_missing and not origin and not referer_origin:
+        return
     if origin and origin in allowed:
         return
     if referer_origin and referer_origin in allowed:
