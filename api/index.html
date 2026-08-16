@@ -159,9 +159,9 @@
 
       <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
         <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw">
-          <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun, unprocessed telescope frame" />
+          <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-colour rendering" />
           <span class="handoff-choice-name">Original</span>
-          <span class="handoff-choice-sub">As the telescope saw it</span>
+          <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false colour.</span>
         </button>
         <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
           <span class="handoff-choice-imgwrap">
@@ -169,9 +169,10 @@
             <span class="handoff-choice-pending" id="rhefPending">Developing…</span>
           </span>
           <span class="handoff-choice-name">Enhanced</span>
-          <span class="handoff-choice-sub">Reveals the faint outer corona</span>
+          <span class="handoff-choice-sub">The same observation, contrast-enhanced (RHEF) to reveal faint structure in the corona.</span>
         </button>
       </div>
+      <p id="confirmProvenance" class="handoff-provenance"></p>
 
       <div class="handoff-actions">
         <button type="button" id="confirmEdit" class="handoff-edit">Change date or colour</button>
@@ -453,7 +454,7 @@
           <button type="button" id="vibeBirthdaySubmit" class="vibe-birthday-submit">
             <i class="fas fa-sun" aria-hidden="true"></i> See the Sun
           </button>
-          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Any date from May 15, 2010 through yesterday. Leave the time blank and we'll pick the day's best moment.</div>
+          <div class="vibe-birthday-hint" id="vibeBirthdayHint">Any date from May 15, 2010 through the last few days (recent observations can take up to a week to arrive). Leave the time blank and we'll pick the day's best moment.</div>
         </div>
       </div>
 

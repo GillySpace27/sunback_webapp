@@ -3689,6 +3689,18 @@ body.step-editor .vibe-reveal-btn {
    sweep, 2026-07-28). Also click-to-dismiss — see showToast(). */
 body.step-editor .toast { bottom: 104px; }
 @media (max-width: 749px) { body.step-editor .toast { bottom: 120px; } }
+/* The confirm overlay's two look cards and its CTA sit centered
+   mid-viewport; a bottom-anchored toast (e.g. a "generating..." message
+   while a preview warms) could land on top of the Enhanced card (audit
+   finding). body.handoff-confirm is already toggled by JS whenever the
+   overlay opens/closes, so reuse it: while the overlay is open, park the
+   toast at the top instead, clear of both cards and the CTA. */
+body.handoff-confirm .toast {
+  top: 20px;
+  bottom: auto;
+  transform: translateX(-50%) translateY(-80px);
+}
+body.handoff-confirm .toast.show { transform: translateX(-50%) translateY(0); }
 .toast { cursor: pointer; }
 .toast.success { border-color: #3ddc84; }
 .toast.error { border-color: var(--accent-flare); }
@@ -6760,6 +6772,16 @@ body.handoff-confirm #workflowBreadcrumb {
   justify-content: center;
   padding: 6vh 6vw;
   background: radial-gradient(ellipse at 50% 38%, #141210 0%, #0a0908 70%, #050505 100%);
+  /* This gradient is always near-black in both themes, but --text-primary
+     and --text-secondary flip to dark-navy/grey under html:not(.dark) (see
+     the light-theme block near the top of this file); that made every
+     label here read as near-invisible dark-on-dark for light-mode visitors
+     (contrast audit). Pin explicit light colors instead of inheriting the
+     theme tokens: #e8e2d0 measures 14.4-15.7:1 and #a8a094 measures
+     7.2-7.9:1 against this gradient's #141210-#050505 range, both well
+     past the 4.5:1 AA floor. */
+  --handoff-text: #e8e2d0;
+  --handoff-text-dim: #a8a094;
 }
 .handoff-overlay[hidden] {
   display: none;
@@ -6784,7 +6806,7 @@ body.handoff-confirm #workflowBreadcrumb {
   text-transform: uppercase;
   letter-spacing: 0.34em;
   font-size: 0.66rem;
-  color: var(--text-secondary);
+  color: var(--handoff-text-dim);
 }
 .handoff-thumb {
   width: min(58vw, 20rem);
@@ -6798,7 +6820,7 @@ body.handoff-confirm #workflowBreadcrumb {
   margin: 0;
   font-family: var(--serif);
   font-size: clamp(1.15rem, 3.4vw, 1.6rem);
-  color: var(--text-primary);
+  color: var(--handoff-text);
 }
 .handoff-actions {
   display: flex;
@@ -6829,7 +6851,7 @@ body.handoff-confirm #workflowBreadcrumb {
   font-family: var(--sans);
   font-size: 0.74rem;
   letter-spacing: 0.06em;
-  color: var(--text-secondary);
+  color: var(--handoff-text-dim);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -7578,7 +7600,7 @@ body:has(#imageStage.loading) .field-cell {
   margin: 4px 0 14px;
   font-family: var(--serif);
   font-size: 1.15rem;
-  color: var(--text-primary);
+  color: var(--handoff-text);
 }
 .handoff-choices {
   display: grid;
@@ -7594,7 +7616,7 @@ body:has(#imageStage.loading) .field-cell {
   border-radius: var(--radius-md);
   border: 2px solid var(--border);
   background: rgba(0, 0, 0, 0.22);
-  color: var(--text-primary);
+  color: var(--handoff-text);
   font: inherit;
   cursor: pointer;
   transition: border-color var(--transition), background var(--transition),
@@ -7622,7 +7644,7 @@ body:has(#imageStage.loading) .field-cell {
 }
 .handoff-choice-sub {
   font-size: 0.76rem;
-  color: var(--text-secondary);
+  color: var(--handoff-text-dim);
   text-align: center;
   line-height: 1.35;
 }
@@ -7637,7 +7659,7 @@ body:has(#imageStage.loading) .field-cell {
   align-items: center;
   justify-content: center;
   font-size: 0.78rem;
-  color: var(--text-secondary);
+  color: var(--handoff-text-dim);
   letter-spacing: 0.04em;
   animation: pulse 1.8s ease-in-out infinite;
   pointer-events: none;
@@ -7645,4 +7667,15 @@ body:has(#imageStage.loading) .field-cell {
 @media (max-width: 560px) {
   .handoff-choices { grid-template-columns: 1fr; }
   .handoff-choice-img { aspect-ratio: 16 / 10; }
+}
+/* Provenance line (contrast + honesty pass): names the mission, instrument
+   and wavelength, and states the false-colour convention, right where the
+   two preview images are compared, so neither card reads as a literal
+   photograph. --handoff-text-dim measures 7.2-7.9:1 on this overlay, so a
+   small font still clears the 4.5:1 AA floor. */
+.handoff-provenance {
+  margin: 10px 0 0;
+  font-size: 0.68rem;
+  color: var(--handoff-text-dim);
+  text-align: center;
 }

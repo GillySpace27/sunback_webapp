@@ -1326,6 +1326,17 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             bday.max = f.latest;
             if (f.earliest) bday.min = f.earliest;
           }
+          // Replace the static "through yesterday" guess with the real
+          // frontier once it's known, so the copy never promises a date
+          // newer than the archive can actually serve (JSOC's ingest lag
+          // drifts; see the comment above initDate()).
+          var hint = document.getElementById("vibeBirthdayHint");
+          if (hint) {
+            var latestHuman = new Date(f.latest + "T12:00:00").toLocaleDateString(
+              undefined, { month: "long", day: "numeric" });
+            hint.textContent = "Any date from May 15, 2010 through " + latestHuman +
+              ". Leave the time blank and we'll pick the day's best moment.";
+          }
         } catch (_e) {}
       };
       if (_dataFrontier) { apply(_dataFrontier); return; }
@@ -5566,6 +5577,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var dateHuman = _fmtHandoffDate(dateStr);
         var cMeta = document.getElementById("confirmMeta");
         if (cMeta) cMeta.textContent = dateHuman + "  ·  AIA " + nm;
+
+        // Provenance line: names mission, instrument and wavelength, and
+        // flags the false-colour convention, right by the two preview
+        // images (contrast/honesty audit). 1600/1700 are AIA's UV
+        // continuum channels, not EUV, so they get their own label.
+        var cProv = document.getElementById("confirmProvenance");
+        if (cProv) {
+          var band = (wlNum === 1600 || wlNum === 1700) ? "ultraviolet" : "extreme-ultraviolet";
+          cProv.textContent = "NASA SDO / AIA " + wlNum + " Å · " + band + " shown in false colour";
+        }
 
         // Original is instant: it is the Helioviewer JPG, already cached at the
         // edge. Enhanced needs a real FITS fetch plus RHEF, so its panel starts
