@@ -206,7 +206,9 @@ body {
     justify-self: end;
     align-self: start;
     text-align: right;
-    max-width: 11ch;
+    /* 11ch wrapped this sentence one word per line (live screenshot,
+       2026-08-15); 16ch gives it three natural lines. */
+    max-width: 16ch;
     margin: 6vh 6vw 0 0;
   }
 }

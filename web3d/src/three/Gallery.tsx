@@ -435,7 +435,7 @@ export default function Gallery() {
               <meshStandardMaterial color="#c25a2a" roughness={0.95} />
             )}
           </mesh>
-          <Plaque x={8.7} y={-5.8} z={22.93} text="Home & Cozy" />
+          <Plaque x={8.7} y={-5.8} z={23.86} text="Home & Cozy" />
 
         </Selectable>
       </group>
@@ -444,7 +444,7 @@ export default function Gallery() {
       <group {...hit("mug")}>
         <Selectable active={hovered === "mug"} ring={{ pos: [10.3, -5.48, 23.4], r: 0.58 }}>
           <Plinth x={10.3} z={23.4} />
-          <Plaque x={10.3} y={-5.8} z={22.93} text="Drinkware" />
+          <Plaque x={10.3} y={-5.8} z={23.86} text="Drinkware" />
           <group position={[10.3, -4.95, 23.4]} rotation={[0, -0.5, 0]}>
             <mesh>
               <cylinderGeometry args={[0.46, 0.42, 1.0, 28, 1, false]} />
@@ -467,7 +467,7 @@ export default function Gallery() {
       <group {...hit("tee")}>
         <Selectable active={hovered === "tee"} ring={{ pos: [11.9, -5.48, 23.4], r: 0.60 }}>
           <Plinth x={11.9} z={23.4} />
-          <Plaque x={11.9} y={-5.8} z={22.93} text="Apparel" />
+          <Plaque x={11.9} y={-5.8} z={23.86} text="Apparel" />
           <group position={[11.9, -4.75, 23.5]} scale={0.92}>
             <mesh geometry={TEE_GEO}>
               <meshStandardMaterial color="#b7ada0" roughness={0.95} />
@@ -489,7 +489,7 @@ export default function Gallery() {
       <group {...hit("ornament")}>
         <Selectable active={hovered === "ornament"} ring={{ pos: [13.5, -5.48, 23.4], r: 0.58 }}>
           <Plinth x={13.5} z={23.4} />
-          <Plaque x={13.5} y={-5.8} z={22.93} text="Gifts & Stationery" />
+          <Plaque x={13.5} y={-5.8} z={23.86} text="Gifts & Stationery" />
           <mesh position={[13.5, -4.95, 23.4]}>
             <sphereGeometry args={[0.5, 32, 32]} />
             {tex ? (
@@ -514,7 +514,7 @@ export default function Gallery() {
       <group {...hit("phone")}>
         <Selectable active={hovered === "phone"} ring={{ pos: [15.1, -5.48, 23.4], r: 0.58 }}>
           <Plinth x={15.1} z={23.4} />
-          <Plaque x={15.1} y={-5.8} z={22.93} text="Desk & Tech" />
+          <Plaque x={15.1} y={-5.8} z={23.86} text="Desk & Tech" />
           <group position={[15.1, -4.75, 23.4]} rotation={[-0.1, -0.12, 0]}>
             <mesh>
               <boxGeometry args={[0.62, 1.28, 0.08]} />
