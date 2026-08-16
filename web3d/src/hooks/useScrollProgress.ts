@@ -19,15 +19,20 @@ export function useScrollProgress() {
       touchMultiplier: 1.2,
     });
 
-    const onScroll = () => {
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      setProgress(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0);
+    // Lenis maintains its own scroll/limit pair, updated by its internal
+    // ResizeObserver in the SAME tick. Deriving progress from
+    // scrollY / (scrollHeight - innerHeight) instead made progress JUMP
+    // discontinuously on mobile whenever the URL bar collapsed mid-scroll
+    // (innerHeight changes under the reader), skipping transition ranges
+    // outright — one cause of "fast scroll leaves the scene half-composed".
+    const onScroll = (e: Lenis) => {
+      const limit = e.limit;
+      setProgress(limit > 0 ? Math.min(1, Math.max(0, e.scroll / limit)) : 0);
     };
 
     // let the timeline arrows jump to a target progress (0..1) via Lenis
     setScrollToProgress((p: number) => {
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      lenis.scrollTo(Math.min(1, Math.max(0, p)) * max, { duration: reduced ? 0 : 1.2 });
+      lenis.scrollTo(Math.min(1, Math.max(0, p)) * lenis.limit, { duration: reduced ? 0 : 1.2 });
     });
 
     let raf = 0;
@@ -37,7 +42,7 @@ export function useScrollProgress() {
     };
     raf = requestAnimationFrame(loop);
     lenis.on("scroll", onScroll);
-    onScroll();
+    onScroll(lenis);
 
     return () => {
       cancelAnimationFrame(raf);

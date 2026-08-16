@@ -41,10 +41,22 @@ function SDO() {
   const outer = useRef<THREE.Group>(null!);
   const inner = useRef<THREE.Group>(null!);
   const [hover, setHover] = useState(false);
+  // materials collected once per model, so the per-frame opacity write doesn't
+  // re-traverse the whole glTF scene graph every frame
+  const mats = useRef<THREE.Material[]>([]);
+  const lastFade = useRef(-1); // sentinel != 0 so the first frame always runs
 
   useEffect(() => {
     inner.current?.lookAt(AIM_AT); // aim the AIA cylinders (+Z face) at the Sun, once
   }, []);
+  useEffect(() => {
+    const found: THREE.Material[] = [];
+    model.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (m) found.push(m);
+    });
+    mats.current = found;
+  }, [model]);
   useEffect(() => () => model.traverse((o) => (o as THREE.Mesh).geometry?.dispose?.()), [model]);
 
   useFrame(() => {
@@ -56,11 +68,21 @@ function SDO() {
       1
     );
     if (!outer.current) return;
-    outer.current.visible = fade > 0.01;
-    model.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.Material | undefined;
-      if (m) m.opacity = fade;
-    });
+    const visible = fade > 0.01;
+    outer.current.visible = visible;
+    // onPointerOut never fires once the group flips invisible (R3F still
+    // raycasts it), so a lingering hover would float the tooltip and keep the
+    // pointer cursor over every later scene; clear it here (same guard as
+    // Heliograph's wheel)
+    if (!visible && hover) {
+      setHover(false);
+      document.body.style.cursor = "auto";
+    }
+    // SDO is only on screen for ~18% of the scroll; skip the material walk
+    // once fade has already settled at zero, so the other ~78% costs nothing
+    if (fade === 0 && lastFade.current === 0) return;
+    for (const m of mats.current) m.opacity = fade;
+    lastFade.current = fade;
   });
 
   const enter = (e: ThreeEvent<PointerEvent>) => {

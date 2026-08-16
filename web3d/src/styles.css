@@ -40,7 +40,9 @@ body {
   inset: 0;
   display: grid;
   place-items: center;
-  z-index: 2;
+  /* above AtmosphereFlash (z-index 3) — the darkroom line peaks at 0.69,
+     inside the cabin flash's 0.665-0.75 window, and was washing out under it */
+  z-index: 4;
   pointer-events: none;
   padding: 6vh 8vw;
 }
@@ -50,7 +52,6 @@ body {
   margin: 0;
   text-align: center;
   max-width: 20ch;
-  will-change: opacity, transform;
 }
 /* scrim so copy holds 4.5:1 even over the BRIGHTEST plasma frame: a strong,
    tight core that fades out, not a weak wash. */
@@ -232,6 +233,12 @@ body {
 .cta:hover {
   background: var(--ink);
   color: #0a0a0f;
+}
+/* the decorative "gift" CTA in the overlay: Overlay.tsx toggles this class
+   once its figure has faded in enough to be legible (was an inline
+   pointerEvents style previously computed on every scroll tick) */
+.overlay-cta-off .cta {
+  pointer-events: none;
 }
 /* dual-tone focus ring: a dark halo under the light outline guarantees >=3:1
    on any backdrop (bright plasma or dark void) */
@@ -557,8 +564,10 @@ body {
   place-items: center;
   border-radius: 50%;
   border: 1px solid rgba(244, 239, 230, 0.34);
-  background: rgba(8, 9, 14, 0.62);
-  backdrop-filter: blur(6px);
+  /* solid fill, not backdrop-filter — one of six permanent blur layers
+     sitting over the 60fps canvas; more opaque to read the same over dark
+     scenes without the compositing cost */
+  background: rgba(8, 9, 14, 0.8);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
   color: var(--ink);
   cursor: pointer;
@@ -567,7 +576,7 @@ body {
 }
 .arrow:hover {
   opacity: 1;
-  background: rgba(8, 9, 14, 0.8);
+  background: rgba(8, 9, 14, 0.9);
   transform: scale(1.06);
 }
 .arrow:focus-visible {
@@ -681,8 +690,8 @@ body {
   align-items: center;
   border: 1px solid rgba(244, 239, 230, 0.28);
   border-radius: 999px;
-  background: rgba(8, 9, 14, 0.42);
-  backdrop-filter: blur(6px);
+  /* solid fill, not backdrop-filter — see .arrow above */
+  background: rgba(8, 9, 14, 0.64);
   transition: background 0.4s, border-color 0.4s, color 0.4s;
 }
 .skip-store:hover {
@@ -709,7 +718,6 @@ body {
   align-items: center;
   gap: 0.7rem;
   text-align: center;
-  transition: opacity 0.4s ease;
 }
 .hero-date-field {
   display: flex;
@@ -972,8 +980,8 @@ body {
   min-height: 36px;
   border-radius: 999px;
   border: 1px solid rgba(244, 239, 230, 0.22);
-  background: rgba(5, 6, 10, 0.42);
-  backdrop-filter: blur(4px);
+  /* solid fill, not backdrop-filter — see .arrow above */
+  background: rgba(5, 6, 10, 0.64);
   color: var(--muted);
   font-family: var(--sans);
   font-size: 0.7rem;

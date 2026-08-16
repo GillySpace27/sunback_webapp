@@ -18,13 +18,20 @@ export default function WavelengthPicker() {
   // archive bounds, shared with the hero field and the store (see setFrontier)
   const minDate = useStore((s) => s.minDate);
   const maxDate = useStore((s) => s.maxDate);
+  // Reveal the plate once the opening beat's own controls have cleared —
+  // HeroDate fades to opacity 0 at progress 0.1 (see HeroDate.tsx) — so the
+  // two date fields are never both on screen. A derived boolean selector, not
+  // the raw progress value, so this only re-renders on the rare threshold
+  // crossing rather than every 60Hz scroll tick (keyboard users can still
+  // reveal it early via #buy:focus-within — see styles.css).
+  const revealed = useStore((s) => s.progress >= 0.1);
 
   // collapsed by default; opens on click or keyboard focus into the bar.
   const [open, setOpen] = useState(false);
 
   return (
     <fieldset
-      className={"picker picker--in" + (open ? "" : " picker--collapsed")}
+      className={"picker" + (revealed ? " picker--in" : "") + (open ? "" : " picker--collapsed")}
       aria-label="Choose your date and wavelength, then make your print"
       onFocusCapture={() => setOpen(true)}
     >

@@ -78,7 +78,7 @@ export default function Heliograph() {
     });
   }, []);
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     const { channel: ch, progress } = useStore.getState();
     // the camera only frames the wheel centered near the aperture dwell (~0.22–
     // 0.26); show it there and clear it before the camera flies to the crossing,
@@ -88,16 +88,35 @@ export default function Heliograph() {
       0,
       1
     );
+    // dt-corrected eases (were fixed 0.15/0.2-per-frame, so a fast scroll flick
+    // left the wedges mid-fade/mid-slide well past the aperture beat)
+    const aOp = 1 - Math.exp(-dt / 0.1);
+    const aZ = 1 - Math.exp(-dt / 0.08);
     for (let i = 0; i < meshes.current.length; i++) {
       const m = meshes.current[i];
       if (!m) continue;
       const mat = m.material as THREE.MeshBasicMaterial;
+      // texture arrives async per wavelength; assign it imperatively instead of
+      // swapping the material by key (which reset opacity to the JSX default
+      // and caused nine independent flickers as each texture landed)
+      if (texes[i] && mat.map !== texes[i]) {
+        mat.map = texes[i];
+        mat.color.set("#ffffff");
+        mat.needsUpdate = true;
+      }
+      // outside the aperture window: SNAP to rest instead of easing toward it,
+      // so a fast scroll past-and-back never re-enters mid-fade
+      if (fade === 0) {
+        mat.opacity = 0;
+        m.position.z = 0;
+        continue;
+      }
       const selected = i === ch;
       const hot = i === hovered.current;
       const target = fade * (selected ? 1 : hot ? 0.98 : 0.9);
-      mat.opacity += (target - mat.opacity) * 0.15;
+      mat.opacity += (target - mat.opacity) * aOp;
       const z = (selected ? 0.14 : hot ? 0.08 : 0) * fade;
-      m.position.z += (z - m.position.z) * 0.2;
+      m.position.z += (z - m.position.z) * aZ;
     }
     group.current.visible = fade > 0.01;
     // the invisible wheel is still raycast by R3F, so clear any hover that
@@ -146,9 +165,7 @@ export default function Heliograph() {
             onPointerOut={leave}
           >
             <meshBasicMaterial
-              key={texes[i] ? "tex" : "notex"}
-              map={texes[i] || undefined}
-              color={texes[i] ? "#ffffff" : w.tint}
+              color={w.tint}
               transparent
               opacity={0}
               side={THREE.DoubleSide}

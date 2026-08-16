@@ -1,6 +1,6 @@
 import { Suspense, useEffect } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { PerformanceMonitor } from "@react-three/drei";
+import { PerformanceMonitor, Preload } from "@react-three/drei";
 import * as THREE from "three";
 import { useStore } from "../store";
 import Sun from "./Sun";
@@ -55,7 +55,10 @@ export default function Scene() {
     <Canvas
       className="canvas"
       dpr={dpr}
-      gl={{ antialias: true, powerPreference: "high-performance" }}
+      // antialias:false — the EffectComposer owns the final render, so the
+      // canvas's own MSAA buffer was pure cost (composer output isn't
+      // multisampled through it anyway).
+      gl={{ antialias: false, powerPreference: "high-performance" }}
       camera={{ fov: 45, position: [0, 0, 7.2], near: 0.1, far: 260 }}
       onCreated={(state) => {
         state.gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -80,6 +83,12 @@ export default function Scene() {
         <Cabin />
         <Room />
         <Gallery />
+        {/* Compile every material's GL program once at load (behind the
+            loader), so late-mounting subtrees (Gallery at p>0.8, Room's
+            shimmer/print shaders) don't pay their shader compile as a visible
+            hitch mid-pan. visible=false skips traversal, so without this the
+            early-mount hysteresis only moved the JS cost, not the compile. */}
+        <Preload all />
       </Suspense>
       <CameraRig />
       <Effects />

@@ -93,6 +93,17 @@ export default function Earth() {
   const bMid = useRef(new THREE.Vector3(...beam.mid));
   const bMat = useRef(new THREE.Matrix4());
 
+  // the texture loads async; assign the map imperatively instead of swapping
+  // the material by key (which reset opacity to the JSX default and restarted
+  // the opacity ramp below every time a new texture landed)
+  useEffect(() => {
+    if (map && earthMat.current) {
+      earthMat.current.map = map;
+      earthMat.current.color.set("#ffffff");
+      earthMat.current.needsUpdate = true;
+    }
+  }, [map]);
+
   useFrame((s) => {
     const { reducedMotion: reduced, progress: p } = useStore.getState();
     // appear at the crossing; stay solid and GROW as we dive onto it (descended
@@ -165,9 +176,7 @@ export default function Earth() {
         <sphereGeometry args={[EARTH_R, 64, 64]} />
         <meshStandardMaterial
           ref={earthMat}
-          key={map ? "tex" : "notex"}
-          map={map || undefined}
-          color={map ? "#ffffff" : "#274b74"}
+          color="#274b74"
           roughness={0.9}
           metalness={0.02}
           transparent

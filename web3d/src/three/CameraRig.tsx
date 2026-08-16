@@ -77,22 +77,29 @@ export default function CameraRig() {
   const parallax = useRef(new THREE.Vector2());
   const scratch = useRef(new THREE.Vector3());
 
-  useFrame((state) => {
+  useFrame((state, dt) => {
     const { progress, reducedMotion } = useStore.getState();
     const t = easedParam(progress);
     posCurve.getPoint(t, pos.current);
     tgtCurve.getPoint(t, tgt.current);
 
     const gate = reducedMotion ? 0 : REACT[spaceAt(progress)];
-    parallax.current.x += (state.pointer.x * gate - parallax.current.x) * 0.05;
-    parallax.current.y += (state.pointer.y * gate - parallax.current.y) * 0.05;
+    // dt-corrected ease (was a fixed 0.05/frame lerp, tied to frame rate); τ≈0.32
+    // matches the old 60fps feel while staying correct at any frame rate.
+    const aParallax = 1 - Math.exp(-dt / 0.32);
+    parallax.current.x += (state.pointer.x * gate - parallax.current.x) * aParallax;
+    parallax.current.y += (state.pointer.y * gate - parallax.current.y) * aParallax;
 
     const cam = state.camera;
     scratch.current.copy(pos.current);
     scratch.current.x += parallax.current.x * 0.5;
     scratch.current.y += parallax.current.y * 0.35;
-    // reduced motion: snap (no inertial glide); otherwise damped follow
-    cam.position.lerp(scratch.current, reducedMotion ? 1 : 0.1);
+    // reduced motion: snap (no inertial glide); otherwise damped follow.
+    // dt-corrected ease (was a fixed 0.1/frame lerp: ~22 frames to converge
+    // regardless of frame rate, so a fast scroll flick left the camera far
+    // behind the spline target until the user scrolled back). τ≈0.15.
+    const aPos = 1 - Math.exp(-dt / 0.15);
+    cam.position.lerp(scratch.current, reducedMotion ? 1 : aPos);
     cam.lookAt(tgt.current);
   });
 

@@ -148,11 +148,16 @@ export default function Cabin() {
     const o = THREE.MathUtils.clamp(Math.min((p - 0.515) / 0.02, (0.77 - p) / 0.05), 0, 1);
     if (group.current) group.current.visible = o > 0.01;
     for (const m of mats.current) (m as THREE.Material).opacity = o;
-    // front face opens up as the camera reaches the window (z -> FRONT_Z): opaque
-    // on approach, but fully GONE a bit before the camera crosses the wall plane
-    // (FRONT_Z=24.6), so we never graze a half-opaque wall — the warm entry bloom
-    // covers the last of the crossing.
-    const frontFade = THREE.MathUtils.clamp((s.camera.position.z - 26.8) / 2.6, 0, 1);
+    // front face opens up as the camera reaches the window: opaque on approach,
+    // fully gone a bit before the crossing, so we never graze a half-opaque wall.
+    // This MUST be driven by scroll progress, not by state.camera.position.z:
+    // the camera is now a dt-corrected lag behind its spline target (see
+    // CameraRig), so on a fast flick it hasn't caught up yet and reading its
+    // position here showed a solid front wall during what should already be an
+    // interior beat (the "half-composed" bug). The spline TARGET z crosses this
+    // wall's fade zone (~28.5 darkroom @0.64 -> 25.5 room @0.74) over roughly
+    // progress [0.66, 0.73]; remap that span 1 -> 0 directly.
+    const frontFade = THREE.MathUtils.clamp((0.73 - p) / (0.73 - 0.66), 0, 1);
     for (const m of frontMats.current) (m as THREE.Material).opacity = o * frontFade;
     // the window pulses faintly warmer so it reads as lit-from-within (also fades
     // on approach so we fly through the pane, not into it)

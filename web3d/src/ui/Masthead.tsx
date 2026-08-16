@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 
 // The canonical masthead, matching the store's hero so the two halves open the
@@ -16,20 +17,30 @@ import { useStore } from "../store";
 // footer credit — see <DataCredit /> — where it is always present without
 // competing with the pitch.
 export default function Masthead() {
-  const progress = useStore((s) => s.progress);
-  // Present on the opening beat only; gone well before the aperture.
-  const o = Math.max(0, 1 - progress / 0.075);
-  if (o <= 0.001) return null;
+  // progress ticks at 60Hz — write opacity/transform straight to the DOM from
+  // a store subscription instead of re-rendering this through React.
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const write = (progress: number) => {
+      const el = ref.current;
+      if (!el) return;
+      // Present on the opening beat only; gone well before the aperture.
+      const o = Math.max(0, 1 - progress / 0.075);
+      if (o <= 0.001) {
+        el.style.display = "none";
+        return;
+      }
+      el.style.display = "";
+      el.style.opacity = String(o);
+      el.style.transform = `translateX(-50%) translateY(${(1 - o) * -12}px)`;
+    };
+    write(useStore.getState().progress);
+    return useStore.subscribe((s) => write(s.progress));
+  }, []);
 
   return (
-    <header
-      className="masthead"
-      style={{
-        opacity: o,
-        transform: `translateX(-50%) translateY(${(1 - o) * -12}px)`,
-        pointerEvents: "none",
-      }}
-    >
+    <header className="masthead" ref={ref} style={{ pointerEvents: "none" }}>
       <h1 className="masthead-title">My Heliograph</h1>
       <p className="masthead-tagline">Your day, written in sunlight</p>
       {/* The RHEF explanation ("enhanced with a published algorithm to reveal

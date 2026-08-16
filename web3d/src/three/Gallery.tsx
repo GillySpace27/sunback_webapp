@@ -288,6 +288,10 @@ function Selectable({
     const k = 1 - Math.pow(0.001, dt); // frame-rate independent ease
     level.current += ((active ? 1 : 0) - level.current) * k;
     const L = level.current;
+    // idle and settled: skip the material walk once the level has decayed to
+    // ~0 and isn't chasing a nonzero target (six of these ran every frame even
+    // with nothing hovered)
+    if (!active && L < 0.001) return;
 
     for (const e of cache.current) {
       // Blend the material's own emissive toward gold rather than replacing it,
@@ -337,8 +341,22 @@ export default function Gallery() {
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
   const channel = useStore((s) => s.channel);
-  // present from the room beat on; off-frame (to the right) until the pan
+  // present from the room beat on; off-frame (to the right) until the pan.
+  // on-screen visibility keeps the original threshold.
   const show = useStore((s) => s.progress > 0.8);
+  // ...but MOUNTING is widened and hysteresised: building ~40 meshes, ~30
+  // materials, and 6 lights in the same frame the pan reveals them was the
+  // owner's hard-cut shader-compile pop. Mount early (during the room dwell,
+  // while `show` above still keeps the group invisible), so that work (and
+  // the scene-wide shader recompile the new lights trigger) happens frames
+  // before anything is on screen. Unmount only well below the mount point so
+  // scrubbing near the boundary doesn't thrash mount/unmount every frame.
+  const [mounted, setMounted] = useState(false);
+  useFrame(() => {
+    const p = useStore.getState().progress;
+    if (!mounted && p > 0.7) setMounted(true);
+    else if (mounted && p < 0.65) setMounted(false);
+  });
 
   const [hovered, setHovered] = useState<GalleryKind | null>(null);
 
@@ -371,12 +389,12 @@ export default function Gallery() {
     onPointerOut: out,
   });
 
-  if (!show) return null;
+  if (!mounted) return null;
 
   return (
     // dropped to the ground floor so it shares the (lowered) room's standing
     // height — the camera enters level and the gallery is right there
-    <group position={[0, -2.4, 0]}>
+    <group position={[0, -2.4, 0]} visible={show}>
       {/* warm gallery lighting for the product wall — gentle, so the light mats
           don't blow out into white-edged glows under bloom */}
       <ambientLight intensity={0.5} color="#ffe6c8" />
@@ -394,7 +412,7 @@ export default function Gallery() {
           <Clock pos={[12.4, -3.7, WALL_Z]} tex={tex} />
           <Frame pos={[15.0, -4.1, WALL_Z]} w={2.0} h={1.5} tex={tex} />
           <Plaque x={12.4} y={-1.95} z={WALL_Z + 0.05} text="Wall Art" />
-        
+
         </Selectable>
       </group>
 
@@ -416,7 +434,7 @@ export default function Gallery() {
             )}
           </mesh>
           <Plaque x={8.7} y={-5.8} z={22.93} text="Home & Cozy" />
-        
+
         </Selectable>
       </group>
 
@@ -439,7 +457,7 @@ export default function Gallery() {
               <meshStandardMaterial color="#f4efe6" roughness={0.4} />
             </mesh>
           </group>
-        
+
         </Selectable>
       </group>
 
@@ -461,7 +479,7 @@ export default function Gallery() {
               )}
             </mesh>
           </group>
-        
+
         </Selectable>
       </group>
 
@@ -486,7 +504,7 @@ export default function Gallery() {
             <torusGeometry args={[0.1, 0.03, 10, 20]} />
             <meshStandardMaterial color="#c9a34e" roughness={0.35} metalness={0.7} />
           </mesh>
-        
+
         </Selectable>
       </group>
 
@@ -510,7 +528,7 @@ export default function Gallery() {
               )}
             </mesh>
           </group>
-        
+
         </Selectable>
       </group>
     </group>

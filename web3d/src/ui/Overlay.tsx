@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useStore, SPACES } from "../store";
 import BuyLink from "./BuyLink";
 
@@ -40,7 +41,10 @@ const PEAK_AT_START = new Set(["aperture"]);
 // begins once "surface" has fully cleared — otherwise the two lines overlap
 // (surface was still fading out while "select a color" was already rising).
 const PEAK_OVERRIDE: Record<string, number> = { aperture: 0.25 };
-const HALF_AT: Record<string, number> = { aperture: 0.035 };
+// HALF_AT tightened from 0.035 to 0.028 so aperture's window is [0.222, 0.278]:
+// "surface" hits exactly 0 at 0.22 (its slice boundary), and 0.035 started
+// aperture's fade-in at 0.215 — a genuine 0.215–0.22 double-exposure.
+const HALF_AT: Record<string, number> = { aperture: 0.028 };
 function opacityFor(progress: number, i: number) {
   const key = SPACES[i].key;
   const start = SPACES[i].start;
@@ -58,61 +62,95 @@ function opacityFor(progress: number, i: number) {
   return Math.max(0, Math.min(1, (1 - d) / (1 - HOLD)));
 }
 
+// The fixed, static list of spaces that actually carry copy (threshold is
+// intentionally silent) — computed once so the mount-time ref array and the
+// per-frame subscription below always walk the same order.
+const ITEMS = SPACES.map((s, i) => ({ space: s, index: i, copy: COPY[s.key] })).filter(
+  (it): it is typeof it & { copy: NonNullable<typeof it.copy> } => Boolean(it.copy)
+);
+
 export default function Overlay() {
-  const progress = useStore((s) => s.progress);
   const channelChosen = useStore((s) => s.channelChosen);
+  // One ref per rendered figure. Progress ticks at 60Hz (Lenis), so the
+  // opacity/transform it drives is written directly to these refs from a
+  // single store subscription below rather than through React re-renders,
+  // which would otherwise fire all eight lines through reconciliation on
+  // every scroll tick, competing with the 3D render loop.
+  const refs = useRef<(HTMLElement | null)[]>([]);
+
+  useEffect(() => {
+    const write = (progress: number) => {
+      for (let n = 0; n < ITEMS.length; n++) {
+        const { space: s, index } = ITEMS[n];
+        const el = refs.current[n];
+        if (!el) continue;
+        const o = opacityFor(progress, index);
+        el.style.opacity = String(o);
+        el.style.transform = `translateY(${(1 - o) * 14}px)`;
+        // Fully-faded lines paint nothing — also kills the "dark smudge" of a
+        // faded line's blurred ::before scrim (see styles.css).
+        el.style.visibility = o <= 0.001 ? "hidden" : "visible";
+        if (s.key === "gift") {
+          // decorative CTA: only clickable once its figure has actually
+          // faded in (was an inline pointerEvents style on the render path;
+          // see the .overlay-cta-off rule in styles.css)
+          el.classList.toggle("overlay-cta-off", o <= 0.15);
+        }
+      }
+    };
+    write(useStore.getState().progress); // paint the initial frame before the first tick
+    return useStore.subscribe((s) => write(s.progress));
+  }, []);
+
   return (
     <div className="overlay" aria-hidden="true">
-      {SPACES.map((s, i) => {
-        const c = COPY[s.key];
-        const o = opacityFor(progress, i);
-        if (!c) return null; // threshold: intentionally silent
-        return (
-          <figure
-            key={s.key}
+      {ITEMS.map(({ space: s, copy: c }, n) => (
+        <figure
+          key={s.key}
+          ref={(el) => {
+            refs.current[n] = el;
+          }}
+          className={
+            "overlay-line" +
+            (s.key === "threshold" ? " overlay-line--hero" : "") +
+            (s.key === "aperture" ? " overlay-line--top" : "") +
+            (s.key === "room" ? " overlay-line--climax" : "") +
+            (s.key === "crossing" ? " overlay-line--crossing" : "") +
+            (s.key === "gallery" ? " overlay-line--gallery" : "") +
+            // light-background beats: the dark plasma scrim would be a stain,
+            // so they use a soft, wide halo instead (see styles.css)
+            (s.key === "sky" || s.key === "darkroom" || s.key === "room"
+              ? " overlay-line--light"
+              : "")
+          }
+        >
+          {c.eyebrow && <figcaption className="eyebrow">{c.eyebrow}</figcaption>}
+          <p
             className={
-              "overlay-line" +
-              (s.key === "threshold" ? " overlay-line--hero" : "") +
-              (s.key === "aperture" ? " overlay-line--top" : "") +
-              (s.key === "room" ? " overlay-line--climax" : "") +
-              (s.key === "crossing" ? " overlay-line--crossing" : "") +
-              (s.key === "gallery" ? " overlay-line--gallery" : "") +
-              // light-background beats: the dark plasma scrim would be a stain,
-              // so they use a soft, wide halo instead (see styles.css)
-              (s.key === "sky" || s.key === "darkroom" || s.key === "room"
-                ? " overlay-line--light"
-                : "")
+              s.key === "room"
+                ? "line climax"
+                : s.key === "crossing" || s.key === "aperture"
+                  ? // aperture "Select a color." is a wheel instruction, not a
+                    // story headline: the tracked-sans caption register gives it
+                    // clear hierarchy so it stops competing with the serif lines.
+                    "line line--caption"
+                  : "line"
             }
-            style={{ opacity: o, transform: `translateY(${(1 - o) * 14}px)` }}
           >
-            {c.eyebrow && <figcaption className="eyebrow">{c.eyebrow}</figcaption>}
-            <p
-              className={
-                s.key === "room"
-                  ? "line climax"
-                  : s.key === "crossing" || s.key === "aperture"
-                    ? // aperture "Select a color." is a wheel instruction, not a
-                      // story headline: the tracked-sans caption register gives it
-                      // clear hierarchy so it stops competing with the serif lines.
-                      "line line--caption"
-                    : "line"
-              }
-            >
-              {c.line}
-            </p>
-            {s.key === "aperture" && channelChosen && (
-              <p className="scroll-hint">Keep scrolling to continue</p>
-            )}
-            {s.key === "gift" && (
-              // decorative twin of the real CTA in <nav id="buy">; kept out of the
-              // tab order since the whole overlay is aria-hidden
-              <BuyLink className="cta" decorative style={{ pointerEvents: o > 0.15 ? "auto" : "none" }}>
-                Make one
-              </BuyLink>
-            )}
-          </figure>
-        );
-      })}
+            {c.line}
+          </p>
+          {s.key === "aperture" && channelChosen && (
+            <p className="scroll-hint">Keep scrolling to continue</p>
+          )}
+          {s.key === "gift" && (
+            // decorative twin of the real CTA in <nav id="buy">; kept out of the
+            // tab order since the whole overlay is aria-hidden
+            <BuyLink className="cta" decorative>
+              Make one
+            </BuyLink>
+          )}
+        </figure>
+      ))}
     </div>
   );
 }
