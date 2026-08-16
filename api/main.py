@@ -1455,8 +1455,10 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     log_to_queue(f"[generate_preview] download_dir={download_dir}")
 
     # Fetch Helioviewer instant preview first (JPG option = helioviewer-derived).
-    # Resize to PREVIEW_SIZE so JPG matches raw/filtered; 384 matches PREVIEW_TARGET used for RHEF.
-    PREVIEW_SIZE = 384
+    # Resize to PREVIEW_SIZE so JPG matches raw/filtered; matches PREVIEW_TARGET
+    # used for RHEF. 512 (was 384): the confirm-bridge cards render ~600px wide,
+    # and 384 read as visibly soft/grainy there (Gilly, live 2026-08-15).
+    PREVIEW_SIZE = 512
     os.makedirs(os.path.dirname(out_path_jpg), exist_ok=True)
     try:
         # Use the user's exact time (passed in via `dt`) so the JPG and
@@ -1722,7 +1724,12 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         data = np.array(smap.data, dtype=np.float32)
         data[data <= 0] = np.nan
         h, w = data.shape
-        PREVIEW_TARGET = 384  # smaller = faster RHEF so preview is ready sooner for image creation
+        # 512 (was 384): this is the block_reduce target, so it sets the pixel
+        # grid RHEF actually computes on, not just the PNG size — at 384 the
+        # 1024 synoptic frame reduced to ~341² and the Enhanced bridge card was
+        # showing genuinely low-res RHEF, not merely a small render. 512² costs
+        # a few extra seconds of rank-filtering; trivial on the 4GB machine.
+        PREVIEW_TARGET = 512
         block_size = max(1, int(np.ceil(h / PREVIEW_TARGET)))
         reduced = block_reduce(data, block_size=(block_size, block_size), func=np.nanmean)
         from sunpy.map.sources.sdo import AIAMap
