@@ -2483,6 +2483,18 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     function _installPreviewImage(img, wl, dateVal, tok) {
       if (tok == null) tok = _selToken;
       state.originalImage = img;
+      // The confirm-bridge summary chip ("304 Å · 2026-08-09") is a live
+      // status, not a one-time freeze-frame — if it's showing (the visitor
+      // used its pencil icon to reopen the wavelength picker) it must track
+      // whatever they pick next, or it lies about what the grid below it
+      // is actually showing.
+      var _chip = document.getElementById("sunSummaryChip");
+      if (_chip && !_chip.hidden) {
+        var _chM = document.getElementById("chipMeta");
+        var _chT = document.getElementById("chipThumb");
+        if (_chM) _chM.textContent = wl + " Å · " + dateVal;
+        if (_chT) _chT.src = _handoffThumbUrl(dateVal, _solarTimeValue(), wl, 96);
+      }
       // Set accessible alt text for the preview image
       var altText = "Solar image from " + dateVal + ", " + wl + " Angstrom wavelength";
       if (solarImg) solarImg.alt = altText;
@@ -3253,6 +3265,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // Filtered, let IT drive the tier changes so intermediate tiers aren't
       // skipped. Just keep the timeline UI fresh here.
       if (state._forcedCycleActive) { updateFilterTimelineUI(); return; }
+      // handoffLook is "last explicit choice wins" (set by both the confirm
+      // bridge and the editor's own toggle, per the click handlers below) —
+      // a durable decision, not just the furthest tier reached so far. Without
+      // this check, a tier that finishes rendering in the background (e.g.
+      // RHEF landing seconds after a fresh wavelength pick) would silently
+      // promote past an explicit "Original" pick and flip it to "Enhanced".
+      if (state.handoffLook) { updateFilterTimelineUI(); return; }
       var current = state.editorFilter;
       var pinIdx = state._userFilterPick != null ? FILTER_ORDER.indexOf(state._userFilterPick) : -1;
       var bestIdx = -1;
