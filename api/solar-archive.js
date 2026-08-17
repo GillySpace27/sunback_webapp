@@ -5672,7 +5672,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var chT = document.getElementById("chipThumb");
         var chM = document.getElementById("chipMeta");
         if (chT) chT.src = _handoffThumbUrl(dateStr, timeStr, wlNum, 96);
-        if (chM) chM.textContent = nm + " · " + dateStr;
+        // wlNum + " Å" (was the "nm" var deleted by the Å-unification edit
+        // above, which missed this second use — a silent ReferenceError here
+        // was aborting the whole function before it ever reached `ov.hidden
+        // = false` below, so the confirm bridge never showed. Live bug,
+        // caught and fixed same night, 2026-08-17.)
+        if (chM) chM.textContent = wlNum + " Å · " + dateStr;
         if (chip) { chip.hidden = false; chip.onclick = _editHandoffSun; }
 
         var ov = document.getElementById("confirmOverlay");
