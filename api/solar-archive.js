@@ -5700,6 +5700,14 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           state.handoffLook = tier;
           state._userFilterPick = tier;
           try { localStorage.setItem("mh_look", tier); } catch (_e) {}
+          // The pin above stops the forced cycle from overriding this pick
+          // LATER, but _activateVibe fires synchronously right after this
+          // overlay opens (before the visitor can click anything) and its
+          // forced cycle can already have painted the product grid with the
+          // other tier by the time they decide. Force a repaint here so the
+          // grid matches what was just picked, not whatever rendered last.
+          if (typeof renderCanvas === "function") renderCanvas();
+          if (typeof updateMockupDisplay === "function") updateMockupDisplay();
           // Animate the exit instead of an instant hide (contract: CSS
           // adds #confirmOverlay.is-leaving { animation: handoff-fade-out
           // 320ms ease forwards }). animationend does the real cleanup;
