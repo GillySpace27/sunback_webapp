@@ -1,7 +1,18 @@
 :root {
-  --bg: #05060a;
+  /* #0a0908 (was #05060a): unified with the store's page ground so the
+     seam between the film and the store doesn't shift hue (blue-black to
+     warm-black) at the handoff. Tier 3 polish pass, 2026-08-17. */
+  --bg: #0a0908;
   --ink: #f4efe6;
   --muted: #c3b9a9;
+  /* Store's palette, matched here rather than introduced as new names: the
+     store already owns --accent-sun/--accent-flare/--accent-corona as its
+     brand tokens, so these alias to identical values instead of a third
+     naming scheme. Used by the masthead (was hardcoded) and any web3d
+     surface that needs the brand accent. */
+  --accent: #d9a91a;
+  --accent-soft: #f0c75e;
+  --accent-warm: #e8663a;
   --serif: "Fraunces Variable", ui-serif, Georgia, serif;
   --sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   color-scheme: dark;
@@ -9,6 +20,15 @@
 
 * {
   box-sizing: border-box;
+}
+/* One global ring (was 8 copies of the same outline+offset pair scattered
+   across every focusable element, Tier 3 polish pass 2026-08-17). Each
+   element below keeps only what's genuinely its own: a box-shadow halo,
+   a border-radius, a restored opacity. .data-credit-legal a overrides the
+   offset (its target is small) rather than copying the pair at all. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
 }
 html,
 body {
@@ -62,8 +82,8 @@ body {
   z-index: -1;
   background: radial-gradient(
     ellipse at center,
-    rgba(5, 6, 10, 0.9) 0%,
-    rgba(5, 6, 10, 0.66) 42%,
+    rgba(10, 9, 8, 0.9) 0%,
+    rgba(10, 9, 8, 0.66) 42%,
     transparent 74%
   );
   filter: blur(10px);
@@ -234,7 +254,7 @@ body {
 }
 .cta:hover {
   background: var(--ink);
-  color: #0a0a0f;
+  color: var(--bg); /* == store text-on-gold ink, unified 2026-08-17 */
 }
 /* inert state for a CTA with no committed date to sell (cleared field, or a
    frontier clamp still pending): dimmed and unclickable by mouse, keyboard,
@@ -256,8 +276,6 @@ body {
    on any backdrop (bright plasma or dark void) */
 .cta:focus-visible,
 .date-field input[type="date"]:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
   box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
 }
 /* the real, visible commit control living in the picker bar */
@@ -272,7 +290,7 @@ body {
   margin-top: 0;
   padding: 0.7rem 2.4rem;
   background: var(--ink);
-  color: #0a0a0f;
+  color: var(--bg); /* == store text-on-gold ink, unified 2026-08-17 */
   font-weight: 600;
 }
 .cta--bar:hover {
@@ -331,7 +349,7 @@ body {
      real hit box (was ~21px tall) instead of the fieldset shell around it */
   padding: 0.3rem 1.3rem 1rem;
   /* solid plate so every control clears 4.5:1 over the bright plasma behind */
-  background: rgba(8, 9, 14, 0.74);
+  background: rgba(10, 9, 8, 0.74);
   border: 1px solid rgba(244, 239, 230, 0.12);
   border-radius: 18px;
   box-shadow: 0 10px 44px rgba(0, 0, 0, 0.55);
@@ -372,8 +390,6 @@ body {
   color: var(--ink);
 }
 .picker-toggle:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
   border-radius: 6px;
 }
 .picker-chevron {
@@ -436,11 +452,6 @@ body {
 .date-field input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
-.date-field input[type="date"]:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
-}
 .swatches {
   display: flex;
   gap: clamp(0.2rem, 1vw, 0.6rem);
@@ -464,7 +475,7 @@ body {
   left: 50%;
   transform: translateX(-50%) translateY(4px);
   white-space: nowrap;
-  background: rgba(12, 12, 18, 0.96);
+  background: rgba(10, 9, 8, 0.96);
   border: 1px solid rgba(244, 239, 230, 0.18);
   color: var(--ink);
   font-family: var(--sans);
@@ -505,7 +516,7 @@ body {
   flex-direction: column;
   gap: 0.3rem;
   white-space: nowrap;
-  background: rgba(12, 12, 18, 0.96);
+  background: rgba(10, 9, 8, 0.96);
   border: 1px solid rgba(244, 239, 230, 0.2);
   border-radius: 10px;
   padding: 0.5rem 0.75rem;
@@ -593,7 +604,7 @@ body {
   /* solid fill, not backdrop-filter — one of six permanent blur layers
      sitting over the 60fps canvas; more opaque to read the same over dark
      scenes without the compositing cost */
-  background: rgba(8, 9, 14, 0.8);
+  background: rgba(10, 9, 8, 0.8);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
   color: var(--ink);
   cursor: pointer;
@@ -602,13 +613,11 @@ body {
 }
 .arrow:hover {
   opacity: 1;
-  background: rgba(8, 9, 14, 0.9);
+  background: rgba(10, 9, 8, 0.9);
   transform: scale(1.06);
 }
 .arrow:focus-visible {
   opacity: 1;
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
 }
 .arrow:disabled {
   visibility: hidden;
@@ -686,7 +695,7 @@ body {
   top: -3rem;
   z-index: 10;
   background: var(--ink);
-  color: #0a0a0f;
+  color: var(--bg); /* == store text-on-gold ink, unified 2026-08-17 */
   padding: 0.6rem 1rem;
   border-radius: 6px;
   text-decoration: none;
@@ -717,17 +726,15 @@ body {
   border: 1px solid rgba(244, 239, 230, 0.28);
   border-radius: 999px;
   /* solid fill, not backdrop-filter — see .arrow above */
-  background: rgba(8, 9, 14, 0.64);
+  background: rgba(10, 9, 8, 0.64);
   transition: background 0.4s, border-color 0.4s, color 0.4s;
 }
 .skip-store:hover {
   background: var(--ink);
-  color: #0a0a0f;
+  color: var(--bg); /* == store text-on-gold ink, unified 2026-08-17 */
   border-color: var(--ink);
 }
 .skip-store:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
   box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
 }
 
@@ -782,8 +789,6 @@ body {
   cursor: pointer;
 }
 .hero-date input[type="date"]:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
   box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
 }
 .hero-date-hint {
@@ -840,19 +845,22 @@ body {
   margin: 0;
   font-family: var(--serif);
   font-optical-sizing: auto;
-  font-weight: 700;
+  /* 380 (was 700): the masthead was the one place in web3d NOT using its
+     own film's light editorial weight (.line uses 380 throughout) — same
+     typeface, two personalities, inside one app. Unified 2026-08-17. */
+  font-weight: 380;
   font-size: clamp(2rem, 5.2vw, 3.1rem);
   letter-spacing: -0.02em;
   line-height: 1.05;
-  color: #e8663a;
+  color: var(--accent-warm);
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
 }
 .masthead-tagline {
   margin: 0.35rem 0 0;
   font-family: var(--serif);
-  font-weight: 600;
+  font-weight: 500;
   font-size: clamp(1.05rem, 2.4vw, 1.5rem);
-  color: #f0c75e;
+  color: var(--accent-soft);
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
 }
 .masthead-intro {
@@ -1012,7 +1020,7 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
   border-radius: 999px;
   border: 1px solid rgba(244, 239, 230, 0.22);
   /* solid fill, not backdrop-filter — see .arrow above */
-  background: rgba(5, 6, 10, 0.64);
+  background: rgba(10, 9, 8, 0.64);
   color: var(--muted);
   font-family: var(--sans);
   font-size: 0.7rem;
@@ -1026,8 +1034,6 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
   border-color: rgba(244, 239, 230, 0.5);
 }
 .start-over:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
   box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
 }
 @media (max-width: 600px) {

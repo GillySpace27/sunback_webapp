@@ -33,12 +33,13 @@
   --beta-orange: #ffb74d;
   --beta-orange-bg: rgba(255, 152, 0, 0.14);
   --beta-orange-border: rgba(255, 152, 0, 0.48);
-  --text-primary: #e8e2d0;   /* gilly.space --text (dark). 12.3:1 on card */
-  --text-secondary: #a8a094; /* gilly.space --muted.       6.1:1 on card */
-  /* WCAG 1.4.3 AA requires 4.5:1 for normal text. The previous value
-     (#8e8eab) measured 5.37:1 on the old #1a1a2e card; #a8a094 measures
-     6.13:1 on the new #25221c card, so the AA margin improved. */
-  --text-dim: #a8a094;
+  /* #f4efe6 / #c3b9a9 (were #e8e2d0 / #a8a094): unified with web3d's ink
+     pair, the other place this same cream/muted role exists (Tier 3 polish
+     pass, 2026-08-17). Both brighter, so the AA margin only improves:
+     13.85:1 / 8.18:1 on --bg-card (was 12.25:1 / 6.13:1). */
+  --text-primary: #f4efe6;
+  --text-secondary: #c3b9a9;
+  --text-dim: #c3b9a9;
   /* Brightened --accent-corona for use AS TEXT on dark backgrounds
      (decorative uses — borders, focus rings, gradients — keep
      --accent-corona itself). 10.9:1 on the card: comfortable AA. */
@@ -72,7 +73,10 @@
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
-  --transition: 0.3s cubic-bezier(0.4,0,0.2,1);
+  /* cubic-bezier(0.16,1,0.3,1) (was Material's stock 0.4,0,0.2,1): matches
+     web3d's expo-out, used everywhere over there already. This one line
+     retunes every element using --transition (27 call sites). Tier 3, 2026-08-17. */
+  --transition: 0.3s cubic-bezier(0.16,1,0.3,1);
 }
 
 
@@ -219,7 +223,11 @@ body {
   top: -40px;
   left: 8px;
   background: var(--accent-corona);
-  color: white;
+  /* white measured 1.61:1 on this gold background, failing WCAG AA (the
+     comment here predates the 2026-07-29 palette migration that turned
+     --accent-corona from purple into light gold — white worked on the old
+     purple, not on this). Tier 3 polish pass, 2026-08-17. */
+  color: var(--text-on-gold);
   padding: 8px 12px;
   border-radius: 4px;
   z-index: 10000;
@@ -256,7 +264,11 @@ body {
 
 .hero h1 {
   font-size: 2rem;
-  font-weight: 800;
+  /* 380 (was 800): matches web3d's light editorial Fraunces weight (its
+     .line uses 380 throughout the film) — same typeface, one personality
+     now instead of the store reading heavier/more "dashboard" by contrast.
+     Gilly's call, Tier 3 polish pass, 2026-08-17. */
+  font-weight: 380;
   letter-spacing: -0.03em;
   background: linear-gradient(135deg, var(--accent-sun), var(--accent-flare), var(--accent-corona));
   -webkit-background-clip: text;
@@ -286,7 +298,7 @@ body {
   color: var(--text-secondary);
   font-size: 0.85rem;
 }
-.trust-bar i { color: var(--accent-sun, #f5a623); margin-right: 5px; }
+.trust-bar i { color: var(--accent-sun, var(--accent-sun)); margin-right: 5px; }
 .trust-bar > span[aria-hidden] { color: var(--text-dim); opacity: 0.5; }
 @media (max-width: 600px) {
   .trust-bar > span[aria-hidden] { display: none; }
@@ -537,7 +549,7 @@ html:not(.dark) .wl-submit-btn { background: var(--accent-sun); }
   left: -16px; right: -16px;
 }
 .compare-handle:focus-visible {
-  outline: 2px solid var(--accent-sun, #f5a623);
+  outline: 2px solid var(--accent-sun, var(--accent-sun));
   outline-offset: 2px;
 }
 .compare-grip {
@@ -693,7 +705,7 @@ body.beta-mode-active .beta-banner {
 .birthday-cta-icon {
   grid-area: icon;
   font-size: 1.8rem;
-  color: var(--accent-sun, #f7a825);
+  color: var(--accent-sun, var(--accent-sun));
   flex: none;
 }
 .birthday-cta-text { grid-area: text; min-width: 0; }
@@ -1008,7 +1020,7 @@ body.beta-mode-active .beta-banner {
 
 .section-title {
   font-size: 1.15rem;
-  font-weight: 700;
+  font-weight: 380; /* was 700 -- matches .hero h1's serif-weight unification above */
 }
 
 /* Controls */
@@ -1364,7 +1376,7 @@ select:focus-visible {
 
 .wl-card[data-wl="94"]::before { background: #3ddc84; }
 .wl-card[data-wl="131"]::before { background: #00bcd4; }
-.wl-card[data-wl="171"]::before { background: #f7a825; }
+.wl-card[data-wl="171"]::before { background: var(--accent-sun); }
 .wl-card[data-wl="193"]::before { background: #e67e22; }
 .wl-card[data-wl="211"]::before { background: #9b59b6; }
 .wl-card[data-wl="304"]::before { background: #e74c3c; }
@@ -1492,7 +1504,12 @@ select:focus-visible {
   padding: 14px;
   margin-top: 18px;
   background: linear-gradient(135deg, var(--accent-sun), var(--accent-flare));
-  color: #fff;
+  /* white measured 2.18:1 (sun end) / 3.28:1 (flare end) against this
+     gradient, both failing WCAG AA — the same bug class Tier 1 fixed on
+     Add to Cart, missed here. Found during the Tier 3 token pass,
+     2026-08-17; ~13 more instances of the same pattern exist elsewhere in
+     this file (flagged, not fixed in this pass — see the session report). */
+  color: var(--text-on-gold);
   font-size: 1rem;
   font-weight: 700;
   border: none;
@@ -2371,8 +2388,12 @@ input[type="range"]::-moz-range-thumb {
   width: 100%;
   padding: 16px;
   margin-top: 18px;
-  background: linear-gradient(135deg, var(--accent-corona), #5c4bbf);
-  color: #fff;
+  /* #5c4bbf was the last live purple in the app, 13 months after the
+     2026-07-29 warm-palette migration — matches .btn-generate's own
+     gradient partner now. Tier 3 polish pass, 2026-08-17. */
+  background: linear-gradient(135deg, var(--accent-corona), var(--accent-flare));
+  /* Same WCAG fix as .btn-generate above (white failed against this gradient). */
+  color: var(--text-on-gold);
   font-size: 1.05rem;
   font-weight: 700;
   border: none;
@@ -2568,7 +2589,7 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
   width: 100%;
 }
 .vibe-open:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
+  outline: 2px solid var(--accent-corona);
   outline-offset: -2px;
 }
 
@@ -2613,7 +2634,7 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
   margin: -19px 0 0 -19px;
   border-radius: 50%;
   border: 3px solid rgba(255, 179, 71, 0.25);
-  border-top-color: var(--accent-corona, #ffb347);
+  border-top-color: var(--accent-corona);
   animation: spin 0.9s linear infinite;
   z-index: 5;
   pointer-events: none;
@@ -2641,11 +2662,11 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
   transition: background 120ms ease, color 120ms ease;
 }
 .vibe-tier-btn.is-active {
-  background: var(--accent-corona, #ffb347);
-  color: #1a1326;
+  background: var(--accent-corona);
+  color: var(--text-on-gold);
 }
 .vibe-tier-btn:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
+  outline: 2px solid var(--accent-corona);
   outline-offset: 1px;
 }
 .vibe-info-btn {
@@ -2659,8 +2680,8 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
-.vibe-info-btn:hover { color: var(--accent-corona, #ffb347); }
-.vibe-info-btn:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
+.vibe-info-btn:hover { color: var(--accent-corona); }
+.vibe-info-btn:focus-visible { outline: 2px solid var(--accent-corona); outline-offset: 1px; }
 
 /* Attribution popover (created dynamically — kept stylable here). */
 /* Narrative reveal CTA — a single pulsing orange button above the
@@ -2687,8 +2708,8 @@ body:has(.cookie-banner:not(.hidden)) .feedback-fab-group { display: none !impor
   font: inherit;
   font-size: 1.0rem;
   font-weight: 700;
-  color: #1a1326;
-  background: linear-gradient(135deg, #ffb347 0%, #ff8a3d 100%);
+  color: var(--text-on-gold);
+  background: linear-gradient(135deg, var(--accent-corona) 0%, var(--accent-flare) 100%);
   border: 0;
   border-radius: 999px;
   cursor: pointer;
@@ -2871,7 +2892,7 @@ body.step-image #selectedProductPreview {
 .workflow-breadcrumb-pill:hover,
 .workflow-breadcrumb-pill:focus-visible {
   background: rgba(0,0,0,0.72);
-  border-color: var(--accent-corona, #ffb347);
+  border-color: var(--accent-corona);
 }
 .workflow-breadcrumb-pill .arrow {
   font-size: 0.78rem;
@@ -2971,8 +2992,8 @@ body.step-editor .vibe-reveal-btn {
   transition: background 160ms ease, color 160ms ease;
 }
 .vibe-master-btn.is-active {
-  background: var(--accent-corona, #ffb347);
-  color: #1a1326;
+  background: var(--accent-corona);
+  color: var(--text-on-gold);
 }
 /* Indicator-first: while a tier request is in flight, the toggle shows
    a subtle pending state on the TARGET pill (where the indicator will
@@ -2982,7 +3003,7 @@ body.step-editor .vibe-reveal-btn {
 .vibe-master-toggle.is-pending .vibe-master-btn { cursor: progress; }
 .vibe-master-btn.is-pending-target {
   background: rgba(255,179,71,0.18);
-  color: var(--accent-corona, #ffb347);
+  color: var(--accent-corona);
   position: relative;
 }
 .vibe-master-btn.is-pending-target::after {
@@ -2991,13 +3012,13 @@ body.step-editor .vibe-reveal-btn {
   width: 9px; height: 9px;
   margin-left: 8px;
   border: 1.5px solid rgba(255,179,71,0.30);
-  border-top-color: var(--accent-corona, #ffb347);
+  border-top-color: var(--accent-corona);
   border-radius: 50%;
   vertical-align: middle;
   animation: spin 0.7s linear infinite;
 }
 .vibe-master-btn:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
+  outline: 2px solid var(--accent-corona);
   outline-offset: 2px;
 }
 @media (pointer: coarse) {
@@ -3042,8 +3063,8 @@ body.step-editor .vibe-reveal-btn {
    ring on top of the existing aria-checked = orange-tint style. */
 .hek-tile[role="radio"][aria-checked="true"] {
   background: rgba(255,179,71,0.22);
-  border-color: #ffb347;
-  box-shadow: 0 0 0 1px #ffb347 inset, 0 6px 18px rgba(255,179,71,0.18);
+  border-color: var(--accent-corona);
+  box-shadow: 0 0 0 1px var(--accent-corona) inset, 0 6px 18px rgba(255,179,71,0.18);
 }
 .hek-tile[role="radio"][aria-checked="true"]::after {
   content: "\f00c";  /* Font Awesome check (solid) */
@@ -3052,7 +3073,7 @@ body.step-editor .vibe-reveal-btn {
   position: absolute;
   top: 8px;
   right: 10px;
-  color: #ffb347;
+  color: var(--accent-corona);
   font-size: 0.85rem;
   opacity: 0.85;
 }
@@ -3063,7 +3084,7 @@ body.step-editor .vibe-reveal-btn {
   z-index: 10;
   max-width: min(280px, calc(100% - 16px));
   padding: 12px 14px 12px 14px;
-  background: #1a1326;
+  background: var(--bg-card); /* was hard-pinned dark under theme-switching text tokens below -- same invisible-in-light-mode bug fixed elsewhere tonight */
   border: 1px solid rgba(255,179,71,0.35);
   border-radius: var(--radius-sm, 10px);
   box-shadow: 0 8px 24px rgba(0,0,0,0.55);
@@ -3079,7 +3100,7 @@ body.step-editor .vibe-reveal-btn {
 }
 .vibe-info-popover p { margin: 0 0 6px; }
 .vibe-info-popover p:last-child { margin-bottom: 0; }
-.vibe-info-popover a { color: var(--accent-corona, #ffb347); }
+.vibe-info-popover a { color: var(--accent-corona); }
 .vibe-info-close {
   position: absolute;
   top: 4px; right: 6px;
@@ -3105,7 +3126,7 @@ body.step-editor .vibe-reveal-btn {
   text-align: left;
 }
 .vibe-birthday-icon {
-  color: var(--accent-corona, #ffb347);
+  color: var(--accent-corona);
   font-size: 1.8rem;
 }
 .vibe-birthday-meta { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
@@ -3127,7 +3148,7 @@ body.step-editor .vibe-reveal-btn {
   min-height: 44px;
   width: 100%;
 }
-.vibe-birthday-input:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 1px; }
+.vibe-birthday-input:focus-visible { outline: 2px solid var(--accent-corona); outline-offset: 1px; }
 .vibe-birthday-submit {
   margin-top: 4px;
   padding: 11px 14px;
@@ -3140,7 +3161,7 @@ body.step-editor .vibe-reveal-btn {
   font-size: 1.0rem;
   cursor: pointer;
   color: #1a1206;
-  background: linear-gradient(135deg, #ffb347, #ff8c42);
+  background: linear-gradient(135deg, var(--accent-corona), var(--accent-flare));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3149,7 +3170,7 @@ body.step-editor .vibe-reveal-btn {
 }
 .vibe-birthday-submit:hover { filter: brightness(1.06); }
 .vibe-birthday-submit:active { transform: translateY(1px); }
-.vibe-birthday-submit:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 2px; }
+.vibe-birthday-submit:focus-visible { outline: 2px solid var(--accent-corona); outline-offset: 2px; }
 .vibe-birthday-hint {
   font-size: 0.78rem;
   color: var(--text-dim, #9a93a8);
@@ -3233,18 +3254,18 @@ body.step-editor .vibe-reveal-btn {
   min-height: 64px;
 }
 .hek-tile:hover { background: rgba(255,179,71,0.10); border-color: rgba(255,179,71,0.45); }
-.hek-tile:focus-visible { outline: 2px solid var(--accent-corona, #ffb347); outline-offset: 2px; }
+.hek-tile:focus-visible { outline: 2px solid var(--accent-corona); outline-offset: 2px; }
 .hek-tile[aria-checked="true"] {
   background: rgba(255,179,71,0.15);
-  border-color: #ffb347;
+  border-color: var(--accent-corona);
 }
-.hek-tile.is-top { border-left: 3px solid #ffb347; }
+.hek-tile.is-top { border-left: 3px solid var(--accent-corona); }
 .hek-tile.is-fallback { border-left-color: rgba(160,160,160,0.45); background: rgba(255,255,255,0.02); }
 .hek-tile-rank {
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--text-dim, #9a93a8); font-weight: 600;
 }
-.hek-tile.is-top .hek-tile-rank { color: #ffb347; }
+.hek-tile.is-top .hek-tile-rank { color: var(--accent-corona); }
 .hek-tile-time { font-size: 1.05rem; font-weight: 700; color: var(--text-primary, #fff); }
 .hek-tile-type { font-size: 0.82rem; color: var(--text-secondary, #d0c8d8); }
 .hek-tile-meta { font-size: 0.72rem; color: var(--text-dim, #9a93a8); }
@@ -3271,7 +3292,7 @@ body.step-editor .vibe-reveal-btn {
   cursor: default;
 }
 .hek-tile-custom:hover { background: rgba(255,179,71,0.06); }
-.hek-tile-custom .hek-tile-rank { color: var(--accent-corona, #ffb347); }
+.hek-tile-custom .hek-tile-rank { color: var(--accent-corona); }
 .hek-time-fine {
   display: flex;
   gap: 8px;
@@ -3283,7 +3304,7 @@ body.step-editor .vibe-reveal-btn {
   flex: 0 0 auto;
   width: 44px; height: 44px;     /* WCAG 2.5.5 hit-area */
   background: rgba(255,179,71,0.12);
-  color: var(--accent-corona, #ffb347);
+  color: var(--accent-corona);
   border: 1px solid rgba(255,179,71,0.40);
   border-radius: 999px;
   font: inherit; font-size: 1.25rem; font-weight: 700;
@@ -3297,7 +3318,7 @@ body.step-editor .vibe-reveal-btn {
   .hek-time-step:active { transform: scale(0.95); }
 }
 .hek-time-step:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
+  outline: 2px solid var(--accent-corona);
   outline-offset: 2px;
 }
 @media (pointer: coarse) {
@@ -3341,7 +3362,7 @@ body.step-editor .vibe-reveal-btn {
   font-variant-numeric: tabular-nums;
 }
 .hek-time-exact-input:focus-visible {
-  outline: 2px solid var(--accent-corona, #ffb347);
+  outline: 2px solid var(--accent-corona);
   outline-offset: 1px;
 }
 @media (pointer: coarse) {
@@ -3362,7 +3383,7 @@ body.step-editor .vibe-reveal-btn {
 }
 .hek-time-scrub-input {
   flex: 1;
-  accent-color: var(--accent-corona, #ffb347);
+  accent-color: var(--accent-corona);
 }
 .hek-time-scrub-well {
   width: 40px;
@@ -3416,7 +3437,7 @@ body.step-editor .vibe-reveal-btn {
   font-size: 0.78rem;
   color: var(--text-secondary, #d0c8d8);
   background: rgba(217, 169, 26,0.06);
-  border-left: 3px solid var(--accent-corona, #ffb347);
+  border-left: 3px solid var(--accent-corona);
   border-radius: var(--radius-sm, 8px);
 }
 .wl-suggest-caption.hidden { display: none; }
@@ -3436,7 +3457,7 @@ body.step-editor .vibe-reveal-btn {
   padding: 8px 14px;
   background: rgba(255,179,71,0.08);
   border-radius: var(--radius-sm);
-  border-left: 3px solid #ffb347;
+  border-left: 3px solid var(--accent-corona);
   font-size: 0.82rem;
   color: var(--text-secondary);
   line-height: 1.35;
@@ -3447,7 +3468,7 @@ body.step-editor .vibe-reveal-btn {
 .hek-event-info strong { color: var(--text-primary); font-weight: 600; }
 .hek-event-info .hek-dot {
   width: 7px; height: 7px; border-radius: 50%;
-  background: #ffb347; flex: 0 0 7px;
+  background: var(--accent-corona); flex: 0 0 7px;
 }
 .hek-event-info.is-fallback .hek-dot { background: rgba(160,160,160,0.6); }
 @media (prefers-reduced-motion: no-preference) {
@@ -3830,7 +3851,7 @@ body:has(.cookie-banner:not(.hidden)) .toast {
   border-radius: var(--radius-sm, 6px);
   background: rgba(245, 166, 35, 0.12);
   border: 1px solid rgba(245, 166, 35, 0.35);
-  color: #f5a623;
+  color: var(--accent-sun);
   font-size: 0.8rem;
   line-height: 1.3;
 }
@@ -4300,7 +4321,7 @@ body:has(.cookie-banner:not(.hidden)) .toast {
   color: var(--text-primary, #eeeef6);
   /* Subtle sun-glow underline so the title reads as a marquee. */
   padding-bottom: 8px;
-  border-bottom: 2px solid var(--accent-sun, #f7a825);
+  border-bottom: 2px solid var(--accent-sun, var(--accent-sun));
   max-width: max-content;
 }
 .editor-selected-product-name:empty { display: none; }
@@ -4516,7 +4537,7 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
   border-radius: 8px;
   background: rgba(255, 179, 71, 0.08);
   border: 1px solid rgba(255, 179, 71, 0.28);
-  color: var(--accent-corona, #ffb347);
+  color: var(--accent-corona);
   font-size: 0.82rem;
   text-align: center;
   display: block;
@@ -5081,7 +5102,7 @@ body.single-preview-mode .selected-product-preview .preview-close-btn {
 }
 .feedback-fab-request {
   /* Warmer gradient so the "request" CTA reads as the action-y one */
-  background: linear-gradient(135deg, #ff8a3d, #f0c75e);
+  background: linear-gradient(135deg, var(--accent-flare), #f0c75e);
 }
 .feedback-fab-comment {
   background: linear-gradient(135deg, var(--accent-corona, #d9a91a), #f0c75e);
@@ -5459,7 +5480,7 @@ html:not(.dark) .feedback-submit-secondary { border-color: var(--border); }
   width: 36px;
   height: 36px;
   border-radius: 6px;
-  background: #08091a;
+  background: var(--bg-card); /* was a cool blue-black remnant of the pre-2026-07-29 palette */
   object-fit: cover;
   flex: 0 0 auto;
 }
@@ -5467,7 +5488,7 @@ html:not(.dark) .feedback-submit-secondary { border-color: var(--border); }
   width: 36px;
   height: 36px;
   border-radius: 6px;
-  background: #08091a;
+  background: var(--bg-card); /* was a cool blue-black remnant of the pre-2026-07-29 palette */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5512,7 +5533,7 @@ html:not(.dark) .feedback-submit-secondary { border-color: var(--border); }
   position: fixed;
   width: 200px;
   height: 200px;
-  background: #08091a;
+  background: var(--bg-card); /* was a cool blue-black remnant of the pre-2026-07-29 palette */
   border: 1px solid rgba(217, 169, 26, 0.3);
   border-radius: 8px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
@@ -5592,7 +5613,7 @@ html:not(.dark) .feedback-submit-secondary { border-color: var(--border); }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #08091a;
+  background: var(--bg-card); /* was a cool blue-black remnant of the pre-2026-07-29 palette */
   border-radius: 8px;
   margin: 10px 0;
   padding: 8px;
@@ -5915,7 +5936,7 @@ html:not(.dark) .feedback-submit-secondary { border-color: var(--border); }
   border: 1px dashed rgba(255,179,71,0.35);
   display: flex; align-items: center; justify-content: center;
   font-size: 1.4rem;
-  color: var(--accent-sun, #f7a825);
+  color: var(--accent-sun, var(--accent-sun));
 }
 .confirm-mockup-placeholder-text {
   font-size: 0.82rem;
@@ -6851,11 +6872,11 @@ body.handoff-confirm #workflowBreadcrumb {
      the light-theme block near the top of this file); that made every
      label here read as near-invisible dark-on-dark for light-mode visitors
      (contrast audit). Pin explicit light colors instead of inheriting the
-     theme tokens: #e8e2d0 measures 14.4-15.7:1 and #a8a094 measures
-     7.2-7.9:1 against this gradient's #141210-#050505 range, both well
-     past the 4.5:1 AA floor. */
-  --handoff-text: #e8e2d0;
-  --handoff-text-dim: #a8a094;
+     theme tokens — matched to web3d's ink pair (Tier 3, 2026-08-17):
+     #f4efe6 measures 16.3-17.8:1 and #c3b9a9 measures 9.6-10.5:1 against
+     this gradient's #141210-#050505 range, both well past the 4.5:1 floor. */
+  --handoff-text: #f4efe6;
+  --handoff-text-dim: #c3b9a9;
 }
 .handoff-overlay[hidden] {
   display: none;
@@ -6908,23 +6929,28 @@ body.handoff-confirm #workflowBreadcrumb {
   gap: 0.7rem;
   margin-top: 0.4rem;
 }
+/* Aligned to web3d's .cta--bar (Tier 3 polish pass, 2026-08-17): this is
+   the literal same button on both sides of the handoff and had drifted on
+   six axes. border/backdrop-filter deliberately NOT imported: web3d's glass
+   treatment answers to a constantly-repainting WebGL canvas behind it; the
+   store sits on a static image and doesn't need it. */
 .handoff-continue {
   font-family: var(--sans);
-  font-size: 0.86rem;
-  letter-spacing: 0.08em;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #0a0908;
   background: var(--text-primary);
   border: 0;
   border-radius: 999px;
-  padding: 0.85rem 2.6rem;
-  min-height: 48px;
+  padding: 0.7rem 2.4rem;
+  min-height: 44px;
   cursor: pointer;
-  transition: background 0.4s, transform 0.4s;
+  transition: background var(--transition);
 }
 .handoff-continue:hover {
   background: #fffdf7;
-  transform: translateY(-1px);
 }
 .handoff-edit {
   font-family: var(--sans);

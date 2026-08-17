@@ -5612,10 +5612,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     function _showHandoffConfirm(dateStr, timeStr, wlNum) {
       try {
         document.body.classList.add("fromHandoff");
-        var nm = (wlNum / 10).toFixed(1) + " nm";
+        // Å, not nm: the provenance line two rows down already settled on
+        // angstroms (the astronomer's convention for these channels), so
+        // this line matched it instead of showing a second unit on the
+        // same screen (copy-register pass, Tier 3, 2026-08-17).
         var dateHuman = _fmtHandoffDate(dateStr);
         var cMeta = document.getElementById("confirmMeta");
-        if (cMeta) cMeta.textContent = dateHuman + "  ·  AIA " + nm;
+        if (cMeta) cMeta.textContent = dateHuman + "  ·  AIA " + wlNum + " Å";
 
         // Provenance line: names mission, instrument and wavelength, and
         // flags the false-colour convention, right by the two preview
@@ -5624,7 +5627,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var cProv = document.getElementById("confirmProvenance");
         if (cProv) {
           var band = (wlNum === 1600 || wlNum === 1700) ? "ultraviolet" : "extreme-ultraviolet";
-          cProv.textContent = "NASA SDO / AIA " + wlNum + " Å · " + band + " shown in false colour";
+          cProv.textContent = "NASA SDO / AIA " + wlNum + " Å · " + band + " shown in false color";
         }
 
         // Original is instant AND final: it is the Helioviewer rendering,
@@ -13035,7 +13038,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
       showModal(
         "Set up your " + product.name,
-        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + product.name + "</strong> and hand you a secure Shopify checkout link with your size and colour already locked in — you pay there, not here. " +
+        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + product.name + "</strong> and hand you a secure Shopify checkout link with your size and color already locked in — you pay there, not here. " +
           "The checkout page's web address will show our Shopify store name rather than myheliograph.com; that's expected, it's Shopify's own secure checkout, not a different site.<br><br>" +
           hqNote + mockNote +
           // Delivery window = production 2–7 + US transit 3–6 business
@@ -13694,7 +13697,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       overlay.className = "color-chooser-modal";
       overlay.setAttribute("role", "dialog");
       overlay.setAttribute("aria-modal", "true");
-      overlay.setAttribute("aria-label", "Choose a colour for " + product.name);
+      overlay.setAttribute("aria-label", "Choose a color for " + product.name);
 
       var backdrop = document.createElement("div");
       backdrop.className = "color-chooser-backdrop";
@@ -13705,11 +13708,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       panel.innerHTML =
         '<button class="color-chooser-close" type="button" aria-label="Close">&#x2715;</button>' +
         '<h2 class="color-chooser-title">' + escapeHtmlSimple(product.name) + '</h2>' +
-        '<p class="color-chooser-sub">Choose a colour — or pick one later in the editor.</p>' +
+        '<p class="color-chooser-sub">Choose a color — or pick one later in the editor.</p>' +
         '<div class="color-chooser-grid"></div>' +
         '<button class="color-chooser-skip" type="button" ' +
         'style="margin-top:14px;display:block;width:100%;padding:10px 14px;border:1px solid rgba(255,255,255,0.10);background:transparent;color:var(--text-secondary,#9898b8);border-radius:10px;cursor:pointer;font:inherit;font-size:0.86rem;">' +
-        'Skip — pick colour later</button>';
+        'Skip — pick color later</button>';
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
 
@@ -14019,7 +14022,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       var nextNoteEl = document.getElementById("confirmSelectNextNote");
       if (nextNoteEl) {
         nextNoteEl.textContent = _canBuyNow
-          ? "Happy with it? Add to cart. Or open the editor to crop, recolour, and add a caption first."
+          ? "Happy with it? Add to cart. Or open the editor to crop, recolor, and add a caption first."
           : (state.originalImage
               ? "Fine-tune your Sun in the editor next."
               : "Pick your Sun image next, then fine-tune in the editor.");

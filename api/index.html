@@ -161,9 +161,9 @@
 
       <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
         <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw">
-          <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-colour rendering" />
+          <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-color rendering" />
           <span class="handoff-choice-name">Original</span>
-          <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false colour.</span>
+          <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false color.</span>
         </button>
         <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
           <span class="handoff-choice-imgwrap">
@@ -177,7 +177,7 @@
       <p id="confirmProvenance" class="handoff-provenance"></p>
 
       <div class="handoff-actions">
-        <button type="button" id="confirmEdit" class="handoff-edit">Change date or colour</button>
+        <button type="button" id="confirmEdit" class="handoff-edit">Change date or color</button>
       </div>
       <!-- Kept for older deep links and for anything still calling the old
            confirm flow; hidden, since the two images above are the action. -->
@@ -188,7 +188,7 @@
 
   <!-- Persistent, editable summary of the handoff Sun; shown on body.fromHandoff. -->
   <button type="button" id="sunSummaryChip" class="sun-summary-chip" hidden
-          aria-label="Your chosen Sun — click to change the date or colour">
+          aria-label="Your chosen Sun — click to change the date or color">
     <img id="chipThumb" class="chip-thumb" alt="" />
     <span id="chipMeta" class="chip-meta"></span>
     <i class="fa-solid fa-pen chip-pen" aria-hidden="true"></i>
@@ -257,7 +257,7 @@
    <div class="flow-inner">
     <div class="section-header">
       <div class="step-badge">2</div>
-      <h2 class="section-title" id="productSectionTitle">Pick your product</h2>
+      <h2 class="section-title" id="productSectionTitle">Choose your product</h2>
     </div>
 
     <p id="productSectionIntro" style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
@@ -347,7 +347,7 @@
         <button type="button" class="vibe-master-btn" data-tier="raw" aria-pressed="false"
                 title="The conventional NASA SDO look — what astronomers see published.">Original</button>
         <button type="button" class="vibe-master-btn" data-tier="rhef" aria-pressed="false"
-                title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Filtered</button>
+                title="RHEF — re-balances brightness with distance from centre so the faint outer atmosphere and the bright disk show together. Published research (Gilly &amp; Cranmer 2025).">Enhanced</button>
       </div>
     </div>
 
@@ -387,7 +387,7 @@
                decoding="async" />
         </span>
         <span class="diptych-pane">
-          <span class="diptych-label">Filtered</span>
+          <span class="diptych-label">Enhanced</span>
           <span class="diptych-sub">RHEF reveals the corona</span>
           <img class="diptych-img" src="/asset/default/compare_rhef.webp" width="900" height="900"
                alt="The same moment after contrast equalization — the Sun's faint outer atmosphere is now visible."
@@ -412,13 +412,13 @@
           <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
         </div>
         <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
-        <span class="compare-label compare-label-right" aria-hidden="true">Filtered</span>
+        <span class="compare-label compare-label-right" aria-hidden="true">Enhanced</span>
         <button type="button" class="compare-close-btn" id="compareCloseBtn"
                 aria-label="Close the drag comparison and go back to the side-by-side view"
                 title="Back to side-by-side">&#x2715;</button>
       </div>
       <p class="quality-strip-caption">Same moment, same Sun. On the left is the raw telescope photo; on the right, RHEF re-balances the brightness at every distance from the Sun&rsquo;s centre, so the faint outer atmosphere shows at the same time as the bright disk. <strong>Pick whichever version you prefer &mdash; both are available on every print.</strong></p>
-      <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-colour hue. Prints are rendered at full 4K.</p>
+      <p class="quality-strip-fineprint">The technique is called RHEF &mdash; published solar-physics research (<a href="https://doi.org/10.1007/s11207-025-02578-x" target="_blank" rel="noopener">Gilly &amp; Cranmer 2025</a>), not a filter preset. These extreme-ultraviolet wavelengths are invisible to the eye, so each is shown in its traditional false-color hue. Prints are rendered at full 4K.</p>
      </div>
       <!-- Manual collapse: hides the strip on demand (mirrors the auto-collapse
            on first step change). The pill above re-expands it. Outside

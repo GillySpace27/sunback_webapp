@@ -8,7 +8,7 @@
   <style>
     body { background: var(--bg-deep, #0a0a12); color: var(--text-primary, #eeeef6); }
     .legal { max-width: 720px; margin: 40px auto; padding: 0 24px 80px; }
-    .legal h1 { font-size: 1.6rem; margin: 0 0 6px; }
+    .legal h1 { font-size: 1.6rem; margin: 0 0 6px; font-family: var(--serif, "Fraunces Variable", ui-serif, Georgia, serif); font-weight: 380; font-optical-sizing: auto; letter-spacing: -0.01em; }
     .legal .updated { color: var(--text-dim, #8e8eab); font-size: 0.78rem; margin: 0 0 24px; }
     .legal h2 { font-size: 1.1rem; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border, #2a2a44); }
     .legal h3 { font-size: 0.96rem; margin: 18px 0 6px; }
@@ -79,5 +79,17 @@
 
     <a class="back" href="/">&larr; Back to My Heliograph</a>
   </main>
+
+  <footer class="app-footer" role="contentinfo">
+    <nav class="footer-legal-nav" aria-label="Legal">
+        <a href="/terms">Terms</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="/refund">Refunds</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="/shipping">Shipping</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="/accessibility">Accessibility</a>
+    </nav>
+  </footer>
 </body>
 </html>
