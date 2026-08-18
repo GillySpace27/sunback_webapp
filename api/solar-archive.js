@@ -2573,6 +2573,17 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       state.uploadedPrintifyId = null;
       state.uploadedPrintifyIdRaw = null;
       state.uploadedPrintifyIdFiltered = null;
+      // The variant picker's OWN upload cache (_ensurePrintifyUploadId),
+      // keyed by product+tier only — it has no idea the Sun underneath
+      // just changed. Without this, re-picking a wavelength or date via
+      // the edit pill and reopening a variant picker kept showing the
+      // PREVIOUS Sun's upload for that product+tier forever, since the
+      // cache key never changed (Gilly, 2026-08-18: "the filter selection
+      // isn't always being applied when I go back and change it" — really
+      // any Sun change, filter included, silently went stale here).
+      if (typeof _pickerUploadIds === "object" && _pickerUploadIds) {
+        for (var _pukKey in _pickerUploadIds) delete _pickerUploadIds[_pukKey];
+      }
       state.aspectFlippedByProduct = {};
       state.hqReady = false;
       state.hqImageUrl = null;
