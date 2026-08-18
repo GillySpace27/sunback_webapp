@@ -23,9 +23,13 @@ export const CHANNELS: Channel[] = [
   { angstrom: 304, nm: 30.4, instrument: "AIA", label: "304 Å", tint: "#e8481c", hot: "#ffd0b0", sees: "Chromosphere and prominences" },
   { angstrom: 335, nm: 33.5, instrument: "AIA", label: "335 Å", tint: "#2f6fd6", hot: "#cfe0ff", sees: "Hot active regions" },
   { angstrom: 1600, nm: 160.0, instrument: "AIA", label: "1600 Å", tint: "#b6c14a", hot: "#f4ffd0", sees: "Transition region, photosphere" },
-  { angstrom: 1700, nm: 170.0, instrument: "AIA", label: "1700 Å", tint: "#d98a8a", hot: "#ffe1e1", sees: "Photosphere, the surface" },
 ];
-// The 9 SDO/AIA channels the product pipeline supports (see PRODUCT_CREATION_
+// 1700 Å removed 2026-08-18 (Gilly): the only channel without JSOC's fast
+// synoptic-archive bypass on the store side, so it fell into NASA's VSO/DRMS
+// export queue on every arbitrary-date pick and could hang for minutes — see
+// api/main.py's SYNOPTIC_MISSING_WAVELENGTHS. Dropped from both wheels
+// rather than left reachable here with a broken landing on the store side.
+// The 8 SDO/AIA channels the product pipeline supports (see PRODUCT_CREATION_
 // CONTRACT.md). Each angstrom value is a valid `wl` deep-link + thumb param.
 
 export const DEFAULT_CHANNEL = 5; // 30.4 nm — the warm, recognizable Sun
