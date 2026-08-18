@@ -119,6 +119,14 @@
     <h1 id="appTitle">My Heliograph</h1>
     <p class="hero-tagline">Your day, written in sunlight</p>
     <p>Pick any date since 2010: real NASA/SDO observations of the Sun from that day, enhanced with a published algorithm to reveal coronal structure the raw data hides. Yours as a print, poster, or canvas.</p>
+    <!-- Concrete anchor for a visitor deciding in the first few seconds.
+         The persona panel's impatient run (2026-08-18) left before ever
+         reaching the date picker, reporting that the first screen showed
+         "no products, prices, or shopping interface" — nothing to tell them
+         what this costs or what it becomes. Prices here are the real
+         catalog floor (9x11 matte poster, $9.99) and the shipping window
+         quoted in the trust bar; keep them in step with those. -->
+    <p class="hero-anchor">Posters from <strong>$9.99</strong> &middot; canvas, mugs, clocks and more &middot; ships in 5&ndash;13 days</p>
     <!-- NASA SDO rules-of-the-road acknowledgement, surfaced prominently
          at the top (moved up from the footer). Required on any SDO-
          derived imagery. Keep in sync with solar-archive.js
@@ -153,11 +161,18 @@
        It is asked with PICTURES rather than words on purpose. "Original or
        Filtered?" is a vocabulary question and people stall on those; two
        versions of their own Sun side by side is a glance. -->
-  <div id="confirmOverlay" class="handoff-overlay" hidden>
+  <!-- role/aria-modal/tabindex added 2026-08-18: the persona panel's
+       screen-reader run reported that activating the primary CTA produced
+       no announced change whatsoever. This is a modal decision point, so it
+       needs dialog semantics, an accessible name, and a focus target;
+       _showHandoffConfirm moves focus here when it opens. -->
+  <div id="confirmOverlay" class="handoff-overlay" hidden
+       role="dialog" aria-modal="true" aria-labelledby="confirmQuestion"
+       aria-describedby="confirmMeta" tabindex="-1">
     <div class="handoff-card handoff-card--choice">
       <p class="handoff-eyebrow">Your Sun</p>
       <p id="confirmMeta" class="handoff-meta"></p>
-      <p class="handoff-question">Which look do you want?</p>
+      <p class="handoff-question" id="confirmQuestion">Which look do you want?</p>
 
       <div id="handoffChoicesGroup">
         <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
@@ -169,7 +184,7 @@
           <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
             <span class="handoff-choice-imgwrap">
               <img id="confirmThumbRhef" class="handoff-choice-img" alt="Your Sun with the corona revealed" />
-              <span class="handoff-choice-pending" id="rhefPending">Developing…</span>
+              <span class="handoff-choice-pending" id="rhefPending">Enhancing…</span>
             </span>
             <span class="handoff-choice-name">Enhanced</span>
             <span class="handoff-choice-sub">The same observation, contrast-enhanced (RHEF) to reveal faint structure in the corona.</span>
@@ -203,7 +218,7 @@
              still showing the placeholder frame on both sides, same as the
              "Developing…" pill on the Enhanced card. -->
         <span class="compare-pending" id="confirmComparePending" hidden>
-          <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Developing the enhanced view…
+          <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Enhancing your Sun…
         </span>
         <button type="button" class="compare-close-btn" id="confirmCompareCloseBtn"
                 aria-label="Close the drag comparison and go back to the choice cards"

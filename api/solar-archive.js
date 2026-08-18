@@ -3721,7 +3721,25 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // opened. Verified on prod: tile-grid thumbs loaded, zero size=512
       // requests.
       if (_userTouchedWavelength) return;
-      tile.click();
+      // "See the Sun" IS the commit: the visitor pressed the button and is
+      // waiting to be taken somewhere. Drive this through the same commit
+      // latch the "See this wavelength" button uses (_wlCommitting +
+      // clearing holdImageStep), because the tile handler otherwise treats
+      // ANY tile click as mere TUNING and sets state.holdImageStep = true
+      // (see the comment at that assignment). That flag then fails every
+      // advance branch in _installPreviewImage, so the pipeline would fetch
+      // HEK, thumbnails and the preview correctly and still leave the
+      // visitor sitting on step 1 with no image, no look bridge and no
+      // error — the primary CTA looking simply dead.
+      //
+      // Found by the persona panel, 2026-08-18: 0 of 7 personas ever
+      // reached the product grid through this path. It escaped every
+      // earlier check because the manual verifications had all driven the
+      // *committing* button, which clears the flag, rather than the button
+      // an actual visitor presses.
+      _wlCommitting = true;
+      state.holdImageStep = false;
+      try { tile.click(); } finally { _wlCommitting = false; }
     }
 
     var _lastSuggestionKey = "";  // dedup aria-live announcements
@@ -5464,7 +5482,18 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           // We DO defer the click a tick so the date-change above has
           // a chance to settle in state.
           state.suppressNextProductScroll = true;  // we'll do our own scroll
-          setTimeout(function () { wlTile.click(); }, 50);
+          // Same commit latch as _fireAutoSun (see the long note there):
+          // a curated vibe card already carries "this date, this
+          // wavelength", so tapping it is a commit, not tuning. Without
+          // the latch the tile handler sets state.holdImageStep = true and
+          // _installPreviewImage's advance branches all fail, so the card
+          // loaded an image but never offered the look bridge or moved the
+          // visitor on.
+          setTimeout(function () {
+            _wlCommitting = true;
+            state.holdImageStep = false;
+            try { wlTile.click(); } finally { _wlCommitting = false; }
+          }, 50);
         }
         // Explicit scroll to products. Snap-scroll (auto) lands
         // synchronously before downstream layout mutations (HEK
@@ -5781,6 +5810,19 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var ov = document.getElementById("confirmOverlay");
         if (ov) ov.hidden = false;
         document.body.classList.add("handoff-confirm");
+        // Move focus into the dialog. Without this the bridge was a purely
+        // visual event: a screen-reader user pressed the primary CTA and
+        // nothing was announced, nothing new was focusable, and the flow
+        // looked dead (persona panel, 2026-08-18). Focusing the dialog makes
+        // the assistive tech read its label + description, and keeps the
+        // next Tab on the two choice buttons rather than back at the top of
+        // the document. Deferred a tick so the element is visible (a hidden
+        // element cannot take focus) before we ask for it.
+        if (ov) {
+          setTimeout(function () {
+            try { ov.focus({ preventScroll: true }); } catch (_eFocus) {}
+          }, 0);
+        }
 
         // Picking a look IS the continue. One screen, one decision, and the
         // decision is made by looking rather than by reading a label.
@@ -5863,7 +5905,26 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (cont) cont.onclick = function () { pick("rhef"); };
         var ed = document.getElementById("confirmEdit");
         if (ed) ed.onclick = _editHandoffSun;
-      } catch (_e) {}
+      } catch (_e) {
+        // This used to be a bare `catch (_e) {}`. A silent swallow here has
+        // now cost two separate live debugging sessions: the orphaned `nm`
+        // ReferenceError (2026-08-17), and the persona-panel dead-end
+        // (2026-08-18), both of which aborted this function before it ever
+        // reached `ov.hidden = false` and left the visitor on a page where
+        // clicking the primary CTA did visibly nothing.
+        //
+        // Two changes: say so in the console, and — more importantly — do
+        // not strand the visitor. The look choice is a nicety; reaching the
+        // product grid is the funnel. If the bridge cannot open, fall
+        // through to the step it would have advanced to anyway.
+        try { console.error("[handoff-confirm] could not open the look bridge:", _e); } catch (_e2) {}
+        try {
+          document.body.classList.remove("handoff-confirm");
+          var _ovFail = document.getElementById("confirmOverlay");
+          if (_ovFail) _ovFail.hidden = true;
+          if (typeof setStep === "function") setStep("product");
+        } catch (_e3) {}
+      }
     }
 
     // A cat= in the URL is a strong, explicit signal: the visitor clicked a mug
@@ -6311,9 +6372,33 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (diptych) diptych.remove();
         el.replaceWith(img);
       }
-      over.addEventListener("error", _fallbackStatic);
-      under.addEventListener("error", _fallbackStatic);
-      if (diptych) {
+      // The fallback is DESTRUCTIVE by design: it removes `diptych` and
+      // replaces the slider with one static image. That is right for the
+      // marketing strip, whose diptych and slider are two views of the same
+      // canned demo pair, and catastrophic for the handoff bridge, where
+      // `diptych` is #handoffChoicesGroup — the Original/Enhanced cards that
+      // ARE the decision. A single failed thumb there deleted the only way
+      // to choose a look and left an overlay with no controls in it.
+      // Caught locally while walking the funnel after the commit-latch fix
+      // (2026-08-18); the bridge's images are per-visitor and fetched live,
+      // so they fail far more readily than the two bundled marketing webps.
+      if (opts.allowFallback !== false) {
+        over.addEventListener("error", _fallbackStatic);
+        under.addEventListener("error", _fallbackStatic);
+      } else {
+        // Bridge behaviour: a broken comparison image just retires the
+        // optional comparison, leaving the two choice cards untouched.
+        var _hideCompare = function () {
+          try {
+            el.classList.add("hidden");
+            if (activator) activator.classList.add("hidden");
+            if (diptych) diptych.classList.remove("hidden");
+          } catch (_e) {}
+        };
+        over.addEventListener("error", _hideCompare);
+        under.addEventListener("error", _hideCompare);
+      }
+      if (diptych && opts.allowFallback !== false) {
         diptych.querySelectorAll(".diptych-img").forEach(function (im) {
           im.addEventListener("error", _fallbackStatic);
         });
@@ -6439,6 +6524,8 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         diptych: document.getElementById("handoffChoicesGroup"),
         activator: document.getElementById("confirmCompareBtn"),
         closeBtn: document.getElementById("confirmCompareCloseBtn"),
+        // Never let a failed comparison image delete the choice cards.
+        allowFallback: false,
       });
     })();
 

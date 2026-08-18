@@ -678,6 +678,24 @@ html:not(.dark) .wl-submit-btn { background: var(--accent-sun); }
   font-weight: 400;
   letter-spacing: 0.01em;
 }
+/* Price/format anchor directly under the hero paragraph — the concrete
+   "what is this and what does it cost" line for a visitor who is deciding
+   in the first few seconds. Sits above .hero-credit in the visual order
+   and is deliberately brighter than it: the credit is an obligation, this
+   is the offer. */
+.hero .hero-anchor {
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  margin-top: 10px;
+  letter-spacing: 0.01em;
+}
+.hero .hero-anchor strong {
+  color: var(--accent-corona-text, #f3d385);
+  font-weight: 600;
+}
+@media (max-width: 749px) {
+  .hero .hero-anchor { font-size: 0.78rem; margin-top: 8px; }
+}
 
 /* Beta-mode banner under the hero. Hidden by default; the
    .beta-mode-active class on <body> (set by JS once /store-config
