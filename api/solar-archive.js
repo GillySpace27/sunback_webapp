@@ -15250,6 +15250,18 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         state.selectedVariantByProduct[product.id] = pendingVariantId;
         state.pendingVariantByProduct[product.id] = undefined;
         _close(false);
+        // Say what is about to happen. This button does not drop an item
+        // into a visible on-page cart: it closes the modal, opens the
+        // editor, and starts the print-quality gate, which can sit in a
+        // render queue for a while before handing off to Shopify. With no
+        // announcement the screen-reader run (persona panel, 2026-08-18)
+        // pressed "Add to cart", landed on an editor showing "QUEUED",
+        // found no cart indicator anywhere, and could not tell whether
+        // anything had been added at all. showToast also writes to
+        // #statusRegion (aria-live=polite), so this is heard, not just seen.
+        try {
+          showToast("Preparing your print file — we'll take you to secure checkout when it's ready.", "info");
+        } catch (_eToast) {}
         if (onContinue) onContinue();
         setTimeout(function () { _startBuyFlow(product); }, 0);
       }

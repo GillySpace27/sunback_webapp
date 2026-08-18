@@ -176,12 +176,14 @@
 
       <div id="handoffChoicesGroup">
         <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
-          <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw">
+          <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw"
+                  aria-label="Choose the Original look: the standard rendering of the telescope data">
             <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-color rendering" />
             <span class="handoff-choice-name">Original</span>
             <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false color.</span>
           </button>
-          <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
+          <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef"
+                  aria-label="Choose the Enhanced look: the same observation, contrast-enhanced to reveal faint structure in the corona">
             <span class="handoff-choice-imgwrap">
               <img id="confirmThumbRhef" class="handoff-choice-img" alt="Your Sun with the corona revealed" />
               <span class="handoff-choice-pending" id="rhefPending">Enhancing…</span>
