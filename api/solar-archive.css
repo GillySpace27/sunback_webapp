@@ -4345,6 +4345,25 @@ body:has(.cookie-banner:not(.hidden)) .toast {
   text-align: center;
 }
 
+/* Escape hatch during the Printify -> Shopify publish wait. Revealed by
+   pollShopifyUrl after ~45s so a slow sync never looks like a frozen
+   panel with no way forward. */
+.checkout-progress .checkout-escape {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
+  border-radius: var(--radius-sm, 8px);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.checkout-progress .checkout-escape.hidden { display: none; }
+.checkout-progress .checkout-escape a {
+  color: var(--accent-corona-text, #f3d385);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .btn-shopify-checkout {
   display: inline-flex;
   align-items: center;

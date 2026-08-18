@@ -13388,6 +13388,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         '</div>' +
         '<div class="checkout-step" id="ckStep4">' +
           '<i class="fas fa-circle" style="font-size:6px;"></i> <span>Getting your checkout link</span>' +
+        '</div>' +
+        // Escape hatch, revealed by pollShopifyUrl after ~45s of waiting.
+        // Printify's publish-to-Shopify sync is genuinely asynchronous and
+        // can take minutes; the poll already has a 4-minute budget and an
+        // automatic fallback, but until it fires the buyer is looking at a
+        // panel that cannot be distinguished from a frozen one. The gift-
+        // novice run (persona panel, 2026-08-18) sat here re-clicking for
+        // several minutes and left believing the site was broken. This
+        // gives them somewhere to go without abandoning the purchase.
+        '<div class="checkout-escape hidden" id="ckEscape">' +
+          '<span>Taking longer than usual. Your product is still being created — ' +
+          'you can keep waiting, or open the shop and find it there in a few minutes.</span> ' +
+          '<a id="ckEscapeLink" href="https://' + SHOPIFY_STORE + '/collections/all" ' +
+          'target="_blank" rel="noopener">Open the shop</a>' +
         '</div>';
 
       // Scroll checkout progress into view
@@ -13939,6 +13953,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
                 if (span) span.textContent = attempt <= 10
                   ? "Waiting for Shopify to finish publishing…"
                   : "Shopify is still finalizing your product — this can take a few minutes, hang tight…";
+              }
+              // Past ~45s, give them a way out (see #ckEscape above). The
+              // poll keeps running underneath, so waiting still wins if
+              // they choose to.
+              if (attempt > 12) {
+                var esc = document.getElementById("ckEscape");
+                if (esc) esc.classList.remove("hidden");
               }
               setTimeout(tick, attempt <= 10 ? 3000 : 7000);
             }
