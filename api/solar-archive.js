@@ -574,21 +574,25 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // The master toggle (#vibeRevealCta) keeps its own position; the
     // breadcrumb sits visually beside it. On step "editor" both the
     // breadcrumb and the master toggle hide (editor owns the screen).
+    // Persistent across steps image/product/editor/review (2026-08-17,
+    // Gilly: "keep that vibe" — liked the centered pills enough to want
+    // them always on, not just on step "image"). Completes the shape this
+    // was always documented for but never fully wired:
+    //   product: [← Sun]
+    //   image:   [← Product · Variant]
+    //   editor:  [← Product · Variant] [← Sun]
+    //   review:  [← Product · Variant] [← Sun] [← Editor]
+    // Each pill only ever points at a step OTHER than the current one —
+    // "you are here" isn't a link. The Sun pill routes through
+    // _editHandoffSun (not a bare setStep) so it opens the same wl/time/look
+    // picker the summary chip's pencil does, not just a bare step jump.
     function _renderBreadcrumb() {
       var container = document.getElementById("workflowBreadcrumb");
       var pillBox = document.getElementById("workflowBreadcrumbPills");
       if (!container || !pillBox) return;
       var step = state.currentStep;
-      // Hide on step "product" (nothing completed) and step "editor"
-      // (editor section runs the show now). The breadcrumb is THE
-      // sticky nav on step "image" only.
-      if (step !== "image") {
-        container.classList.add("hidden");
-        pillBox.innerHTML = "";
-        return;
-      }
       var pills = [];
-      if (state.selectedProduct) {
+      if (state.selectedProduct && step !== "product") {
         var prod = _currentSelectedProductObj();
         var name = (prod && prod.name) || state.selectedProduct;
         // Do NOT include a raw variant ID suffix — friction agent
@@ -602,11 +606,21 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           aria: "Change product",
         });
       }
+      if (state.originalImage && step !== "image") {
+        pills.push({
+          label: state.wavelength ? (state.wavelength + " Å") : "Sun",
+          target: "image",
+          aria: "Change wavelength, time, or look",
+        });
+      }
+      if (step === "review" && state.originalImage) {
+        pills.push({ label: "Editor", target: "editor", aria: "Back to the editor" });
+      }
       // Forward path: with a product AND an image in hand, the editor
       // is one click away. Matters most while holdImageStep is set
-      // (auto-advance suppressed), but it's an honest affordance for
-      // everyone on this step.
-      if (state.selectedProduct && state.originalImage) {
+      // (auto-advance suppressed), but it's an honest affordance
+      // wherever it's still ahead of you.
+      if (state.selectedProduct && state.originalImage && (step === "image" || step === "product")) {
         pills.push({
           label: "Continue to editor",
           target: "editor",
@@ -632,6 +646,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (!btn) return;
         var target = btn.getAttribute("data-target-step");
         if (target === "editor") state.holdImageStep = false;
+        if (target === "image") {
+          if (typeof _editHandoffSun === "function") _editHandoffSun();
+          return;
+        }
         if (target) setStep(target);
       };
     }
@@ -2721,6 +2739,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // legacy path (image first, product second) — stay on step
       // "image" so they can pick a product without auto-jumping.
       if (state.selectedProduct && !state.holdImageStep) {
+        // Product-first funnel: about to jump straight to the editor.
+        // commitImageChoice itself asks the look question first if it
+        // hasn't been answered yet — same guard covers every entry path
+        // to the editor, not just this one.
         commitImageChoice();
       } else if (state.selectedProduct) {
         // holdImageStep: the user explicitly returned to this step to
@@ -2738,7 +2760,17 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // userPickedImage: the landing's silent default-image preload
         // must NOT advance a pristine visitor past step 1.
         state.scrollToProductsOnLoad = false;
-        if (typeof setStep === "function") setStep("product");
+        // Ask the look question here too — this is the same commit
+        // chokepoint for a plain wavelength-tile pick AND for the edit-pill
+        // re-pick flow (_editHandoffSun reopens this same wl grid), so
+        // routing both through _showHandoffConfirm is what makes the look
+        // choice "relitigated only when the wavelength/time is reselected"
+        // (Gilly, 2026-08-17) fall out for free, with no separate tracking.
+        if (typeof _showHandoffConfirm === "function") {
+          _showHandoffConfirm(dateVal, _solarTimeValue(), wl);
+        } else if (typeof setStep === "function") {
+          setStep("product");
+        }
       } else {
         if (state.scrollToProductsOnLoad) {
           state.scrollToProductsOnLoad = false;
@@ -3267,11 +3299,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       if (state._forcedCycleActive) { updateFilterTimelineUI(); return; }
       // handoffLook is "last explicit choice wins" (set by both the confirm
       // bridge and the editor's own toggle, per the click handlers below) —
-      // a durable decision, not just the furthest tier reached so far. Without
-      // this check, a tier that finishes rendering in the background (e.g.
-      // RHEF landing seconds after a fresh wavelength pick) would silently
-      // promote past an explicit "Original" pick and flip it to "Enhanced".
-      if (state.handoffLook) { updateFilterTimelineUI(); return; }
+      // a durable decision, not just the furthest tier reached so far. "raw"
+      // (Original) is a hard ceiling: without this, RHEF landing seconds
+      // after a fresh wavelength pick would silently promote past an
+      // explicit Original pick and flip it to Enhanced. "rhef" (Enhanced)
+      // is NOT a ceiling against "hq_rhef" — that's the same look at higher
+      // resolution, not a different look, so it still promotes below.
+      if (state.handoffLook === "raw") { updateFilterTimelineUI(); return; }
       var current = state.editorFilter;
       var pinIdx = state._userFilterPick != null ? FILTER_ORDER.indexOf(state._userFilterPick) : -1;
       var bestIdx = -1;
@@ -5628,7 +5662,15 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       ask();
     }
 
-    function _showHandoffConfirm(dateStr, timeStr, wlNum) {
+    // opts.afterPick: what to do once the visitor picks a look. Defaults to
+    // the original 3D-experience-handoff behavior (land on the product
+    // grid). The two direct-pick commit points in _installPreviewImage pass
+    // their own continuation (commitImageChoice for the product-first
+    // funnel, or nothing for the image-first one, which wants the default)
+    // so the SAME decision screen serves every visitor, not just links
+    // carrying a wl= param (2026-08-17, Gilly: "extend to everyone").
+    function _showHandoffConfirm(dateStr, timeStr, wlNum, opts) {
+      opts = opts || {};
       try {
         document.body.classList.add("fromHandoff");
         // Å, not nm: the provenance line two rows down already settled on
@@ -5670,6 +5712,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (rawImg) { rawImg.src = instant; rawImg.classList.add("is-placeholder"); }
         if (rhefImg) { rhefImg.src = instant; }
         if (rhefBtn) rhefBtn.classList.add("is-pending");
+        // "Help me compare" reopens closed each time the bridge opens for a
+        // new Sun, seeded with the same instant frame on both sides until
+        // the real RHEF tier lands below — mirrors the two cards exactly.
+        if (_confirmCompareSlider) {
+          _confirmCompareSlider.deactivate();
+          _confirmCompareSlider.setImages(instant, instant);
+        }
         // Still warm BOTH tiers server-side: the editor downstream reuses
         // them, so the fetch is not wasted even though the raw card no
         // longer repaints from it.
@@ -5678,6 +5727,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             rhefImg.src = url;
             if (pending && pending.parentNode) pending.remove();
             if (rhefBtn) rhefBtn.classList.remove("is-pending");
+            if (_confirmCompareSlider) _confirmCompareSlider.setImages(instant, url);
           }
         }, function () {
           // Poll gave up: the pill was stuck on "Developing…" forever.
@@ -5748,8 +5798,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           } else {
             document.body.classList.remove("handoff-confirm");
           }
-          if (typeof setStep === "function") setStep("product");
-          setTimeout(function () { _landOnCategory(); }, 120);
+          if (typeof opts.afterPick === "function") {
+            opts.afterPick();
+          } else {
+            if (typeof setStep === "function") setStep("product");
+            setTimeout(function () { _landOnCategory(); }, 120);
+          }
         }
         var braw = document.getElementById("chooseRaw");
         var brhef = document.getElementById("chooseRhef");
@@ -6166,14 +6220,27 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // to explore. Self-contained: pointer + keyboard drive the --split custom
     // property; if either co-registered webp fails to load we swap the whole
     // showcase for the baked quality_strip.webp so it can never render broken.
-    (function _wireCompareSlider() {
-      var el = document.getElementById("compareSlider");
-      var diptych = document.getElementById("qualityDiptych");
-      if (!el) return;
+    // Generalized so the same draggable-divider widget can be reused
+    // wherever a raw/enhanced comparison is useful — originally just the
+    // marketing quality strip's canned demo pair, now also the handoff
+    // bridge's "Help me compare" (2026-08-17, Gilly: "I just really like
+    // that particular widget"), wired to the visitor's OWN fetched images
+    // instead of the fixed demo webps. opts.activator is whatever opens the
+    // slider (the diptych button for the marketing strip; a plain button
+    // for the bridge, which has no diptych to swap out). Returns a small
+    // handle so callers with dynamic images (the bridge) can push new
+    // src's in and reset to the closed state each time it reopens.
+    function _wireCompareSliderEl(el, opts) {
+      opts = opts || {};
+      var diptych = opts.diptych || null;
+      var activator = opts.activator || diptych;
+      var closeBtn = opts.closeBtn || null;
+      var fallbackSrc = opts.fallbackSrc || "/asset/default/quality_strip.webp";
+      if (!el) return null;
       var over = el.querySelector(".compare-over");
       var under = el.querySelector(".compare-under");
       var handle = el.querySelector(".compare-handle");
-      if (!over || !under || !handle) return;
+      if (!over || !under || !handle) return null;
 
       var teased = false;
       var teaseRaf = null;
@@ -6187,7 +6254,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (_fellBack) return;   // both images can error; only swap once
         _fellBack = true;
         var img = document.createElement("img");
-        img.src = "/asset/default/quality_strip.webp";
+        img.src = fallbackSrc;
         img.alt = under.alt || "The Sun before and after processing.";
         img.className = "quality-strip-fallback";
         img.loading = "lazy";
@@ -6272,18 +6339,15 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         teaseRaf = requestAnimationFrame(frame);
       }
       // Back out to the static side-by-side. Restores the default view and
-      // returns focus to the diptych button that opened the slider, so a
-      // keyboard user isn't dumped at the top of the document.
+      // returns focus to whatever opened the slider, so a keyboard user
+      // isn't dumped at the top of the document.
       function _deactivateSlider() {
         if (teaseRaf) { cancelAnimationFrame(teaseRaf); teaseRaf = null; }
         _set(50);                       // hand it back at a clean 50/50
         el.classList.add("hidden");
-        if (diptych) {
-          diptych.classList.remove("hidden");
-          try { diptych.focus({ preventScroll: true }); } catch (_e) {}
-        }
+        if (diptych) diptych.classList.remove("hidden");
+        try { if (activator) activator.focus({ preventScroll: true }); } catch (_e) {}
       }
-      var closeBtn = document.getElementById("compareCloseBtn");
       if (closeBtn) {
         closeBtn.addEventListener("click", function (e) {
           // The slider's own pointerdown handler sets the split from click x;
@@ -6301,7 +6365,33 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           _deactivateSlider();
         }
       });
-      if (diptych) diptych.addEventListener("click", _activateSlider);
+      if (activator) activator.addEventListener("click", _activateSlider);
+      return {
+        activate: _activateSlider,
+        deactivate: _deactivateSlider,
+        setImages: function (overSrc, underSrc) {
+          _fellBack = false;
+          over.src = overSrc;
+          under.src = underSrc;
+        },
+      };
+    }
+    // Set below, wired at load; used later by _showHandoffConfirm each time
+    // the bridge opens.
+    var _confirmCompareSlider = null;
+    (function () {
+      _wireCompareSliderEl(document.getElementById("compareSlider"), {
+        diptych: document.getElementById("qualityDiptych"),
+        closeBtn: document.getElementById("compareCloseBtn"),
+      });
+      // Handoff bridge's "Help me compare" — same widget, this visitor's
+      // own images. Its src's are pushed in by _showHandoffConfirm each
+      // time the bridge opens (see _confirmCompareSlider.setImages there).
+      _confirmCompareSlider = _wireCompareSliderEl(document.getElementById("confirmCompareSlider"), {
+        diptych: document.getElementById("handoffChoicesGroup"),
+        activator: document.getElementById("confirmCompareBtn"),
+        closeBtn: document.getElementById("confirmCompareCloseBtn"),
+      });
     })();
 
     // ── Quality strip: collapse after first view ─────────────────
@@ -11745,6 +11835,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // btnChangeWavelength / _installPreviewImage).
       state.holdImageStep = false;
       if (!state.selectedProduct) return;
+      // The look question (Original vs Enhanced) hasn't been asked for this
+      // Sun yet — ask it now, before the editor opens, instead of letting
+      // the editor silently default to whichever tier happened to be ready
+      // first. This is the single gateway to the editor regardless of
+      // which order product/image were picked in (product-first commit
+      // inside _installPreviewImage, or picking a product AFTER a vibe
+      // card via commitProductSelection's "image already loaded" shim both
+      // land here), so guarding once here covers every entry path instead
+      // of duplicating the check at each call site.
+      if (!state.handoffLook && dateInput && dateInput.value && state.wavelength &&
+          typeof _showHandoffConfirm === "function") {
+        _showHandoffConfirm(dateInput.value, _solarTimeValue(), state.wavelength, { afterPick: commitImageChoice });
+        return;
+      }
       var product = _currentSelectedProductObj();
       if (!product) return;
       updateSelectedProductPreview(product);
@@ -12123,6 +12227,15 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       } else if (state.rawBackendImage && target === "jpg") {
         target = "raw";
       }
+      // An explicit "Original" pick (handoff bridge or the editor's own
+      // toggle — "last explicit choice wins") is a hard ceiling: this
+      // function exists so checkout/mockup generation never ships a
+      // low-res JPG when better data already landed, but silently
+      // shipping "Enhanced" to someone who picked "Original" is a
+      // different, worse bug (the live one this fixes). "rhef" itself is
+      // not a ceiling here — hq_rhef is the same look at higher
+      // resolution, so that promotion still runs.
+      if (state.handoffLook === "raw") target = "raw";
       if (target === state.editorFilter) return false;
       // applyFilterInstant exists earlier in the file and handles the
       // canvas re-render + UI sync; fall back to a direct write +

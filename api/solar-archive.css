@@ -2773,16 +2773,18 @@ body.step-product #editSection,
 body.step-product #vibeRevealCta {
   display: none !important;
 }
-/* On step "image" the master tier toggle is the user's primary control
-   (cards visible, mockups updating). Friction agent observed it stayed
-   hidden because of the legacy two-state "Reveal button → toggle"
-   narrative — on the new product-first flow the narrative beat is gone,
-   the user has already committed to a product and just needs to choose
-   an image at their preferred tier. Force the toggle visible on step
-   "image", and hide the per-product "Reveal" pulsing button (it was a
-   nice intro but it now blocks the toggle from showing). */
+/* Retired (2026-08-17, Gilly): this was a second, independently-editable
+   control for the same raw/enhanced decision the handoff bridge now makes
+   once, up front, for every visitor — not just 3D-experience handoffs (see
+   _installPreviewImage's commit branch). Two controls for one decision let
+   them drift out of sync ("the toggle seems unwired"). The vibe cards' own
+   reveal-ramp animation (state.vibeMasterTier) is untouched and still runs
+   on its own timer as ambient showcase flavor; only this manual override
+   button is hidden. Was `display: flex !important` — the highest-specificity
+   rule actually keeping it on-screen on step "image"; see also the base
+   #vibeRevealCta rule further down, edited the same way. */
 body.step-image #vibeRevealCta {
-  display: flex !important;
+  display: none !important;
 }
 body.step-image .vibe-reveal-btn { display: none !important; }
 body.step-image .vibe-master-toggle { display: inline-flex !important; }
@@ -6967,6 +6969,33 @@ body.handoff-confirm #workflowBreadcrumb {
 .handoff-edit:hover {
   color: var(--text-primary);
 }
+/* Opens the reused compare-slider (see #confirmCompareSlider) — a distinct
+   pill rather than another underlined text link, since it toggles a mode
+   rather than navigating away. */
+.handoff-compare-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem auto 0;
+  padding: 0.45rem 1rem;
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--handoff-text-dim);
+  background: transparent;
+  border: 1px solid rgba(232, 226, 208, 0.2);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+.handoff-compare-btn:hover,
+.handoff-compare-btn:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--accent-corona-text, #f3d385);
+}
+#confirmCompareSlider {
+  margin: 0.8rem auto 0;
+}
 
 /* ── Persistent editable Sun summary chip (rides after Continue) ── */
 .sun-summary-chip {
@@ -7536,7 +7565,10 @@ body:has(#imageStage.loading) .field-cell {
 #vibeRevealCta {
   position: static !important;
   transform: none !important;
-  display: flex !important;
+  /* Retired (2026-08-17, Gilly) — see the step-image override above for
+     the full rationale. This was the base/fallback case (step "review"
+     and anything not covered by a step-specific rule). */
+  display: none !important;
   flex-direction: row !important;
   flex-wrap: wrap;
   align-items: center;

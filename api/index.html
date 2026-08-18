@@ -159,22 +159,49 @@
       <p id="confirmMeta" class="handoff-meta"></p>
       <p class="handoff-question">Which look do you want?</p>
 
-      <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
-        <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw">
-          <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-color rendering" />
-          <span class="handoff-choice-name">Original</span>
-          <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false color.</span>
-        </button>
-        <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
-          <span class="handoff-choice-imgwrap">
-            <img id="confirmThumbRhef" class="handoff-choice-img" alt="Your Sun with the corona revealed" />
-            <span class="handoff-choice-pending" id="rhefPending">Developing…</span>
-          </span>
-          <span class="handoff-choice-name">Enhanced</span>
-          <span class="handoff-choice-sub">The same observation, contrast-enhanced (RHEF) to reveal faint structure in the corona.</span>
+      <div id="handoffChoicesGroup">
+        <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
+          <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw">
+            <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-color rendering" />
+            <span class="handoff-choice-name">Original</span>
+            <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false color.</span>
+          </button>
+          <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef">
+            <span class="handoff-choice-imgwrap">
+              <img id="confirmThumbRhef" class="handoff-choice-img" alt="Your Sun with the corona revealed" />
+              <span class="handoff-choice-pending" id="rhefPending">Developing…</span>
+            </span>
+            <span class="handoff-choice-name">Enhanced</span>
+            <span class="handoff-choice-sub">The same observation, contrast-enhanced (RHEF) to reveal faint structure in the corona.</span>
+          </button>
+        </div>
+        <p id="confirmProvenance" class="handoff-provenance"></p>
+
+        <!-- Reuses the quality-strip's own draggable-divider widget (same
+             .compare-slider markup/CSS/JS), pointed at THIS visitor's own
+             raw/enhanced frames instead of the fixed marketing demo pair.
+             Rescued here at Gilly's request (2026-08-17) — an optional
+             closer look, not itself the decision; closing it returns to the
+             two clickable cards above, which stay the actual pick. -->
+        <button type="button" class="handoff-compare-btn" id="confirmCompareBtn">
+          <i class="fas fa-arrows-left-right" aria-hidden="true"></i> Help me compare
         </button>
       </div>
-      <p id="confirmProvenance" class="handoff-provenance"></p>
+      <div class="compare-slider hidden" id="confirmCompareSlider" style="--split:50%">
+        <img class="compare-under" id="confirmCompareUnder" alt="Your Sun, enhanced" decoding="async" />
+        <img class="compare-over" id="confirmCompareOver" alt="" aria-hidden="true" decoding="async" />
+        <div class="compare-handle" role="slider" tabindex="0"
+             aria-label="Drag to compare your Sun's original and enhanced look"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+             aria-valuetext="50% original, 50% enhanced">
+          <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
+        </div>
+        <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
+        <span class="compare-label compare-label-right" aria-hidden="true">Enhanced</span>
+        <button type="button" class="compare-close-btn" id="confirmCompareCloseBtn"
+                aria-label="Close the drag comparison and go back to the choice cards"
+                title="Back to the choice cards">&#x2715;</button>
+      </div>
 
       <div class="handoff-actions">
         <button type="button" id="confirmEdit" class="handoff-edit">Change date or color</button>
