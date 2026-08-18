@@ -198,9 +198,23 @@
         </div>
         <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
         <span class="compare-label compare-label-right" aria-hidden="true">Enhanced</span>
+        <!-- Shown until the real RHEF render lands (see the _warmBothPreviews
+             callback in _showHandoffConfirm) — until then this half is
+             still showing the placeholder frame on both sides, same as the
+             "Developing…" pill on the Enhanced card. -->
+        <span class="compare-pending" id="confirmComparePending" hidden>
+          <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Developing the enhanced view…
+        </span>
         <button type="button" class="compare-close-btn" id="confirmCompareCloseBtn"
                 aria-label="Close the drag comparison and go back to the choice cards"
                 title="Back to the choice cards">&#x2715;</button>
+      </div>
+      <!-- Pick straight from the compare view — closing it first to reach
+           the cards was an extra step once you've already decided by
+           looking (Gilly, 2026-08-18). Same pick(tier) the cards use. -->
+      <div class="handoff-compare-pick hidden" id="confirmComparePick">
+        <button type="button" class="handoff-compare-pick-btn" id="confirmComparePickRaw" data-tier="raw">Choose Original</button>
+        <button type="button" class="handoff-compare-pick-btn" id="confirmComparePickRhef" data-tier="rhef">Choose Enhanced</button>
       </div>
 
       <div class="handoff-actions">

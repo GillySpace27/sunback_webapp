@@ -5596,9 +5596,18 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // ── Handoff bridge (from the 3D experience) ───────────────────
     // Build the same Helioviewer thumb the wl tiles use, so the confirm screen
     // and summary chip show the sender's actual Sun.
+    // AIA's native detector FOV: 4096px x 0.6"/px (lev1) = 2457.6" — the
+    // SAME physical field of view the backend's own raw/filtered preview
+    // shows (main.py's _generate_preview_sync block-reduces the FULL FITS
+    // frame with no sub-crop, so its FOV is exactly this, regardless of
+    // resolution tier). This thumb request has to target the same FOV or
+    // the two images land at different plate scales and the limb doesn't
+    // line up between them — very visible once "Help me compare" puts them
+    // in the same frame with a shared edge (Gilly, 2026-08-18).
+    var AIA_NATIVE_FOV_ARCSEC = 2457.6;
     function _handoffThumbUrl(dateStr, timeStr, wlNum, size) {
       var hh = (/^\d{2}:\d{2}$/.test(timeStr) ? timeStr : "12:00").slice(0, 2);
-      var scale = Math.max(1, Math.round(3072 / size));
+      var scale = Math.max(1, AIA_NATIVE_FOV_ARCSEC / size);
       return API_BASE + "/api/helioviewer_thumb?date=" +
         encodeURIComponent(dateStr + "T" + hh + ":00:00Z") +
         "&wavelength=" + encodeURIComponent(wlNum) +
@@ -5715,6 +5724,8 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // "Help me compare" reopens closed each time the bridge opens for a
         // new Sun, seeded with the same instant frame on both sides until
         // the real RHEF tier lands below — mirrors the two cards exactly.
+        var comparePending = document.getElementById("confirmComparePending");
+        if (comparePending) comparePending.hidden = false;
         if (_confirmCompareSlider) {
           _confirmCompareSlider.deactivate();
           _confirmCompareSlider.setImages(instant, instant);
@@ -5727,6 +5738,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             rhefImg.src = url;
             if (pending && pending.parentNode) pending.remove();
             if (rhefBtn) rhefBtn.classList.remove("is-pending");
+            if (comparePending) comparePending.hidden = true;
             if (_confirmCompareSlider) _confirmCompareSlider.setImages(instant, url);
           }
         }, function () {
@@ -5735,6 +5747,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           // just shows the same instant frame as Original at that point).
           if (pending) pending.textContent = "Enhanced isn't ready yet. Original is ready now.";
           if (rhefBtn) rhefBtn.classList.remove("is-pending");
+          if (comparePending) comparePending.textContent = "Enhanced isn't ready yet — Original is ready now.";
         });
 
         var chip = document.getElementById("sunSummaryChip");
@@ -5809,6 +5822,25 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var brhef = document.getElementById("chooseRhef");
         if (braw) braw.onclick = function () { pick("raw"); };
         if (brhef) brhef.onclick = function () { pick("rhef"); };
+        // Same pick(tier), reachable without closing "Help me compare" first
+        // (Gilly, 2026-08-18: closing it just to reach the cards was an
+        // extra step once you've already decided by looking). Shown/hidden
+        // alongside the slider itself via the compare button/close button.
+        // .onclick (not addEventListener) so re-running _showHandoffConfirm
+        // on a re-pick overwrites this instead of stacking a duplicate each
+        // time — separate slot from _wireCompareSliderEl's own
+        // addEventListener on these same two elements, so neither clobbers
+        // the other.
+        var comparePickGroup = document.getElementById("confirmComparePick");
+        var cmpBtn = document.getElementById("confirmCompareBtn");
+        var cmpClose = document.getElementById("confirmCompareCloseBtn");
+        var cmpPickRaw = document.getElementById("confirmComparePickRaw");
+        var cmpPickRhef = document.getElementById("confirmComparePickRhef");
+        if (cmpBtn && comparePickGroup) cmpBtn.onclick = function () { comparePickGroup.classList.remove("hidden"); };
+        if (cmpClose && comparePickGroup) cmpClose.onclick = function () { comparePickGroup.classList.add("hidden"); };
+        if (comparePickGroup) comparePickGroup.classList.add("hidden");
+        if (cmpPickRaw) cmpPickRaw.onclick = function () { pick("raw"); };
+        if (cmpPickRhef) cmpPickRhef.onclick = function () { pick("rhef"); };
         // Legacy path: anything still clicking the old Continue gets the
         // enhanced look, which is what it silently did before.
         var cont = document.getElementById("confirmContinue");

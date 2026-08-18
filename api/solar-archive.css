@@ -585,6 +585,56 @@ html:not(.dark) .wl-submit-btn { background: var(--accent-sun); }
 .compare-label-left  { left: 10px; }
 .compare-label-right { right: 10px; }
 
+/* Handoff bridge's own compare instance: "still developing" state (right
+   half is showing the placeholder frame on both sides until the real RHEF
+   render lands) and the pick-without-closing-first buttons. */
+/* [hidden] must always win — this codebase has hit the "author class beats
+   the UA [hidden] rule" bug before (#vibeRevealCta, .vibe-reveal-cta.hidden),
+   same fix here: the boolean hidden attribute set from JS was being
+   silently overridden by this class's own display:flex. */
+.compare-pending[hidden] { display: none; }
+.compare-pending {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(10,9,17,0.75);
+  color: #d0c8d8;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+.handoff-compare-pick {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0.7rem auto 0;
+}
+.handoff-compare-pick-btn {
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--handoff-text-dim);
+  background: transparent;
+  border: 1px solid rgba(232, 226, 208, 0.25);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.handoff-compare-pick-btn:hover,
+.handoff-compare-pick-btn:focus-visible {
+  color: #0a0908;
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+
 .quality-strip-caption {
   max-width: 760px;
   margin: 12px auto 0;
