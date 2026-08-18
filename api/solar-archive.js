@@ -5662,8 +5662,13 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (j.preview_url) onTier("rhef", j.preview_url);
           // 202 with nothing ready yet: it is generating in the background.
           // Poll a few times rather than leaving a panel pending forever.
+          // Was 12 tries x 1.5s = 18s — live timing (2026-08-18) showed the
+          // real pipeline (JPG fetch + synoptic download + full RHEF filter)
+          // routinely takes 20-25s even on the fast synoptic-archive path,
+          // so this was giving up on renders that were seconds from landing.
+          // 20 x 2s = 40s covers that with real margin.
           if (!j.preview_url) {
-            if (tries < 12) setTimeout(ask, 1500);
+            if (tries < 20) setTimeout(ask, 2000);
             else giveUp();
           }
         }).catch(function () { /* Original stays pickable; that is a complete answer */ giveUp(); });
