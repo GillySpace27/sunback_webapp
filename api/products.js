@@ -29,14 +29,14 @@
 
 export const PRODUCTS = [
   // ── Wall Art & Home Decor ──
-  { id: "canvas_stretched", category: "wall",     name: "Stretched Canvas",    desc: "Gallery-wrapped canvas",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 2400, h: 3000 } },
+  { id: "canvas_stretched", category: "wall",     name: "Stretched Canvas",    desc: "Canvas on a wooden frame, image wrapping the edges",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 2400, h: 3000 } },
   { id: "metal_sign", category: "wall",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front", aspectRatio: { w: 2250, h: 1650 } },
   { id: "acrylic_print", category: "wall",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front", aspectRatio: { w: 2250, h: 1650 } },
   // Curated from 46 catalog sizes to 8 (Gilly, 2026-08-08): square-biased
   // because the Sun is round — five squares, the two classic portrait
   // sizes (9×11 must stay: it's the whole-bucket cheapest that pins the
   // "From $9.99" anchor in BOTH pricing paths), and one large-format hero.
-  { id: "poster_matte", category: "wall",         name: "Matte Poster",        desc: "Museum-quality matte paper, multiple sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 },
+  { id: "poster_matte", category: "wall",         name: "Matte Poster",        desc: "Thick matte art paper, several sizes", icon: "fa-image",       price: "From $9.99",  checkoutPrice: 999,  blueprintId: 282,  printProviderId: 99,  variantId: 43135, position: "front", aspectRatio: { w: 11, h: 14 },
     variantFilter: { sizes: ["9″ x 11″", "10″ x 10″", "12″ x 12″", "16″ x 16″", "20″ x 20″", "24″ x 24″", "11″ x 14″", "24″ x 36″"] } },
   { id: "framed_poster", category: "wall",        name: "Framed Poster",       desc: "Ready-to-hang framed museum print",         icon: "fa-square",       price: "From $51.99", checkoutPrice: 5199, blueprintId: 492,  printProviderId: 36,  variantId: 65400, position: "front", aspectRatio: { w: 11, h: 14 } },
   { id: "wall_clock", category: "wall",           name: "Wall Clock",          desc: "Round acrylic clock — the Sun tells time",  icon: "fa-clock",        price: "From $48.99", checkoutPrice: 4899, blueprintId: 277,  printProviderId: 1,   variantId: 43008, position: "front", aspectRatio: { w: 1, h: 1 },
@@ -49,7 +49,7 @@ export const PRODUCTS = [
   // Added 2026-08-08 (Gilly: circular wall pieces). Costs discovered via the
   // reference-product backfill: 8″ round $24.88, 10.75″ $28.28. Round-only
   // via variantFilter — the square variant would dilute the circular pitch.
-  { id: "wall_clock_acrylic", category: "wall",   name: "Acrylic Wall Clock",  desc: "Glass-look round acrylic clock",            icon: "fa-clock",        price: "From $48.99", checkoutPrice: 4899, blueprintId: 1305, printProviderId: 104, variantId: 98941, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle",
+  { id: "wall_clock_acrylic", category: "wall",   name: "Acrylic Wall Clock",  desc: "Round clock, clear acrylic face",            icon: "fa-clock",        price: "From $48.99", checkoutPrice: 4899, blueprintId: 1305, printProviderId: 104, variantId: 98941, position: "front", aspectRatio: { w: 1, h: 1 }, printShape: "circle",
     variantFilter: { sizes: ["Round"] } },
   { id: "tapestry", category: "wall",             name: "Wall Tapestry",       desc: "Large-format indoor wall hanging",          icon: "fa-scroll",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 241,  printProviderId: 10,  variantId: 41686, position: "front", aspectRatio: { w: 4350, h: 5850 } },
   // Cost $76.49 (single 60″ round variant, MWW On Demand — same provider as
@@ -80,7 +80,7 @@ export const PRODUCTS = [
   // taller than wide). All three share the same panel because
   // they use provider 29 (Monster Digital) with a single DTG
   // press; only the garment template differs.
-  { id: "tshirt_unisex", category: "apparel",        name: "Unisex T-Shirt",      desc: "Bella+Canvas 3001 jersey tee, DTG print",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front", aspectRatio: { w: 3319, h: 3761 },
+  { id: "tshirt_unisex", category: "apparel",        name: "Unisex T-Shirt",      desc: "Soft cotton tee, printed directly on the fabric",   icon: "fa-tshirt",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 12,   printProviderId: 29,  variantId: 18052, position: "front", aspectRatio: { w: 3319, h: 3761 },
     variantFilter: { sizes: ["XS","S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Forest Green","Dark Heather","Athletic Heather","True Royal","Maroon","Red","Military Green"] } },
   { id: "hoodie_pullover", category: "apparel",      name: "Pullover Hoodie",     desc: "Unisex heavy blend hooded sweatshirt",      icon: "fa-mitten",       price: "From $39.99", checkoutPrice: 3999, blueprintId: 77,   printProviderId: 29,  variantId: 32878, position: "front", aspectRatio: { w: 3319, h: 3761 },
     variantFilter: { sizes: ["S","M","L","XL","2XL","3XL"], colors: ["Black","White","Navy","Dark Heather","Sport Grey","Maroon","Forest Green","Military Green"] } },
@@ -139,7 +139,7 @@ export const PRODUCTS = [
   { id: "puzzle_1000", category: "gifts",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front", aspectRatio: { w: 4200, h: 3300 } },
   { id: "coaster_set", category: "gifts",          name: "Coaster Set",         desc: "4-pack corkwood coasters, glossy top",      icon: "fa-circle",       price: "From $23.99", checkoutPrice: 2399, blueprintId: 510,  printProviderId: 48,  variantId: 72872, position: "front", aspectRatio: { w: 1, h: 1 } },
   // ── Accessories & Stationery ──
-  { id: "sticker_kiss", category: "gifts",         name: "Kiss-Cut Stickers",   desc: "Die-cut vinyl stickers, multiple sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: { w: 1, h: 1 },
+  { id: "sticker_kiss", category: "gifts",         name: "Kiss-Cut Stickers",   desc: "Vinyl stickers cut to shape, several sizes",    icon: "fa-sticky-note",  price: "From $2.99",  checkoutPrice: 299,  blueprintId: 400,  printProviderId: 99,  variantId: 45748, position: "front", aspectRatio: { w: 1, h: 1 },
     // Fallback-only (the live cost ladder wins when pricing is warm);
     // synced 2026-08-08 to the ladder: $1-steps up from the anchor.
     sizePricing: { 45748: "$2.99", 45750: "$3.99", 45752: "$4.99", 45754: "$5.99" } },
@@ -171,7 +171,7 @@ export const PRODUCTS = [
   // Bodysuit: cost $13.56 across colors/sizes (Printify Choice).
   { id: "baby_bodysuit", category: "apparel",        name: "Baby Bodysuit",       desc: "Born under this Sun — soft short-sleeve onesie", icon: "fa-baby",    price: "From $23.99", checkoutPrice: 2399, blueprintId: 568,  printProviderId: 99,  variantId: 71076, position: "front", aspectRatio: { w: 1500, h: 1714 } },
   // Towel: 30x60 $23.29 / 36x72 $29.79 (Printify Choice).
-  { id: "beach_towel", category: "home",          name: "Beach Towel",         desc: "Full-bleed print, two sizes",               icon: "fa-umbrella-beach", price: "From $39.99", checkoutPrice: 3999, blueprintId: 352,  printProviderId: 99,  variantId: 44444, position: "front", aspectRatio: { w: 18900, h: 9900 } },
+  { id: "beach_towel", category: "home",          name: "Beach Towel",         desc: "Print covers the whole towel, two sizes",               icon: "fa-umbrella-beach", price: "From $39.99", checkoutPrice: 3999, blueprintId: 352,  printProviderId: 99,  variantId: 44444, position: "front", aspectRatio: { w: 18900, h: 9900 } },
   // Socks: $11.27-12.08 (ArtsAdd). Two leg placeholders (front_left_leg /
   // front_right_leg) — checkout's _expand_print_areas mirrors the design
   // onto both, same mechanism that already exists for this blueprint family.
