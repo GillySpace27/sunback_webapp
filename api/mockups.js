@@ -279,6 +279,56 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
     }
 
     /**
+     * Build a plain, correctly-cropped canvas of source art for a Printify
+     * upload — for the pre-commit variant picker, which opens for a
+     * CANDIDATE product before state.selectedProduct is committed to it
+     * (showConfirmSelectModal runs ahead of commitProductSelection). The
+     * live editor canvas is still cropped for whatever product IS
+     * currently selected — often a different aspect ratio — so it can't
+     * be reused as-is, and drawProductMockup's own output is a composited
+     * preview SCENE (mug unwrap, dual-panel spread, warm-card background),
+     * not printable art. This mirrors drawProductMockup's own source
+     * routing + cover-crop math (_sharedSrcRect) so the uploaded framing
+     * matches what the picker's own canvas preview already shows.
+     */
+    function buildVariantUploadCanvas(product) {
+      if (!product) return null;
+      if (product.id === state.selectedProduct) {
+        // Live canvas is already cropped to this exact product's aspect —
+        // the same source getCanvasBase64() uses for a committed upload.
+        return getCleanCanvasSnapshot();
+      }
+      var src = _getEditedSharedSource();
+      if (!src) return null;
+      var iw = src.naturalWidth || src.width;
+      var ih = src.naturalHeight || src.height;
+      if (!iw || !ih) return null;
+      var ar = getEffectiveAspectRatio(product) || { w: iw, h: ih };
+      var view = PRODUCT_PREVIEW_VIEW[product.id] || { zoom: 1.0, cx: 0.5, cy: 0.5 };
+      var zoom = Math.max(0.3, Math.min(3.0, view.zoom || 1.0));
+      var dstAR = ar.w / ar.h;
+      var srcAR = iw / ih;
+      var vw, vh;
+      if (dstAR >= srcAR) { vw = iw / zoom; vh = vw / dstAR; }
+      else { vh = ih / zoom; vw = vh * dstAR; }
+      var scale = Math.min(1, iw / vw, ih / vh);
+      vw *= scale; vh *= scale;
+      var cx = (view.cx != null ? view.cx : 0.5) * iw;
+      var cy = (view.cy != null ? view.cy : 0.5) * ih;
+      var sx = Math.max(0, Math.min(iw - vw, cx - vw / 2));
+      var sy = Math.max(0, Math.min(ih - vh, cy - vh / 2));
+      var maxDim = 2048;
+      var outW, outH;
+      if (dstAR >= 1) { outW = Math.min(maxDim, Math.round(vw)); outH = Math.round(outW / dstAR); }
+      else { outH = Math.min(maxDim, Math.round(vh)); outW = Math.round(outH * dstAR); }
+      var canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = outH;
+      canvas.getContext("2d").drawImage(src, sx, sy, vw, vh, 0, 0, outW, outH);
+      return canvas;
+    }
+
+    /**
      * Return the crop box in canvas pixel coordinates. Fixed-frame model: the canvas is the frame,
      * so the box is always the full canvas (0,0,cw,ch). Same source for preview and mockups.
      */
@@ -1189,4 +1239,4 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
 // exported because 20+ call sites in solar-archive.js + the variant
 // picker still need it; everything else (snapshot, viewport, shared
 // source, PRODUCT_PREVIEW_VIEW) stays module-private.
-export { drawProductMockup, getEffectiveAspectRatio };
+export { drawProductMockup, getEffectiveAspectRatio, buildVariantUploadCanvas };

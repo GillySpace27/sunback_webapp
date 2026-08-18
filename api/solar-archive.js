@@ -13,7 +13,7 @@
 import { state, defaultMockupManifest, setDefaultMockupManifest, defaultMockupEntry } from "./state.js";
 import { PRODUCTS, FEATURED_PRODUCT_IDS, PRODUCT_CATEGORY_ORDER } from "./products.js";
 import { PRINTIFY_COLOR_HEX, hexForColorName, variantColorOption } from "./colors.js";
-import { drawProductMockup, getEffectiveAspectRatio, initMockups } from "./mockups.js";
+import { drawProductMockup, getEffectiveAspectRatio, initMockups, buildVariantUploadCanvas } from "./mockups.js";
 import { setupFeedback } from "./feedback.js";
 import { recordStatEvent, addStatsBadge, productsByPopularity, initStats } from "./stats.js";
 import { saveDesignLocally, initBundler } from "./bundler.js";
@@ -13962,15 +13962,23 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // picker runs before the science FITS has landed, so its source is often
     // the low-res JPG preview; writing that into the shared cache would let a
     // JPG-grade upload be reused for the editor mockup and, worse, the print
-    // file. One upload per tier per session is plenty for a 240px preview.
+    // file. One upload per product+tier per session is plenty for a 240px
+    // preview. Keyed by product too (not just tier): the picker opens for a
+    // CANDIDATE product before state.selectedProduct is committed to it, so
+    // two different products (different aspect ratios) opened in the same
+    // session must not share an upload — that was silently reusing the
+    // first product's framing on every product opened after it.
     var _pickerUploadIds = {};
-    function _ensurePrintifyUploadId(tier) {
-      var key = tier;
+    function _ensurePrintifyUploadId(product, tier) {
+      var key = product.id + ":" + tier;
       if (_pickerUploadIds[key]) return Promise.resolve(_pickerUploadIds[key]);
       var fname = "preview_" + ((dateInput && dateInput.value) || "image") + "_" +
-                  state.wavelength + "_" + tier + ".png";
-      var b64;
-      try { b64 = getCanvasBase64(); } catch (_e) { return Promise.reject(new Error("canvas unavailable")); }
+                  state.wavelength + "_" + product.id + "_" + tier + ".png";
+      var canvas, b64;
+      try {
+        canvas = buildVariantUploadCanvas(product);
+        b64 = canvas && canvas.toDataURL("image/png").split(",")[1];
+      } catch (_e) { return Promise.reject(new Error("canvas unavailable")); }
       if (!b64) return Promise.reject(new Error("canvas empty"));
       return fetchWithTimeout(API_BASE + "/api/printify/upload", {
         method: "POST",
@@ -13986,7 +13994,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     }
     // One variant, one camera. Resolves to an image URL or null.
     function _fetchVariantMockup(product, variantId, tier) {
-      return _ensurePrintifyUploadId(tier).then(function (imageId) {
+      return _ensurePrintifyUploadId(product, tier).then(function (imageId) {
         var payload = {
           title: "[MOCKUP] Size picker — " + product.name,
           description: "Auto-generated variant preview",
