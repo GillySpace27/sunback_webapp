@@ -1517,12 +1517,46 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             log_to_queue(f"[generate_preview] synoptic direct hit: "
                          f"{os.path.basename(fits_path)} (no export queue)")
     if not fits_path:
+        _jsoc_tried = False
+
+        def _try_jsoc_fallback(reason):
+            nonlocal fits_path, _jsoc_tried
+            _jsoc_tried = True
+            log_to_queue(f"[generate_preview] {reason} — trying JSOC.")
+            try:
+                from pathlib import Path as _Path
+                jsoc_files = _fetch_aia_via_jsoc(dt.replace(second=0, microsecond=0),
+                                                 int(wl), _Path(download_dir))
+                if jsoc_files:
+                    # Pick the first usable file (≥100 KB).
+                    for jf in jsoc_files:
+                        try:
+                            if os.path.exists(jf) and os.path.getsize(jf) >= 100_000:
+                                fits_path = jf
+                                log_to_queue(f"[generate_preview] JSOC delivered: {os.path.basename(jf)}")
+                                break
+                        except Exception:
+                            continue
+            except Exception as jsoc_err:
+                log_to_queue(f"[generate_preview] JSOC fallback failed ({type(jsoc_err).__name__}): {jsoc_err}")
+
         try:
             client = VSOClient()
-            # NASA DRMS can be slow; use timeouts that allow slow-but-valid FITS (~10–50MB) to complete.
-            # sock_read=60 allows slow streaming; total=180 so one slow file can finish. Broken records
-            # still fail within these limits instead of hanging indefinitely.
-            fast_downloader = get_downloader(total_timeout=180, connect_timeout=30, sock_read_timeout=60)
+            # This is the path an interactive visitor is actively waiting on
+            # (not the HQ/print path, which has its own patience budget), so
+            # it needs to fail fast, not fail thoroughly. Was 60s/180s —
+            # generous enough that a genuinely broken record (NASA's DRMS
+            # export backend hanging, not just slow) could eat 60s PER ROW,
+            # and _try_download below has no cap on how many rows it probes.
+            # Observed live 2026-08-18: a single wavelength (1700 A, which
+            # SYNOPTIC_MISSING_WAVELENGTHS routes past the fast synoptic
+            # bypass straight into this path) burned 5+ minutes hitting this
+            # exact failure — same "Timeout on reading data from socket" on
+            # every row, every nearby day, before ever reaching the JSOC/
+            # Helioviewer fallback below. 20s is still generous for a real
+            # 10-50MB transfer at any reasonable bandwidth; it just stops
+            # rewarding a dead connection with a full minute of silence.
+            fast_downloader = get_downloader(total_timeout=45, connect_timeout=10, sock_read_timeout=20)
 
             def _is_usable_fits(path):
                 """Return True if the file exists and is large enough to use (avoid placeholders)."""
@@ -1542,7 +1576,13 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                 if len(qr) == 0:
                     return None
                 log_to_queue(f"[generate_preview] {label}: {len(qr)} records found, probing one at a time...")
-                for i in range(len(qr)):
+                # Capped at 2: if the first couple of rows both time out, the
+                # rest are hitting the same DRMS export backend over the same
+                # network path and are overwhelmingly likely to time out too
+                # — probing all of them (seen: 4 rows x 60s = 4 minutes for
+                # ONE day) was paying full price to learn nothing new.
+                max_rows = min(len(qr), 2)
+                for i in range(max_rows):
                     one_row = qr[i:i+1]
                     _VSO_LIMITER.wait()
                     result = Fido.fetch(one_row, path=download_dir, downloader=fast_downloader)
@@ -1556,7 +1596,8 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                     log_to_queue(f"[generate_preview] {label}: row {i} failed ({err[:80]}), trying next row...")
                     if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
                         breakpoint()  # inspect result, result.errors, one_row, i, label, download_dir
-                log_to_queue(f"[generate_preview] {label}: all {len(qr)} rows failed, skipping day.")
+                log_to_queue(f"[generate_preview] {label}: all {max_rows} probed row(s) failed "
+                             f"(of {len(qr)} found), skipping day.")
                 return None
 
             # FITS query honours the user's exact time. The frontend now
@@ -1568,7 +1609,14 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             fits_path = _try_download(dt_query, f"exact day {dt_query.date()} {ts_label}")
             if not fits_path:
                 log_to_queue(f"[generate_preview] Scanning nearby days...")
-                for offset in range(1, 8):
+                # Was 7: real AIA data gaps (instrument downtime, calibration
+                # windows) are rare and short, so ±3 days already covers
+                # the realistic case. Each extra day is up to 2 more rows x
+                # 20s if VSO is systematically failing rather than genuinely
+                # missing data (the observed 2026-08-18 failure mode) — that
+                # doesn't get better by trying more days, it just multiplies
+                # the wait for no benefit.
+                for offset in range(1, 4):
                     for candidate in [dt_query - timedelta(days=offset), dt_query + timedelta(days=offset)]:
                         fits_path = _try_download(candidate, f"offset {offset:+}d ({candidate.date()} {ts_label})")
                         if fits_path:
@@ -1577,25 +1625,17 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                         break
         except Exception as vso_err:
             # VSO/SunPy unavailable (e.g. WSDL mirrors unreachable on this network).
-            # Try JSOC before falling all the way down to the JPG-only Helioviewer
-            # fallback — JSOC gets us a real FITS frame so RHEF still runs.
-            log_to_queue(f"[generate_preview] VSO unavailable ({type(vso_err).__name__}): {vso_err} — trying JSOC.")
-            try:
-                from pathlib import Path as _Path
-                jsoc_files = _fetch_aia_via_jsoc(dt.replace(second=0, microsecond=0),
-                                                 int(wl), _Path(download_dir))
-                if jsoc_files:
-                    # Pick the first usable file (≥100 KB).
-                    for jf in jsoc_files:
-                        try:
-                            if os.path.exists(jf) and os.path.getsize(jf) >= 100_000:
-                                fits_path = jf
-                                log_to_queue(f"[generate_preview] JSOC delivered: {os.path.basename(jf)}")
-                                break
-                        except Exception:
-                            continue
-            except Exception as jsoc_err:
-                log_to_queue(f"[generate_preview] JSOC fallback failed ({type(jsoc_err).__name__}): {jsoc_err}")
+            _try_jsoc_fallback(f"VSO unavailable ({type(vso_err).__name__}): {vso_err}")
+
+        # VSO can also fail WITHOUT raising: it finds records but every
+        # download attempt times out (observed live 2026-08-18 — NASA's
+        # DRMS export backend hanging, not a data gap, so scanning more
+        # days wouldn't have helped either). That path fell straight to the
+        # degraded Helioviewer-only fallback below and skipped JSOC
+        # entirely, even though JSOC hits a different backend and had a
+        # real shot at a genuine FITS frame (so RHEF still runs).
+        if not fits_path and not _jsoc_tried:
+            _try_jsoc_fallback("VSO found records but every download attempt failed")
 
         if not fits_path:
             if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
