@@ -70,7 +70,18 @@ const fragment = /* glsl */ `
     // plasma entirely (its result would be discarded by the mix anyway)
     if (uHasMap > 0.5 && uMapMix > 0.99) {
       vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
-      gl_FragColor = vec4(texture2D(uMap, muv).rgb * uExposure, 1.0);
+      vec3 photo = texture2D(uMap, muv).rgb * uExposure;
+      // The fast path used to blit the texture flat, with no limb term at all,
+      // so the moment the real frame arrived the Sun stopped being a lit body
+      // and became a decal on a sphere with a razor silhouette. Keep the limb
+      // falloff the procedural branch computes, and push bright cores above
+      // 1.0 so the bloom pass has real headroom: a star reads as light because
+      // it blows out, not because it is orange.
+      float limbF = pow(clamp(dot(vN, vView), 0.0, 1.0), 0.55);
+      float lum = dot(photo, vec3(0.2126, 0.7152, 0.0722));
+      photo *= 0.62 + 0.38 * limbF;
+      photo *= 1.0 + 2.6 * pow(clamp(lum, 0.0, 1.0), 2.5);
+      gl_FragColor = vec4(photo, 1.0);
       return;
     }
 
@@ -94,10 +105,53 @@ const fragment = /* glsl */ `
   }
 `;
 
+// Corona.
+//
+// First attempt was the usual back-side shell, and it was geometrically wrong
+// for this: on a back-side sphere the rim term peaks at the SHELL's own outer
+// silhouette and saturates toward its centre, so it renders a bright ring at
+// the far edge of the shell with a filled middle — a fried egg, not an
+// atmosphere, and with bloom on top it washed the whole void brown.
+//
+// A camera-facing billboard puts the falloff where it actually belongs:
+// anchored to the limb and decaying outward. The quad sits at the Sun's centre,
+// so the sphere itself (which writes depth) occludes everything inside the
+// limb, and only the annulus outside it survives.
+const CORONA_SIZE = 8.0;                    // quad edge, world units
+const CORONA_LIMB = (1.6 / (CORONA_SIZE / 2)); // where the disk edge falls in uv
+
+const coronaVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const coronaFragment = /* glsl */ `
+  precision highp float;
+  varying vec2 vUv;
+  uniform vec3 uTint;
+  uniform float uStrength;
+  uniform float uLimb;
+  void main() {
+    float r = length(vUv - 0.5) * 2.0;
+    float t = clamp((r - uLimb) / (1.0 - uLimb), 0.0, 1.0);
+    // two terms: a tight bright collar on the limb, plus a much fainter wide
+    // halo, which is roughly how a real corona falls off and stops the glow
+    // reading as a single soft ring
+    float collar = pow(1.0 - t, 7.0);
+    float halo = pow(1.0 - t, 2.0) * 0.22;
+    float i = collar + halo;
+    gl_FragColor = vec4(uTint * i * uStrength, i);
+  }
+`;
+
 const BLACK_1PX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
 BLACK_1PX.needsUpdate = true;
 
 export default function Sun() {
+  const corona = useRef<THREE.Mesh>(null);
   const tint = useRef(new THREE.Color(CHANNELS[5].tint));
   const hot = useRef(new THREE.Color(CHANNELS[5].hot));
 
@@ -124,12 +178,23 @@ export default function Sun() {
     []
   );
 
+  const coronaUniforms = useMemo(
+    () => ({
+      uTint: { value: hot.current.clone() },
+      uStrength: { value: 0.85 },
+      uLimb: { value: CORONA_LIMB },
+    }),
+    []
+  );
+
   useEffect(() => {
     uniforms.uMap.value = tex ?? BLACK_1PX;
     uniforms.uHasMap.value = tex ? 1 : 0;
   }, [tex, uniforms]);
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
+    // billboard: the corona is a flat quad, so it must always face the camera
+    if (corona.current) corona.current.quaternion.copy(state.camera.quaternion);
     const { channel: ch, quality, reducedMotion } = useStore.getState();
     const c = CHANNELS[ch];
     tint.current.set(c.tint);
@@ -137,6 +202,7 @@ export default function Sun() {
     const k = 1 - Math.exp(-dt / 0.26);
     (uniforms.uTint.value as THREE.Color).lerp(tint.current, k);
     (uniforms.uHot.value as THREE.Color).lerp(hot.current, k);
+    (coronaUniforms.uTint.value as THREE.Color).lerp(hot.current, k);
     uniforms.uTime.value += reducedMotion ? 0 : dt;
     uniforms.uOctaves.value = quality === "high" ? 6 : quality === "medium" ? 4 : 3;
     // resolve procedural -> photo (or back) over ~0.5s
@@ -145,14 +211,29 @@ export default function Sun() {
   });
 
   return (
-    <mesh visible={visible}>
-      <icosahedronGeometry args={[1.6, 12]} />
-      <shaderMaterial
-        vertexShader={vertex}
-        fragmentShader={fragment}
-        uniforms={uniforms}
-        toneMapped={false}
-      />
-    </mesh>
+    <>
+      <mesh visible={visible}>
+        <icosahedronGeometry args={[1.6, 12]} />
+        <shaderMaterial
+          vertexShader={vertex}
+          fragmentShader={fragment}
+          uniforms={uniforms}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Corona quad, kept facing the camera in useFrame below. */}
+      <mesh ref={corona} visible={visible}>
+        <planeGeometry args={[CORONA_SIZE, CORONA_SIZE]} />
+        <shaderMaterial
+          vertexShader={coronaVertex}
+          fragmentShader={coronaFragment}
+          uniforms={coronaUniforms}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </mesh>
+    </>
   );
 }

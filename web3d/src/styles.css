@@ -188,7 +188,8 @@ body {
   align-self: center;
   justify-self: start;
   text-align: left;
-  max-width: 12ch;
+  /* same ch-vs-caption-register mismatch as --crossing above */
+  max-width: 13rem;
   margin-left: 5vw;
 }
 @media (max-width: 767px) {
@@ -224,7 +225,12 @@ body {
     justify-self: start;
     align-self: center;
     text-align: left;
-    max-width: 16ch;
+    /* rem, not ch. `ch` here resolves against the FIGURE's inherited 16px
+       sans, but the text inside is the caption register: up to 1.4rem,
+       uppercase, +0.14em tracking. The unit was measuring a different font
+       from the one doing the wrapping, so 16ch was ~128px and this sentence
+       set as seven lines with "NINETY-" hyphen-split off the front. */
+    max-width: 17rem;
     margin-left: 6vw;
   }
   /* gallery: frames + a shelf of objects fill the lower two-thirds — put the copy
@@ -749,7 +755,12 @@ body {
    the lower-left Sun and the upper-right headline. Fades out as you scroll in. */
 .hero-date {
   position: fixed;
+  --hero-x: -50%;
   left: 50%;
+  /* Stays 16vh here: on a phone the Sun sits high and this band is clear,
+     and dropping it to 10vh ran the prompt into the footer credit. The
+     collision with the disk is a WIDE-screen problem, so it is solved in the
+     wide-screen rule below rather than by moving this for everyone. */
   bottom: 16vh;
   transform: translateX(-50%);
   z-index: 6;
@@ -797,6 +808,19 @@ body {
 }
 .hero-date input[type="date"]:focus-visible {
   box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.85);
+}
+/* Wide screens: the Sun is centred and the whole left third is empty, so the
+   prompt moves into it. This also breaks the single centre axis the opening
+   was stacked on — masthead, Sun, prompt and footer were all on one vertical
+   line, which is most of why the frame read as a template rather than a shot. */
+@media (min-width: 1024px) {
+  .hero-date {
+    --hero-x: 0%;
+    left: 7vw;
+    bottom: 26vh;
+    align-items: flex-start;
+    text-align: left;
+  }
 }
 .hero-date-hint {
   font-family: var(--sans);

@@ -18,7 +18,11 @@ export default function HeroDate() {
       // present only on the opening beat; fade + lift away as the camera moves in
       const o = Math.max(0, 1 - progress / 0.1);
       el.style.opacity = String(o);
-      el.style.transform = `translateX(-50%) translateY(${(1 - o) * 10}px)`;
+      // X is owned by CSS (--hero-x), not by this tick. Hardcoding
+      // translateX(-50%) here wrote an inline transform 60 times a second,
+      // which outranks any stylesheet rule — so the wide-screen rule that
+      // moves this prompt off the Sun could never take effect.
+      el.style.transform = `translateX(var(--hero-x, -50%)) translateY(${(1 - o) * 10}px)`;
       el.style.pointerEvents = o > 0.1 ? "auto" : "none";
     };
     write(useStore.getState().progress);

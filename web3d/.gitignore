@@ -3,3 +3,7 @@ dist
 *.local
 .DS_Store
 *.tsbuildinfo
+
+# Beat-capture output (tools/capture-beats.mjs) — regenerate, never commit
+captures/
+captures-after/
