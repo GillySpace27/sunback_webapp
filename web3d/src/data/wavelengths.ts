@@ -10,19 +10,28 @@ export type Channel = {
   tint: string; // hex
   hot: string; // hex, bright core
   sees: string; // 3-4 words: what this channel reveals
+  // How much genuine off-limb corona this channel actually carries, 0..1.
+  //
+  // RHEF equalises whatever is in each radial bin. Where a channel has real
+  // off-limb structure it reveals plumes and streamer fans; where it has none,
+  // the bin holds noise and RHEF faithfully equalises THAT — producing a smooth
+  // uniform halo, which is exactly what reads as a non-diegetic "glow effect".
+  // So the corona is weighted by what the channel can physically show:
+  // coronal iron lines see the corona, chromospheric and flare channels do not.
+  corona: number;
 };
 
 // `sees` blurbs kept physically honest (dominant ion / temperature regime per
 // the SDO/AIA channel documentation), trimmed to a few words for a tooltip.
 export const CHANNELS: Channel[] = [
-  { angstrom: 94, nm: 9.4, instrument: "AIA", label: "94 Å", tint: "#17a67b", hot: "#b8ffe4", sees: "Flaring, ultra-hot corona" },
-  { angstrom: 131, nm: 13.1, instrument: "AIA", label: "131 Å", tint: "#2bd6d6", hot: "#d6ffff", sees: "Flares, hottest plasma" },
-  { angstrom: 171, nm: 17.1, instrument: "AIA", label: "171 Å", tint: "#d4a017", hot: "#fff2c2", sees: "Coronal loops, quiet Sun" },
-  { angstrom: 193, nm: 19.3, instrument: "AIA", label: "193 Å", tint: "#b5651d", hot: "#ffddad", sees: "Corona and coronal holes" },
-  { angstrom: 211, nm: 21.1, instrument: "AIA", label: "211 Å", tint: "#8a5cc4", hot: "#e9d8ff", sees: "Active-region corona" },
-  { angstrom: 304, nm: 30.4, instrument: "AIA", label: "304 Å", tint: "#e8481c", hot: "#ffd0b0", sees: "Chromosphere and prominences" },
-  { angstrom: 335, nm: 33.5, instrument: "AIA", label: "335 Å", tint: "#2f6fd6", hot: "#cfe0ff", sees: "Hot active regions" },
-  { angstrom: 1600, nm: 160.0, instrument: "AIA", label: "1600 Å", tint: "#b6c14a", hot: "#f4ffd0", sees: "Transition region, photosphere" },
+  { angstrom: 94, nm: 9.4, instrument: "AIA", label: "94 Å", tint: "#17a67b", hot: "#b8ffe4", sees: "Flaring, ultra-hot corona" , corona: 0.15 },
+  { angstrom: 131, nm: 13.1, instrument: "AIA", label: "131 Å", tint: "#2bd6d6", hot: "#d6ffff", sees: "Flares, hottest plasma" , corona: 0.15 },
+  { angstrom: 171, nm: 17.1, instrument: "AIA", label: "171 Å", tint: "#d4a017", hot: "#fff2c2", sees: "Coronal loops, quiet Sun" , corona: 1.0 },
+  { angstrom: 193, nm: 19.3, instrument: "AIA", label: "193 Å", tint: "#b5651d", hot: "#ffddad", sees: "Corona and coronal holes" , corona: 0.85 },
+  { angstrom: 211, nm: 21.1, instrument: "AIA", label: "211 Å", tint: "#8a5cc4", hot: "#e9d8ff", sees: "Active-region corona" , corona: 0.75 },
+  { angstrom: 304, nm: 30.4, instrument: "AIA", label: "304 Å", tint: "#e8481c", hot: "#ffd0b0", sees: "Chromosphere and prominences" , corona: 0.3 },
+  { angstrom: 335, nm: 33.5, instrument: "AIA", label: "335 Å", tint: "#2f6fd6", hot: "#cfe0ff", sees: "Hot active regions" , corona: 0.5 },
+  { angstrom: 1600, nm: 160.0, instrument: "AIA", label: "1600 Å", tint: "#b6c14a", hot: "#f4ffd0", sees: "Transition region, photosphere" , corona: 0.05 },
 ];
 // 1700 Å removed 2026-08-18 (Gilly): the only channel without JSOC's fast
 // synoptic-archive bypass on the store side, so it fell into NASA's VSO/DRMS

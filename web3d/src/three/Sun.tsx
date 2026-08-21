@@ -90,7 +90,10 @@ const fragment = /* glsl */ `
       float limbF = pow(clamp(dot(vN, vView), 0.0, 1.0), 0.55);
       float lum = dot(photo, vec3(0.2126, 0.7152, 0.0722));
       photo *= 0.62 + 0.38 * limbF;
-      photo *= 1.0 + 2.6 * pow(clamp(lum, 0.0, 1.0), 2.5);
+      // Only the genuinely brightest pixels get headroom, and much less of it
+      // (was 2.6 at exponent 2.5, i.e. 3.6x at peak, which is what bloom then
+      // smeared into a halo over everything).
+      photo *= 1.0 + 0.8 * pow(clamp(lum, 0.0, 1.0), 3.0);
       gl_FragColor = vec4(photo, 1.0);
       return;
     }
@@ -156,6 +159,7 @@ const coronaFragment = /* glsl */ `
   uniform float uDiscR;
   uniform float uExposure;
   uniform float uStrength;
+  uniform float uCorona;   // per-channel: how much real off-limb corona exists
   uniform vec3 uTint;
   uniform sampler2D uRhef;
   uniform float uHasRhef;
@@ -188,7 +192,7 @@ const coronaFragment = /* glsl */ `
       // speckle as corona.
       float noiseGate = 1.0 - smoothstep(0.62, 0.92, rr);
       vec3 rawCol = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb * uExposure : vec3(0.0);
-      col = mix(rawCol, rhefCol * noiseGate, uLookMix);
+      col = mix(rawCol, rhefCol * noiseGate * uCorona, uLookMix);
     } else if (uHasMap > 0.5) {
       // the real off-disk data, at the same exposure the disk uses
       col = texture2D(uMap, vUv).rgb * uExposure;
@@ -243,7 +247,12 @@ export default function Sun() {
   const coronaUniforms = useMemo(
     () => ({
       uTint: { value: hot.current.clone() },
-      uStrength: { value: 1.6 },
+      // 1.0, not 1.6. The corona is data, so it is shown at the same exposure
+      // as the disk beside it. Multiplying it was the render asserting a
+      // corona brighter than the instrument recorded — the exact
+      // non-diegetic move this whole quad exists to avoid.
+      uStrength: { value: 1.0 },
+      uCorona: { value: CHANNELS[5].corona },
       uDiscR: { value: CORONA_DISC_R },
       uExposure: { value: 1.4 },
       uMap: { value: BLACK_1PX as THREE.Texture },
@@ -279,6 +288,8 @@ export default function Sun() {
     (uniforms.uTint.value as THREE.Color).lerp(tint.current, k);
     (uniforms.uHot.value as THREE.Color).lerp(hot.current, k);
     (coronaUniforms.uTint.value as THREE.Color).lerp(hot.current, k);
+    // ease the corona weight with the channel so a swap does not pop
+    coronaUniforms.uCorona.value += (c.corona - coronaUniforms.uCorona.value) * k;
     uniforms.uTime.value += reducedMotion ? 0 : dt;
     uniforms.uOctaves.value = quality === "high" ? 6 : quality === "medium" ? 4 : 3;
     // resolve procedural -> photo (or back) over ~0.5s

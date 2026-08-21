@@ -45,7 +45,7 @@ export default function Effects() {
   if (quality === "low") {
     return (
       <EffectComposer multisampling={0}>
-        <Bloom intensity={0.7} luminanceThreshold={0.25} mipmapBlur />
+        <Bloom intensity={0.4} luminanceThreshold={0.55} mipmapBlur />
       </EffectComposer>
     );
   }
@@ -53,7 +53,7 @@ export default function Effects() {
     <>
       <DofDriver dof={dofRef} />
       <EffectComposer multisampling={0}>
-        <Bloom intensity={0.85} luminanceThreshold={0.2} luminanceSmoothing={0.9} mipmapBlur />
+        <Bloom intensity={0.45} luminanceThreshold={0.55} luminanceSmoothing={0.9} mipmapBlur />
         <DepthOfField
           ref={dofRef}
           focusDistance={0.012}

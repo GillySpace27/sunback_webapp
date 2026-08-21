@@ -60,7 +60,12 @@ export default function PlateScene() {
       <EffectComposer multisampling={0}>
         {/* Bloom stays: the corona's above-1.0 values are what become glow, and
             without it the plate loses the light the film promised. */}
-        <Bloom intensity={0.85} luminanceThreshold={0.2} luminanceSmoothing={0.9} mipmapBlur />
+        {/* Threshold 0.55, not 0.2: RHEF equalises the corona to near-disk
+            brightness, so a low threshold bloomed the ENTIRE corona and turned
+            sharp radial plumes into a soft symmetric halo. Bloom is a camera
+            effect; letting it run over data is how diegetic structure starts
+            reading as an effect. Now only genuine highlights bloom. */}
+        <Bloom intensity={0.45} luminanceThreshold={0.55} luminanceSmoothing={0.9} mipmapBlur />
       </EffectComposer>
     </Canvas>
   );
