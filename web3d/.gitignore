@@ -7,3 +7,5 @@ dist
 # Beat-capture output (tools/capture-beats.mjs) — regenerate, never commit
 captures/
 captures-after/
+plates/
+captures-diegetic/

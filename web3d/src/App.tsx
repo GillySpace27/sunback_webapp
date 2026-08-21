@@ -28,6 +28,15 @@ import { CHANNELS } from "./data/wavelengths";
 
 // The heavy Three.js bundle is code-split and streamed behind the loader.
 const Scene = lazy(() => import("./three/Scene"));
+// Print-master renderer for the Dimensional SKU. Lazy like Scene so the film
+// never pays for it.
+const PlateScene = lazy(() => import("./three/PlateScene"));
+
+// ?plate=1 renders the print master alone — no film, no chrome, no UI. Read
+// once at module scope: this is a rendering mode, not a runtime toggle.
+const PLATE_MODE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("plate") === "1";
 
 // Screen-reader text alternative for the (aria-hidden) WebGL stage that tracks
 // the CURRENT selection, not a static description. Subscribes only to date +
@@ -59,6 +68,21 @@ export default function App() {
     if (ric) ric(() => warmBackend(), { timeout: 2500 });
     else setTimeout(warmBackend, 800);
   }, []);
+
+  // Plate mode returns before any of the film's chrome. The hooks above still
+  // run, so the texture loads through the same path the film uses and the
+  // plate is rendered from the same frame the visitor was shown.
+  if (PLATE_MODE) {
+    return (
+      <div className="stage" aria-hidden="true">
+        <ErrorBoundary>
+          <Suspense fallback={<Loader />}>
+            <PlateScene />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
 
   return (
     <>
