@@ -1,11 +1,18 @@
 # /experience — creative-director audit
 
-**Evidence base, stated up front.** One live rendered frame (the opening beat,
-1280×720) plus the complete source. The Browser pane would not stay displayed
-in this session, so WebGL stopped painting and beats 2–9 could not be seen.
-Everything below is either visible in that one frame, or counted/derived from
-source. Where a claim needs a rendered frame to settle, it says so and is not
-implemented.
+**Evidence base.** Now all nine beats at desktop and mobile, rendered and
+inspected, via `tools/capture-beats.mjs`. Run it after any change:
+
+```
+npm run dev                                    # dev proxies /api -> real Sun texture
+CAPTURE_URL=http://localhost:5174/ \
+CAPTURE_VIEWPORTS=desktop,mobile \
+node tools/capture-beats.mjs
+```
+
+The film renders only under requestAnimationFrame, and browsers suspend rAF in
+hidden tabs — so any capture surface not genuinely on screen returns black
+frames. Headless Chrome thinks it is visible, which is the whole trick.
 
 ---
 
@@ -50,9 +57,9 @@ absent from COPY. Both blocks and the branches emitting them are gone.
 
 ---
 
-## NOT SHIPPED — needs a rendered frame
+## NOW FIXED, VERIFIED ON RENDERED FRAMES
 
-### N1 · The Sun (highest value in the whole audit)
+### N1 · The Sun — DONE (highest value in the whole audit)
 
 Three separate causes, all in `three/Sun.tsx`:
 
@@ -111,7 +118,7 @@ the existing mesh:
 Tune `scale`, the `pow` exponent and the `2.2` on a real frame. Too much and
 it becomes a lens-flare cliché, which is worse than the matte ball.
 
-### N2 · Composition — the rule of thirds is intended but too small to read
+### N2 · Composition — PARTLY DONE, the rest is your call
 
 `CameraRig.tsx:TGT[0]` is `[0.72, 0.46, 0]`, commented as putting the Sun on
 the lower-left third. At 9 units with fov 45 and aspect 1.78 the frame is
@@ -129,7 +136,7 @@ reason the opening reads as a template. Moving the Sun to the third only works
 if the copy moves off that axis with it (the deleted `.overlay-line--hero`
 block was reaching for exactly this and had been dead for some time).
 
-### N3 · The hero date field sits on the Sun
+### N3 · The hero date field sat on the Sun — DONE
 
 Visible in the captured frame: `PICK YOUR DATE` and its input land on the
 disk's lower limb, and `THEN SCROLL INTO THE LIGHT` crosses the edge. The
@@ -154,3 +161,26 @@ rather than shaping it. Suggest `darkness 0.3`. Needs eyes.
 - **The reduced-motion block** kills `animation` and `transition` globally,
   including the `.picker` reveal transform — a reduced-motion user gets the
   drawer snapping rather than a 1-frame settle. Consider exempting opacity.
+
+
+---
+
+## Newly visible once the beats could be seen
+
+- **The Earth carries a hard blue ring** (beat 04). Its atmosphere shell has a
+  visible hard outer edge, so it reads as a sticker with a stroke rather than
+  a body with air around it. Same class of defect the Sun had; the billboard
+  approach in `Sun.tsx` is the fix to copy.
+- **Beat 04 is two-thirds empty.** Sun and Earth occupy a narrow band across
+  the upper middle; the lower 45% of frame is void. It is the weakest
+  composition in the film.
+- **The wordmark competes with the subject.** `--accent-warm` (#e8663a) is
+  almost exactly the Sun's dominant hue at 304 Å, at a similar value, directly
+  above it. Two objects, one colour, no rank. Worth trying the title in --ink
+  and letting the Sun own the warm end of the palette.
+- **START OVER and SKIP TO THE STORE read as a matched pair.** The CSS intends
+  the first to be "deliberately quieter"; at the same size, shape and weight,
+  it is not.
+- **Corona strength** is `uStrength: 0.85` with a 7.0 collar exponent in
+  `Sun.tsx`. That is a taste dial, tuned once. Re-run the harness after
+  changing it.
