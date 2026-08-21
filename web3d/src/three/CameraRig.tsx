@@ -75,6 +75,7 @@ export default function CameraRig() {
   const pos = useRef(new THREE.Vector3(...POS[0]));
   const tgt = useRef(new THREE.Vector3(...TGT[0]));
   const parallax = useRef(new THREE.Vector2());
+  const drift = useRef(0);
   const scratch = useRef(new THREE.Vector3());
 
   useFrame((state, dt) => {
@@ -94,6 +95,25 @@ export default function CameraRig() {
     scratch.current.copy(pos.current);
     scratch.current.x += parallax.current.x * 0.5;
     scratch.current.y += parallax.current.y * 0.35;
+
+    // Autonomous drift.
+    //
+    // The film is only in motion while someone is scrolling; stop, and every
+    // frame is frozen. A slow camera drift keeps the scene alive when the
+    // visitor is reading, and — unlike spinning the Sun — it invents nothing:
+    // it is the observer moving, not the data changing. Two incommensurate
+    // periods so it never visibly loops, small enough to read as breathing
+    // rather than as a wobble, and scaled by the beat's own parallax appetite
+    // so the tightly-composed shots (the wheel, the print on the wall) stay
+    // composed. Reduced motion switches it off with everything else.
+    if (!reducedMotion) {
+      drift.current += dt;
+      const d = drift.current;
+      const amp = 0.055 + gate * 0.09;
+      scratch.current.x += Math.sin(d / 8.3) * amp;
+      scratch.current.y += Math.sin(d / 11.7 + 1.3) * amp * 0.7;
+      scratch.current.z += Math.sin(d / 14.1 + 2.6) * amp * 0.5;
+    }
     // reduced motion: snap (no inertial glide); otherwise damped follow.
     // dt-corrected ease (was a fixed 0.1/frame lerp: ~22 frames to converge
     // regardless of frame rate, so a fast scroll flick left the camera far

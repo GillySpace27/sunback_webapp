@@ -9,3 +9,8 @@ captures/
 captures-after/
 plates/
 captures-diegetic/
+
+# Render/capture output from tools/ — regenerate, never commit
+captures*/
+plates*/
+timelapse/

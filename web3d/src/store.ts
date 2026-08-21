@@ -81,6 +81,14 @@ type State = {
   // the JP2: it is already byte-scaled, display-stretched and colour-mapped, so
   // the off-disk intensities RHEF equalises have been destroyed before we ever
   // receive the file. It therefore arrives on a slower, separate path.
+  // Time-lapse of the visitor's day: a sequence of real frames a few hours
+  // apart. Off by default — it is N extra fetches per identity, and the film
+  // must stay fast for someone who just wants a print.
+  timelapse: boolean;
+  setTimelapse: (v: boolean) => void;
+  sequence: unknown[];
+  setSequence: (t: unknown[]) => void;
+
   look: "raw" | "rhef";
   setLook: (l: "raw" | "rhef") => void;
   rhefTexture: unknown | null;
@@ -157,6 +165,11 @@ export const useStore = create<State>((set, get) => ({
   setChannel: (i) => set({ channel: i, channelChosen: true }),
   stageChannel: (i) => set({ channel: i }),
   channelChosen: false,
+
+  timelapse: false,
+  setTimelapse: (v) => set({ timelapse: v }),
+  sequence: [],
+  setSequence: (t) => set({ sequence: t }),
 
   look: "raw",
   setLook: (l) => set({ look: l }),

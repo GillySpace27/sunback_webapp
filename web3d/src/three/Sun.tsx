@@ -46,6 +46,12 @@ const fragment = /* glsl */ `
   // to RHEF pushed an already-full-range image into clipping — which is what
   // made the enhanced look washed out and milky.
   uniform float uRhefExposure;
+  // Time-lapse: the NEXT real frame in the day's sequence, cross-faded against
+  // uMap. Both are observations; the blend between them is the only invented
+  // part, and it is a dissolve, not a simulation of what happened in between.
+  uniform sampler2D uNext;
+  uniform float uHasNext;
+  uniform float uSeqMix;
 
   vec3 hash3(vec3 p){
     p = vec3(dot(p,vec3(127.1,311.7,74.7)),
@@ -81,6 +87,9 @@ const fragment = /* glsl */ `
     if (uHasMap > 0.5 && uMapMix > 0.99) {
       vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
       vec3 photo = texture2D(uMap, muv).rgb * uExposure;
+      if (uHasNext > 0.5) {
+        photo = mix(photo, texture2D(uNext, muv).rgb * uExposure, uSeqMix);
+      }
       if (uHasRhef > 0.5 && uLookMix > 0.001) {
         // sampled with the RHEF frame's OWN disc radius, not the JP2's
         vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
@@ -222,6 +231,7 @@ BLACK_1PX.needsUpdate = true;
 
 export default function Sun() {
   const corona = useRef<THREE.Mesh>(null);
+  const seqT = useRef(0);
   const tint = useRef(new THREE.Color(CHANNELS[5].tint));
   const hot = useRef(new THREE.Color(CHANNELS[5].hot));
 
@@ -229,6 +239,7 @@ export default function Sun() {
   // the store; null while loading/on error, so we fall back to the plasma
   const tex = useStore((s) => s.currentTexture);
   const rhefTex = useStore((s) => s.rhefTexture) as THREE.Texture | null;
+  const seq = useStore((s) => s.sequence) as THREE.Texture[];
   // the origin Sun belongs to the space beats; hide it UNDER the atmosphere flash
   // (~0.51) so the red AIA disk never lingers in the daytime sky (the ground has
   // its own warm sun) or shows through the fading ground
@@ -250,6 +261,9 @@ export default function Sun() {
       uRhefDiscR: { value: RHEF_DISC_R },
       uLookMix: { value: 0 },
       uRhefExposure: { value: RHEF_EXPOSURE },
+      uNext: { value: BLACK_1PX as THREE.Texture },
+      uHasNext: { value: 0 },
+      uSeqMix: { value: 0 },
     }),
     []
   );
@@ -306,6 +320,22 @@ export default function Sun() {
     // resolve procedural -> photo (or back) over ~0.5s
     const target = uniforms.uHasMap.value;
     uniforms.uMapMix.value += (target - uniforms.uMapMix.value) * (1 - Math.exp(-dt / 0.5));
+    // Time-lapse: walk the day's real frames, holding on each and dissolving
+    // between. SECONDS_PER_FRAME is deliberately slow — this is the Sun's day
+    // passing, not a flipbook.
+    if (seq.length > 1) {
+      seqT.current += dt / 2.6;
+      const i = Math.floor(seqT.current) % seq.length;
+      const f = seqT.current - Math.floor(seqT.current);
+      uniforms.uMap.value = seq[i];
+      uniforms.uHasMap.value = 1;
+      uniforms.uNext.value = seq[(i + 1) % seq.length];
+      uniforms.uHasNext.value = 1;
+      // hold, then dissolve, so each observation is actually legible
+      uniforms.uSeqMix.value = THREE.MathUtils.smoothstep(f, 0.62, 1.0);
+    } else {
+      uniforms.uHasNext.value = 0;
+    }
     const wantRhef = useStore.getState().look === "rhef" && uniforms.uHasRhef.value > 0.5 ? 1 : 0;
     const lm = uniforms.uLookMix.value + (wantRhef - uniforms.uLookMix.value) * (1 - Math.exp(-dt / 0.6));
     uniforms.uLookMix.value = lm;

@@ -3,6 +3,7 @@ import { useScrollProgress } from "./hooks/useScrollProgress";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 import { useSunTextureLoader } from "./hooks/useSunTextureLoader";
 import { useRhefTextureLoader } from "./hooks/useRhefTextureLoader";
+import { useTimelapseLoader } from "./hooks/useTimelapseLoader";
 import { warmBackend } from "./lib/handoff";
 // The archive's real frontier. JSOC's ingest lag drifts (8 days on
 // 2026-08-15), so a hardcoded ceiling silently offers dates that cannot be
@@ -35,6 +36,14 @@ const PlateScene = lazy(() => import("./three/PlateScene"));
 
 // ?plate=1 renders the print master alone — no film, no chrome, no UI. Read
 // once at module scope: this is a rendering mode, not a runtime toggle.
+// Time-lapse is OFF unless asked for (?timelapse=1). It is six extra fetches
+// per identity and the film has to stay fast for someone who just wants a
+// print, so it stays an experiment behind a flag rather than a default.
+if (typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("timelapse") === "1") {
+  useStore.getState().setTimelapse(true);
+}
+
 const PLATE_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("plate") === "1";
@@ -79,6 +88,7 @@ export default function App() {
   useSunTextureLoader(); // loads the real Sun for the current identity
   useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
   useRhefRequest(); // asks for the RHEF frame as its beat comes into view
+  useTimelapseLoader(); // opt-in: the day as a sequence of real frames
 
   // Warm the scale-to-zero backend at idle so its ~20s wake overlaps the heavy
   // chunk download instead of running after it (cuts time-to-real-Sun).
