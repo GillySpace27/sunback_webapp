@@ -15,6 +15,37 @@
   --accent-warm: #e8663a;
   --serif: "Fraunces Variable", ui-serif, Georgia, serif;
   --sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* ── Design system ────────────────────────────────────────────────────
+     Before this block the stylesheet carried 11 letter-spacing values, 7
+     font-sizes inside a single 0.66-0.9rem band (several differing by
+     0.02rem, about a third of a pixel), 7 border-radii and 7 transition
+     durations. Every value was locally defensible and none derived from a
+     system, which is precisely what makes an interface read as assembled
+     rather than designed: the eye cannot find the repeating interval it
+     expects from a studio. These are that interval.
+
+     Tracking is tied to SIZE and CASE, not to the element: uppercase micro
+     labels need the most, sentence-case UI the least. */
+  --fs-micro: 0.72rem;   /* uppercase micro labels, footnotes */
+  --fs-label: 0.82rem;   /* inputs, CTAs, tooltips */
+  --fs-body: 0.9rem;     /* the largest chrome text */
+  --track-caps: 0.14em;  /* uppercase at --fs-micro */
+  --track-wide: 0.08em;  /* uppercase at --fs-label and above */
+  --track-flat: 0.02em;  /* sentence-case UI */
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  /* One easing curve for the whole film. The mix of bespoke cubic-beziers
+     and bare `ease` keywords meant two controls sitting side by side
+     decelerated on different curves. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 0.2s;
+  --dur-base: 0.35s;
+  --dur-slow: 0.6s;
   color-scheme: dark;
 }
 
@@ -105,15 +136,6 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 2px 16px rgba(0, 0, 0, 0.7),
     0 0 44px rgba(0, 0, 0, 0.55);
 }
-.eyebrow {
-  font-family: var(--sans);
-  text-transform: uppercase;
-  letter-spacing: 0.34em;
-  font-weight: 500;
-  font-size: clamp(0.6rem, 1.3vw, 0.72rem);
-  color: var(--muted);
-  margin-bottom: 1.5rem;
-}
 .line {
   font-family: var(--serif);
   font-optical-sizing: auto;
@@ -138,24 +160,9 @@ body {
   font-family: var(--sans);
   font-weight: 400;
   font-size: clamp(0.95rem, 2.1vw, 1.4rem);
-  letter-spacing: 0.14em;
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   line-height: 1.55;
-}
-/* Hero: commit the headline to the negative space on wide screens (the Sun
-   sits lower-left, so the copy lives in the empty upper-right instead of
-   colliding with the disk). Stays centered on phones, where it reads fine. */
-@media (min-width: 768px) {
-  .overlay-line--hero {
-    justify-self: end;
-    align-self: center;
-    text-align: left;
-    max-width: 26ch;
-    margin-right: 6vw;
-  }
-  .overlay-line--hero .eyebrow {
-    text-align: left;
-  }
 }
 /* Climax line: the print is the hero here, so the copy clears it — a tight block
    in the upper area on wide screens (print center, window upper-left, copy upper
@@ -199,8 +206,8 @@ body {
 .scroll-hint {
   margin: 1rem 0 0;
   font-family: var(--sans);
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--muted);
   opacity: 0.85;
@@ -239,15 +246,15 @@ body {
   margin-top: 2.2rem;
   padding: 0.85rem 2.1rem;
   border: 1px solid rgba(244, 239, 230, 0.45);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   color: var(--ink);
   text-decoration: none;
   font-family: var(--sans);
-  letter-spacing: 0.1em;
-  font-size: 0.82rem;
+  letter-spacing: var(--track-wide);
+  font-size: var(--fs-label);
   text-transform: uppercase;
   backdrop-filter: blur(4px);
-  transition: background 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.5s;
+  transition: background var(--dur-slow) var(--ease), color var(--dur-slow);
 }
 .cta {
   min-height: 44px;
@@ -298,8 +305,8 @@ body {
 }
 .price-anchor {
   font-family: var(--sans);
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-flat);
   color: var(--muted);
 }
 .picker-status {
@@ -313,8 +320,8 @@ body {
    the committed date is empty/out of range (see dateValid in store.ts) */
 .picker-hint {
   font-family: var(--sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
   color: var(--muted);
   font-style: italic;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
@@ -351,14 +358,14 @@ body {
   /* solid plate so every control clears 4.5:1 over the bright plasma behind */
   background: rgba(10, 9, 8, 0.74);
   border: 1px solid rgba(244, 239, 230, 0.12);
-  border-radius: 18px;
+  border-radius: var(--r-lg);
   box-shadow: 0 10px 44px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
   opacity: 0;
   transform: translateY(16px);
   pointer-events: none;
-  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity var(--dur-slow) var(--ease),
+    transform var(--dur-slow) var(--ease);
 }
 /* reveal on scroll OR when a keyboard user focuses into the buy controls */
 .picker--in,
@@ -381,8 +388,8 @@ body {
   border: 0;
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -390,7 +397,7 @@ body {
   color: var(--ink);
 }
 .picker-toggle:focus-visible {
-  border-radius: 6px;
+  border-radius: var(--r-sm);
 }
 .picker-chevron {
   color: currentColor;
@@ -409,8 +416,8 @@ body {
 }
 .picker-readout {
   font-family: var(--sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
   color: var(--ink);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
 }
@@ -421,23 +428,23 @@ body {
   font-family: var(--sans);
 }
 .date-label {
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--muted);
 }
 .date-field input[type="date"] {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(244, 239, 230, 0.22);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.82rem;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-flat);
   padding: 0.45rem 0.9rem;
   color-scheme: dark;
   min-height: 40px;
-  transition: border-color 0.25s ease, background 0.25s ease;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 .date-field input[type="date"]:hover {
   border-color: rgba(244, 239, 230, 0.5);
@@ -465,7 +472,7 @@ body {
   padding: 0.5rem;
   min-width: 44px;
   min-height: 44px;
-  border-radius: 12px;
+  border-radius: var(--r-md);
   cursor: pointer;
 }
 /* "what it sees" tooltip, above the dot, on hover or keyboard focus */
@@ -479,13 +486,13 @@ body {
   border: 1px solid rgba(244, 239, 230, 0.18);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.74rem;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-flat);
   padding: 0.35rem 0.6rem;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
   z-index: 10;
 }
 .swatch:hover .swatch-tip,
@@ -518,20 +525,20 @@ body {
   white-space: nowrap;
   background: rgba(10, 9, 8, 0.96);
   border: 1px solid rgba(244, 239, 230, 0.2);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 0.5rem 0.75rem;
   font-family: var(--sans);
   transform: translateY(-50%);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 .sdo-tip-name {
-  font-size: 0.72rem;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-flat);
   color: var(--ink);
 }
 .sdo-tip-link {
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-flat);
   color: #ffd9a0;
   text-decoration: none;
 }
@@ -550,7 +557,7 @@ body {
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #ffffff55, var(--tint) 60%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 10px -2px var(--tint);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base);
 }
 .swatch:hover .swatch-dot {
   transform: scale(1.18);
@@ -567,8 +574,8 @@ body {
 }
 .swatch-label {
   font-family: var(--sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.05em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-flat);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -577,8 +584,8 @@ body {
    scrolls horizontally so the labels never crowd. */
 @media (max-width: 640px) {
   .swatch-label {
-    font-size: 0.66rem;
-    letter-spacing: 0.02em;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-flat);
   }
 }
 
@@ -609,7 +616,7 @@ body {
   color: var(--ink);
   cursor: pointer;
   opacity: 0.72;
-  transition: opacity 0.25s ease, background 0.25s ease, transform 0.25s ease;
+  transition: opacity var(--dur-fast) ease, background var(--dur-fast) ease, transform var(--dur-fast) ease;
 }
 .arrow:hover {
   opacity: 1;
@@ -697,10 +704,10 @@ body {
   background: var(--ink);
   color: var(--bg); /* == store text-on-gold ink, unified 2026-08-17 */
   padding: 0.6rem 1rem;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   text-decoration: none;
   font-family: var(--sans);
-  transition: top 0.2s ease;
+  transition: top var(--dur-fast) ease;
 }
 .skip:focus {
   top: 1rem;
@@ -714,8 +721,8 @@ body {
   z-index: 6;
   pointer-events: auto;
   font-family: var(--sans);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--ink);
   text-decoration: none;
@@ -724,10 +731,10 @@ body {
   display: inline-flex;
   align-items: center;
   border: 1px solid rgba(244, 239, 230, 0.28);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   /* solid fill, not backdrop-filter — see .arrow above */
   background: rgba(10, 9, 8, 0.64);
-  transition: background 0.4s, border-color 0.4s, color 0.4s;
+  transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base);
 }
 .skip-store:hover {
   background: var(--ink);
@@ -759,8 +766,8 @@ body {
   font-family: var(--sans);
 }
 .hero-date-label {
-  font-size: 0.74rem;
-  letter-spacing: 0.16em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--ink);
   white-space: nowrap;
@@ -769,15 +776,15 @@ body {
 .hero-date input[type="date"] {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(244, 239, 230, 0.3);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.9rem;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-body);
+  letter-spacing: var(--track-flat);
   padding: 0.55rem 1.1rem;
   color-scheme: dark;
   min-height: 44px;
-  transition: border-color 0.25s ease, background 0.25s ease;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 .hero-date input[type="date"]:hover {
   border-color: rgba(244, 239, 230, 0.6);
@@ -793,8 +800,8 @@ body {
 }
 .hero-date-hint {
   font-family: var(--sans);
-  font-size: 0.74rem;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--muted);
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
@@ -858,7 +865,11 @@ body {
 .masthead-tagline {
   margin: 0.35rem 0 0;
   font-family: var(--serif);
-  font-weight: 500;
+  /* 400, not 500. The tagline outweighed the title it sits under (title 380,
+     tagline 500), so the hierarchy ran backwards: the subordinate line was
+     the heaviest text in the masthead. Weight now descends with rank and the
+     brand gold is left to do the separating. */
+  font-weight: 400;
   font-size: clamp(1.05rem, 2.4vw, 1.5rem);
   color: var(--accent-soft);
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
@@ -1017,17 +1028,17 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
   z-index: 6;
   padding: 0.5rem 0.95rem;
   min-height: 36px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: 1px solid rgba(244, 239, 230, 0.22);
   /* solid fill, not backdrop-filter — see .arrow above */
   background: rgba(10, 9, 8, 0.64);
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   cursor: pointer;
-  transition: color 0.35s, border-color 0.35s;
+  transition: color var(--dur-base), border-color var(--dur-base);
 }
 .start-over:hover {
   color: var(--ink);

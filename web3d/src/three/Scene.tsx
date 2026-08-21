@@ -66,7 +66,14 @@ export default function Scene() {
         if (import.meta.env.DEV) (window as unknown as { __three?: unknown }).__three = state;
       }}
     >
-      <color attach="background" args={["#05060a"]} />
+      {/* The WebGL clear colour must be the SAME black as the CSS ground.
+          --bg was retuned from #05060a (blue-black) to #0a0908 (warm black)
+          so the seam into the store would not shift temperature, but this
+          clear colour was missed, so the film has been rendering on the old
+          cool black ever since: the 3D void and the HTML page behind it were
+          two different blacks, and every scrim, vignette and fade resolved
+          toward the wrong one. */}
+      <color attach="background" args={["#0a0908"]} />
       <ResponsiveFov />
       <PerformanceMonitor
         onDecline={() => setQuality("medium")}

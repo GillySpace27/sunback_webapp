@@ -5,7 +5,7 @@ import BuyLink from "./BuyLink";
 // Per-space copy, cross-faded by scroll progress. Each line owns a slice of the
 // scroll; opacity peaks mid-slice and falls at the edges. Text never animates
 // over a moving camera — it lives in the still center of each space.
-const COPY: Record<string, { eyebrow?: string; line: string }> = {
+const COPY: Record<string, { line: string }> = {
   // threshold has NO copy on purpose. The masthead carries the name, tagline
   // and pitch at the top of the page now, so a second headline over the same
   // frame was two competing hero statements at once. The first line that
@@ -123,7 +123,6 @@ export default function Overlay() {
           }}
           className={
             "overlay-line" +
-            (s.key === "threshold" ? " overlay-line--hero" : "") +
             (s.key === "aperture" ? " overlay-line--top" : "") +
             (s.key === "room" ? " overlay-line--climax" : "") +
             (s.key === "crossing" ? " overlay-line--crossing" : "") +
@@ -135,7 +134,6 @@ export default function Overlay() {
               : "")
           }
         >
-          {c.eyebrow && <figcaption className="eyebrow">{c.eyebrow}</figcaption>}
           <p
             className={
               s.key === "room"
