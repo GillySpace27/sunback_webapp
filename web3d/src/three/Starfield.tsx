@@ -117,18 +117,12 @@ export default function Starfield() {
     return () => { alive = false; };
   }, []);
 
+  // Geometry is built ONCE, in the equatorial frame. The date does not move the
+  // stars relative to each other — it changes which way we are looking — so it
+  // belongs on the object's rotation, not in the vertex buffer. That also makes
+  // the change animatable: see the slew in useFrame below.
   const geo = useMemo(() => {
     if (!stars) return null;
-    // Rotate the celestial sphere so the Sun's direction on this date sits
-    // behind the Sun in the scene (the camera looks down -Z at the origin),
-    // with celestial north toward screen up.
-    const f = sunDirection(date);
-    const north = new THREE.Vector3(0, 0, 1);
-    let right = new THREE.Vector3().crossVectors(north, f);
-    if (right.lengthSq() < 1e-6) right = new THREE.Vector3(1, 0, 0);
-    right.normalize();
-    const up = new THREE.Vector3().crossVectors(f, right).normalize();
-
     const n = stars.length;
     const pos = new Float32Array(n * 3);
     const col = new Float32Array(n * 3);
@@ -137,10 +131,10 @@ export default function Starfield() {
     const v = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
       const [x, y, z, mag, bv] = stars[i];
-      v.set(x, y, z);
-      pos[i * 3] = v.dot(right) * SHELL;
-      pos[i * 3 + 1] = v.dot(up) * SHELL;
-      pos[i * 3 + 2] = -v.dot(f) * SHELL;
+      v.set(x, y, z).multiplyScalar(SHELL);
+      pos[i * 3] = v.x;
+      pos[i * 3 + 1] = v.y;
+      pos[i * 3 + 2] = v.z;
       const c = bvColor(bv);
       col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
       // A raw flux law spans 30:1 from Sirius to a mag-6.5 star, which put
@@ -158,11 +152,45 @@ export default function Starfield() {
     bg.setAttribute("aSize", new THREE.BufferAttribute(siz, 1));
     bg.setAttribute("aBright", new THREE.BufferAttribute(brt, 1));
     return bg;
-  }, [stars, date]);
+  }, [stars]);
 
-  useFrame(() => {
+  // Where the sky must end up for this date: the Sun's own direction rotated to
+  // sit behind the Sun in the scene (the camera looks down -Z), with celestial
+  // north toward screen up.
+  const target = useMemo(() => {
+    const f = sunDirection(date);
+    const north = new THREE.Vector3(0, 0, 1);
+    let right = new THREE.Vector3().crossVectors(north, f);
+    if (right.lengthSq() < 1e-6) right = new THREE.Vector3(1, 0, 0);
+    right.normalize();
+    const up = new THREE.Vector3().crossVectors(f, right).normalize();
+    const negF = f.clone().multiplyScalar(-1);
+    // x is NEGATED right. (right, up, -f) is left-handed — right x up = +f, so
+    // its determinant is -1 and setFromRotationMatrix returns a non-rotation:
+    // the Sun's own direction came out at (-0.24, 0.81, -0.05) instead of
+    // (0,0,-1), and not even unit length. (-right, up, -f) is right-handed and
+    // still puts celestial north on +Y.
+    const negRight = right.clone().multiplyScalar(-1);
+    const m = new THREE.Matrix4().makeBasis(negRight, up, negF).transpose();
+    return new THREE.Quaternion().setFromRotationMatrix(m);
+  }, [date]);
+
+  const first = useRef(true);
+  useFrame((_, dt) => {
+    const el = g.current;
+    if (!el) return;
     // belongs to the space beats; gone before the atmosphere flash
-    if (g.current) g.current.visible = useStore.getState().progress < 0.51;
+    el.visible = useStore.getState().progress < 0.51;
+    if (first.current) {
+      // the opening sky is simply correct — there is nothing to slew from
+      el.quaternion.copy(target);
+      first.current = false;
+      return;
+    }
+    // Slew, do not snap. Changing the date can move the sky by half a celestial
+    // sphere, and cutting between two orientations reads as a glitch where the
+    // drift reads as the year turning. Frame-rate independent.
+    el.quaternion.slerp(target, 1 - Math.exp(-dt / 1.6));
   });
 
   if (!geo) return null;

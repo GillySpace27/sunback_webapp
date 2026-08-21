@@ -41,6 +41,11 @@ const fragment = /* glsl */ `
   uniform float uHasRhef;
   uniform float uRhefDiscR; // ~0.39: the FITS field is narrower than the JP2's
   uniform float uLookMix;   // 0 = raw (JP2), 1 = RHEF
+  // RHEF output is histogram-equalised: by construction it already fills the
+  // display range. uExposure exists to lift the DIM raw frame, so applying it
+  // to RHEF pushed an already-full-range image into clipping — which is what
+  // made the enhanced look washed out and milky.
+  uniform float uRhefExposure;
 
   vec3 hash3(vec3 p){
     p = vec3(dot(p,vec3(127.1,311.7,74.7)),
@@ -79,7 +84,7 @@ const fragment = /* glsl */ `
       if (uHasRhef > 0.5 && uLookMix > 0.001) {
         // sampled with the RHEF frame's OWN disc radius, not the JP2's
         vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
-        photo = mix(photo, texture2D(uRhef, ruv).rgb * uExposure, uLookMix);
+        photo = mix(photo, texture2D(uRhef, ruv).rgb * uRhefExposure, uLookMix);
       }
       // The fast path used to blit the texture flat, with no limb term at all,
       // so the moment the real frame arrived the Sun stopped being a lit body
@@ -140,6 +145,9 @@ const fragment = /* glsl */ `
 //
 // CORONA_SIZE is derived, not tuned: at 1.6/uDiscR the quad's uv maps 1:1 onto
 // the texture's uv, so the corona is pixel-aligned with the disk inside it.
+// 1.0, not the raw frame's 1.4. RHEF is histogram-equalised, so it arrives
+// already spread across the full range; lifting it again only clips it.
+const RHEF_EXPOSURE = 1.0;
 const CORONA_DISC_R = 0.31;
 const CORONA_SIZE = 1.6 / CORONA_DISC_R;
 
@@ -165,6 +173,7 @@ const coronaFragment = /* glsl */ `
   uniform float uHasRhef;
   uniform float uRhefDiscR;
   uniform float uLookMix;
+  uniform float uRhefExposure;
 
   void main() {
     float r = length(vUv - 0.5);
@@ -186,7 +195,7 @@ const coronaFragment = /* glsl */ `
       float rr = (r - uDiscR) / (0.5 - uDiscR);          // 0 at limb, 1 at edge
       float rRhef = uRhefDiscR + rr * (0.5 - uRhefDiscR);
       vec2 dir = normalize(vUv - 0.5 + vec2(1e-6));
-      vec3 rhefCol = texture2D(uRhef, dir * rRhef + 0.5).rgb * uExposure;
+      vec3 rhefCol = texture2D(uRhef, dir * rRhef + 0.5).rgb * uRhefExposure;
       // Past ~1.25 Rsun even 171 drops under the noise floor and RHEF
       // faithfully equalises the noise; fade the far field rather than sell
       // speckle as corona.
@@ -240,6 +249,7 @@ export default function Sun() {
       uHasRhef: { value: 0 },
       uRhefDiscR: { value: RHEF_DISC_R },
       uLookMix: { value: 0 },
+      uRhefExposure: { value: RHEF_EXPOSURE },
     }),
     []
   );
@@ -261,6 +271,7 @@ export default function Sun() {
       uHasRhef: { value: 0 },
       uRhefDiscR: { value: RHEF_DISC_R },
       uLookMix: { value: 0 },
+      uRhefExposure: { value: RHEF_EXPOSURE },
     }),
     []
   );
