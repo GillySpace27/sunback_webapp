@@ -105,20 +105,30 @@ const fragment = /* glsl */ `
   }
 `;
 
-// Corona.
+// Corona — DIEGETIC.
 //
-// First attempt was the usual back-side shell, and it was geometrically wrong
-// for this: on a back-side sphere the rim term peaks at the SHELL's own outer
-// silhouette and saturates toward its centre, so it renders a bright ring at
-// the far edge of the shell with a filled middle — a fried egg, not an
-// atmosphere, and with bloom on top it washed the whole void brown.
+// The first version of this was a procedural falloff: a pretty glow the engine
+// invented, identical for every date and wavelength, taking credit for exactly
+// the structure RHEF is supposed to reveal. That is an aspirational render. It
+// makes the 3D Sun better than the thing in the cart and leaks conversion to a
+// product that does not exist.
 //
-// A camera-facing billboard puts the falloff where it actually belongs:
-// anchored to the limb and decaying outward. The quad sits at the Sun's centre,
-// so the sphere itself (which writes depth) occludes everything inside the
-// limb, and only the annulus outside it survives.
-const CORONA_SIZE = 8.0;                    // quad edge, world units
-const CORONA_LIMB = (1.6 / (CORONA_SIZE / 2)); // where the disk edge falls in uv
+// It turns out none of it needed inventing. The texture is fetched at
+// image_scale=3, size 1024 — a 3072-arcsec field — and the solar disk is only
+// ~1920 arcsec across, so every frame already carries real off-disk corona out
+// to about 1.6 solar radii. The sphere stops at the limb and discards all of
+// it. This quad shows that discarded annulus, sampled from the same texture,
+// with the same mapping the sphere uses.
+//
+// Consequence worth keeping: with raw data this corona is genuinely faint,
+// because the raw corona IS faint. With an RHEF frame it should bloom out. The
+// difference between Original and Enhanced stops being a claim in copy and
+// becomes the thing you are looking at.
+//
+// CORONA_SIZE is derived, not tuned: at 1.6/uDiscR the quad's uv maps 1:1 onto
+// the texture's uv, so the corona is pixel-aligned with the disk inside it.
+const CORONA_DISC_R = 0.31;
+const CORONA_SIZE = 1.6 / CORONA_DISC_R;
 
 const coronaVertex = /* glsl */ `
   varying vec2 vUv;
@@ -131,19 +141,37 @@ const coronaVertex = /* glsl */ `
 const coronaFragment = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
-  uniform vec3 uTint;
+  uniform sampler2D uMap;
+  uniform float uHasMap;
+  uniform float uDiscR;
+  uniform float uExposure;
   uniform float uStrength;
-  uniform float uLimb;
+  uniform vec3 uTint;
+
   void main() {
-    float r = length(vUv - 0.5) * 2.0;
-    float t = clamp((r - uLimb) / (1.0 - uLimb), 0.0, 1.0);
-    // two terms: a tight bright collar on the limb, plus a much fainter wide
-    // halo, which is roughly how a real corona falls off and stops the glow
-    // reading as a single soft ring
-    float collar = pow(1.0 - t, 7.0);
-    float halo = pow(1.0 - t, 2.0) * 0.22;
-    float i = collar + halo;
-    gl_FragColor = vec4(uTint * i * uStrength, i);
+    float r = length(vUv - 0.5);
+
+    // Feather across the limb so the annulus meets the sphere without a seam,
+    // and fade before the texture's own edge so the field does not end in a
+    // hard circular cut against the void.
+    float inner = smoothstep(uDiscR * 0.97, uDiscR * 1.05, r);
+    float outer = 1.0 - smoothstep(0.40, 0.499, r);
+    float mask = inner * outer;
+    if (mask <= 0.001) discard;
+
+    vec3 col;
+    if (uHasMap > 0.5) {
+      // the real off-disk data, at the same exposure the disk uses
+      col = texture2D(uMap, vUv).rgb * uExposure;
+    } else {
+      // loading state only: a neutral falloff so the Sun is not a bare cut
+      // while the frame is still in flight
+      float t = clamp((r - uDiscR) / (0.5 - uDiscR), 0.0, 1.0);
+      col = uTint * pow(1.0 - t, 6.0) * 0.5;
+    }
+
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    gl_FragColor = vec4(col * uStrength * mask, lum * mask);
   }
 `;
 
@@ -181,8 +209,11 @@ export default function Sun() {
   const coronaUniforms = useMemo(
     () => ({
       uTint: { value: hot.current.clone() },
-      uStrength: { value: 0.85 },
-      uLimb: { value: CORONA_LIMB },
+      uStrength: { value: 1.6 },
+      uDiscR: { value: CORONA_DISC_R },
+      uExposure: { value: 1.4 },
+      uMap: { value: BLACK_1PX as THREE.Texture },
+      uHasMap: { value: 0 },
     }),
     []
   );
@@ -190,7 +221,10 @@ export default function Sun() {
   useEffect(() => {
     uniforms.uMap.value = tex ?? BLACK_1PX;
     uniforms.uHasMap.value = tex ? 1 : 0;
-  }, [tex, uniforms]);
+    // the corona reads the SAME frame as the disk — one texture, one identity
+    coronaUniforms.uMap.value = tex ?? BLACK_1PX;
+    coronaUniforms.uHasMap.value = tex ? 1 : 0;
+  }, [tex, uniforms, coronaUniforms]);
 
   useFrame((state, dt) => {
     // billboard: the corona is a flat quad, so it must always face the camera

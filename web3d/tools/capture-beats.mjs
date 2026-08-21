@@ -65,8 +65,35 @@ for (const vp of VIEWPORTS) {
   await page.waitForSelector("canvas", { timeout: 60_000 });
   await page.waitForFunction(() => !document.querySelector(".loader"), null, { timeout: 60_000 })
     .catch(() => console.warn("  loader still up; capturing anyway"));
+  // Pin the identity if asked. Without this the capture uses whatever date the
+  // store defaults to, which drifts with the data frontier — and a date past
+  // the frontier has no imagery at all, so the Sun silently falls back to the
+  // procedural plasma and the frame tests nothing. The dev build exposes the
+  // store for exactly this kind of driving.
+  const wantDate = process.env.CAPTURE_DATE;
+  const wantChannel = process.env.CAPTURE_CHANNEL;
+  if (wantDate || wantChannel) {
+    await page.evaluate(
+      ([d, c]) => {
+        const st = window.__store && window.__store.getState();
+        if (!st) return;
+        if (d) st.setDate(d);
+        if (c !== null && c !== undefined && c !== "") st.setChannel(Number(c));
+      },
+      [wantDate ?? null, wantChannel ?? null]
+    );
+  }
+
   // Let the first real frames land + the Sun texture resolve.
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(9000);
+
+  // Report whether the REAL frame actually arrived. A capture taken on the
+  // procedural fallback looks plausible and means nothing.
+  const texStatus = await page.evaluate(() => {
+    const st = window.__store && window.__store.getState();
+    return st ? { status: st.texStatus, date: st.date, channel: st.channel } : null;
+  });
+  console.log(`  identity: ${JSON.stringify(texStatus)}`);
 
   for (const [name, frac] of BEATS) {
     await page.evaluate((f) => {
