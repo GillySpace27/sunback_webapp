@@ -23,6 +23,15 @@ export default defineConfig(({ command }) => ({
         secure: true,
         headers: { origin: DEV_API, referer: DEV_API + "/" },
       },
+      // The RHEF previews generate_preview returns live under /asset, not
+      // /api. Without this they 404 in dev and the enhanced look silently
+      // fails back to the raw frame.
+      "/asset": {
+        target: DEV_API,
+        changeOrigin: true,
+        secure: true,
+        headers: { origin: DEV_API, referer: DEV_API + "/" },
+      },
     },
   },
   build: {

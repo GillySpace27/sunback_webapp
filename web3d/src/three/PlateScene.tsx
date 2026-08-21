@@ -3,6 +3,8 @@ import { Canvas } from "@react-three/fiber";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import Sun from "./Sun";
+import { useStore } from "../store";
+import { useEffect } from "react";
 
 // The print master for the "Dimensional" SKU.
 //
@@ -27,6 +29,15 @@ import Sun from "./Sun";
 const PLATE_CAMERA_Z = 9.4;
 
 export default function PlateScene() {
+  // ?look=rhef selects the enhanced frame for the master. Read here rather than
+  // in the renderer so the plate and the film share one code path.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const look = q.get("look");
+    if (look === "rhef" || look === "raw") useStore.getState().setLook(look);
+    const wl = q.get("ch");
+    if (wl !== null && wl !== "") useStore.getState().setChannel(Number(wl));
+  }, []);
   return (
     <Canvas
       className="canvas"

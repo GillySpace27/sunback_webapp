@@ -17,6 +17,7 @@ const OUT = process.env.PLATE_OUT || "plates";
 const SIZE = Number(process.env.PLATE_SIZE || 2048);
 const DATE = process.env.PLATE_DATE || "2017-09-06";
 const CHANNEL = process.env.PLATE_CHANNEL || "5";
+const LOOK = process.env.PLATE_LOOK || "raw";
 
 mkdirSync(OUT, { recursive: true });
 
@@ -28,7 +29,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.error(`[pageerror] ${e.message}`));
 
-await page.goto(`${BASE}?plate=1`, { waitUntil: "load", timeout: 90_000 });
+await page.goto(`${BASE}?plate=1&look=${LOOK}&ch=${CHANNEL}`, { waitUntil: "load", timeout: 90_000 });
 await page.waitForSelector("canvas", { timeout: 90_000 });
 
 await page.evaluate(([d, c]) => {
@@ -38,14 +39,33 @@ await page.evaluate(([d, c]) => {
   st.setChannel(Number(c));
 }, [DATE, CHANNEL]);
 
-// SwiftShader at 2048² is slow; give the texture and the first real frames room.
-await page.waitForTimeout(14_000);
+// SwiftShader at 2048 is slow, and the RHEF frame is a real FITS fetch plus a
+// filter pass on the backend (~20-25s cold), so wait for the look to actually
+// resolve rather than guessing a timeout.
+await page
+  .waitForFunction(() => window.__store?.getState()?.texStatus === "ready", null, { timeout: 120_000 })
+  .catch(() => console.warn("texStatus never reached ready"));
+await page.waitForTimeout(2_500);
+if (LOOK === "rhef") {
+  await page
+    .waitForFunction(() => window.__store?.getState()?.rhefStatus === "ready", null, { timeout: 180_000 })
+    .catch(() => console.warn("rhefStatus never reached ready"));
+  await page.waitForTimeout(4_000); // let the crossfade land
+}
 
 const st = await page.evaluate(() => {
   const s = window.__store && window.__store.getState();
-  return s ? { status: s.texStatus, date: s.date, channel: s.channel } : null;
+  return s ? { status: s.texStatus, rhef: s.rhefStatus, look: s.look, date: s.date, channel: s.channel } : null;
 });
 console.log("identity:", JSON.stringify(st));
+if (LOOK === "rhef" && (!st || st.rhef !== "ready")) {
+  // The first version of this guard only checked the base texture, so a run
+  // whose RHEF frame failed wrote a raw plate under an "_rhef_" filename — a
+  // mislabelled master, which is worse than no master.
+  console.error(`REFUSING to write plate: look=rhef but rhefStatus=${st && st.rhef}`);
+  await browser.close();
+  process.exit(2);
+}
 if (!st || st.status !== "ready") {
   // Refuse to emit a plate rendered on the procedural fallback. It looks
   // entirely plausible and is not the customer's Sun.
@@ -54,7 +74,7 @@ if (!st || st.status !== "ready") {
   process.exit(2);
 }
 
-const file = path.join(OUT, `plate_${st.date}_${CHANNEL}_${SIZE}.png`);
+const file = path.join(OUT, `plate_${st.date}_ch${CHANNEL}_${LOOK}_${SIZE}.png`);
 await page.screenshot({ path: file, omitBackground: false });
 console.log("wrote", file);
 await browser.close();

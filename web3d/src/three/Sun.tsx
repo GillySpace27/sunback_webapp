@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "../store";
 import { CHANNELS } from "../data/wavelengths";
+import { RHEF_DISC_R } from "../hooks/useRhefTextureLoader";
 
 // The Sun surface: the real SDO/AIA full-disk image for the chosen date +
 // wavelength, orthographically mapped onto the front hemisphere. A procedural
@@ -36,6 +37,10 @@ const fragment = /* glsl */ `
   uniform float uMapMix;    // crossfade procedural -> photo
   uniform float uDiscR;     // uv radius of the solar disk in the image (~0.31)
   uniform float uExposure;  // lift the (dim) raw disk so it reads on dark bg
+  uniform sampler2D uRhef;  // FITS-derived, radially-equalised frame
+  uniform float uHasRhef;
+  uniform float uRhefDiscR; // ~0.39: the FITS field is narrower than the JP2's
+  uniform float uLookMix;   // 0 = raw (JP2), 1 = RHEF
 
   vec3 hash3(vec3 p){
     p = vec3(dot(p,vec3(127.1,311.7,74.7)),
@@ -71,6 +76,11 @@ const fragment = /* glsl */ `
     if (uHasMap > 0.5 && uMapMix > 0.99) {
       vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
       vec3 photo = texture2D(uMap, muv).rgb * uExposure;
+      if (uHasRhef > 0.5 && uLookMix > 0.001) {
+        // sampled with the RHEF frame's OWN disc radius, not the JP2's
+        vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
+        photo = mix(photo, texture2D(uRhef, ruv).rgb * uExposure, uLookMix);
+      }
       // The fast path used to blit the texture flat, with no limb term at all,
       // so the moment the real frame arrived the Sun stopped being a lit body
       // and became a decal on a sphere with a razor silhouette. Keep the limb
@@ -147,6 +157,10 @@ const coronaFragment = /* glsl */ `
   uniform float uExposure;
   uniform float uStrength;
   uniform vec3 uTint;
+  uniform sampler2D uRhef;
+  uniform float uHasRhef;
+  uniform float uRhefDiscR;
+  uniform float uLookMix;
 
   void main() {
     float r = length(vUv - 0.5);
@@ -160,7 +174,22 @@ const coronaFragment = /* glsl */ `
     if (mask <= 0.001) discard;
 
     vec3 col;
-    if (uHasMap > 0.5) {
+    if (uHasRhef > 0.5 && uLookMix > 0.001) {
+      // The RHEF frame is the point of this SKU: in the coronal channels (171
+      // especially) it carries real off-limb structure — plumes, streamer fans,
+      // the dark lanes between them — that the JP2 threw away at byte-scaling.
+      // Its field is narrower, so remap the annulus onto this quad's uv.
+      float rr = (r - uDiscR) / (0.5 - uDiscR);          // 0 at limb, 1 at edge
+      float rRhef = uRhefDiscR + rr * (0.5 - uRhefDiscR);
+      vec2 dir = normalize(vUv - 0.5 + vec2(1e-6));
+      vec3 rhefCol = texture2D(uRhef, dir * rRhef + 0.5).rgb * uExposure;
+      // Past ~1.25 Rsun even 171 drops under the noise floor and RHEF
+      // faithfully equalises the noise; fade the far field rather than sell
+      // speckle as corona.
+      float noiseGate = 1.0 - smoothstep(0.62, 0.92, rr);
+      vec3 rawCol = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb * uExposure : vec3(0.0);
+      col = mix(rawCol, rhefCol * noiseGate, uLookMix);
+    } else if (uHasMap > 0.5) {
       // the real off-disk data, at the same exposure the disk uses
       col = texture2D(uMap, vUv).rgb * uExposure;
     } else {
@@ -186,6 +215,7 @@ export default function Sun() {
   // the real texture is loaded centrally (useSunTextureLoader) and published to
   // the store; null while loading/on error, so we fall back to the plasma
   const tex = useStore((s) => s.currentTexture);
+  const rhefTex = useStore((s) => s.rhefTexture) as THREE.Texture | null;
   // the origin Sun belongs to the space beats; hide it UNDER the atmosphere flash
   // (~0.51) so the red AIA disk never lingers in the daytime sky (the ground has
   // its own warm sun) or shows through the fading ground
@@ -202,6 +232,10 @@ export default function Sun() {
       uMapMix: { value: 0 },
       uDiscR: { value: 0.31 }, // ponytail: plate-scale knob; tune if framing drifts
       uExposure: { value: 1.4 },
+      uRhef: { value: BLACK_1PX as THREE.Texture },
+      uHasRhef: { value: 0 },
+      uRhefDiscR: { value: RHEF_DISC_R },
+      uLookMix: { value: 0 },
     }),
     []
   );
@@ -214,6 +248,10 @@ export default function Sun() {
       uExposure: { value: 1.4 },
       uMap: { value: BLACK_1PX as THREE.Texture },
       uHasMap: { value: 0 },
+      uRhef: { value: BLACK_1PX as THREE.Texture },
+      uHasRhef: { value: 0 },
+      uRhefDiscR: { value: RHEF_DISC_R },
+      uLookMix: { value: 0 },
     }),
     []
   );
@@ -224,7 +262,11 @@ export default function Sun() {
     // the corona reads the SAME frame as the disk — one texture, one identity
     coronaUniforms.uMap.value = tex ?? BLACK_1PX;
     coronaUniforms.uHasMap.value = tex ? 1 : 0;
-  }, [tex, uniforms, coronaUniforms]);
+    uniforms.uRhef.value = rhefTex ?? BLACK_1PX;
+    uniforms.uHasRhef.value = rhefTex ? 1 : 0;
+    coronaUniforms.uRhef.value = rhefTex ?? BLACK_1PX;
+    coronaUniforms.uHasRhef.value = rhefTex ? 1 : 0;
+  }, [tex, rhefTex, uniforms, coronaUniforms]);
 
   useFrame((state, dt) => {
     // billboard: the corona is a flat quad, so it must always face the camera
@@ -242,6 +284,10 @@ export default function Sun() {
     // resolve procedural -> photo (or back) over ~0.5s
     const target = uniforms.uHasMap.value;
     uniforms.uMapMix.value += (target - uniforms.uMapMix.value) * (1 - Math.exp(-dt / 0.5));
+    const wantRhef = useStore.getState().look === "rhef" && uniforms.uHasRhef.value > 0.5 ? 1 : 0;
+    const lm = uniforms.uLookMix.value + (wantRhef - uniforms.uLookMix.value) * (1 - Math.exp(-dt / 0.6));
+    uniforms.uLookMix.value = lm;
+    coronaUniforms.uLookMix.value = lm;
   });
 
   return (

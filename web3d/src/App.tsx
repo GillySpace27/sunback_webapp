@@ -1,7 +1,8 @@
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { useScrollProgress } from "./hooks/useScrollProgress";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 import { useSunTextureLoader } from "./hooks/useSunTextureLoader";
+import { useRhefTextureLoader } from "./hooks/useRhefTextureLoader";
 import { warmBackend } from "./lib/handoff";
 // The archive's real frontier. JSOC's ingest lag drifts (8 days on
 // 2026-08-15), so a hardcoded ceiling silently offers dates that cannot be
@@ -38,6 +39,32 @@ const PLATE_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("plate") === "1";
 
+// The aperture beat is the one whose entire job is "one Sun, nine kinds of
+// light". Staging it on a CORONAL channel is what lets it actually show that:
+// 304 is chromosphere and has essentially no off-limb corona, so the beat that
+// sells the enhancement was running on the one channel where the enhancement
+// has nothing to reveal. 171 (Fe IX) carries real off-limb plumes and streamer
+// fans. The hero keeps 304's recognisable warmth; the change happens as the
+// wheel arrives, so the Sun visibly shifts colour on the beat about colour.
+const AUTO_STAGE_CHANNEL = 2; // 171 A
+const AUTO_STAGE_AT = 0.235;
+
+function useApertureStaging() {
+  const staged = useRef(false);
+  useEffect(() => {
+    return useStore.subscribe((s) => {
+      if (staged.current) return;
+      // never override a real preference, and never claim one was made
+      if (s.channelChosen) { staged.current = true; return; }
+      if (s.progress >= AUTO_STAGE_AT) {
+        staged.current = true;
+        useStore.getState().stageChannel(AUTO_STAGE_CHANNEL);
+        useStore.getState().setLook("rhef");
+      }
+    });
+  }, []);
+}
+
 // Screen-reader text alternative for the (aria-hidden) WebGL stage that tracks
 // the CURRENT selection, not a static description. Subscribes only to date +
 // channel, which change on explicit user action, so this re-renders rarely.
@@ -59,6 +86,8 @@ export default function App() {
   usePrefersReducedMotion();
   useScrollProgress();
   useSunTextureLoader(); // loads the real Sun for the current identity
+  useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
+  useApertureStaging(); // stages the aperture beat on a coronal channel
 
   // Warm the scale-to-zero backend at idle so its ~20s wake overlaps the heavy
   // chunk download instead of running after it (cuts time-to-real-Sun).

@@ -69,6 +69,24 @@ type State = {
   // selected wavelength (index into CHANNELS)
   channel: number;
   setChannel: (i: number) => void;
+  // Change the displayed channel WITHOUT claiming the visitor chose it. The
+  // film stages the aperture beat on a coronal channel (see AUTO_STAGE_CHANNEL)
+  // so the beat whose whole job is "one Sun, nine kinds of light" actually
+  // demonstrates it; that must not silence the "keep scrolling" nudge or
+  // override a real preference, both of which hang off channelChosen.
+  stageChannel: (i: number) => void;
+
+  // Which treatment is on screen. "raw" is the instant Helioviewer frame;
+  // "rhef" is the FITS-derived, radially-equalised one. RHEF cannot be done on
+  // the JP2: it is already byte-scaled, display-stretched and colour-mapped, so
+  // the off-disk intensities RHEF equalises have been destroyed before we ever
+  // receive the file. It therefore arrives on a slower, separate path.
+  look: "raw" | "rhef";
+  setLook: (l: "raw" | "rhef") => void;
+  rhefTexture: unknown | null;
+  rhefStatus: "idle" | "loading" | "ready" | "error";
+  setRhefTexture: (t: unknown | null) => void;
+  setRhefStatus: (s: "idle" | "loading" | "ready" | "error") => void;
   // has the visitor explicitly picked a wavelength yet? drives the "keep
   // scrolling to continue" nudge once they've made a first choice
   channelChosen: boolean;
@@ -137,7 +155,15 @@ export const useStore = create<State>((set, get) => ({
 
   channel: DEFAULT_CHANNEL,
   setChannel: (i) => set({ channel: i, channelChosen: true }),
+  stageChannel: (i) => set({ channel: i }),
   channelChosen: false,
+
+  look: "raw",
+  setLook: (l) => set({ look: l }),
+  rhefTexture: null,
+  rhefStatus: "idle",
+  setRhefTexture: (t) => set({ rhefTexture: t }),
+  setRhefStatus: (st) => set({ rhefStatus: st }),
 
   // Seeded from a warm frontier cache when one exists (see readFrontierCache
   // above); otherwise the conservative static fallback, same stand-in the
