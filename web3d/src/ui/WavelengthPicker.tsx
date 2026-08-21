@@ -12,6 +12,9 @@ import DateField from "./DateField";
 export default function WavelengthPicker() {
   const channel = useStore((s) => s.channel);
   const setChannel = useStore((s) => s.setChannel);
+  const look = useStore((s) => s.look);
+  const setLook = useStore((s) => s.setLook);
+  const rhefStatus = useStore((s) => s.rhefStatus);
   const status = useStore((s) => s.texStatus);
   const valid = useStore(dateValid);
   const active = CHANNELS[channel];
@@ -92,6 +95,36 @@ export default function WavelengthPicker() {
             <span className="swatch-tip" role="tooltip">{ch.sees}</span>
           </label>
         ))}
+      </div>
+
+      {/* Original vs Enhanced, in the film.
+          It lives HERE rather than as a beat control because the film is
+          itself the enhanced presentation — interrupting it to ask "flat or
+          enhanced?" breaks the thing it is doing. In the bar it is a setting
+          alongside date and wavelength, and flipping it is its own
+          demonstration: the corona blooms or collapses on the Sun in front of
+          you, which is the argument RHEF makes, made visually. */}
+      <div className="look-toggle" role="radiogroup" aria-label="Image treatment">
+        {(["raw", "rhef"] as const).map((k) => (
+          <label key={k} className={"look-option" + (look === k ? " look-option--on" : "")}>
+            <input
+              type="radio"
+              name="look"
+              checked={look === k}
+              onChange={() => setLook(k)}
+              tabIndex={look === k ? 0 : -1}
+            />
+            <span>{k === "raw" ? "Original" : "Enhanced"}</span>
+          </label>
+        ))}
+        {/* RHEF is a real archive fetch plus a filter pass, so it can take a
+            while on a cold date; say so rather than looking inert. */}
+        {look === "rhef" && rhefStatus === "loading" && (
+          <span className="picker-status"> · revealing the corona…</span>
+        )}
+        {look === "rhef" && rhefStatus === "error" && (
+          <span className="picker-status err"> · enhanced view unavailable</span>
+        )}
       </div>
 
       {/* commit — visible for mouse from the moment the bar is revealed */}

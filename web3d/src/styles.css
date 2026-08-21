@@ -1076,3 +1076,47 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
      has to survive. */
   .start-over { display: none; }
 }
+
+/* ── Original / Enhanced, in the picker bar ───────────────────────────────
+   The film IS the enhanced presentation, so this is a setting rather than a
+   beat: asking "flat or enhanced?" mid-film interrupts the thing the film is
+   doing. Flipping it here is its own demonstration — the corona blooms or
+   collapses on the Sun in front of you. */
+.look-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+}
+.look-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease);
+}
+.look-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.look-option:hover { color: var(--ink); border-color: rgba(244, 239, 230, 0.45); }
+.look-option--on {
+  color: var(--bg);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.look-option input:focus-visible ~ span {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}

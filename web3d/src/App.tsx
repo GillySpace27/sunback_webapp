@@ -39,28 +39,19 @@ const PLATE_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("plate") === "1";
 
-// The aperture beat is the one whose entire job is "one Sun, nine kinds of
-// light". Staging it on a CORONAL channel is what lets it actually show that:
-// 304 is chromosphere and has essentially no off-limb corona, so the beat that
-// sells the enhancement was running on the one channel where the enhancement
-// has nothing to reveal. 171 (Fe IX) carries real off-limb plumes and streamer
-// fans. The hero keeps 304's recognisable warmth; the change happens as the
-// wheel arrives, so the Sun visibly shifts colour on the beat about colour.
-const AUTO_STAGE_CHANNEL = 2; // 171 A
-const AUTO_STAGE_AT = 0.235;
+// The film opens on 171 now (see DEFAULT_CHANNEL), so there is no channel to
+// stage. What still has to happen at the aperture beat is asking for the RHEF
+// frame: it is a real FITS fetch and filter pass, so it is requested when the
+// beat that shows it off comes into view rather than on page load.
+const RHEF_REQUEST_AT = 0.2;
 
-function useApertureStaging() {
-  const staged = useRef(false);
+function useRhefRequest() {
+  const asked = useRef(false);
   useEffect(() => {
     return useStore.subscribe((s) => {
-      if (staged.current) return;
-      // never override a real preference, and never claim one was made
-      if (s.channelChosen) { staged.current = true; return; }
-      if (s.progress >= AUTO_STAGE_AT) {
-        staged.current = true;
-        useStore.getState().stageChannel(AUTO_STAGE_CHANNEL);
-        useStore.getState().setLook("rhef");
-      }
+      if (asked.current || s.progress < RHEF_REQUEST_AT) return;
+      asked.current = true;
+      if (useStore.getState().look === "raw") useStore.getState().setLook("rhef");
     });
   }, []);
 }
@@ -87,7 +78,7 @@ export default function App() {
   useScrollProgress();
   useSunTextureLoader(); // loads the real Sun for the current identity
   useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
-  useApertureStaging(); // stages the aperture beat on a coronal channel
+  useRhefRequest(); // asks for the RHEF frame as its beat comes into view
 
   // Warm the scale-to-zero backend at idle so its ~20s wake overlaps the heavy
   // chunk download instead of running after it (cuts time-to-real-Sun).

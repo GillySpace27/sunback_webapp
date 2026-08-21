@@ -41,4 +41,9 @@ export const CHANNELS: Channel[] = [
 // The 8 SDO/AIA channels the product pipeline supports (see PRODUCT_CREATION_
 // CONTRACT.md). Each angstrom value is a valid `wl` deep-link + thumb param.
 
-export const DEFAULT_CHANNEL = 5; // 30.4 nm — the warm, recognizable Sun
+// 2 = 171 A, not 5 = 304 A. 304 is chromosphere: it has essentially no
+// off-limb corona, so opening on it meant the film's first frame was the one
+// wavelength where the enhancement this whole product sells has nothing to
+// reveal. 171 (Fe IX) carries the real off-limb plumes and streamer fans, so
+// the opening frame now shows what is actually being sold.
+export const DEFAULT_CHANNEL = 2;
