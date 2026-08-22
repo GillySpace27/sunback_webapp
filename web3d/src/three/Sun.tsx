@@ -52,6 +52,14 @@ const fragment = /* glsl */ `
   uniform sampler2D uNext;
   uniform float uHasNext;
   uniform float uSeqMix;
+  // Rainbow: three RHEF'd coronal channels (171/193/211) as R/G/B. Each is a
+  // greyscale-equalised frame in its own colourmap, so the luminance of each is
+  // taken as that channel's contribution rather than its false colour, which
+  // would multiply three colourmaps together into mud.
+  uniform sampler2D uRainR;
+  uniform sampler2D uRainG;
+  uniform sampler2D uRainB;
+  uniform float uHasRainbow;
 
   vec3 hash3(vec3 p){
     p = vec3(dot(p,vec3(127.1,311.7,74.7)),
@@ -90,7 +98,15 @@ const fragment = /* glsl */ `
       if (uHasNext > 0.5) {
         photo = mix(photo, texture2D(uNext, muv).rgb * uExposure, uSeqMix);
       }
-      if (uHasRhef > 0.5 && uLookMix > 0.001) {
+      if (uHasRainbow > 0.5) {
+        vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
+        vec3 lw = vec3(0.2126, 0.7152, 0.0722);
+        photo = vec3(
+          dot(texture2D(uRainR, ruv).rgb, lw),
+          dot(texture2D(uRainG, ruv).rgb, lw),
+          dot(texture2D(uRainB, ruv).rgb, lw)
+        ) * uRhefExposure;
+      } else if (uHasRhef > 0.5 && uLookMix > 0.001) {
         // sampled with the RHEF frame's OWN disc radius, not the JP2's
         vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
         photo = mix(photo, texture2D(uRhef, ruv).rgb * uRhefExposure, uLookMix);
@@ -240,6 +256,7 @@ export default function Sun() {
   const tex = useStore((s) => s.currentTexture);
   const rhefTex = useStore((s) => s.rhefTexture) as THREE.Texture | null;
   const seq = useStore((s) => s.sequence) as THREE.Texture[];
+  const rain = useStore((s) => s.rainbow3) as THREE.Texture[];
   // the origin Sun belongs to the space beats; hide it UNDER the atmosphere flash
   // (~0.51) so the red AIA disk never lingers in the daytime sky (the ground has
   // its own warm sun) or shows through the fading ground
@@ -264,6 +281,10 @@ export default function Sun() {
       uNext: { value: BLACK_1PX as THREE.Texture },
       uHasNext: { value: 0 },
       uSeqMix: { value: 0 },
+      uRainR: { value: BLACK_1PX as THREE.Texture },
+      uRainG: { value: BLACK_1PX as THREE.Texture },
+      uRainB: { value: BLACK_1PX as THREE.Texture },
+      uHasRainbow: { value: 0 },
     }),
     []
   );
@@ -296,11 +317,16 @@ export default function Sun() {
     // the corona reads the SAME frame as the disk — one texture, one identity
     coronaUniforms.uMap.value = tex ?? BLACK_1PX;
     coronaUniforms.uHasMap.value = tex ? 1 : 0;
+    const haveRainbow = rain.length === 3;
+    uniforms.uRainR.value = haveRainbow ? rain[0] : BLACK_1PX;
+    uniforms.uRainG.value = haveRainbow ? rain[1] : BLACK_1PX;
+    uniforms.uRainB.value = haveRainbow ? rain[2] : BLACK_1PX;
+    uniforms.uHasRainbow.value = haveRainbow ? 1 : 0;
     uniforms.uRhef.value = rhefTex ?? BLACK_1PX;
     uniforms.uHasRhef.value = rhefTex ? 1 : 0;
     coronaUniforms.uRhef.value = rhefTex ?? BLACK_1PX;
     coronaUniforms.uHasRhef.value = rhefTex ? 1 : 0;
-  }, [tex, rhefTex, uniforms, coronaUniforms]);
+  }, [tex, rhefTex, rain, uniforms, coronaUniforms]);
 
   useFrame((state, dt) => {
     // billboard: the corona is a flat quad, so it must always face the camera

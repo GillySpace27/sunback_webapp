@@ -89,6 +89,14 @@ type State = {
   sequence: unknown[];
   setSequence: (t: unknown[]) => void;
 
+  // Rainbow: 171/193/211 RHEF frames composited to R/G/B in the shader.
+  rainbow: boolean;
+  setRainbow: (v: boolean) => void;
+  rainbow3: unknown[];
+  setRainbow3: (t: unknown[]) => void;
+  rainbowStatus: "idle" | "loading" | "ready" | "error";
+  setRainbowStatus: (s: "idle" | "loading" | "ready" | "error") => void;
+
   look: "raw" | "rhef";
   setLook: (l: "raw" | "rhef") => void;
   rhefTexture: unknown | null;
@@ -169,7 +177,40 @@ export const useStore = create<State>((set, get) => ({
   timelapse: false,
   setTimelapse: (v) => set({ timelapse: v }),
   sequence: [],
-  setSequence: (t) => set({ sequence: t }),
+  // Disposes what it replaces. The time-lapse holds six 1024-square textures
+  // (~24 MB), and it reloads on every date AND wavelength change, so simply
+  // swapping the array left the old GPU allocations live with nothing
+  // referencing them — a visitor exploring a dozen dates leaked a couple of
+  // hundred MB of VRAM. Only frames absent from the incoming array are freed,
+  // since the loader publishes the sequence incrementally as frames arrive and
+  // therefore passes back textures it is still using.
+  setSequence: (t) =>
+    set((st) => {
+      const keep = new Set(t);
+      for (const old of st.sequence) {
+        if (keep.has(old)) continue;
+        const tex = old as { dispose?: () => void };
+        if (typeof tex?.dispose === "function") tex.dispose();
+      }
+      return { sequence: t };
+    }),
+
+  rainbow: false,
+  setRainbow: (v) => set({ rainbow: v }),
+  rainbow3: [],
+  // disposes what it replaces, same reason as setSequence above
+  setRainbow3: (t) =>
+    set((st) => {
+      const keep = new Set(t);
+      for (const old of st.rainbow3) {
+        if (keep.has(old)) continue;
+        const tex = old as { dispose?: () => void };
+        if (typeof tex?.dispose === "function") tex.dispose();
+      }
+      return { rainbow3: t };
+    }),
+  rainbowStatus: "idle",
+  setRainbowStatus: (s2) => set({ rainbowStatus: s2 }),
 
   look: "raw",
   setLook: (l) => set({ look: l }),

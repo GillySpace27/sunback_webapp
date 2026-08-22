@@ -4,6 +4,7 @@ import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 import { useSunTextureLoader } from "./hooks/useSunTextureLoader";
 import { useRhefTextureLoader } from "./hooks/useRhefTextureLoader";
 import { useTimelapseLoader } from "./hooks/useTimelapseLoader";
+import { useRainbowLoader } from "./hooks/useRainbowLoader";
 import { warmBackend } from "./lib/handoff";
 // The archive's real frontier. JSOC's ingest lag drifts (8 days on
 // 2026-08-15), so a hardcoded ceiling silently offers dates that cannot be
@@ -39,9 +40,11 @@ const PlateScene = lazy(() => import("./three/PlateScene"));
 // Time-lapse is OFF unless asked for (?timelapse=1). It is six extra fetches
 // per identity and the film has to stay fast for someone who just wants a
 // print, so it stays an experiment behind a flag rather than a default.
-if (typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("timelapse") === "1") {
-  useStore.getState().setTimelapse(true);
+if (typeof window !== "undefined") {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("timelapse") === "1") useStore.getState().setTimelapse(true);
+  // Rainbow is three RHEF generations on a cold date, so it is opt-in too.
+  if (q.get("rainbow") === "1") useStore.getState().setRainbow(true);
 }
 
 const PLATE_MODE =
@@ -89,6 +92,7 @@ export default function App() {
   useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
   useRhefRequest(); // asks for the RHEF frame as its beat comes into view
   useTimelapseLoader(); // opt-in: the day as a sequence of real frames
+  useRainbowLoader(); // opt-in: 171/193/211 RHEF composited to RGB
 
   // Warm the scale-to-zero backend at idle so its ~20s wake overlaps the heavy
   // chunk download instead of running after it (cuts time-to-real-Sun).

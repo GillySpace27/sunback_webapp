@@ -33,6 +33,31 @@ export const CHANNELS: Channel[] = [
   { angstrom: 335, nm: 33.5, instrument: "AIA", label: "335 Å", tint: "#2f6fd6", hot: "#cfe0ff", sees: "Hot active regions" , corona: 0.5 },
   { angstrom: 1600, nm: 160.0, instrument: "AIA", label: "1600 Å", tint: "#b6c14a", hot: "#f4ffd0", sees: "Transition region, photosphere" , corona: 0.05 },
 ];
+
+// The rainbow: one RGB frame built from three RHEF'd coronal channels, red to
+// blue in temperature order. Recipe taken from sunback's own
+// RainbowRGBImageProcessor (rgb1 = 171/193/211), which is what produces the
+// composite already published at the-sun-now.s3.../rhef_rainbow_1k.png — so
+// this is the same image the rest of Gilly's work already calls the rainbow
+// Sun, not a new invention.
+//
+// All three are coronal lines carrying real off-limb structure, so the
+// composite corona is genuine in all three channels at once. It is also the
+// most promising candidate for the print-limb problem: the three channels
+// behave differently at the limb, so the edge can come back as a COLOUR
+// transition without undoing the radial equalisation that removed it as a
+// brightness one.
+export const RAINBOW_RGB: [number, number, number] = [171, 193, 211];
+export const RAINBOW_CHANNEL: Channel = {
+  angstrom: 0,
+  nm: 0,
+  instrument: "AIA",
+  label: "Rainbow",
+  tint: "#c9a227",
+  hot: "#fff4d6",
+  sees: "Three coronal channels at once",
+  corona: 1.0,
+};
 // 1700 Å removed 2026-08-18 (Gilly): the only channel without JSOC's fast
 // synoptic-archive bypass on the store side, so it fell into NASA's VSO/DRMS
 // export queue on every arbitrary-date pick and could hang for minutes — see
