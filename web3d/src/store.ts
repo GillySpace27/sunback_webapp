@@ -94,6 +94,9 @@ type State = {
   // thing being annotated rather than through a legend.
   skyGuide: boolean;
   setSkyGuide: (v: boolean) => void;
+  // True once the visitor has worked the guide themselves, by either route.
+  // The opening demonstration must never fight a real choice.
+  skyGuideTouched: boolean;
 
   // Rainbow: 171/193/211 RHEF frames composited to R/G/B in the shader.
   rainbow: boolean;
@@ -202,7 +205,8 @@ export const useStore = create<State>((set, get) => ({
     }),
 
   skyGuide: false,
-  setSkyGuide: (v) => set({ skyGuide: v }),
+  setSkyGuide: (v) => set({ skyGuide: v, skyGuideTouched: true }),
+  skyGuideTouched: false,
 
   rainbow: false,
   setRainbow: (v) => set({ rainbow: v }),

@@ -3,6 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import Sun from "./Sun";
+import Starfield from "./Starfield";
 import { useStore } from "../store";
 import { useEffect } from "react";
 
@@ -28,6 +29,11 @@ import { useEffect } from "react";
 // spans roughly half the frame, which survives every aspect in the catalogue.
 const PLATE_CAMERA_Z = 9.4;
 
+// ?sky=1 puts the real starfield behind the plate.
+const SKY =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("sky") === "1";
+
 export default function PlateScene() {
   // ?look=rhef selects the enhanced frame for the master. Read here rather than
   // in the renderer so the plate and the film share one code path.
@@ -49,6 +55,8 @@ export default function PlateScene() {
     const wl = q.get("ch");
     if (wl !== null && wl !== "") st.setChannel(Number(wl));
     if (q.get("rainbow") === "1") st.setRainbow(true);
+    // explicit, never inherited from the film's opening demonstration
+    st.setSkyGuide(q.get("guide") === "1");
     const look = q.get("look");
     // dimensional plates default to the enhanced frame, since that is what the
     // SKU is for; an explicit look= still wins
@@ -73,6 +81,16 @@ export default function PlateScene() {
       <color attach="background" args={["#0a0908"]} />
       <Suspense fallback={null}>
         <Sun />
+        {/* The real sky, optionally, behind the Sun.
+            This was cut from the master on the grounds that the stars were
+            INVENTED — procedural, the same sky on every date — so printing them
+            would have re-introduced exactly the fabricated light the corona
+            work removed. That objection died when the starfield became the
+            actual Yale catalogue rotated to the visitor's own date: these are
+            the stars that were genuinely behind their Sun. It is now a real
+            option rather than decoration, which is why the sky had to be
+            correct before it could be printed. */}
+        {SKY && <Starfield />}
       </Suspense>
       <EffectComposer multisampling={0}>
         {/* Bloom stays: the corona's above-1.0 values are what become glow, and

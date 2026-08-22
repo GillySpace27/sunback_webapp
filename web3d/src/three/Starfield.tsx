@@ -24,6 +24,11 @@ import { PLANETS, PLANET_TINT, planetDirection } from "../lib/planets";
 // distance. That split is the honest version of "correct sky, with parallax".
 const SHELL = 150;
 
+// Plate mode renders a print master, so nothing here may depend on elapsed time.
+const PLATE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("plate") === "1";
+
 type Star = [number, number, number, number, number]; // x,y,z (J2000), Vmag, B-V
 type Segment = { c: string; p: number[] };            // constellation polyline
 
@@ -191,6 +196,7 @@ export default function Starfield() {
   const planetMats = useRef<THREE.MeshBasicMaterial[]>([]);
   const guideAmt = useRef(0);
   const first = useRef(true);
+  const introAt = useRef<number | null>(null);
   useFrame((_, dt) => {
     const el = g.current;
     if (!el) return;
@@ -202,6 +208,31 @@ export default function Starfield() {
       first.current = false;
       return;
     }
+    // Opening demonstration: the film starts with a bare sky and the figures
+    // draw themselves in a few seconds later. Showing the layer arrive is what
+    // teaches that it IS a layer — and therefore that the control in the bar
+    // turns it off again. A static legend can only assert that.
+    //
+    // Counts from the first frame the sky is actually visible, so it cannot be
+    // spent while the loader is still up, and it yields immediately to anyone
+    // who has already worked the toggle themselves.
+    {
+      const st = useStore.getState();
+      // Never in plate mode. A print master must be deterministic — one
+      // rendered at 3.3s and one at 3.5s would otherwise differ — so the plate
+      // takes the guide explicitly (?guide=1) and never from a timer.
+      if (!PLATE && !st.skyGuideTouched && st.progress < 0.51) {
+        if (introAt.current === null) introAt.current = 0;
+        else introAt.current += dt;
+        if (introAt.current > 3.4 && !st.skyGuide) {
+          // set directly, not through setSkyGuide: this is the film showing
+          // the visitor the layer, not the visitor choosing it, so it must not
+          // count as having been touched.
+          useStore.setState({ skyGuide: true });
+        }
+      }
+    }
+
     // Fade the guide rather than cutting it in. Frame-rate independent, and
     // the layers stay mounted so there is something to fade.
     const wantGuide = useStore.getState().skyGuide ? 1 : 0;

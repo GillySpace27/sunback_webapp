@@ -18,6 +18,8 @@ const SIZE = Number(process.env.PLATE_SIZE || 2048);
 const DATE = process.env.PLATE_DATE || "2017-09-06";
 const CHANNEL = process.env.PLATE_CHANNEL || "5";
 const LOOK = process.env.PLATE_LOOK || "raw";
+const SKY = process.env.PLATE_SKY === "1" ? "&sky=1" : "";
+const GUIDE = process.env.PLATE_GUIDE === "1" ? "&guide=1" : "";
 
 mkdirSync(OUT, { recursive: true });
 
@@ -29,7 +31,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.error(`[pageerror] ${e.message}`));
 
-await page.goto(`${BASE}?plate=1&bare=1&look=${LOOK}&ch=${CHANNEL}&d=${DATE}`, { waitUntil: "load", timeout: 90_000 });
+await page.goto(`${BASE}?plate=1&bare=1&look=${LOOK}&ch=${CHANNEL}&d=${DATE}${SKY}${GUIDE}`, { waitUntil: "load", timeout: 90_000 });
 await page.waitForSelector("canvas", { timeout: 90_000 });
 
 await page.evaluate(([d, c]) => {
@@ -74,7 +76,7 @@ if (!st || st.status !== "ready") {
   process.exit(2);
 }
 
-const file = path.join(OUT, `plate_${st.date}_ch${CHANNEL}_${LOOK}_${SIZE}.png`);
+const file = path.join(OUT, `plate_${st.date}_ch${CHANNEL}_${LOOK}${SKY ? "_sky" : ""}${GUIDE ? "_guide" : ""}_${SIZE}.png`);
 await page.screenshot({ path: file, omitBackground: false });
 console.log("wrote", file);
 await browser.close();
