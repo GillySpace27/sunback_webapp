@@ -212,7 +212,8 @@ const coronaFragment = /* glsl */ `
   uniform sampler2D uRainG;
   uniform sampler2D uRainB;
   uniform float uHasRainbow;
-  uniform float uQuadR;    // quad half-width in solar radii
+  uniform float uQuadR;
+  uniform float uHover;    // 0..1, lifts the corona while it is being pointed at    // quad half-width in solar radii
 
   // Everything here is done in SOLAR RADII rather than in each texture's own uv,
   // because the two sources do not share a field of view: the JP2 thumb reaches
@@ -275,7 +276,10 @@ const coronaFragment = /* glsl */ `
     if (mask <= 0.001) discard;
 
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    gl_FragColor = vec4(col * uStrength * mask, lum * mask);
+    // A control has to announce itself. Lifting the corona on hover says
+    // "this is the thing you can act on" without putting a button over the
+    // film, and it lifts the exact structure the click is about.
+    gl_FragColor = vec4(col * uStrength * (1.0 + 0.85 * uHover) * mask, lum * mask);
   }
 `;
 
@@ -285,6 +289,32 @@ BLACK_1PX.needsUpdate = true;
 export default function Sun() {
   const corona = useRef<THREE.Mesh>(null);
   const seqT = useRef(0);
+  const hover = useRef(false);
+
+  // Clicking the corona toggles the enhancement.
+  //
+  // Direct manipulation of the actual subject rather than a control beside it:
+  // the corona IS what RHEF reveals, so the thing you click is the thing that
+  // changes. It is live through the aperture beat, where the SDO model — the
+  // spacecraft that took this frame — is also on screen.
+  //
+  // The quad is a full square and the fragment shader DISCARDS everything
+  // outside the annulus, but discard does not affect raycasting: without a uv
+  // test, the whole square including the middle (in front of the disk) and the
+  // empty corners would be clickable. So the annulus is re-derived here, in the
+  // same solar radii the shader uses.
+  const CORONA_QUAD_R = CORONA_SIZE / 2 / 1.6;
+  const onCorona = (uv?: THREE.Vector2) => {
+    if (!uv) return false;
+    const R = Math.hypot(uv.x - 0.5, uv.y - 0.5) * CORONA_QUAD_R / 0.5;
+    // inside the limb the disk is what you are pointing at, not the corona;
+    // past ~1.3 Rsun there is nothing rendered to point at
+    return R > 1.0 && R < 1.3;
+  };
+  // R3F keeps raycasting an invisible mesh, so gate on the same progress window
+  // the corona itself uses rather than trusting `visible` (same trap the SDO
+  // model documents).
+  const armed = () => useStore.getState().progress < 0.4;
   const tint = useRef(new THREE.Color(CHANNELS[5].tint));
   const hot = useRef(new THREE.Color(CHANNELS[5].hot));
 
@@ -354,6 +384,7 @@ export default function Sun() {
       uRainB: { value: BLACK_1PX as THREE.Texture },
       uHasRainbow: { value: 0 },
       uQuadR: { value: CORONA_SIZE / 2 / 1.6 },  // quad half-width, in solar radii
+      uHover: { value: 0 },
     }),
     []
   );
@@ -417,6 +448,14 @@ export default function Sun() {
     const lm = uniforms.uLookMix.value + (wantRhef - uniforms.uLookMix.value) * (1 - Math.exp(-dt / 0.6));
     uniforms.uLookMix.value = lm;
     coronaUniforms.uLookMix.value = lm;
+    const wantHover = hover.current && armed() ? 1 : 0;
+    coronaUniforms.uHover.value +=
+      (wantHover - coronaUniforms.uHover.value) * (1 - Math.exp(-dt / 0.18));
+    // never leave the cursor as a pointer once the beat has moved on
+    if (!armed() && hover.current) {
+      hover.current = false;
+      document.body.style.cursor = "auto";
+    }
   });
 
   return (
@@ -431,7 +470,34 @@ export default function Sun() {
         />
       </mesh>
       {/* Corona quad, kept facing the camera in useFrame below. */}
-      <mesh ref={corona} visible={visible}>
+      <mesh
+        ref={corona}
+        visible={visible}
+        onPointerOver={(e) => {
+          if (!armed() || !onCorona(e.uv)) return;
+          e.stopPropagation();
+          hover.current = true;
+          document.body.style.cursor = "pointer";
+        }}
+        onPointerMove={(e) => {
+          if (!armed()) return;
+          const on = onCorona(e.uv);
+          if (on !== hover.current) {
+            hover.current = on;
+            document.body.style.cursor = on ? "pointer" : "auto";
+          }
+        }}
+        onPointerOut={() => {
+          hover.current = false;
+          document.body.style.cursor = "auto";
+        }}
+        onClick={(e) => {
+          if (!armed() || !onCorona(e.uv)) return;
+          e.stopPropagation();
+          const st = useStore.getState();
+          st.setLook(st.look === "rhef" ? "raw" : "rhef");
+        }}
+      >
         <planeGeometry args={[CORONA_SIZE, CORONA_SIZE]} />
         <shaderMaterial
           vertexShader={coronaVertex}
