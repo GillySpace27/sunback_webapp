@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { Html } from "@react-three/drei";
 import { useStore } from "../store";
+import { PLANETS, PLANET_TINT, planetDirection } from "../lib/planets";
 
 // The real sky behind the Sun on the visitor's date.
 //
@@ -23,6 +25,7 @@ import { useStore } from "../store";
 const SHELL = 150;
 
 type Star = [number, number, number, number, number]; // x,y,z (J2000), Vmag, B-V
+type Segment = { c: string; p: number[] };            // constellation polyline
 
 // USNO low-precision solar position. Validated against astropy's get_sun over
 // 2010-2026: worst separation 22 arcmin, i.e. less than the Sun's own 32-arcmin
@@ -98,12 +101,13 @@ const frag = /* glsl */ `
 `;
 
 export default function Starfield() {
-  const g = useRef<THREE.Points>(null);
+  const g = useRef<THREE.Group>(null);
   const uniforms = useMemo(
     () => ({ uDpr: { value: Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1) } }),
     []
   );
   const date = useStore((s) => s.date);
+  const guide = useStore((s) => s.skyGuide);
   const [stars, setStars] = useState<Star[] | null>(null);
 
   useEffect(() => {
@@ -193,18 +197,101 @@ export default function Starfield() {
     el.quaternion.slerp(target, 1 - Math.exp(-dt / 1.6));
   });
 
+  // Constellation figures, in the same frame as the stars so one rotation
+  // registers both. Fetched lazily: nobody pays for them until they ask.
+  const [segs, setSegs] = useState<Segment[] | null>(null);
+  useEffect(() => {
+    if (!guide || segs) return;
+    let alive = true;
+    fetch(`${import.meta.env.BASE_URL}constellations.json`)
+      .then((r) => r.json())
+      .then((j) => alive && setSegs(j.segments as Segment[]))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [guide, segs]);
+
+  const lineGeo = useMemo(() => {
+    if (!segs) return null;
+    const pos: number[] = [];
+    for (const seg of segs) {
+      const p = seg.p;
+      // polyline -> line segments, drawn just inside the star shell so the
+      // figures never occlude the stars they connect
+      for (let i = 0; i + 5 < p.length; i += 3) {
+        pos.push(p[i] * SHELL * 0.99, p[i + 1] * SHELL * 0.99, p[i + 2] * SHELL * 0.99);
+        pos.push(p[i + 3] * SHELL * 0.99, p[i + 4] * SHELL * 0.99, p[i + 5] * SHELL * 0.99);
+      }
+    }
+    const bg = new THREE.BufferGeometry();
+    bg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+    return bg;
+  }, [segs]);
+
+  // The naked-eye planets, on the ecliptic where they actually are that day.
+  const planets = useMemo(
+    () =>
+      PLANETS.map((name) => {
+        const [x, y, z] = planetDirection(name, date);
+        return { name, pos: new THREE.Vector3(x, y, z).multiplyScalar(SHELL * 0.97) };
+      }),
+    [date]
+  );
+
   if (!geo) return null;
   return (
-    <points ref={g} geometry={geo} frustumCulled={false}>
-      <shaderMaterial
-        vertexShader={vert}
-        fragmentShader={frag}
-        uniforms={uniforms}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        toneMapped={false}
-      />
-    </points>
+    <group ref={g}>
+      <points geometry={geo} frustumCulled={false}>
+        <shaderMaterial
+          vertexShader={vert}
+          fragmentShader={frag}
+          uniforms={uniforms}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </points>
+
+      {guide && lineGeo && (
+        <lineSegments geometry={lineGeo} frustumCulled={false}>
+          <lineBasicMaterial
+            color="#7fa8d8"
+            transparent
+            opacity={0.34}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </lineSegments>
+      )}
+
+      {guide &&
+        planets.map((pl) => (
+          <group key={pl.name} position={pl.pos.toArray()}>
+            <mesh>
+              <sphereGeometry args={[SHELL * 0.006, 12, 12]} />
+              <meshBasicMaterial color={PLANET_TINT[pl.name]} toneMapped={false} />
+            </mesh>
+            <Html center distanceFactor={SHELL * 0.9} wrapperClass="sky-html">
+              <span className="planet-label">{pl.name}</span>
+            </Html>
+          </group>
+        ))}
+
+      {/* The click target for "the empty sky". A back-side sphere just inside
+          the star shell: it sits behind everything, so anything nearer (the
+          Sun, the corona quad, which stops propagation) is hit first and only
+          genuinely empty sky reaches it. Invisible, but raycast. */}
+      <mesh
+        onClick={(e) => {
+          if (useStore.getState().progress >= 0.51) return;
+          e.stopPropagation();
+          const st = useStore.getState();
+          st.setSkyGuide(!st.skyGuide);
+        }}
+      >
+        <sphereGeometry args={[SHELL * 0.995, 16, 16]} />
+        <meshBasicMaterial side={THREE.BackSide} transparent opacity={0} depthWrite={false} />
+      </mesh>
+    </group>
   );
 }

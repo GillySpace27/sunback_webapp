@@ -307,9 +307,13 @@ export default function Sun() {
   const onCorona = (uv?: THREE.Vector2) => {
     if (!uv) return false;
     const R = Math.hypot(uv.x - 0.5, uv.y - 0.5) * CORONA_QUAD_R / 0.5;
-    // inside the limb the disk is what you are pointing at, not the corona;
-    // past ~1.3 Rsun there is nothing rendered to point at
-    return R > 1.0 && R < 1.3;
+    // The WHOLE Sun, disk included — not just the annulus. Requiring people to
+    // find a ring a fraction of a radius wide to discover the enhancement made
+    // the affordance a trick shot. The quad passes through the sphere's centre
+    // and R3F reports both intersections, so the disk is hittable here even
+    // though the sphere is drawn in front of it. Past ~1.3 Rsun there is
+    // nothing rendered to point at.
+    return R < 1.3;
   };
   // R3F keeps raycasting an invisible mesh, so gate on the same progress window
   // the corona itself uses rather than trusting `visible` (same trap the SDO

@@ -89,6 +89,12 @@ type State = {
   sequence: unknown[];
   setSequence: (t: unknown[]) => void;
 
+  // Sky guide: constellation figures + the naked-eye planets. Clicking the
+  // empty sky turns it on, so the annotation is discovered by poking at the
+  // thing being annotated rather than through a legend.
+  skyGuide: boolean;
+  setSkyGuide: (v: boolean) => void;
+
   // Rainbow: 171/193/211 RHEF frames composited to R/G/B in the shader.
   rainbow: boolean;
   setRainbow: (v: boolean) => void;
@@ -194,6 +200,9 @@ export const useStore = create<State>((set, get) => ({
       }
       return { sequence: t };
     }),
+
+  skyGuide: false,
+  setSkyGuide: (v) => set({ skyGuide: v }),
 
   rainbow: false,
   setRainbow: (v) => set({ rainbow: v }),
