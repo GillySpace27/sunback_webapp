@@ -5716,6 +5716,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       ask();
     }
 
+    // Start the dimensional preview on intent rather than on sight: pointer or
+    // keyboard focus anywhere on its card. Listeners are one-shot.
+    function dimIntent(frame, start) {
+      var card = document.getElementById("chooseDimensional");
+      if (!card) return;
+      var fire = function () {
+        card.removeEventListener("pointerenter", fire);
+        card.removeEventListener("focus", fire);
+        start();
+      };
+      card.addEventListener("pointerenter", fire, { once: true });
+      card.addEventListener("focus", fire, { once: true });
+    }
+
     // opts.afterPick: what to do once the visitor picks a look. Defaults to
     // the original 3D-experience-handoff behavior (land on the product
     // grid). The two direct-pick commit points in _installPreviewImage pass
@@ -5794,6 +5808,57 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (rhefBtn) rhefBtn.classList.remove("is-pending");
           if (comparePending) comparePending.textContent = "Enhanced isn't ready yet — Original is ready now.";
         });
+
+        // Dimensional preview: a LIVE plate render of this exact identity, in
+        // an iframe, so the card shows the real thing rather than a picture of
+        // one. bare=1 keeps the experience's own chrome out of the frame;
+        // look=rhef because the dimensional SKU is built on the enhanced frame;
+        // sky=1 puts the real stars for this date behind it, which is only
+        // honest now that the starfield is the actual catalogue.
+        //
+        // The experience addresses wavelengths by INDEX, the store by
+        // angstroms, so the two vocabularies have to be reconciled here. Keep
+        // in sync with web3d/src/data/wavelengths.ts.
+        var _EXP_CHANNELS = [94, 131, 171, 193, 211, 304, 335, 1600];
+        var frame = document.getElementById("confirmPlateFrame");
+        if (frame) {
+          var chIdx = _EXP_CHANNELS.indexOf(parseInt(wlNum, 10));
+          if (chIdx < 0) chIdx = 2; // 171: the channel the film itself opens on
+          var q = "?plate=1&bare=1&sky=1&look=rhef" +
+                  "&d=" + encodeURIComponent(dateStr) +
+                  "&t=" + encodeURIComponent(timeStr || "12:00") +
+                  "&ch=" + chIdx;
+          // only (re)load when the identity actually changed — an iframe reload
+          // restarts a WebGL context and refetches the RHEF frames
+          if (frame.getAttribute("data-q") !== q) {
+            frame.setAttribute("data-q", q);
+            // DEFERRED, deliberately. This bridge is the conversion decision,
+            // and the plate pulls the whole 3D bundle (three + r3f, ~300 KB
+            // gzipped) plus its own RHEF frames. Loading it immediately would
+            // put a preview of the option nobody can order yet in front of the
+            // two that can. It starts on intent — hover or keyboard focus — or
+            // after the primary decision has had a few seconds of clear air,
+            // whichever comes first.
+            var _armPlate = function () {
+              if (frame.src) return;
+              frame.src = "/experience/" + frame.getAttribute("data-q");
+            };
+            dimIntent(frame, _armPlate);
+            clearTimeout(frame._plateTimer);
+            frame._plateTimer = setTimeout(_armPlate, 4500);
+          }
+        }
+        var dim = document.getElementById("chooseDimensional");
+        if (dim) {
+          // Not a look pick: there is no print file for it yet, so choosing it
+          // would promise something checkout cannot ship. It opens the full
+          // dimensional view instead, and the bridge stays where it was.
+          dim.onclick = function () {
+            try {
+              window.open("/experience/" + (frame ? frame.getAttribute("data-q").replace("&bare=1", "") : "?plate=1"), "_blank", "noopener");
+            } catch (_e) {}
+          };
+        }
 
         var chip = document.getElementById("sunSummaryChip");
         var chT = document.getElementById("chipThumb");

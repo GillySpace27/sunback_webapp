@@ -194,6 +194,30 @@
             <span class="handoff-choice-name">Enhanced</span>
             <span class="handoff-choice-sub">The same observation, contrast-enhanced (RHEF) to reveal faint structure in the corona.</span>
           </button>
+          <!-- Third card: the same Sun as a body in space rather than a flat
+               plate. The preview is a LIVE render of the experience's plate
+               mode in an iframe, not a picture of one — the same shaders, the
+               same identity — so what is previewed is literally the thing that
+               would be printed.
+
+               It is marked as a preview on purpose. There is no server-side
+               plate renderer yet, so there is no print file, and a card that
+               looked orderable would promise something checkout cannot ship —
+               the same conversion leak in reverse. It becomes a real third
+               option by changing this button's handler on the day the renderer
+               lands; everything else here is already in place. -->
+          <button type="button" class="handoff-choice handoff-choice--preview" id="chooseDimensional"
+                  data-tier="dimensional"
+                  aria-label="Preview the Dimensional look: your Sun as a body in space, with its corona and the real sky behind it. Preview only; not yet available to order.">
+            <span class="handoff-choice-imgwrap">
+              <iframe id="confirmPlateFrame" class="handoff-choice-frame" title="" aria-hidden="true"
+                      tabindex="-1" loading="lazy" referrerpolicy="same-origin"></iframe>
+            </span>
+            <span class="handoff-choice-name">
+              Dimensional <span class="handoff-choice-badge">Preview</span>
+            </span>
+            <span class="handoff-choice-sub">Your Sun as a body in space, corona and all, against the sky that was actually behind it. Not orderable yet.</span>
+          </button>
         </div>
         <p id="confirmProvenance" class="handoff-provenance"></p>
 

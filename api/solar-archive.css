@@ -7913,3 +7913,39 @@ body:has(#imageStage.loading) .field-cell {
   color: var(--handoff-text-dim);
   text-align: center;
 }
+
+/* ── Dimensional card (handoff bridge, third option) ─────────────────────
+   The preview is a live plate render in an iframe, so it must sit in the same
+   box the other two cards' <img> occupy and must never take the pointer — the
+   card is the control, not the scene inside it. */
+.handoff-choice-frame {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: var(--r-md, 12px);
+  background: var(--bg-deep, #0a0908);
+  pointer-events: none;
+  display: block;
+}
+/* Marked as not-yet-orderable rather than styled identically to the two cards
+   that are. */
+.handoff-choice--preview { opacity: 0.94; }
+.handoff-choice-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid rgba(244, 239, 230, 0.32);
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--handoff-text-dim, #c3b9a9);
+  vertical-align: middle;
+}
+@media (max-width: 900px) {
+  /* three cards do not fit side by side on a phone; the two orderable looks
+     stay paired and the preview drops below them */
+  .handoff-choices { grid-template-columns: repeat(2, 1fr); }
+  .handoff-choice--preview { grid-column: 1 / -1; }
+}
