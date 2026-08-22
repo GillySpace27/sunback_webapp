@@ -33,10 +33,27 @@ export default function PlateScene() {
   // in the renderer so the plate and the film share one code path.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    const look = q.get("look");
-    if (look === "rhef" || look === "raw") useStore.getState().setLook(look);
+    const st = useStore.getState();
+    // Identity comes from the URL so this view is SHAREABLE and reproducible:
+    // the same link renders the same plate for the same Sun, which is what lets
+    // it be a print master and a preview of one at the same time. `d`/`t` match
+    // the deep-link params the store already uses, so a handoff link can be
+    // turned into a plate link by adding plate=1.
+    const d = q.get("d");
+    if (d) st.setDate(d);
+    // No setter: `time` is fixed at 12:00 in the store because the experience
+    // has no per-day time picker yet. The plate still has to honour a time,
+    // since the store's deep links carry one and the same instant must render.
+    const t = q.get("t");
+    if (t) useStore.setState({ time: t });
     const wl = q.get("ch");
-    if (wl !== null && wl !== "") useStore.getState().setChannel(Number(wl));
+    if (wl !== null && wl !== "") st.setChannel(Number(wl));
+    if (q.get("rainbow") === "1") st.setRainbow(true);
+    const look = q.get("look");
+    // dimensional plates default to the enhanced frame, since that is what the
+    // SKU is for; an explicit look= still wins
+    if (look === "rhef" || look === "raw") st.setLook(look);
+    else if (q.get("rainbow") !== "1") st.setLook("rhef");
   }, []);
   return (
     <Canvas

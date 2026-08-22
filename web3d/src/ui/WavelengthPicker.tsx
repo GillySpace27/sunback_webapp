@@ -15,6 +15,8 @@ export default function WavelengthPicker() {
   const look = useStore((s) => s.look);
   const setLook = useStore((s) => s.setLook);
   const rhefStatus = useStore((s) => s.rhefStatus);
+  const date = useStore((s) => s.date);
+  const time = useStore((s) => s.time);
   const status = useStore((s) => s.texStatus);
   const valid = useStore(dateValid);
   const active = CHANNELS[channel];
@@ -126,6 +128,22 @@ export default function WavelengthPicker() {
           <span className="picker-status err"> · enhanced view unavailable</span>
         )}
       </div>
+
+      {/* The dimensional view: the same Sun as a body in space rather than a
+          flat plate. It is the third look the handoff bridge is meant to offer
+          (Original / Enhanced / Dimensional), and until now there was no way to
+          reach it outside the render harness.
+
+          A link rather than a fourth radio, because it is a different VIEW, not
+          a different processing of the same frame — and because the plate route
+          renders the identity from the URL, so this link is shareable and
+          reproduces exactly what a print master would. */}
+      <a
+        className="dimensional-link"
+        href={`?plate=1&d=${encodeURIComponent(date)}&t=${encodeURIComponent(time)}&ch=${channel}&look=${look}`}
+      >
+        See it dimensional →
+      </a>
 
       {/* commit — visible for mouse from the moment the bar is revealed */}
       <div className="picker-buy">

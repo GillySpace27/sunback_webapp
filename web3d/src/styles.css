@@ -1120,3 +1120,46 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
   outline: 2px solid var(--ink);
   outline-offset: 4px;
 }
+
+/* Route to the dimensional view (?plate=1). Quiet: it is a way to look at the
+   same Sun differently, not a second commit control competing with "Make one". */
+.dimensional-link {
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(244, 239, 230, 0.25);
+  padding-bottom: 2px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+}
+.dimensional-link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+/* Way back out of the plate view. Absent from print masters (bare=1). */
+.plate-back {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  left: max(1rem, env(safe-area-inset-left));
+  z-index: 6;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 0.5rem 0.9rem;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(244, 239, 230, 0.28);
+  border-radius: var(--r-pill);
+  background: rgba(10, 9, 8, 0.64);
+}
+.plate-back:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }

@@ -29,7 +29,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.error(`[pageerror] ${e.message}`));
 
-await page.goto(`${BASE}?plate=1&look=${LOOK}&ch=${CHANNEL}`, { waitUntil: "load", timeout: 90_000 });
+await page.goto(`${BASE}?plate=1&bare=1&look=${LOOK}&ch=${CHANNEL}&d=${DATE}`, { waitUntil: "load", timeout: 90_000 });
 await page.waitForSelector("canvas", { timeout: 90_000 });
 
 await page.evaluate(([d, c]) => {

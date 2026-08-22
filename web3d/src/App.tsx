@@ -50,6 +50,30 @@ if (typeof window !== "undefined") {
 const PLATE_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("plate") === "1";
+// Identity from the URL, for the FILM as well as the plate.
+//
+// The experience generates handoff links carrying d/t/wl but never read them
+// back, so a shared link to a specific Sun opened on the default date instead —
+// including every link the film itself produces. Applied at module scope, before
+// the store's texture loaders run, so nothing fetches the wrong identity first.
+if (typeof window !== "undefined") {
+  const q = new URLSearchParams(window.location.search);
+  const d = q.get("d");
+  if (d) useStore.getState().setDate(d);
+  const t = q.get("t");
+  if (t) useStore.setState({ time: t });
+  const wl = q.get("wl");
+  if (wl) {
+    const i = CHANNELS.findIndex((c) => String(c.angstrom) === wl);
+    if (i >= 0) useStore.getState().setChannel(i);
+  }
+}
+
+// The print-master renderer passes bare=1: a master must be the Sun and nothing
+// else, so no chrome may appear in the frame it captures.
+const PLATE_BARE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("bare") === "1";
 
 // The film opens on 171 now (see DEFAULT_CHANNEL), so there is no channel to
 // stage. What still has to happen at the aperture beat is asking for the RHEF
@@ -108,13 +132,23 @@ export default function App() {
   // plate is rendered from the same frame the visitor was shown.
   if (PLATE_MODE) {
     return (
-      <div className="stage" aria-hidden="true">
-        <ErrorBoundary>
-          <Suspense fallback={<Loader />}>
-            <PlateScene />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
+      <>
+        <div className="stage" aria-hidden="true">
+          <ErrorBoundary>
+            <Suspense fallback={<Loader />}>
+              <PlateScene />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
+        {/* A way back, or this view is a dead end for anyone who follows the
+            link. Suppressed by bare=1, which the print-master renderer passes:
+            the master must contain the Sun and nothing else. */}
+        {!PLATE_BARE && (
+          <a className="plate-back" href={window.location.pathname}>
+            ← Back to the film
+          </a>
+        )}
+      </>
     );
   }
 
