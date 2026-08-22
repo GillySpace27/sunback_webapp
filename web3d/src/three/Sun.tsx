@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useStore } from "../store";
-import { CHANNELS } from "../data/wavelengths";
+import { CHANNELS, DEFAULT_CHANNEL } from "../data/wavelengths";
 import { RHEF_DISC_R } from "../hooks/useRhefTextureLoader";
 
 // The Sun surface: the real SDO/AIA full-disk image for the chosen date +
@@ -88,6 +88,25 @@ const fragment = /* glsl */ `
   }
 
   void main(){
+    // Rainbow first, and OUTSIDE the fast path. It was nested inside the
+    // uHasMap / uMapMix>0.99 gate, so whenever the Helioviewer JP2 had not
+    // arrived the disk fell through to the procedural plasma while the corona
+    // around it rendered the real composite — a fake Sun wearing a real
+    // atmosphere. The rainbow is three RHEF frames and needs no JP2 at all.
+    if (uHasRainbow > 0.5) {
+      vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
+      vec3 photo = vec3(
+        texture2D(uRainR, ruv).r,
+        texture2D(uRainG, ruv).r,
+        texture2D(uRainB, ruv).r
+      ) * uRhefExposure;
+      float limbF = pow(clamp(dot(vN, vView), 0.0, 1.0), 0.55);
+      float lum = dot(photo, vec3(0.2126, 0.7152, 0.0722));
+      photo *= 0.62 + 0.38 * limbF;
+      photo *= 1.0 + 0.8 * pow(clamp(lum, 0.0, 1.0), 3.0);
+      gl_FragColor = vec4(photo, 1.0);
+      return;
+    }
     // fast path: once the photo has fully resolved, skip the expensive fbm
     // plasma entirely (its result would be discarded by the mix anyway)
     if (uHasMap > 0.5 && uMapMix > 0.99) {
@@ -96,16 +115,7 @@ const fragment = /* glsl */ `
       if (uHasNext > 0.5) {
         photo = mix(photo, texture2D(uNext, muv).rgb * uExposure, uSeqMix);
       }
-      if (uHasRainbow > 0.5) {
-        // Each source is now the GREYSCALE RHEF array, so its red channel IS
-        // the equalised value: straight into R, G and B, no un-mapping.
-        vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
-        photo = vec3(
-          texture2D(uRainR, ruv).r,
-          texture2D(uRainG, ruv).r,
-          texture2D(uRainB, ruv).r
-        ) * uRhefExposure;
-      } else if (uHasRhef > 0.5 && uLookMix > 0.001) {
+      if (uHasRhef > 0.5 && uLookMix > 0.001) {
         // sampled with the RHEF frame's OWN disc radius, not the JP2's
         vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
         photo = mix(photo, texture2D(uRhef, ruv).rgb * uRhefExposure, uLookMix);
@@ -198,56 +208,71 @@ const coronaFragment = /* glsl */ `
   uniform float uRhefDiscR;
   uniform float uLookMix;
   uniform float uRhefExposure;
+  uniform sampler2D uRainR;
+  uniform sampler2D uRainG;
+  uniform sampler2D uRainB;
+  uniform float uHasRainbow;
+  uniform float uQuadR;    // quad half-width in solar radii
 
+  // Everything here is done in SOLAR RADII rather than in each texture's own uv,
+  // because the two sources do not share a field of view: the JP2 thumb reaches
+  // 1.6 Rsun (disk at uv 0.31) and the FITS/RHEF frame only 1.28 (disk at 0.39).
+  // Mapping the quad's full span onto whichever texture was bound stretched
+  // RHEF's thin real annulus across half again its true extent, diluting exactly
+  // the structure this quad exists to show — and then the outer fade cut into
+  // what survived. In radii both sources land where they physically belong and
+  // the masks mean the same thing for either.
   void main() {
-    float r = length(vUv - 0.5);
+    float rq = length(vUv - 0.5);      // 0 at centre, 0.5 at the quad edge
+    float R = rq * uQuadR / 0.5;       // solar radii
 
-    // Feather across the limb so the annulus meets the sphere without a seam,
-    // and fade before the texture's own edge so the field does not end in a
-    // hard circular cut against the void.
-    float inner = smoothstep(uDiscR * 0.97, uDiscR * 1.05, r);
-    float outer = 1.0 - smoothstep(0.40, 0.499, r);
-    float mask = inner * outer;
-    if (mask <= 0.001) discard;
+    // Feather across the limb so the annulus meets the sphere without a seam.
+    float inner = smoothstep(0.985, 1.03, R);
+    if (inner <= 0.001) discard;
 
     vec3 col;
+    float avail;                        // how far out this source has data
+
     if (uHasRainbow > 0.5) {
-      // Same three-channel composite as the disk, or the rainbow Sun would sit
-      // inside a single-channel orange corona — which is what the first render
-      // did, and it looked like two different pictures stitched together.
-      float rr = (r - uDiscR) / (0.5 - uDiscR);
-      float rRhef = uRhefDiscR + rr * (0.5 - uRhefDiscR);
       vec2 dir = normalize(vUv - 0.5 + vec2(1e-6));
-      vec2 ruv = dir * rRhef + 0.5;
+      vec2 ruv = dir * (R * uRhefDiscR) + 0.5;
       col = vec3(
         texture2D(uRainR, ruv).r,
         texture2D(uRainG, ruv).r,
         texture2D(uRainB, ruv).r
-      ) * uRhefExposure * (1.0 - smoothstep(0.62, 0.92, rr));
+      ) * uRhefExposure;
+      avail = 0.5 / uRhefDiscR;
     } else if (uHasRhef > 0.5 && uLookMix > 0.001) {
-      // The RHEF frame is the point of this SKU: in the coronal channels (171
-      // especially) it carries real off-limb structure — plumes, streamer fans,
-      // the dark lanes between them — that the JP2 threw away at byte-scaling.
-      // Its field is narrower, so remap the annulus onto this quad's uv.
-      float rr = (r - uDiscR) / (0.5 - uDiscR);          // 0 at limb, 1 at edge
-      float rRhef = uRhefDiscR + rr * (0.5 - uRhefDiscR);
       vec2 dir = normalize(vUv - 0.5 + vec2(1e-6));
-      vec3 rhefCol = texture2D(uRhef, dir * rRhef + 0.5).rgb * uRhefExposure;
-      // Past ~1.25 Rsun even 171 drops under the noise floor and RHEF
-      // faithfully equalises the noise; fade the far field rather than sell
-      // speckle as corona.
-      float noiseGate = 1.0 - smoothstep(0.62, 0.92, rr);
-      vec3 rawCol = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb * uExposure : vec3(0.0);
-      col = mix(rawCol, rhefCol * noiseGate * uCorona, uLookMix);
+      vec2 ruv = dir * (R * uRhefDiscR) + 0.5;
+      vec3 rhefCol = texture2D(uRhef, ruv).rgb * uRhefExposure;
+      vec3 rawCol = uHasMap > 0.5
+        ? texture2D(uMap, dir * (R * uDiscR) + 0.5).rgb * uExposure
+        : vec3(0.0);
+      col = mix(rawCol, rhefCol * uCorona, uLookMix);
+      avail = 0.5 / uRhefDiscR;
     } else if (uHasMap > 0.5) {
-      // the real off-disk data, at the same exposure the disk uses
-      col = texture2D(uMap, vUv).rgb * uExposure;
+      vec2 dir = normalize(vUv - 0.5 + vec2(1e-6));
+      col = texture2D(uMap, dir * (R * uDiscR) + 0.5).rgb * uExposure;
+      avail = 0.5 / uDiscR;
     } else {
-      // loading state only: a neutral falloff so the Sun is not a bare cut
-      // while the frame is still in flight
-      float t = clamp((r - uDiscR) / (0.5 - uDiscR), 0.0, 1.0);
+      float t = clamp((R - 1.0) / 0.6, 0.0, 1.0);
       col = uTint * pow(1.0 - t, 6.0) * 0.5;
+      avail = 1.6;
     }
+
+    // One fade, doing two jobs: it stops before the texture's own edge (so the
+    // field never ends in a hard circle) and it is where the signal genuinely
+    // dies. Past ~1.2 Rsun even 171 drops under the noise floor and RHEF
+    // faithfully equalises the noise, so this is the line between showing
+    // structure and selling speckle.
+    // A wide fade, not a cliff. At 0.02 Rsun this was a few pixels and the
+    // corona ended in a visible hard ring, which reads as a rendered disc
+    // rather than an atmosphere thinning out.
+    float noiseEdge = min(1.12, avail - 0.14);
+    float outer = 1.0 - smoothstep(noiseEdge, avail, R);
+    float mask = inner * outer;
+    if (mask <= 0.001) discard;
 
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     gl_FragColor = vec4(col * uStrength * mask, lum * mask);
@@ -309,7 +334,7 @@ export default function Sun() {
       // corona brighter than the instrument recorded — the exact
       // non-diegetic move this whole quad exists to avoid.
       uStrength: { value: 1.0 },
-      uCorona: { value: CHANNELS[5].corona },
+      uCorona: { value: CHANNELS[DEFAULT_CHANNEL].corona },
       uDiscR: { value: CORONA_DISC_R },
       uExposure: { value: 1.4 },
       uMap: { value: BLACK_1PX as THREE.Texture },
@@ -319,6 +344,16 @@ export default function Sun() {
       uRhefDiscR: { value: RHEF_DISC_R },
       uLookMix: { value: 0 },
       uRhefExposure: { value: RHEF_EXPOSURE },
+      // These were missing, and a missing uniform reads as zero rather than
+      // failing, so `uHasRainbow > 0.5` was silently false and the corona never
+      // once rendered the rainbow — it fell through to the JP2 branch, whose
+      // off-limb field is nearly empty. That is what "the corona is too faint"
+      // actually was.
+      uRainR: { value: BLACK_1PX as THREE.Texture },
+      uRainG: { value: BLACK_1PX as THREE.Texture },
+      uRainB: { value: BLACK_1PX as THREE.Texture },
+      uHasRainbow: { value: 0 },
+      uQuadR: { value: CORONA_SIZE / 2 / 1.6 },  // quad half-width, in solar radii
     }),
     []
   );
@@ -334,6 +369,10 @@ export default function Sun() {
     uniforms.uRainG.value = haveRainbow ? rain[1] : BLACK_1PX;
     uniforms.uRainB.value = haveRainbow ? rain[2] : BLACK_1PX;
     uniforms.uHasRainbow.value = haveRainbow ? 1 : 0;
+    coronaUniforms.uRainR.value = haveRainbow ? rain[0] : BLACK_1PX;
+    coronaUniforms.uRainG.value = haveRainbow ? rain[1] : BLACK_1PX;
+    coronaUniforms.uRainB.value = haveRainbow ? rain[2] : BLACK_1PX;
+    coronaUniforms.uHasRainbow.value = haveRainbow ? 1 : 0;
     uniforms.uRhef.value = rhefTex ?? BLACK_1PX;
     uniforms.uHasRhef.value = rhefTex ? 1 : 0;
     coronaUniforms.uRhef.value = rhefTex ?? BLACK_1PX;
