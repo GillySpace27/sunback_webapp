@@ -1811,6 +1811,35 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         plt.tight_layout(pad=0)
         _atomic_image_write(out_path_filtered, lambda _p: plt.savefig(_p, bbox_inches="tight", pad_inches=0))
         plt.close('all')
+
+        # The SAME RHEF result, un-colour-mapped.
+        #
+        # The RGB "rainbow" composite (sunback's RainbowRGBImageProcessor, rgb1
+        # = 171/193/211) needs each channel's equalised VALUES, one per colour
+        # channel. Recovering those from the colour-mapped png above by taking
+        # luminance does not work: sdoaiaNNN is a nonlinear, hue-dependent ramp,
+        # so the round trip distorts the very quantity being composited and the
+        # result comes out pastel. Writing the array itself costs one small file
+        # and makes the composite exact.
+        #
+        # Saved from the array directly rather than through savefig, so it keeps
+        # the native reduced grid with no tight-bbox cropping — flipped to match
+        # imshow(origin="lower") above so the two products stay co-registered.
+        # Scaled on the same percentile window as the colour version so the
+        # channels stay comparable to each other.
+        try:
+            from PIL import Image as _PILImage
+            # derived from the filtered path, which is a PARAMETER of this
+            # function — the route builds its own copy for the URL
+            out_path_gray = out_path_filtered.replace("_filtered.png", "_rhefgray.png")
+            _g = np.clip((rhef_data - vmin) / max(float(vmax - vmin), 1e-9), 0.0, 1.0)
+            _g = np.flipud(np.nan_to_num(_g, nan=0.0))
+            _atomic_image_write(
+                out_path_gray,
+                lambda _p: _PILImage.fromarray((_g * 255).astype(np.uint8), mode="L").save(_p),
+            )
+        except Exception as _gray_err:
+            log_to_queue(f"[generate_preview] greyscale RHEF skipped: {_gray_err}")
         import time
         for _ in range(50):
             if os.path.exists(out_path_filtered) and os.path.getsize(out_path_filtered) > 1000:
@@ -1978,14 +2007,18 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
         base = f"preview_SDO_{wl}_{date_str}"
         out_path_raw = os.path.join(PREVIEW_DIR, f"{base}_raw.png")
         out_path_filtered = os.path.join(PREVIEW_DIR, f"{base}_filtered.png")
+        out_path_gray = os.path.join(PREVIEW_DIR, f"{base}_rhefgray.png")
         out_path_jpg = os.path.join(PREVIEW_DIR, f"{base}_jpg.png")
         url_path_raw = f"/asset/preview/{base}_raw.png"
         url_path_filtered = f"/asset/preview/{base}_filtered.png"
+        url_path_gray = f"/asset/preview/{base}_rhefgray.png"
         url_path_jpg = f"/asset/preview/{base}_jpg.png"
         if os.path.exists(out_path_filtered):
             raw_url = url_path_raw if os.path.exists(out_path_raw) else None
             jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
-            return {"preview_url": url_path_filtered, "preview_raw_url": raw_url, "preview_jpg_url": jpg_url}
+            gray_url = url_path_gray if os.path.exists(out_path_gray) else None
+            return {"preview_url": url_path_filtered, "preview_raw_url": raw_url,
+                    "preview_jpg_url": jpg_url, "preview_gray_url": gray_url}
         _reason = _preview_fail_reason(key)
         if _reason:
             return JSONResponse(
@@ -1998,7 +2031,9 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
             if os.path.exists(out_path_filtered):
                 raw_url = url_path_raw if os.path.exists(out_path_raw) else None
                 jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
-                return {"preview_url": url_path_filtered, "preview_raw_url": raw_url, "preview_jpg_url": jpg_url}
+                gray_url = url_path_gray if os.path.exists(out_path_gray) else None
+                return {"preview_url": url_path_filtered, "preview_raw_url": raw_url,
+                        "preview_jpg_url": jpg_url, "preview_gray_url": gray_url}
             if os.path.exists(out_path_jpg):
                 return JSONResponse(
                     status_code=200,

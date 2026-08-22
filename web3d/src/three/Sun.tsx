@@ -52,10 +52,8 @@ const fragment = /* glsl */ `
   uniform sampler2D uNext;
   uniform float uHasNext;
   uniform float uSeqMix;
-  // Rainbow: three RHEF'd coronal channels (171/193/211) as R/G/B. Each is a
-  // greyscale-equalised frame in its own colourmap, so the luminance of each is
-  // taken as that channel's contribution rather than its false colour, which
-  // would multiply three colourmaps together into mud.
+  // Rainbow: three GREYSCALE RHEF frames (171/193/211) as R/G/B, straight from
+  // the backend's un-colour-mapped product.
   uniform sampler2D uRainR;
   uniform sampler2D uRainG;
   uniform sampler2D uRainB;
@@ -99,12 +97,13 @@ const fragment = /* glsl */ `
         photo = mix(photo, texture2D(uNext, muv).rgb * uExposure, uSeqMix);
       }
       if (uHasRainbow > 0.5) {
+        // Each source is now the GREYSCALE RHEF array, so its red channel IS
+        // the equalised value: straight into R, G and B, no un-mapping.
         vec2 ruv = (vPos.xy / 1.6) * uRhefDiscR + 0.5;
-        vec3 lw = vec3(0.2126, 0.7152, 0.0722);
         photo = vec3(
-          dot(texture2D(uRainR, ruv).rgb, lw),
-          dot(texture2D(uRainG, ruv).rgb, lw),
-          dot(texture2D(uRainB, ruv).rgb, lw)
+          texture2D(uRainR, ruv).r,
+          texture2D(uRainG, ruv).r,
+          texture2D(uRainB, ruv).r
         ) * uRhefExposure;
       } else if (uHasRhef > 0.5 && uLookMix > 0.001) {
         // sampled with the RHEF frame's OWN disc radius, not the JP2's
@@ -212,7 +211,20 @@ const coronaFragment = /* glsl */ `
     if (mask <= 0.001) discard;
 
     vec3 col;
-    if (uHasRhef > 0.5 && uLookMix > 0.001) {
+    if (uHasRainbow > 0.5) {
+      // Same three-channel composite as the disk, or the rainbow Sun would sit
+      // inside a single-channel orange corona — which is what the first render
+      // did, and it looked like two different pictures stitched together.
+      float rr = (r - uDiscR) / (0.5 - uDiscR);
+      float rRhef = uRhefDiscR + rr * (0.5 - uRhefDiscR);
+      vec2 dir = normalize(vUv - 0.5 + vec2(1e-6));
+      vec2 ruv = dir * rRhef + 0.5;
+      col = vec3(
+        texture2D(uRainR, ruv).r,
+        texture2D(uRainG, ruv).r,
+        texture2D(uRainB, ruv).r
+      ) * uRhefExposure * (1.0 - smoothstep(0.62, 0.92, rr));
+    } else if (uHasRhef > 0.5 && uLookMix > 0.001) {
       // The RHEF frame is the point of this SKU: in the coronal channels (171
       // especially) it carries real off-limb structure — plumes, streamer fans,
       // the dark lanes between them — that the JP2 threw away at byte-scaling.

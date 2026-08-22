@@ -8,10 +8,17 @@ import { API_BASE } from "../lib/handoff";
 //
 // Recipe is sunback's own RainbowRGBImageProcessor (rgb1), so this is the same
 // composite already published as rhef_rainbow_1k.png rather than a new look
-// invented here. Compositing happens in the shader from three textures instead
-// of on the backend, which means no new endpoint — but it does mean THREE RHEF
-// generations for a cold date, each a FITS fetch plus a filter pass. That cost
-// is why the rainbow is a deliberate choice rather than a default.
+// invented here.
+//
+// Uses the GREYSCALE RHEF product (preview_gray_url), not the colour-mapped
+// one. The first version of this composited the colour-mapped pngs by taking
+// each one's luminance, which is wrong: sdoaiaNNN is a nonlinear, hue-dependent
+// ramp, so luminance does not recover the equalised value that went into it and
+// the composite came out pastel. RHEF's actual output belongs in the colour
+// channel; anything else is compositing three colourmaps together.
+//
+// Still three RHEF generations for a cold date, each a FITS fetch plus a filter
+// pass, which is why the rainbow is a deliberate choice rather than a default.
 const loader = new THREE.TextureLoader();
 loader.setCrossOrigin("anonymous");
 
@@ -22,7 +29,8 @@ function preview(date: string, time: string, wl: number): Promise<string | null>
     body: JSON.stringify({ date, time: time || "12:00", wavelength: wl }),
   })
     .then((r) => (r.ok ? r.json() : null))
-    .then((j) => j?.preview_url ?? null)
+    // gray is what we want; preview_url only tells us the job finished
+    .then((j) => (j?.preview_url ? (j.preview_gray_url ?? null) : null))
     .catch(() => null);
 }
 
@@ -51,6 +59,9 @@ export function useRainbowLoader() {
           for (let i = 0; i < 24 && alive; i++) {
             const u = await preview(date, time, wl);
             if (u) return u.startsWith("http") ? u : `${API_BASE}${u}`;
+            // preview_url present but no gray means an older cached render from
+            // before greyscale existed; nothing to do but keep waiting for a
+            // fresh one rather than silently compositing colourmaps again
             await new Promise((r) => setTimeout(r, i < 6 ? 2500 : 5000));
           }
           return null;
