@@ -15,6 +15,8 @@ export default function WavelengthPicker() {
   const look = useStore((s) => s.look);
   const setLook = useStore((s) => s.setLook);
   const rhefStatus = useStore((s) => s.rhefStatus);
+  const skyGuide = useStore((s) => s.skyGuide);
+  const setSkyGuide = useStore((s) => s.setSkyGuide);
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
   const status = useStore((s) => s.texStatus);
@@ -128,6 +130,22 @@ export default function WavelengthPicker() {
           <span className="picker-status err"> · enhanced view unavailable</span>
         )}
       </div>
+
+      {/* Sky guide, as a real control.
+          Clicking the empty sky toggles the same state, but an interaction that
+          can only be found by clicking at random is an easter egg, not a
+          feature. A visible control fixes discoverability and reachability at
+          once: the click becomes a shortcut for people who try it, and this is
+          the route for everyone else — including keyboard and screen-reader
+          users, for whom the canvas click does not exist at all. */}
+      <label className={"sky-toggle" + (skyGuide ? " sky-toggle--on" : "")}>
+        <input
+          type="checkbox"
+          checked={skyGuide}
+          onChange={(e) => setSkyGuide(e.target.checked)}
+        />
+        <span>Constellations &amp; planets</span>
+      </label>
 
       {/* The dimensional view: the same Sun as a body in space rather than a
           flat plate. It is the third look the handoff bridge is meant to offer

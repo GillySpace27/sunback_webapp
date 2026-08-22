@@ -110,11 +110,19 @@ export default function Starfield() {
   const guide = useStore((s) => s.skyGuide);
   const [stars, setStars] = useState<Star[] | null>(null);
 
+  // Dynamic import, not fetch. Vite emits it as a content-hashed chunk, so it
+  // is versioned and cache-busted with the rest of the build, it cannot 404 on
+  // a BASE_URL mistake (the baked-in Sun did exactly that in production, see
+  // useSunTextureLoader), and it stays code-split — the bytes are still not in
+  // the main bundle. Bundling by import gets the reliability without paying the
+  // eager-load cost.
   useEffect(() => {
     let alive = true;
-    fetch(`${import.meta.env.BASE_URL}stars.json`)
-      .then((r) => r.json())
-      .then((j) => alive && setStars(j.stars as Star[]))
+    import("../data/stars.json")
+      // JSON widens to number[][]; the fixed-length tuple is ours to assert.
+      // (fetch().json() was `any` and checked nothing — importing it at least
+      // makes the shape visible.)
+      .then((m) => alive && setStars((m.default.stars as unknown) as Star[]))
       .catch(() => {
         /* no sky is better than a fake one */
       });
@@ -179,6 +187,9 @@ export default function Starfield() {
     return new THREE.Quaternion().setFromRotationMatrix(m);
   }, [date]);
 
+  const lines = useRef<THREE.LineSegments>(null);
+  const planetMats = useRef<THREE.MeshBasicMaterial[]>([]);
+  const guideAmt = useRef(0);
   const first = useRef(true);
   useFrame((_, dt) => {
     const el = g.current;
@@ -191,6 +202,21 @@ export default function Starfield() {
       first.current = false;
       return;
     }
+    // Fade the guide rather than cutting it in. Frame-rate independent, and
+    // the layers stay mounted so there is something to fade.
+    const wantGuide = useStore.getState().skyGuide ? 1 : 0;
+    guideAmt.current += (wantGuide - guideAmt.current) * (1 - Math.exp(-dt / 0.42));
+    const a = guideAmt.current;
+    if (lines.current) {
+      const m = lines.current.material as THREE.LineBasicMaterial;
+      m.opacity = 0.34 * a;
+      lines.current.visible = a > 0.004;
+    }
+    for (const m of planetMats.current) {
+      if (!m) continue;
+      m.opacity = a;
+    }
+
     // Slew, do not snap. Changing the date can move the sky by half a celestial
     // sphere, and cutting between two orientations reads as a glitch where the
     // drift reads as the year turning. Frame-rate independent.
@@ -203,9 +229,8 @@ export default function Starfield() {
   useEffect(() => {
     if (!guide || segs) return;
     let alive = true;
-    fetch(`${import.meta.env.BASE_URL}constellations.json`)
-      .then((r) => r.json())
-      .then((j) => alive && setSegs(j.segments as Segment[]))
+    import("../data/constellations.json")
+      .then((m) => alive && setSegs((m.default.segments as unknown) as Segment[]))
       .catch(() => {});
     return () => { alive = false; };
   }, [guide, segs]);
@@ -252,30 +277,47 @@ export default function Starfield() {
         />
       </points>
 
-      {guide && lineGeo && (
-        <lineSegments geometry={lineGeo} frustumCulled={false}>
+      {/* Mounted once loaded and faded by opacity, NOT mounted/unmounted on the
+          toggle. Conditional mounting is what made it blink: the figures
+          appeared and vanished between one frame and the next, which reads as a
+          glitch where a fade reads as an overlay being drawn. */}
+      {lineGeo && (
+        <lineSegments ref={lines} geometry={lineGeo} frustumCulled={false}>
           <lineBasicMaterial
             color="#7fa8d8"
             transparent
-            opacity={0.34}
+            opacity={0}
             depthWrite={false}
             toneMapped={false}
           />
         </lineSegments>
       )}
 
-      {guide &&
-        planets.map((pl) => (
-          <group key={pl.name} position={pl.pos.toArray()}>
-            <mesh>
-              <sphereGeometry args={[SHELL * 0.006, 12, 12]} />
-              <meshBasicMaterial color={PLANET_TINT[pl.name]} toneMapped={false} />
-            </mesh>
-            <Html center distanceFactor={SHELL * 0.9} wrapperClass="sky-html">
-              <span className="planet-label">{pl.name}</span>
-            </Html>
-          </group>
-        ))}
+      {planets.map((pl, i) => (
+        <group key={pl.name} position={pl.pos.toArray()}>
+          <mesh
+            ref={(m) => {
+              if (m) planetMats.current[i] = m.material as THREE.MeshBasicMaterial;
+            }}
+          >
+            <sphereGeometry args={[SHELL * 0.006, 12, 12]} />
+            <meshBasicMaterial
+              color={PLANET_TINT[pl.name]}
+              transparent
+              opacity={0}
+              toneMapped={false}
+            />
+          </mesh>
+          {/* The labels are DOM, so they cross-fade in CSS rather than in the
+              render loop — animating them through React state would re-render
+              five <Html> portals on every frame of the fade. */}
+          <Html center distanceFactor={SHELL * 0.9} wrapperClass="sky-html">
+            <span className={"planet-label" + (guide ? " planet-label--on" : "")}>
+              {pl.name}
+            </span>
+          </Html>
+        </group>
+      ))}
 
       {/* The click target for "the empty sky". A back-side sphere just inside
           the star shell: it sits behind everything, so anything nearer (the

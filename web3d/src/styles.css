@@ -1172,7 +1172,39 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
   letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--ink);
-  opacity: 0.85;
+  /* cross-faded here rather than in the render loop — see Starfield.tsx */
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease);
   white-space: nowrap;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
 }
+.planet-label--on { opacity: 0.85; }
+
+/* Sky-guide control. Same shape as the look options so the bar reads as one
+   set of settings rather than a pile of one-off widgets. */
+.sky-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 32px;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease);
+}
+.sky-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.sky-toggle:hover { color: var(--ink); border-color: rgba(244, 239, 230, 0.45); }
+.sky-toggle--on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+.sky-toggle input:focus-visible ~ span { outline: 2px solid var(--ink); outline-offset: 4px; }

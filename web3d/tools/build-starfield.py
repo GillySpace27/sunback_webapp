@@ -48,7 +48,7 @@ for line in open(src, encoding="utf-8", errors="replace"):
     ])
 
 out.sort(key=lambda s: s[3])          # brightest first
-path = "public/stars.json"
+path = "src/data/stars.json"
 with open(path, "w") as f:
     json.dump({"n": len(out), "stars": out}, f, separators=(",", ":"))
 print(f"{len(out)} stars -> {path}")

@@ -30,5 +30,5 @@ for f in d.get("features", []):
         if len(pts) >= 6:
             out.append({"c": cid, "p": pts})
 
-json.dump({"n": len(out), "segments": out}, open("public/constellations.json", "w"), separators=(",", ":"))
-print(f"{len(out)} segments from {len({s['c'] for s in out})} constellations -> public/constellations.json")
+json.dump({"n": len(out), "segments": out}, open("src/data/constellations.json", "w"), separators=(",", ":"))
+print(f"{len(out)} segments from {len({s['c'] for s in out})} constellations -> src/data/constellations.json")
