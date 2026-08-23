@@ -113,6 +113,56 @@ MILESTONES = [
      "&& curl -fsS --max-time 25 -o /dev/null https://myheliograph.com/"),
 ]
 
+# HOW to advance each step: (kind, text). Taken verbatim from DEPLOY.md rather
+# than paraphrased — a command that only looks right is worse than none, and
+# this renders on the Orrery's runbooks page where it will be copied.
+#
+# The KIND says who can act:
+#   shell  needs a real Claude Code session; the Orrery has no shell by design
+#   panel  a judgement, not a command — the codex-loop review
+#   gate   shown so you can SEE what would happen; never given a run affordance
+HOW = {
+    "preflight": ("shell",
+        "source ~/.claude/secrets/solar-archive.env   # FEEDBACK_ADMIN_KEY\n"
+        "git status --porcelain      # must be clean for prod; dirty is allowed on dev\n"
+        "( cd web3d && npm run typecheck )"),
+
+    "dev": ("shell",
+        "TARGET=dev ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh\n"
+        "# writes .deploy-run.json (git SHA + image digest) — that file is what makes\n"
+        "# the promotion in step 4 verifiable"),
+
+    "noindex": ("shell",
+        "curl -fsS https://dev.myheliograph.com/experience/ | grep -i 'name=\"robots\"'\n"
+        "# check the META TAG, not robots.txt: Cloudflare prepends its own managed\n"
+        "# robots.txt whose Allow wins the equal-specificity tie"),
+
+    "captured": ("shell",
+        "# warm both tiers first — a cold Fly machine on one side reads as a regression\n"
+        "node web3d/tools/capture-pages.mjs https://myheliograph.com     .deploy-shots/prod\n"
+        "node web3d/tools/capture-pages.mjs https://dev.myheliograph.com .deploy-shots/dev\n"
+        "# CAPTURE_SETTLE_MS=12000 if the two disagree in the thumbnail region"),
+
+    "panel": ("panel",
+        "Invoke the codex-loop skill in PANEL mode. Standing lenses: regression (blocking), "
+        "presentation, accessibility, conversion-funnel, plus safety-claims IF the diff "
+        "touches customer-facing copy. Only a CONFIRMED regression blocks; everything else "
+        "reports to TODOS.md. Pass --done panel once the adjudicated result is in hand."),
+
+    "promoted": ("gate",
+        "Promote to production. Never without asking Gilly in chat, this deploy — a yes for "
+        "one never carries to the next. Say plainly what goes live: 'this will make commit "
+        "<sha> live on myheliograph.com for real customers.'\n"
+        "TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh"),
+
+    "live": ("shell",
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py\n"
+        "# compares prod's running digest against the recorded candidate; if they differ,\n"
+        "# the promotion did not ship what was reviewed.\n"
+        "# rollback: fly releases --app myheliograph-api && fly deploy --config fly.toml \\\n"
+        "#           --app myheliograph-api --image <previous digest>"),
+}
+
 GATED = {"promoted"}
 
 FOOTER_CMD = (
@@ -178,6 +228,12 @@ def render(state):
         else:
             mark = "⬜"
         lines.append(f"{mark} {label}{suffix}")
+        # Only the NEXT step shows its how-to: all of them at once turns a
+        # status read into a wall of commands.
+        if mark == "▶" and key in HOW:
+            kind, how = HOW[key]
+            for i, ln in enumerate(how.split("\n")):
+                lines.append(f"      {'[' + kind + '] ' if i == 0 else '      '}{ln}")
 
     if FOOTER_CMD:
         raw = run_out(FOOTER_CMD)
@@ -217,7 +273,8 @@ def main():
             "complete": sum(1 for k, _, _ in MILESTONES if state.get(k)),
             "total": len(MILESTONES),
             "milestones": [
-                {"key": k, "label": lb, "done": state.get(k), "gated": k in GATED}
+                {"key": k, "label": lb, "done": state.get(k), "gated": k in GATED,
+                 "how_kind": HOW.get(k, ("", ""))[0], "how": HOW.get(k, ("", ""))[1]}
                 for k, lb, _ in MILESTONES
             ],
         }, indent=2))
@@ -246,9 +303,12 @@ def main():
             "total": len(MILESTONES),
             "next": next((lb for k, lb, _ in MILESTONES if not state.get(k)), None),
             "external_state": run_out(FOOTER_CMD) if FOOTER_CMD else None,
+            "external_label": FOOTER_LABEL if FOOTER_CMD else None,
             "milestones": [
                 {"key": k, "label": lb, "done": bool(state.get(k)),
-                 "gated": k in GATED}
+                 "gated": k in GATED,
+                 "how_kind": HOW.get(k, ("", ""))[0],
+                 "how": HOW.get(k, ("", ""))[1]}
                 for k, lb, _ in MILESTONES
             ],
         }
