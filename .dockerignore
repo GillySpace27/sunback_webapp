@@ -25,3 +25,14 @@ default_cache/
 # they were still uploaded in the build context (~2 GB) on every deploy.
 solar_archive_output/
 dep/
+# render-service also builds from this root context (needs web3d/ as a
+# sibling); these are local dev/scratch output, never wanted in either image.
+web3d/node_modules
+web3d/dist
+web3d/captures*
+web3d/plates*
+web3d/timelapse
+web3d/rainbow
+web3d/*.png
+web3d/tsconfig.tsbuildinfo
+render-service/node_modules

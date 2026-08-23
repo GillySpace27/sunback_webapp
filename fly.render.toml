@@ -1,0 +1,40 @@
+# Private render service for the Dimensional SKU's print master.
+# Same Fly org as myheliograph-api. NOT exposed publicly — the API reaches it
+# over Fly's private network at myheliograph-render.internal:8090.
+#
+# Lives at the repo root (not render-service/) deliberately: Fly resolves
+# [build].dockerfile AND the build context relative to the directory holding
+# the config file it's given, and the Dockerfile needs web3d/ as a build-time
+# sibling, so this file's directory IS the build context.
+#
+# Deploy from here:
+#   fly deploy --config fly.render.toml --ha=false
+
+app = "myheliograph-render"
+primary_region = "dfw"
+
+kill_signal = "SIGINT"
+kill_timeout = "120s"   # let an in-flight SwiftShader render finish
+
+[build]
+  dockerfile = "render-service/Dockerfile"
+
+[env]
+  PORT = "8090"
+
+# Internal TCP only — deliberately no [http_service] block, so this never
+# gets a public https://... URL from Fly's edge.
+[[services]]
+  internal_port = 8090
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 8090
+
+[[vm]]
+  memory = "2gb"   # bump if SwiftShader at 2048px+ OOMs — see render-plate.mjs
+  cpu_kind = "shared"
+  cpus = 2

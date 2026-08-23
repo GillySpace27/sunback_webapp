@@ -328,8 +328,14 @@ export function spaceCenters(): number[] {
 // in, the print once materialized, etc.).
 export const BEAT_STOPS = [0.02, 0.16, 0.235, 0.45, 0.585, 0.69, 0.82, 0.885, 0.965];
 
-// dev-only handle for driving progress in tests (stripped from prod builds)
-if (import.meta.env.DEV && typeof window !== "undefined") {
+// Dev-only handle for driving progress in tests (stripped from prod builds),
+// EXCEPT in ?plate=1 mode: render-plate.mjs — the print-master renderer, run
+// against a real production build by render-service — drives date/channel
+// and polls texStatus/rhefStatus through this exact handle. Without it a
+// prod-build plate render silently spins until its own timeout.
+const isPlateMode =
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).get("plate") === "1";
+if ((import.meta.env.DEV || isPlateMode) && typeof window !== "undefined") {
   (window as unknown as { __store?: unknown }).__store = useStore;
 }
 

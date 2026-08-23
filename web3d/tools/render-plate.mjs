@@ -11,7 +11,9 @@ import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// Local (macOS) default; render-service overrides this to the Chromium
+// bundled in its mcr.microsoft.com/playwright base image.
+const CHROME = process.env.PLATE_CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BASE = process.env.PLATE_URL || "http://localhost:5173/";
 const OUT = process.env.PLATE_OUT || "plates";
 const SIZE = Number(process.env.PLATE_SIZE || 2048);
@@ -30,6 +32,13 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.error(`[pageerror] ${e.message}`));
+page.on("console", (msg) => {
+  if (msg.type() === "error" || msg.type() === "warning") console.error(`[console:${msg.type()}] ${msg.text()}`);
+});
+page.on("requestfailed", (req) => console.error(`[requestfailed] ${req.url()} — ${req.failure()?.errorText}`));
+page.on("response", (res) => {
+  if (!res.ok() && res.status() !== 304) console.error(`[response ${res.status()}] ${res.url()}`);
+});
 
 await page.goto(`${BASE}?plate=1&bare=1&look=${LOOK}&ch=${CHANNEL}&d=${DATE}${SKY}${GUIDE}`, { waitUntil: "load", timeout: 90_000 });
 await page.waitForSelector("canvas", { timeout: 90_000 });

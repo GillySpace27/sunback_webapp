@@ -1,0 +1,13 @@
+{
+  "name": "myheliograph-render-service",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Print-master renderer for the Dimensional SKU. Spawns web3d/tools/render-plate.mjs against the Chromium bundled in the mcr.microsoft.com/playwright image this runs on.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.62.0"
+  }
+}
