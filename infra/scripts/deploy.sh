@@ -46,7 +46,15 @@ echo "### deploying to $TARGET ($SITE) from ${GIT_SHA:0:8}${GIT_DIRTY:+ (WORKING
 # any commit, which breaks the one guarantee this tiering exists to provide.
 if [ "$TARGET" = "prod" ] && [ -n "$GIT_DIRTY" ]; then
   echo "REFUSING: working tree is dirty and this is a production promotion." >&2
-  echo "Commit or stash first — a promoted image must map to a real commit." >&2
+  echo "A promoted image must map to a real commit. Offending paths:" >&2
+  git status --porcelain | sed 's/^/    /' >&2
+  # UNTRACKED counts, deliberately. An untracked file under a path the
+  # Dockerfile COPYs lands in the image without being in any commit, which
+  # breaks the exact guarantee this gate exists to provide. A stray scratch
+  # file at the repo root is harmless in itself but still fails here — commit
+  # it, delete it, or .gitignore it. Five seconds of tidying beats a
+  # promotion nobody can reconstruct.
+  echo "  → commit, delete, or .gitignore each of the above." >&2
   exit 1
 fi
 
