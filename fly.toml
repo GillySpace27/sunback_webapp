@@ -10,13 +10,15 @@
 # (renders also write atomically via tmp+os.replace, so a hard kill can no
 # longer poison the cache with truncated PNGs).
 #
-# Secrets to set with `fly secrets set` (NOT here):
-#   PRINTIFY_API_KEY, PRINTIFY_SHOP_ID, SHOPIFY_STORE_DOMAIN,
-#   SHOPIFY_STOREFRONT_ACCESS_TOKEN, FEEDBACK_ADMIN_KEY, INTERNAL_AUTH_TOKEN,
-#   ALLOWED_ORIGINS (must include https://myheliograph.com and
-#   https://www.myheliograph.com and https://solar-archive.myshopify.com),
-#   SOLAR_ARCHIVE_JSOC_EMAIL, FEEDBACK_WEBHOOK_URL, RESEND_API_KEY,
-#   FEEDBACK_NOTIFY_EMAIL  (copy current values from the Render dashboard)
+# Secrets set with `fly secrets set` (NOT here). This list was verified
+# against `fly secrets list` on 2026-08-22 — it had drifted, naming four
+# secrets that were never set (INTERNAL_AUTH_TOKEN, FEEDBACK_WEBHOOK_URL,
+# RESEND_API_KEY, FEEDBACK_NOTIFY_EMAIL) and omitting two that are:
+#   FEEDBACK_ADMIN_KEY, ALLOWED_ORIGINS (must include https://myheliograph.com
+#   and https://www.myheliograph.com and https://solar-archive.myshopify.com),
+#   PRINTIFY_API_KEY, PRINTIFY_SHOP_ID, SOLAR_ARCHIVE_JSOC_EMAIL,
+#   SHOPIFY_STORE_DOMAIN, SHOPIFY_STOREFRONT_ACCESS_TOKEN,
+#   SHOPIFY_ADMIN_CLIENT_ID, SHOPIFY_ADMIN_CLIENT_SECRET
 
 app = "myheliograph-api"
 primary_region = "dfw"
@@ -63,6 +65,14 @@ kill_timeout = "60s"
   timeout = "10s"
 
 [[vm]]
-  memory = "2gb"          # one 4096² RHEF render holds 0.5-1GB resident
+  # 4GB since 2026-08-22. One 4096² RHEF render holds 0.5-1GB resident, and at
+  # 2GB the HQ path 503'd with "212MB free need ≥400MB" (2026-08-15).
+  #
+  # It was scaled to 4GB with `fly scale` back then and SILENTLY REVERTED: this
+  # file is authoritative, so the next `fly deploy` reset the machine to the
+  # 2gb written here, and it ran under-resourced for a week before anyone
+  # measured it. That is why the number lives here now. Never scale this app
+  # with `fly scale` alone — change this line, or it does not survive a deploy.
+  memory = "4gb"
   cpu_kind = "shared"
   cpus = 2

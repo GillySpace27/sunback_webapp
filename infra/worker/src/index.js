@@ -73,29 +73,23 @@ async function cacheThumb(request, env, ctx) {
   return resp;
 }
 
+// The dev tier lives on a real subdomain (dev.myheliograph.com), so it is
+// exactly as crawlable as production unless told otherwise. This covers
+// everything the worker proxies; the STATIC half is covered by the
+// disallow-all robots.txt build-public.sh writes for dev builds, because
+// Workers Static Assets serves those files before this code ever runs.
+function noindex(resp) {
+  const headers = new Headers(resp.headers);
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const { pathname } = url;
-    // The 3D experience lives at /experience/ (a directory index). Static Assets
-    // only serves the trailing-slash form, so the bare /experience falls through
-    // to here and would proxy to Fly (404). Redirect it to the canonical path.
-    if (pathname === "/experience") {
-      return Response.redirect(url.origin + "/experience/" + url.search, 301);
+    if (env.IS_DEV === "1") {
+      return noindex(await handle(request, env, ctx));
     }
-    if (pathname === "/asset" || pathname.startsWith("/asset/")) {
-      return serveAsset(request, env);
-    }
-    // Edge-cache the deterministic thumbnail proxy (GET only). The `cf`
-    // cache option can't cache this — the origin sends `Vary: Origin` (from
-    // its CORS gate), and Cloudflare treats any Vary other than
-    // Accept-Encoding as uncacheable. The image is identical regardless of
-    // Origin, so we cache explicitly with Vary stripped. The origin's Origin
-    // gate still runs on every MISS (we only reach it then).
-    if (pathname === "/api/helioviewer_thumb" && request.method === "GET") {
-      return cacheThumb(request, env, ctx);
-    }
-    return toOrigin(request, env);
+    return handle(request, env, ctx);
   },
 
   async scheduled(_event, env, ctx) {
@@ -111,3 +105,27 @@ export default {
     );
   },
 };
+
+async function handle(request, env, ctx) {
+  const url = new URL(request.url);
+  const { pathname } = url;
+  // The 3D experience lives at /experience/ (a directory index). Static Assets
+  // only serves the trailing-slash form, so the bare /experience falls through
+  // to here and would proxy to Fly (404). Redirect it to the canonical path.
+  if (pathname === "/experience") {
+    return Response.redirect(url.origin + "/experience/" + url.search, 301);
+  }
+  if (pathname === "/asset" || pathname.startsWith("/asset/")) {
+    return serveAsset(request, env);
+  }
+  // Edge-cache the deterministic thumbnail proxy (GET only). The `cf`
+  // cache option can't cache this — the origin sends `Vary: Origin` (from
+  // its CORS gate), and Cloudflare treats any Vary other than
+  // Accept-Encoding as uncacheable. The image is identical regardless of
+  // Origin, so we cache explicitly with Vary stripped. The origin's Origin
+  // gate still runs on every MISS (we only reach it then).
+  if (pathname === "/api/helioviewer_thumb" && request.method === "GET") {
+    return cacheThumb(request, env, ctx);
+  }
+  return toOrigin(request, env);
+}

@@ -28,6 +28,7 @@ for f in "$API_DIR"/legal/*.html; do
   cp "$f" "$OUT/$(basename "$f")"
 done
 
+
 # ── 3D experience (web3d), served SAME-ORIGIN under /experience/ ──
 # So its origin-enforced Helioviewer textures (/api/*) and the deep-link handoff
 # back to the store root both work with zero CORS/allow-list changes. Built with
@@ -200,3 +201,53 @@ fi
 echo "public/ built:"
 du -sh "$OUT"
 ls "$OUT"
+
+# ── DEV builds: make the tier uncrawlable (MUST BE LAST) ─────────────
+# Runs at the very end because it walks every *.html in public/, and the
+# web3d experience tree is copied in above. When this block sat higher up
+# it silently skipped experience/index.html — the single most visible page
+# on the tier. Verified 2026-08-22 by counting injected tags. ──────────────────────────────
+# dev.myheliograph.com is a real subdomain, so without this it is exactly as
+# indexable as production — and a dev copy of a store outranking or merely
+# confusing the real one is a self-inflicted wound. The worker stamps
+# X-Robots-Tag on what it proxies, but Workers Static Assets serves these
+# files BEFORE worker code runs, so the static half needs its own guard.
+# sitemap.xml is dropped outright: it advertises prod URLs.
+if [ "${DEV_BUILD:-0}" = "1" ]; then
+  printf 'User-agent: *\nDisallow: /\n' > "$OUT/robots.txt"
+  rm -f "$OUT/sitemap.xml"
+
+  # THE ACTUAL GUARD — read this before trusting robots.txt above.
+  #
+  # Measured 2026-08-22: Cloudflare PREPENDS its own managed robots.txt to the
+  # served file, so dev.myheliograph.com ends up with two `User-agent: *`
+  # groups — Cloudflare's `Allow: /` and ours `Disallow: /`. Crawlers merge
+  # same-agent groups, and on an equal-specificity tie ALLOW WINS. The
+  # disallow above is therefore NOT load-bearing; it is kept because it costs
+  # nothing and helps the crawlers that read it literally.
+  #
+  # A meta tag cannot be rewritten by the zone, and noindex is the stronger
+  # signal anyway: robots.txt only asks a crawler not to FETCH, and Google
+  # will still index a URL it was never allowed to read. noindex is the one
+  # that actually keeps dev out of the index.
+  #
+  # Injected after <head> in every static HTML file — including
+  # experience/index.html, which the worker's X-Robots-Tag never reaches
+  # because Static Assets serve before worker code runs.
+  _n=0
+  while IFS= read -r html; do
+    python3 - "$html" <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+if 'name="robots"' in s:
+    sys.exit(0)
+tag = '\n  <meta name="robots" content="noindex, nofollow">'
+s2 = re.sub(r'(<head[^>]*>)', lambda m: m.group(1) + tag, s, count=1, flags=re.I)
+if s2 != s:
+    open(p, "w", encoding="utf-8").write(s2)
+PY
+    _n=$((_n + 1))
+  done < <(find "$OUT" -name '*.html')
+  echo "dev: robots.txt disallow-all, sitemap.xml removed, noindex meta injected into $_n HTML files"
+fi

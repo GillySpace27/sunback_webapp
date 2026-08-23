@@ -34,5 +34,38 @@
   "routes": [
     { "pattern": "myheliograph.com", "custom_domain": true },
     { "pattern": "www.myheliograph.com", "custom_domain": true }
-  ]
+  ],
+  // ── DEV tier (dev.myheliograph.com) ───────────────────────────────────
+  //   npx wrangler deploy --env dev
+  //
+  // Wrangler does NOT inherit `vars`, `routes` or `triggers` into an
+  // environment, so each is restated here in full. Anything omitted is
+  // omitted on purpose:
+  //
+  //   triggers.crons = []  — the Printify stale-draft sweep runs ONCE, from
+  //       production. Two workers sweeping the same Printify shop would race
+  //       each other's drafts.
+  //   IS_DEV = "1"         — src/index.js stamps X-Robots-Tag: noindex on
+  //       every proxied response, and build-public.sh writes a disallow-all
+  //       robots.txt for the static half (Static Assets are served BEFORE
+  //       worker code runs, so the header alone cannot cover them).
+  "env": {
+    "dev": {
+      "name": "myheliograph-router-dev",
+      "workers_dev": true,
+      "assets": {
+        "directory": "./public",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "none"
+      },
+      "vars": {
+        "ORIGIN": "https://myheliograph-api-dev.fly.dev",
+        "IS_DEV": "1"
+      },
+      "triggers": { "crons": [] },
+      "routes": [
+        { "pattern": "dev.myheliograph.com", "custom_domain": true }
+      ]
+    }
+  }
 }

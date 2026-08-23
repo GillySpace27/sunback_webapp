@@ -1,0 +1,68 @@
+# Fly config for the DEV origin (dev.myheliograph.com).
+#
+# Deliberately a near-clone of fly.toml, because the point of the dev tier is
+# to be wrong in the same ways production is. Every difference below is one
+# someone chose on purpose; do not "tidy" them into parity or divergence.
+#
+#   app name       — separate app, separate machine, separate volume
+#   PUBLIC_BASE_URL— dev.myheliograph.com, so Printify-facing asset URLs and
+#                    admin approve links point back at dev, not at the store
+#   volume         — 1gb (dev holds a seeded cache, not the full warm grid)
+#
+# Secrets that must be set on this app (`fly secrets set -a myheliograph-api-dev`):
+#   PRINTIFY_API_KEY, PRINTIFY_SHOP_ID   — dev DOES render real mockups
+#   FEEDBACK_ADMIN_KEY, INTERNAL_AUTH_TOKEN, SOLAR_ARCHIVE_JSOC_EMAIL
+#   ALLOWED_ORIGINS = https://dev.myheliograph.com
+#
+# DELIBERATELY ABSENT (Gilly, 2026-08-22): SHOPIFY_STORE_DOMAIN and
+# SHOPIFY_STOREFRONT_ACCESS_TOKEN. Dev can reach the mockup/preview half of
+# the funnel but CANNOT reach checkout, so no review pass — human or agent —
+# can create a real order. If a dev checkout path starts working, that is a
+# misconfiguration, not a feature.
+
+app = "myheliograph-api-dev"
+primary_region = "dfw"
+
+kill_signal = "SIGINT"
+kill_timeout = "60s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  FEEDBACK_DATA_DIR = "/var/data"
+  PRINTIFY_SSL_VERIFY = "1"
+  PUBLIC_BASE_URL = "https://dev.myheliograph.com"
+  SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "1"
+
+[[mounts]]
+  source = "data"
+  destination = "/var/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[http_service.checks]]
+  grace_period = "60s"
+  interval = "30s"
+  method = "GET"
+  path = "/api/health"
+  timeout = "10s"
+
+# MUST match fly.toml. A dev tier that reviews one box shape and promotes to
+# another is not a dev tier — memory is exactly where the HQ render path
+# fails, so reviewing it at the wrong size proves nothing. Scale-to-zero
+# means the larger size costs nothing while idle.
+[[vm]]
+  memory = "4gb"
+  cpu_kind = "shared"
+  cpus = 2
