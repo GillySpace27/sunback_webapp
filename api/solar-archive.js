@@ -5886,9 +5886,65 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           // can. Each starts on intent — hover or keyboard focus on ITS OWN
           // card — or after the primary decision has had a few seconds of
           // clear air, whichever comes first.
+          // The skeleton that stands in for the plate until it has painted.
+          // Three states: idle (waiting to be asked for), loading (bundle +
+          // frames in flight), ready (fade out). Without it the two cells were
+          // simply black squares for the first several seconds, which reads as
+          // two broken images rather than as a preview waiting on intent
+          // (audit in Chrome, 2026-08-26).
+          var skel = frame.parentElement
+            ? frame.parentElement.querySelector(".plate-skel")
+            : null;
+          var skelText = skel ? skel.querySelector(".plate-skel-text") : null;
+          function _skel(state, text) {
+            if (!skel) return;
+            skel.setAttribute("data-state", state);
+            if (skelText && text) skelText.textContent = text;
+          }
+          _skel("idle", "Hover to build in 3D");
+          clearInterval(frame._skelPoll);
+
+          // Exposed on the frame so the sky-toggle reload path below can run
+          // the same state machine: it re-sets .src directly (bypassing
+          // _armPlate, which refuses to touch an already-armed frame), and
+          // without this a reload left the previous plate's finished skeleton
+          // in place while a fresh WebGL context booted behind it.
+          frame._skelWatch = function () {
+            _skel("loading", "Building your Sun in 3D…");
+            // WHEN is it actually ready?
+            //
+            // Not frame.onload: that fires when the document loads, seconds
+            // before three.js has booted and the SDO frame has arrived, so
+            // hiding the skeleton there would just swap it for a black square.
+            // The plate runs with ?plate=1, which deliberately exposes
+            // window.__store even in production builds (see web3d store.ts —
+            // render-plate.mjs depends on the same handle), and the iframe is
+            // same-origin, so the honest signal is the plate's own texStatus.
+            //
+            // Capped, and it gives up gracefully: on a cross-origin throw, a
+            // missing handle or a slow render the skeleton clears anyway at
+            // the deadline rather than spinning forever over a plate that may
+            // well have painted.
+            var waited = 0;
+            clearInterval(frame._skelPoll);
+            frame._skelPoll = setInterval(function () {
+              waited += 250;
+              var done = false;
+              try {
+                var st = frame.contentWindow && frame.contentWindow.__store;
+                if (st && st.getState().texStatus === "ready") done = true;
+              } catch (_e) { done = waited >= 6000; }
+              if (done || waited >= 25000) {
+                clearInterval(frame._skelPoll);
+                _skel("ready");
+              }
+            }, 250);
+          };
+
           var _armPlate = function () {
             if (frame.src) return;
             frame.src = "/experience/" + frame.getAttribute("data-q");
+            frame._skelWatch();
           };
           dimIntent(card, _armPlate);
           clearTimeout(frame._plateTimer);
@@ -5927,7 +5983,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
               _wireDimensionalCells();
               ["confirmPlateFrameRaw", "confirmPlateFrameRhef"].forEach(function (id) {
                 var f = document.getElementById(id);
-                if (f && f._wasArmed) f.src = "/experience/" + f.getAttribute("data-q");
+                if (f && f._wasArmed) {
+                  f.src = "/experience/" + f.getAttribute("data-q");
+                  if (f._skelWatch) f._skelWatch();
+                }
               });
             }, 450);
           });

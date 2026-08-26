@@ -8082,6 +8082,63 @@ body:has(#imageStage.loading) .field-cell {
   pointer-events: none;
   display: block;
 }
+/* The Dimensional cells' loading state.
+   These two plates are DEFERRED on purpose (see _wireDimensionalCell): each
+   one pulls the whole 3D bundle, and loading them ahead of the row that can
+   actually be ordered would be backwards. But deferred rendered as EMPTY —
+   two black squares under a heading, with nothing saying they were a preview
+   waiting to be asked for rather than a pair of broken images (audit in
+   Chrome, 2026-08-26). This is what sits in that gap. */
+.plate-skel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  border-radius: var(--r-md, 12px);
+  background: radial-gradient(circle at 50% 45%, #17130d 0%, #0a0908 70%);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 600ms ease;
+  z-index: 1;
+}
+/* Gone once the plate has actually painted — not merely once its document
+   loaded, which is several seconds earlier. */
+.plate-skel[data-state="ready"] { opacity: 0; }
+.plate-skel-orb {
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 42% 38%,
+    rgba(255, 214, 138, 0.34) 0%,
+    rgba(212, 160, 23, 0.16) 55%,
+    rgba(212, 160, 23, 0.04) 100%);
+  box-shadow: 0 0 34px rgba(212, 160, 23, 0.13);
+}
+.plate-skel-text {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9b968c);
+  text-align: center;
+  padding: 0 0.8rem;
+}
+/* Only the armed state breathes. An idle cell is waiting for the visitor, not
+   working, and animating it would claim otherwise. */
+.plate-skel[data-state="loading"] .plate-skel-orb {
+  animation: plate-skel-pulse 1.9s ease-in-out infinite;
+}
+@keyframes plate-skel-pulse {
+  0%, 100% { transform: scale(0.92); opacity: 0.7; }
+  50%      { transform: scale(1.04); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plate-skel[data-state="loading"] .plate-skel-orb { animation: none; }
+  .plate-skel { transition: none; }
+}
+
 /* Marked as not-yet-orderable rather than styled identically to the two cards
    that are. */
 .handoff-cell--preview { opacity: 0.94; }
