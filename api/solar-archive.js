@@ -2636,6 +2636,16 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       state.hqImageUrl = null;
       state.hqTaskId = null;
       state.hqFilterImage = null;
+      // A dimensional master belongs to ONE identity. Left standing across a
+      // date or wavelength change it would keep painting every tier, so a
+      // visitor who then ordered a flat print would get the previous 3D frame
+      // on it. Clearing here also puts the tier switcher back.
+      if (state.isDimensional) {
+        state.isDimensional = false;
+        state.dimensionalImageUrl = null;
+        var _ft = document.getElementById("editorFilterToggle");
+        if (_ft) _ft.hidden = false;
+      }
       state.hqFormat = null;
       state.hqFetching = false;
       state.jpgImage = null;
@@ -6276,6 +6286,53 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           });
         }
 
+        // Install a dimensional master as EVERY tier's image.
+        //
+        // The first version put it in state.hqFilterImage alone, which looked
+        // right and drew nothing: _renderCanvasInner resolves the image by
+        // tier, and only the "hq_rhef" tier reads hqFilterImage. pick() sets
+        // editorFilter to "rhef", so the canvas kept drawing the FLAT enhanced
+        // preview and the printed tote came back with no sky on it (Gilly,
+        // 2026-08-26). Measured: the capture itself was fine — 10.4% of the
+        // frame outside the disk was lit in both the preview and the 2048
+        // capture — while the editor canvas sat at 37.6%, which is the flat
+        // frame's corona filling the whole square.
+        //
+        // Rather than invent a fourth tier — and fight the forced quality
+        // cycle, the timeline UI and the checkout for it — every slot gets the
+        // same image, because a dimensional order genuinely HAS one picture.
+        // The tier switcher is hidden with it: three buttons that all produce
+        // the same frame is exactly the "they look the same even at max zoom"
+        // complaint an earlier fix went to some trouble to remove.
+        function _installDimensional(img, dataUrl, look) {
+          // originalImage IS the capture, and that matters for geometry.
+          //
+          // The editor's HQ path assumes the high-res image is the SAME
+          // PICTURE as the reference, just larger — it derives the logical
+          // frame from state.originalImage and scales. A dimensional capture
+          // breaks that assumption: it is a small disk in a wide starfield,
+          // not an upscale of the flat full-frame Sun. Leaving originalImage
+          // pointing at the flat frame made the reference 1024 while the drawn
+          // image was 2048, and the draw came out double-scaled — the Wall
+          // Clock preview showed the top-left quadrant with the Sun shoved
+          // into the corner (Gilly, 2026-08-26). Making the capture its own
+          // reference keeps the frame self-consistent.
+          state.originalImage = img;
+          state.jpgImage = img;
+          state.rawBackendImage = img;
+          state.rhefImage = img;
+          state.hqFilterImage = img;
+          state.hqFormat = "rhef";
+          state.hqImageUrl = dataUrl;
+          state.hqReady = true;
+          state.dimensionalImageUrl = dataUrl;
+          state.isDimensional = true;
+          var toggle = document.getElementById("editorFilterToggle");
+          if (toggle) toggle.hidden = true;
+          if (typeof renderCanvas === "function") renderCanvas();
+          if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+        }
+
         function _orderDimensional(look) {
           var sky = {};
           _SKY_CHIPS.forEach(function (pair) {
@@ -6301,16 +6358,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             _captureDimensional(liveFrame, 2048)
               .then(function (dataUrl) {
                 return loadImage(dataUrl).then(function (img) {
-                  // Same install as the flat master: the checkout composites
-                  // state.hqFilterImage onto its canvas and uploads that, so a
-                  // dimensional print needs no server round trip at all.
-                  state.hqFilterImage = img;
-                  state.hqFormat = look;
-                  state.hqImageUrl = dataUrl;
-                  state.hqReady = true;
-                  state.dimensionalImageUrl = dataUrl;
-                  if (typeof renderCanvas === "function") renderCanvas();
-                  if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+                  _installDimensional(img, dataUrl, look);
                   pick(look);
                 });
               })
@@ -6352,17 +6400,9 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
               return _pollDimensional(d.task_id);
             })
             .then(function (imageUrl) {
-              // Install it exactly like the flat HQ master, so everything
-              // downstream — the editor, the mockups, the checkout upload —
-              // treats a dimensional print as just another image.
               var url = imageUrl.indexOf("/") === 0 ? API_BASE + imageUrl : imageUrl;
               return loadImage(url).then(function (img) {
-                state.hqFilterImage = img;
-                state.hqImageUrl = url;
-                state.hqReady = true;
-                state.dimensionalImageUrl = url;
-                if (typeof renderCanvas === "function") renderCanvas();
-                if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+                _installDimensional(img, url, look);
                 pick(look);
               });
             })
