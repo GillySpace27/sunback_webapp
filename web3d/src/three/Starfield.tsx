@@ -24,6 +24,9 @@ import SkyGrid from "./SkyGrid";
 // real is every star's DIRECTION, magnitude and colour; what is stylised is the
 // distance. That split is the honest version of "correct sky, with parallax".
 const SHELL = 150;
+// The Sun's own radius in scene units (Sun.tsx's icosahedron). Used to decide
+// whether a label is hidden behind the disk.
+const SUN_R = 1.6;
 // The framebuffer height the star point-sizes below were tuned against.
 const REF_H = 900;
 
@@ -180,32 +183,46 @@ const artFrag = /* glsl */ `
 // with the framebuffer like everything else, and depth-tested against the
 // Sun for free — which also retires the <Html occlude> workaround that
 // existed only because DOM cannot depth-test against a canvas.
-const LABEL_PAD = 12;
+const LABEL_PAD = 14;
 const labelCache = new Map<string, THREE.CanvasTexture>();
+const _scratchWorld = new THREE.Vector3();
+
+// Typeset to match what the CSS labels did before the move to sprites:
+// uppercase, tracked out, in the sans. Dropping those turned the sky into
+// mixed-case body text sitting over the film ("mercury", "jupiter") instead
+// of the quiet instrument lettering it had been (Gilly, 2026-08-26).
+const LABEL_FONT_PX = 64;
+const LABEL_FACE = '600 64px "Inter Variable", Inter, system-ui, sans-serif';
 
 function labelTexture(text: string, tint: string): THREE.CanvasTexture {
-  const key = `${text}|${tint}`;
+  const label = text.toUpperCase();
+  const key = `${label}|${tint}`;
   const hit = labelCache.get(key);
   if (hit) return hit;
-  const font = 600;
-  const px = 64;
   const c = document.createElement("canvas");
   const ctx = c.getContext("2d")!;
-  ctx.font = `${font} ${px}px "Inter Variable", Inter, system-ui, sans-serif`;
-  const w = Math.ceil(ctx.measureText(text).width) + LABEL_PAD * 2;
+  // 0.14em of tracking, the CSS --track-wide these labels used. Chrome and
+  // Safari 17.4+ honour ctx.letterSpacing; where they do not the text simply
+  // sets tight, which is a cosmetic loss and not a broken label.
+  const tracking = `${(LABEL_FONT_PX * 0.14).toFixed(1)}px`;
+  ctx.letterSpacing = tracking;
+  ctx.font = LABEL_FACE;
+  const w = Math.ceil(ctx.measureText(label).width) + LABEL_PAD * 2;
   c.width = w;
-  c.height = px + LABEL_PAD * 2;
+  c.height = LABEL_FONT_PX + LABEL_PAD * 2;
   const g = c.getContext("2d")!;
-  g.font = `${font} ${px}px "Inter Variable", Inter, system-ui, sans-serif`;
+  g.letterSpacing = tracking;
+  g.font = LABEL_FACE;
   g.textAlign = "center";
   g.textBaseline = "middle";
   // A dark rim so a name stays readable over a bright limb or a star, the
   // same job the CSS text-shadow used to do.
-  g.lineWidth = 6;
-  g.strokeStyle = "rgba(4,4,6,0.85)";
-  g.strokeText(text, c.width / 2, c.height / 2);
+  g.lineWidth = 7;
+  g.lineJoin = "round";
+  g.strokeStyle = "rgba(4,4,6,0.9)";
+  g.strokeText(label, c.width / 2, c.height / 2);
   g.fillStyle = tint;
-  g.fillText(text, c.width / 2, c.height / 2);
+  g.fillText(label, c.width / 2, c.height / 2);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -217,17 +234,26 @@ function SkyLabel({
   text,
   tint,
   scale,
+  offset = 0,
   registerMaterial,
 }: {
   text: string;
   tint: string;
   scale: number;
+  /** Push the label off its anchor, in label-heights, in SCREEN space. */
+  offset?: number;
   registerMaterial: (m: THREE.SpriteMaterial) => void;
 }) {
   const tex = useMemo(() => labelTexture(text, tint), [text, tint]);
   const aspect = (tex.image as HTMLCanvasElement).width / (tex.image as HTMLCanvasElement).height;
+  // Sprite.center is the anchor, in the sprite's own 0..1 space. Shifting it
+  // moves the label in SCREEN space, which is what this needs: a planet's
+  // label sat exactly on its dot, so the marker punched a hole through the
+  // middle of the word ("me*ury"). A world-space offset would have worked on
+  // screen and then swung around the dot as the sky rotated with the date.
+  const center = useMemo(() => new THREE.Vector2(0.5, 0.5 + offset), [offset]);
   return (
-    <sprite scale={[scale * aspect, scale, 1]}>
+    <sprite scale={[scale * aspect, scale, 1]} center={center}>
       <spriteMaterial
         ref={(m) => { if (m) registerMaterial(m as THREE.SpriteMaterial); }}
         map={tex}
@@ -366,6 +392,7 @@ export default function Starfield() {
   // rather than cross-fading in CSS as the DOM ones did.
   const planetLabelMats = useRef<THREE.SpriteMaterial[]>([]);
   const conLabelMats = useRef<THREE.SpriteMaterial[]>([]);
+  const conIsZodiac = useRef<boolean[]>([]);
   const labelAmt = useRef(0);
   // One fade amount PER LAYER, since they are now independently switchable —
   // a single shared value would make turning off planets also fade the lines.
@@ -375,6 +402,34 @@ export default function Starfield() {
   const artMats = useRef<THREE.ShaderMaterial[]>([]);
   const first = useRef(true);
   const introAt = useRef<number | null>(null);
+  // Is a point on the sky shell hidden behind the Sun's disk?
+  //
+  // Sprites depth-test, which is right, but the result is a label SLICED by
+  // the limb — "MERCURY" rendered as "CURY" once the Sun ate its first half
+  // (Gilly, 2026-08-26). A partial word is worse than either showing it or
+  // hiding it, and the DOM labels this replaced were all-or-nothing because
+  // <Html occlude> could only hide a whole element. So: measure the
+  // perpendicular distance from the Sun's centre to the line of sight, and
+  // fade the whole label out when that line passes through the disk.
+  const occluded = useMemo(() => {
+    const ab = new THREE.Vector3();
+    const cross = new THREE.Vector3();
+    return (worldPos: THREE.Vector3, cam: THREE.Vector3) => {
+      ab.subVectors(worldPos, cam);
+      // |cam x ab| / |ab| is the distance from the origin (the Sun) to the
+      // camera->label line. The label is always far beyond the Sun on this
+      // shell, so there is no need to test which is nearer.
+      const d = cross.crossVectors(cam, ab).length() / (ab.length() || 1);
+      // 1.5x, not a bare radius. The test uses the label's ANCHOR, but the
+      // sprite is drawn around and above it, so a label whose anchor sat just
+      // clear of the limb still had its tail sliced — measured as a faint
+      // "…URY" ghost on the Sun's edge. The margin covers the widest label at
+      // the angle it subtends from here. Slightly over-eager near the limb,
+      // which reads correctly as the Sun standing in front of it.
+      return d < SUN_R * 1.5;
+    };
+  }, []);
+
   useFrame((state, dt) => {
     const el = g.current;
     if (!el) return;
@@ -446,8 +501,27 @@ export default function Starfield() {
     labelAmt.current += ((stNow.showLabels ? 1 : 0) - labelAmt.current) * k;
     // A planet's NAME belongs to the planet layer; a constellation's name is
     // its own switch (the NAMES chip), which is why these fade separately.
-    for (const m of planetLabelMats.current) if (m) m.opacity = planetAmt.current;
-    for (const m of conLabelMats.current) if (m) m.opacity = labelAmt.current;
+    // The weights the CSS carried: planet names read at 0.85, the 88
+    // constellation names recede to 0.55 so they cannot shout over five, and
+    // the zodiac sits between at 0.8 (applied per-sprite below via its tint's
+    // own material, which is why the zodiac ones are separated out).
+    {
+      const cam = state.camera.position;
+      const w = _scratchWorld;
+      for (let i = 0; i < planetLabelMats.current.length; i++) {
+        const m = planetLabelMats.current[i];
+        if (!m || !planets[i]) continue;
+        w.copy(planets[i].pos).applyQuaternion(el.quaternion);
+        m.opacity = occluded(w, cam) ? 0 : planetAmt.current * 0.85;
+      }
+      for (let i = 0; i < conLabelMats.current.length; i++) {
+        const m = conLabelMats.current[i];
+        if (!m || !constellationLabels[i]) continue;
+        w.copy(constellationLabels[i].pos).applyQuaternion(el.quaternion);
+        const weight = conIsZodiac.current[i] ? 0.8 : 0.55;
+        m.opacity = occluded(w, cam) ? 0 : labelAmt.current * weight;
+      }
+    }
 
     // Slew, do not snap. Changing the date can move the sky by half a celestial
     // sphere, and cutting between two orientations reads as a glitch where the
@@ -620,8 +694,9 @@ export default function Starfield() {
           {skyOnScreen && (
             <SkyLabel
               text={pl.name}
-              tint="#e9e4da"
-              scale={SHELL * 0.021}
+              tint="#f4efe6"
+              scale={SHELL * 0.015}
+              offset={-1.15}
               registerMaterial={(m) => { planetLabelMats.current[i] = m; }}
             />
           )}
@@ -635,8 +710,11 @@ export default function Starfield() {
             // the zodiac reads gold, as it did in CSS: those are the twelve
             // the date actually travels through
             tint={c.zodiac ? "#d9b45a" : "#8fa6c4"}
-            scale={SHELL * 0.019}
-            registerMaterial={(m) => { conLabelMats.current[i] = m; }}
+            scale={SHELL * 0.013}
+            registerMaterial={(m) => {
+              conLabelMats.current[i] = m;
+              conIsZodiac.current[i] = c.zodiac;
+            }}
           />
         </group>
       ))}
