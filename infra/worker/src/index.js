@@ -32,7 +32,29 @@ function toOrigin(request, env, cf) {
   url.host = origin.host;
   // Preserve method/headers/body; the browser Origin header passes through
   // untouched so the origin's ALLOWED_ORIGINS gate keeps working.
-  return fetch(new Request(url, request), cf ? { cf } : undefined);
+  const req = new Request(url, request);
+  // One rewrite: traffic served from the worker's OWN hostname. The dev
+  // worker answers on both dev.myheliograph.com and its workers.dev preview
+  // URL — the fallback host actually used when a corporate proxy eats the
+  // custom domain — and a page loaded from the preview URL sends that
+  // hostname as Origin/Referer, which the API's ALLOWED_ORIGINS gate has
+  // never heard of. Every thumb then 403s and the film runs on procedural
+  // plasma forever (found 2026-08-25: a whole dev verification pass ran
+  // against a Sun that was silently the fallback). Same-origin traffic is
+  // ours by construction, so present it as the canonical domain. Third-party
+  // Referers do not match the worker's own host and pass through untouched,
+  // so hotlink blocking is unchanged.
+  const own = new URL(request.url).origin;
+  const canonical = (env.CANONICAL || "").replace(/\/$/, "");
+  if (canonical && canonical !== own) {
+    for (const h of ["origin", "referer"]) {
+      const v = req.headers.get(h);
+      if (v && (v === own || v.startsWith(own + "/"))) {
+        req.headers.set(h, v.replace(own, canonical));
+      }
+    }
+  }
+  return fetch(req, cf ? { cf } : undefined);
 }
 
 function serveAsset(request, env) {

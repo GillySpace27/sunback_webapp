@@ -118,7 +118,11 @@ export function useSunTextureLoader() {
       // anyone will study.
       const st0 = useStore.getState();
       if (!anchoring && st0.currentTexture && Math.abs(relativeSpin(st0.currentTexture, date)) > ANCHOR_RAD) {
-        const anchorUrl = thumbUrl(date, time, CHANNELS[channel].angstrom, WHEEL_SIZE);
+        // 256, not 512. An anchor is a transient the eye sweeps past at
+        // drag speed, and its job is to land BEFORE the lag grows — a
+        // quarter of the bytes means it does. The frame anyone actually
+        // studies is the full-res one that follows the release.
+        const anchorUrl = thumbUrl(date, time, CHANNELS[channel].angstrom, 256);
         const hit = cache.get(anchorUrl);
         if (hit) {
           setTexture(hit);
@@ -169,9 +173,47 @@ export function useSunTextureLoader() {
     setTexStatus("loading");
     let alive = true;
     const t = setTimeout(() => {
+      // Progressive: a small stand-in and the 1024 go out TOGETHER, and
+      // whichever is on screen when the big one lands gets dissolved into it
+      // by the anchor cross-fade. On a cold landing or a slow link the sphere
+      // is photographic seconds before the full frame arrives — this is what
+      // "mostly seeing a generic ball" was: one big request, nothing to show
+      // until all of it came (Gilly, 2026-08-25). The small frame only ever
+      // paints while the sphere has nothing real (currentTexture null and the
+      // big one not landed), so it can never downgrade anything.
+      let bigLanded = false;
+      // 256: first paint is a race, and a 256 is ~4x fewer bytes than a 512
+      // for a sphere the visitor sees for the couple of seconds before the
+      // full frame dissolves over it. Measured on a 1.2 Mbps throttle: the
+      // 512 stand-in landed at +6.7s; the page's own JS chunks were eating
+      // the link, so the stand-in has to be nearly free to arrive early.
+      // Shares the anchor cache below, so a scrub that follows costs nothing.
+      const smallUrl = thumbUrl(date, time, CHANNELS[channel].angstrom, 256);
+      // NO fetchPriority warm-up here, though it looks like the obvious next
+      // lever. It was tried (2026-08-25) and TRIPLED time-to-first-photo on a
+      // throttled link, measured at +4.8s -> +15s: /api/helioviewer_thumb
+      // sends no Cache-Control and no ETag, so the warm-up Image's bytes are
+      // not reusable by the loader's own request — every frame downloaded
+      // twice, and at High priority the duplicates also starved the JS chunks
+      // the page needs to boot. If the worker ever makes thumbs cacheable,
+      // the idea becomes sound; until then it is pure harm.
+      const smallHit = cache.get(smallUrl);
+      const adoptSmall = (tex: THREE.Texture) => {
+        if (!alive || bigLanded) return;
+        if (useStore.getState().currentTexture === null) setTexture(tex);
+        // status stays "loading": the full-res fetch is still in flight
+      };
+      if (smallHit) adoptSmall(smallHit);
+      else
+        loader.load(smallUrl, (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          put(smallUrl, tex);
+          adoptSmall(tex);
+        });
       loader.load(
         url,
         (tex) => {
+          bigLanded = true;
           tex.colorSpace = THREE.SRGBColorSpace;
           put(url, tex);
           if (alive) {

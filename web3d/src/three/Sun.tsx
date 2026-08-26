@@ -566,7 +566,17 @@ export default function Sun({
     // the outgoing frame's offset keeps tracking the date too, so it goes on
     // rotating in step during its own fade-out instead of freezing
     uniforms.uPrevSpinRel.value = relativeSpin(uniforms.uPrevMap.value, date);
-    coronaUniforms.uSpinConf.value = Math.exp(-Math.abs(rel) / 4.5); // keep in step with the shader
+    // 0.45 rad e-fold (~2 days), NOT the disk's 4.5. Sharing the disk's lazy
+    // decay was wrong twice over: the disk hedge exists because surface
+    // features CHANGE over weeks, but the disk at least gets re-projected to
+    // where its features belong. The corona cannot be re-projected at all —
+    // off-limb structure is optically thin, one frame carries no depth — so a
+    // stale corona is not "the same thing, slightly old", it is the WRONG
+    // structure drawn at full strength beside a disk that has visibly turned.
+    // That mismatch is the "half-frames" Gilly screenshotted (2026-08-25):
+    // sharp old streamers on the limb of a rotated Sun. The corona now bows
+    // out within a couple of days of lag and returns with each anchor.
+    coronaUniforms.uSpinConf.value = Math.exp(-Math.abs(rel) / 0.45);
   }, [tex, date, uniforms, coronaUniforms]);
 
   useEffect(() => {

@@ -1226,7 +1226,21 @@ async def helioviewer_thumb(
         content, media_type = await loop.run_in_executor(
             None, lambda: _fetch_helioviewer_screenshot(url, timeout=timeout)
         )
-        return Response(content=content, media_type=media_type, headers=CORS_HEADERS)
+        # Cache-Control from the ORIGIN, not only from the worker's edge copy.
+        # The worker's cacheThumb stamps its stored copy, but the response the
+        # first visitor actually receives is this one, and without the header
+        # their browser re-downloads the identical image on every reload —
+        # measured 2026-08-25 while chasing time-to-first-photo. A frame for a
+        # past instant is immutable by nature; near-real-time frames get a day,
+        # since Helioviewer can backfill a better image shortly after ingest.
+        try:
+            _req_dt = datetime.fromisoformat(date.replace("Z", ""))
+            _recent = (datetime.utcnow() - _req_dt).total_seconds() < 3 * 86400
+        except (ValueError, TypeError):
+            _recent = True
+        _cc = "public, max-age=86400" if _recent else "public, max-age=2592000, immutable"
+        return Response(content=content, media_type=media_type,
+                        headers={**CORS_HEADERS, "Cache-Control": _cc})
     except requests.RequestException as e:
         # NEEDS-FIX (workflow wx5fi2brl, raw-exception-leak):
         # log full trace server-side, but return a sanitised body to

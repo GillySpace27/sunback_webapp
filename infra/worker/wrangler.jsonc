@@ -30,7 +30,8 @@
     "run_worker_first": ["/"]
   },
   "vars": {
-    "ORIGIN": "https://myheliograph-api.fly.dev"
+    "ORIGIN": "https://myheliograph-api.fly.dev",
+    "CANONICAL": "https://myheliograph.com"
   },
   "triggers": {
     // Stale-[MOCKUP]-draft sweep: the in-app trigger is a post-response
@@ -69,7 +70,8 @@
       },
       "vars": {
         "ORIGIN": "https://myheliograph-api-dev.fly.dev",
-        "IS_DEV": "1"
+        "IS_DEV": "1",
+        "CANONICAL": "https://dev.myheliograph.com"
       },
       "triggers": { "crons": [] },
       "routes": [
