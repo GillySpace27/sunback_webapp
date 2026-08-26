@@ -67,6 +67,21 @@ const fragment = /* glsl */ `
   // currently bound to uMap. Zero whenever the two agree, which is every
   // settled frame — so this costs nothing except while the date is moving.
   uniform float uSpinRel;
+  // The PREVIOUS anchor frame, cross-faded out as a new one arrives.
+  //
+  // Without this, every anchor landing was a hard swap. The re-projection
+  // keeps the FEATURES continuous across the swap — both frames put the same
+  // active region at the same place — but the fade weights (seen/sharp/conf)
+  // jump discontinuously: the trailing half was dissolving at rel=30deg and is
+  // suddenly fully photographic at rel=0. Scrubbing therefore pulsed:
+  // lighten... snap, lighten... snap (Gilly, 2026-08-25, "outspinning the
+  // texture and lightening then getting replaced"). Blending old and new,
+  // EACH re-projected with its own offset, heals the weight discontinuity
+  // while the geometry stays aligned.
+  uniform sampler2D uPrevMap;
+  uniform float uHasPrev;
+  uniform float uPrevSpinRel;
+  uniform float uAnchorMix; // 0 = all previous frame, 1 = all current
 
   // Rotate about the scene's +Y, which is solar north here (B0 and P angle are
   // not modelled; at up to ~7 and ~26 degrees they would matter for a
@@ -129,7 +144,7 @@ const fragment = /* glsl */ `
     // The fast path is only valid when the photograph belongs to the date on
     // screen. Mid-scrub it does not, and the re-projection below is what makes
     // the difference visible instead of pretending it away.
-    if (uHasMap > 0.5 && uMapMix > 0.99 && abs(uSpinRel) < 0.0005) {
+    if (uHasMap > 0.5 && uMapMix > 0.99 && abs(uSpinRel) < 0.0005 && uAnchorMix > 0.999) {
       vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
       vec3 photo = texture2D(uMap, muv).rgb * uExposure;
       if (uHasNext > 0.5) {
@@ -238,7 +253,17 @@ const fragment = /* glsl */ `
       // picture: that is the side we have not seen.
       float sharp = clamp(n0.z / max(n.z, 0.06), 0.0, 1.0);
       float conf = exp(-abs(uSpinRel) / 4.5);
-      col = mix(col, photo, uMapMix * seen * sharp * conf);
+      vec3 cur = mix(col, photo, uMapMix * seen * sharp * conf);
+      if (uHasPrev > 0.5 && uAnchorMix < 0.999) {
+        // same construction, previous frame, its own rotation offset
+        vec3 p0 = rotY(n, -uPrevSpinRel);
+        vec3 prev = texture2D(uPrevMap, p0.xy * uDiscR + 0.5).rgb * uExposure;
+        float pseen = smoothstep(-0.03, 0.20, p0.z);
+        float psharp = clamp(p0.z / max(n.z, 0.06), 0.0, 1.0);
+        float pconf = exp(-abs(uPrevSpinRel) / 4.5);
+        cur = mix(mix(col, prev, uMapMix * pseen * psharp * pconf), cur, uAnchorMix);
+      }
+      col = cur;
     }
     gl_FragColor = vec4(col, 1.0);
   }
@@ -461,6 +486,10 @@ export default function Sun({
       uHasRainbow: { value: 0 },
       uSpin: { value: 0 },
       uSpinRel: { value: 0 },
+      uPrevMap: { value: BLACK_1PX as THREE.Texture },
+      uHasPrev: { value: 0 },
+      uPrevSpinRel: { value: 0 },
+      uAnchorMix: { value: 1 },
     }),
     []
   );
@@ -517,9 +546,26 @@ export default function Sun({
   // How far the Sun has turned since the frame we are holding was taken.
   // Exactly zero on every settled frame, because the frame that is loaded IS
   // the frame for the date on screen.
+  // Detect the texture CHANGING (as opposed to the date moving under it):
+  // that is the moment a swap would pop, so it is the moment the cross-fade
+  // starts. First arrival is exempt — uMapMix already choreographs that
+  // reveal, and there is nothing to fade from.
+  const lastTex = useRef<THREE.Texture | null>(null);
+  useEffect(() => {
+    if (tex && lastTex.current && tex !== lastTex.current) {
+      uniforms.uPrevMap.value = lastTex.current;
+      uniforms.uHasPrev.value = 1;
+      uniforms.uAnchorMix.value = 0;
+    }
+    if (tex) lastTex.current = tex;
+  }, [tex, uniforms]);
+
   useEffect(() => {
     const rel = relativeSpin(tex, date);
     uniforms.uSpinRel.value = rel;
+    // the outgoing frame's offset keeps tracking the date too, so it goes on
+    // rotating in step during its own fade-out instead of freezing
+    uniforms.uPrevSpinRel.value = relativeSpin(uniforms.uPrevMap.value, date);
     coronaUniforms.uSpinConf.value = Math.exp(-Math.abs(rel) / 4.5); // keep in step with the shader
   }, [tex, date, uniforms, coronaUniforms]);
 
@@ -582,6 +628,19 @@ export default function Sun({
     const lm = uniforms.uLookMix.value + (wantRhef - uniforms.uLookMix.value) * (1 - Math.exp(-dt / 0.6));
     uniforms.uLookMix.value = lm;
     coronaUniforms.uLookMix.value = lm;
+    // Anchor cross-fade: ~0.22s to full. Fast enough that three anchors in a
+    // brisk scrub never queue up more than one fade deep, slow enough that the
+    // weight discontinuity is invisible.
+    const am = uniforms.uAnchorMix.value;
+    if (am < 1) {
+      uniforms.uAnchorMix.value = Math.min(1, am + (1 - am) * (1 - Math.exp(-dt / 0.22)) + dt * 0.4);
+      if (uniforms.uAnchorMix.value > 0.995) {
+        uniforms.uAnchorMix.value = 1;
+        // release the old frame's slot so a disposed texture is never sampled
+        uniforms.uHasPrev.value = 0;
+        uniforms.uPrevMap.value = BLACK_1PX;
+      }
+    }
     const wantHover = hover.current && armed() ? 1 : 0;
     coronaUniforms.uHover.value +=
       (wantHover - coronaUniforms.uHover.value) * (1 - Math.exp(-dt / 0.18));

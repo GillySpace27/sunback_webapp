@@ -148,8 +148,24 @@ export function useSunTextureLoader() {
       setTexStatus("ready");
       return;
     }
-    // new identity: fall back to procedural immediately (never the wrong Sun)
-    setTexture(null);
+    // New identity. The old rule was "fall back to procedural immediately,
+    // never the wrong Sun" — but the shader can now re-project a nearby-date
+    // frame honestly (Sun.tsx uSpinRel), so nulling here threw away a frame
+    // the renderer could keep showing truthfully and put a plasma dip between
+    // every drag release and the full-res arrival. Keep the held frame when
+    // it is the SAME wavelength and within re-projection range; the anchor
+    // cross-fade then dissolves it into the real frame when that lands.
+    // A different wavelength (or a frame too far away) still nulls: those the
+    // shader cannot honestly bridge.
+    {
+      const held = useStore.getState().currentTexture;
+      const src = (held as { image?: { src?: string } } | null)?.image?.src ?? "";
+      const reusable =
+        held &&
+        src.includes(`wavelength=${CHANNELS[channel].angstrom}&`) &&
+        Math.abs(relativeSpin(held, date)) < 1.2;
+      if (!reusable) setTexture(null);
+    }
     setTexStatus("loading");
     let alive = true;
     const t = setTimeout(() => {

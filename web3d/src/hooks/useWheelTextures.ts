@@ -97,14 +97,27 @@ export function useWheelTextures(date: string, time: string) {
   useEffect(() => {
     if (!ready) return;
     let alive = true;
+    let restTimer = 0;
     const timer = setTimeout(() => {
     clearForDate(date);
     const seeded = CHANNELS.map((ch) => cache.get(thumbUrl(date, time, ch.angstrom, WHEEL_SIZE)) ?? null);
     setTexes(seeded);
     useStore.getState().setWheelTextures(seeded);
-    CHANNELS.forEach((ch, i) => {
-      const url = thumbUrl(date, time, ch.angstrom, WHEEL_SIZE);
-      if (cache.get(url)) return;
+    // The CURRENT channel goes first, alone; the other seven wait for it.
+    //
+    // On a cold landing this is the difference between the hero Sun and
+    // seven invisible pie slices sharing six connections, and the hero
+    // losing the coin toss. The visitor is looking at exactly one of these
+    // eight images; it should never queue behind the ones they are not.
+    // The rest follow the moment it lands (or errors), with a timeout
+    // fallback so one stalled request cannot hold the wheel hostage.
+    const chNow = useStore.getState().channel;
+    const loadOne = (i: number, done?: () => void) => {
+      const url = thumbUrl(date, time, CHANNELS[i].angstrom, WHEEL_SIZE);
+      if (cache.get(url)) {
+        done?.();
+        return;
+      }
       loader.load(
         url,
         (t) => {
@@ -119,15 +132,25 @@ export function useWheelTextures(date: string, time: string) {
               useStore.getState().setWheelTextures(n);
               return n;
             });
+          done?.();
         },
         undefined,
-        () => {}
+        () => done?.()
       );
-    });
+    };
+    let restFired = false;
+    const fireRest = () => {
+      if (restFired || !alive) return;
+      restFired = true;
+      for (let i = 0; i < CHANNELS.length; i++) if (i !== chNow) loadOne(i);
+    };
+    loadOne(chNow, fireRest);
+    restTimer = window.setTimeout(fireRest, 900);
     }, SETTLE_MS);
     return () => {
       alive = false;
       clearTimeout(timer);
+      clearTimeout(restTimer);
     };
   }, [date, time, ready]);
 
