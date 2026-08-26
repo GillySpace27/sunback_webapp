@@ -104,6 +104,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
     // Cookie banner wire-up. Shows on first visit when no consent
     // recorded. Idempotent — DOMContentLoaded re-entry is harmless.
+    // Set once the banner has already waited out a handoff. Without it the
+    // URL check below stays true forever, so when the overlay finally closed
+    // the re-entry would defer again and the banner would never appear.
+    var _cookieDeferredOnce = false;
     function _wireCookieBanner() {
       var banner = document.getElementById("cookieBanner");
       if (!banner) return;
@@ -144,13 +148,38 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // is: defer to whenever the overlay closes, which is a beat where the
       // banner costs nothing. Everything stays strictly-necessary until then,
       // so nothing is consented-to by the delay.
-      if (document.body.classList.contains("handoff-confirm")) {
+      // The class is not set yet at wire-up time on a handoff arrival — the
+      // overlay opens a moment later — so asking the DOM alone let the banner
+      // through anyway. The URL says it deterministically and immediately: a
+      // link from the film always carries the identity it is handing over.
+      var _handoffIncoming = false;
+      try {
+        var _hq2 = new URLSearchParams(location.search);
+        _handoffIncoming = !!(_hq2.get("d") && _hq2.get("wl"));
+      } catch (_e) {}
+      if (!_cookieDeferredOnce &&
+          (_handoffIncoming || document.body.classList.contains("handoff-confirm"))) {
+        _cookieDeferredOnce = true;
+        var _seenOpen = document.body.classList.contains("handoff-confirm");
         var _defer = new MutationObserver(function () {
-          if (document.body.classList.contains("handoff-confirm")) return;
+          var open = document.body.classList.contains("handoff-confirm");
+          if (open) { _seenOpen = true; return; }
+          // Only once the overlay has actually been open and then closed —
+          // otherwise the first unrelated class change on <body> would let
+          // the banner through while the handoff was still arriving.
+          if (!_seenOpen) return;
           _defer.disconnect();
           _wireCookieBanner();
         });
         _defer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+        // Belt and braces: if the overlay never opens at all (a bare /store
+        // link that happens to carry d= and wl=), consent must not be
+        // suppressed forever.
+        setTimeout(function () {
+          if (_seenOpen) return;
+          _defer.disconnect();
+          _wireCookieBanner();
+        }, 8000);
         return;
       }
       banner.classList.remove("hidden");
@@ -6175,6 +6204,78 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // to be the SAME PICTURE they approved in the cell above. Sending
         // date/wavelength alone would print a different sky from the preview,
         // which is the one thing a preview may never do.
+        // Capture the print master from the plate the visitor is ALREADY
+        // looking at.
+        //
+        // The remote renderer works, but it is structurally slow for reasons
+        // that have nothing to do with the picture: it cold-starts a machine,
+        // launches headless Chromium, reloads the whole 3D bundle, refetches
+        // the NASA frames, waits up to 120s for texStatus and 180s for
+        // rhefStatus, and then rasterises 2048-squared on SwiftShader — GL in
+        // software, no GPU. Minutes.
+        //
+        // Meanwhile the exact image is finished, on screen, in the cell below
+        // the Continue button, drawn by the visitor's own GPU (Gilly,
+        // 2026-08-26: "I see the exact screenshot that I want — it's the
+        // bottom row!"). The iframe is same-origin and PlateScene already
+        // renders with preserveDrawingBuffer, so those pixels can simply be
+        // read. The only thing missing is RESOLUTION: the cell is ~300px and a
+        // print needs 2048.
+        //
+        // So the iframe is briefly moved off-screen at 2048-squared. R3F's own
+        // ResizeObserver picks the new box up, which resizes the postprocessing
+        // composer with it (setting gl size directly would leave bloom
+        // rendering at the old size), one frame is drawn, and the canvas is
+        // read. Then it is put back exactly as it was.
+        function _captureDimensional(frame, size) {
+          return new Promise(function (resolve, reject) {
+            var win, canvas;
+            try {
+              win = frame.contentWindow;
+              canvas = frame.contentDocument && frame.contentDocument.querySelector("canvas");
+            } catch (_e) {
+              reject(new Error("plate is cross-origin"));
+              return;
+            }
+            if (!win || !canvas) { reject(new Error("plate has not rendered yet")); return; }
+            // Only capture a plate that has actually resolved. A master
+            // rasterised while the frame is still arriving is a mislabelled
+            // print, which is worse than a slow one — the same reason
+            // render-plate.mjs refuses rather than writing.
+            var st = null;
+            try { st = win.__store && win.__store.getState(); } catch (_e) {}
+            if (!st || st.texStatus !== "ready") { reject(new Error("plate is not ready")); return; }
+
+            var prevStyle = frame.getAttribute("style") || "";
+            frame.style.cssText = prevStyle +
+              ";position:fixed;left:-10000px;top:0;z-index:-1;" +
+              "width:" + size + "px;height:" + size + "px;max-width:none;max-height:none;";
+            var restore = function () { frame.setAttribute("style", prevStyle); };
+
+            var tries = 0;
+            (function waitForResize() {
+              tries++;
+              if (canvas.width >= size * 0.9) {
+                // Two of the IFRAME's own frames, not the parent's: the parent
+                // rAF says nothing about whether the plate has drawn.
+                win.requestAnimationFrame(function () {
+                  win.requestAnimationFrame(function () {
+                    var url;
+                    try { url = canvas.toDataURL("image/png"); }
+                    catch (err) { restore(); reject(err); return; }
+                    restore();
+                    if (!url || url.length < 5000) { reject(new Error("capture came back empty")); return; }
+                    resolve(url);
+                  });
+                });
+                return;
+              }
+              if (tries > 80) { restore(); reject(new Error("plate would not resize")); return; }
+              setTimeout(waitForResize, 50);
+            })();
+          });
+        }
+
         function _orderDimensional(look) {
           var sky = {};
           _SKY_CHIPS.forEach(function (pair) {
@@ -6185,12 +6286,54 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             submitBtn.disabled = true;
             submitBtn.textContent = "Building your Sun…";
           }
+          // No duration promise here: the fast path is sub-second, and saying
+          // "a minute or two" in front of it would be the copy inventing a
+          // wait that does not happen. The remote fallback sets its own text
+          // if it is ever reached.
+          if (submitHint) submitHint.hidden = true;
+          state.dimensionalOrder = { look: look, sky: sky };
+
+          // Fast path: read it off the plate already on screen. Typically well
+          // under a second, because there is nothing to render — it is drawn.
+          var frameId = look === "rhef" ? "confirmPlateFrameRhef" : "confirmPlateFrameRaw";
+          var liveFrame = document.getElementById(frameId);
+          if (liveFrame) {
+            _captureDimensional(liveFrame, 2048)
+              .then(function (dataUrl) {
+                return loadImage(dataUrl).then(function (img) {
+                  // Same install as the flat master: the checkout composites
+                  // state.hqFilterImage onto its canvas and uploads that, so a
+                  // dimensional print needs no server round trip at all.
+                  state.hqFilterImage = img;
+                  state.hqFormat = look;
+                  state.hqImageUrl = dataUrl;
+                  state.hqReady = true;
+                  state.dimensionalImageUrl = dataUrl;
+                  if (typeof renderCanvas === "function") renderCanvas();
+                  if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+                  pick(look);
+                });
+              })
+              .catch(function (err) {
+                // Anything at all — plate not armed, not resolved, a tainted
+                // canvas — falls through to the render service below. It is
+                // slow, but it is correct, and a slow order beats none.
+                console.warn("[dimensional] live capture unavailable, rendering server-side:", err && err.message);
+                _orderDimensionalRemote(look, sky);
+              });
+            return;
+          }
+          _orderDimensionalRemote(look, sky);
+        }
+
+        // The server-side renderer: the fallback, and the path a future
+        // fulfilment job can reuse without a browser in the loop.
+        function _orderDimensionalRemote(look, sky) {
           if (submitHint) {
             submitHint.hidden = false;
             submitHint.textContent =
               "Rendering your Sun as a body in space. This takes a minute or two.";
           }
-          state.dimensionalOrder = { look: look, sky: sky };
           fetchWithTimeout(API_BASE + "/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

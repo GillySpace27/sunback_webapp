@@ -3833,6 +3833,22 @@ body:has(.cookie-banner:not(.hidden)) .toast {
     bottom: 120px;
   }
 }
+/* ...but NOT while the handoff overlay is open, where the toast is parked at
+   the top instead (see body.handoff-confirm .toast above).
+   `body:has(.cookie-banner:not(.hidden))` scores (0,3,1) — :has() takes its
+   argument's specificity — which beats `body.handoff-confirm .toast` at
+   (0,2,1). So with the banner open the toast kept `top: 20px` from one rule
+   AND got `bottom: 284px` from the other, and a fixed element with both
+   offsets set STRETCHES: the "171 A loaded!" toast rendered as a full-height
+   column straight down the middle of the quad. That is the vertical bar the
+   2026-08-26 audit spotted and could not reproduce afterwards — it needs the
+   cookie banner and the handoff open at the same time, which only happens on
+   a first visit arriving from the film. */
+body.handoff-confirm:has(.cookie-banner:not(.hidden)) .toast,
+body.handoff-confirm:has(.cookie-banner:not(.hidden)) .toast.show {
+  top: 20px;
+  bottom: auto;
+}
 
 /* HQ button */
 .btn-hq {
