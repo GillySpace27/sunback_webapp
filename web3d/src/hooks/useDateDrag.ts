@@ -44,7 +44,21 @@ const DAYS_PER_WHEEL_PX = 1 / 22;
 // nudge the date.
 const WHEEL_DEADZONE = 26;
 // Idle gap that ends a wheel gesture (there is no "wheel up" event).
-const WHEEL_IDLE_MS = 180;
+//
+// 450, was 180. A trackpad does not deliver a steady stream: a two-finger
+// swipe arrives in bursts with real gaps between them, and at 180ms a single
+// ordinary pause ENDED the gesture and started a new one. Nothing about the
+// date scrubbing looked wrong, but every one of those false endings told the
+// texture loaders the hand was off, so each burst boundary fired a full round
+// of image fetches for whatever intermediate day happened to be showing.
+// Measured: a single continuous 45-step scrub produced 16 of them. That is
+// the "every third update is an image and it isn't consistent" (Gilly,
+// 2026-08-25) — not a debounce that was too short, a gesture that kept
+// claiming to be over.
+//
+// 450ms is longer than the gaps inside a swipe and still well under the pause
+// that means someone has actually stopped.
+const WHEEL_IDLE_MS = 450;
 const DAYS_PER_PX = 1 / 9;
 // Drag RIGHT = date forward. Measured, not guessed: rendering the same sky on
 // 2017-09-06 and 2017-10-06 puts Jupiter — which drifts only ~2.5°/month

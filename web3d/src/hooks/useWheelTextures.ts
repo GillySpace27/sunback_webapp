@@ -28,7 +28,17 @@ function clearForDate(date: string) {
 }
 const loader = new THREE.TextureLoader();
 loader.setCrossOrigin("anonymous");
-const WHEEL_SIZE = 512;
+export const WHEEL_SIZE = 512;
+// How long the date must sit still before eight fetches go out.
+//
+// The `dragging` gate below is necessary but not sufficient: a gesture ends
+// whenever the input stream pauses, so a long enough gap inside one swipe
+// still reads as "hand off" and releases the gate. Measured across repeated
+// runs of the same scripted scrub, the same gesture leaked 0 requests one
+// time and 8 the next purely on input timing. Tuning the idle window trades
+// one flavour of wrong for another; debouncing the DATE does not care where
+// the gesture boundaries fell, only whether the date has actually settled.
+const SETTLE_MS = 350;
 // 0, not 0.08. All eight go out as soon as the archive bounds are known.
 //
 // The film used to open on a baked 304 A Sun — a red disk — and swap to the
@@ -49,7 +59,26 @@ export function useWheelTextures(date: string, time: string) {
   // date, so the wheel can't fire its nine fetches into a pre-frontier 404
   // burst either.
   const frontierReady = useStore((s) => s.frontierReady);
-  const ready = armed && frontierReady && !!date;
+  // NOT while the date is being dragged.
+  //
+  // This effect is keyed on `date` and has no debounce, so a three-second
+  // scrub through twenty-odd days fired eight image loads per intermediate
+  // day: ~180 requests, none of them abortable, for dates nobody asked to
+  // see. Chrome allows six connections per host, so they queued — and the
+  // ONE request that mattered, for the date the visitor actually stopped on,
+  // sat at the back of that queue behind ~170 abandoned ones. Measured: after
+  // a 45-step wheel scrub the sphere never came back at all, texStatus stuck
+  // on "loading" indefinitely. That is the "sphere stops updating afterwards"
+  // (Gilly, 2026-08-25), and the same flood is why intermediate frames
+  // flickered in at roughly every third day: whichever stray thumb happened
+  // to win the queue got painted.
+  //
+  // So nothing loads mid-gesture. The Sun stays procedural while the date
+  // winds — which is now the right picture anyway, since the plasma rotates
+  // with the date (see Sun.tsx's uSpin) — and one clean set is fetched when
+  // the hand comes off.
+  const dragging = useStore((s) => s.dateDragging);
+  const ready = armed && frontierReady && !!date && !dragging;
   const [texes, setTexes] = useState<(THREE.Texture | null)[]>(() =>
     CHANNELS.map((ch) => cache.get(thumbUrl(date, time, ch.angstrom, WHEEL_SIZE)) ?? null)
   );
@@ -67,8 +96,9 @@ export function useWheelTextures(date: string, time: string) {
 
   useEffect(() => {
     if (!ready) return;
-    clearForDate(date);
     let alive = true;
+    const timer = setTimeout(() => {
+    clearForDate(date);
     const seeded = CHANNELS.map((ch) => cache.get(thumbUrl(date, time, ch.angstrom, WHEEL_SIZE)) ?? null);
     setTexes(seeded);
     useStore.getState().setWheelTextures(seeded);
@@ -94,8 +124,10 @@ export function useWheelTextures(date: string, time: string) {
         () => {}
       );
     });
+    }, SETTLE_MS);
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, [date, time, ready]);
 

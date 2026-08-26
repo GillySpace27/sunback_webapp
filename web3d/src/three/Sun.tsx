@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { useStore } from "../store";
 import { CHANNELS, DEFAULT_CHANNEL } from "../data/wavelengths";
 import { RHEF_DISC_R } from "../hooks/useRhefTextureLoader";
+import { spinPhase, relativeSpin } from "../lib/rotation";
 
 // The Sun surface: the real SDO/AIA full-disk image for the chosen date +
 // wavelength, orthographically mapped onto the front hemisphere. A procedural
@@ -62,6 +63,10 @@ const fragment = /* glsl */ `
   // per 27.2753 days, the synodic Carrington period — the Sun's rotation as
   // seen from a moving Earth, which is the one an observer actually measures.
   uniform float uSpin;
+  // Rotation of the DISPLAYED DATE relative to the date of the photograph
+  // currently bound to uMap. Zero whenever the two agree, which is every
+  // settled frame — so this costs nothing except while the date is moving.
+  uniform float uSpinRel;
 
   // Rotate about the scene's +Y, which is solar north here (B0 and P angle are
   // not modelled; at up to ~7 and ~26 degrees they would matter for a
@@ -121,7 +126,10 @@ const fragment = /* glsl */ `
     }
     // fast path: once the photo has fully resolved, skip the expensive fbm
     // plasma entirely (its result would be discarded by the mix anyway)
-    if (uHasMap > 0.5 && uMapMix > 0.99) {
+    // The fast path is only valid when the photograph belongs to the date on
+    // screen. Mid-scrub it does not, and the re-projection below is what makes
+    // the difference visible instead of pretending it away.
+    if (uHasMap > 0.5 && uMapMix > 0.99 && abs(uSpinRel) < 0.0005) {
       vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
       vec3 photo = texture2D(uMap, muv).rgb * uExposure;
       if (uHasNext > 0.5) {
@@ -165,11 +173,72 @@ const fragment = /* glsl */ `
     vec3 col = mix(vec3(0.02), base, limb);
     col += uHot * pow(n, 5.0) * limb * 1.4;
 
-    // real disk crossfading in, mapped so the silhouette edge lands on the limb
+    // The real disk, crossfading in — and, while the date is being scrubbed,
+    // RE-PROJECTED rather than refetched.
+    //
+    // An AIA full-disk frame is (to an excellent approximation at 1 AU) an
+    // orthographic projection of a sphere: the silhouette is the limb, and a
+    // surface point with unit normal n lands at n.xy. That makes solar
+    // rotation a change of variables, not a new observation. To show the Sun
+    // as it would look uSpinRel radians later, ask each fragment where its
+    // patch of surface WAS when the photograph was taken — rotate its normal
+    // backwards about the pole — and sample the photo there.
+    //
+    // This is the answer to "make it look like an actual spinning sun without
+    // making it slow" (Gilly, 2026-08-25): the alternative, a frame per day,
+    // is one HTTP request per day of travel, which is exactly the flood that
+    // froze the sphere earlier tonight. This is a 3x3 multiply per fragment
+    // and zero requests, and it is more correct than interpolating between
+    // frames would be — features foreshorten into the limb properly instead
+    // of sliding across flat.
+    //
+    // What it must NOT do is invent the far side. Two honest limits:
+    //
+    //   seen — if the rotated normal points away from the camera-at-capture
+    //          (n0.z <= 0) that surface was on the FAR side of the Sun when
+    //          the picture was taken. There is no data. It fades to the
+    //          procedural plasma, which is this scene's existing, disclosed
+    //          "no photograph yet" state.
+    //   conf — confidence decays with the total angle travelled. This is the
+    //          weaker of the two and should stay that way: seen is a
+    //          physical fact (was this patch photographed at all?), while conf
+    //          only hedges against the surface having CHANGED since. Active
+    //          regions live for weeks, so a few days of scrub really is the
+    //          same material turning; an e-fold at 4.5 rad (~20 days) keeps
+    //          the photograph dominant across the range where seen is still
+    //          letting most of the disk through. An earlier 1.2 measured out
+    //          at 38% photo after only five days, throwing away real data to
+    //          hedge a risk that had not arrived yet.
+    //          Without it, scrubbing a full 27-day rotation would
+    //          bring the photo back unrotated and thereby claim the Sun looks
+    //          identical a month later, which is false: the corona reorganises
+    //          on that timescale. Instead the image dissolves as the claim
+    //          weakens, and the real frame for the date you stop on replaces
+    //          it outright.
     if (uHasMap > 0.5) {
-      vec2 muv = (vPos.xy / 1.6) * uDiscR + 0.5;
+      vec3 n = vPos / 1.6;
+      vec3 n0 = rotY(n, -uSpinRel);
+      vec2 muv = n0.xy * uDiscR + 0.5;
       vec3 photo = texture2D(uMap, muv).rgb * uExposure;
-      col = mix(col, photo, uMapMix);
+      float seen = smoothstep(-0.03, 0.20, n0.z);
+      // Sampling density, and the reason a big scrub used to smear.
+      //
+      // An orthographic projection of a sphere compresses surface area by the
+      // cosine of the viewing angle, so the source image holds n0.z image-area
+      // per unit of sphere and the destination wants n.z. Their ratio is
+      // exactly how many source pixels back each destination pixel. Where it
+      // is small we are magnifying a foreshortened sliver across the middle of
+      // the frame, and no amount of filtering puts back detail the original
+      // exposure never resolved.
+      //
+      // Fading by it means the LEADING half of the disk — material that was
+      // near the centre when photographed and has turned toward the west limb
+      // — stays fully photographic, while the trailing half, arriving from
+      // around the east limb, dissolves into the plasma. Which is the true
+      // picture: that is the side we have not seen.
+      float sharp = clamp(n0.z / max(n.z, 0.06), 0.0, 1.0);
+      float conf = exp(-abs(uSpinRel) / 4.5);
+      col = mix(col, photo, uMapMix * seen * sharp * conf);
     }
     gl_FragColor = vec4(col, 1.0);
   }
@@ -231,7 +300,8 @@ const coronaFragment = /* glsl */ `
   uniform sampler2D uRainB;
   uniform float uHasRainbow;
   uniform float uQuadR;
-  uniform float uHover;    // 0..1, lifts the corona while it is being pointed at    // quad half-width in solar radii
+  uniform float uHover;    // 0..1, lifts the corona while it is being pointed at
+  uniform float uSpinConf; // 1 when the frame matches the date; decays mid-scrub
 
   // Everything here is done in SOLAR RADII rather than in each texture's own uv,
   // because the two sources do not share a field of view: the JP2 thumb reaches
@@ -297,7 +367,8 @@ const coronaFragment = /* glsl */ `
     // A control has to announce itself. Lifting the corona on hover says
     // "this is the thing you can act on" without putting a button over the
     // film, and it lifts the exact structure the click is about.
-    gl_FragColor = vec4(col * uStrength * (1.0 + 0.85 * uHover) * mask, lum * mask);
+    gl_FragColor = vec4(col * uStrength * (1.0 + 0.85 * uHover) * mask * uSpinConf,
+                        lum * mask * uSpinConf);
   }
 `;
 
@@ -389,6 +460,7 @@ export default function Sun({
       uRainB: { value: BLACK_1PX as THREE.Texture },
       uHasRainbow: { value: 0 },
       uSpin: { value: 0 },
+      uSpinRel: { value: 0 },
     }),
     []
   );
@@ -422,6 +494,13 @@ export default function Sun({
       uHasRainbow: { value: 0 },
       uQuadR: { value: CORONA_SIZE / 2 / 1.6 },  // quad half-width, in solar radii
       uHover: { value: 0 },
+      // The disk's re-projection confidence, applied here too. Off-limb
+      // structure is optically thin, so a single frame carries no depth to
+      // re-project it with — the corona simply cannot be turned. Letting it
+      // sit there unchanged while the disk inside it rotates and dissolves
+      // would read as the atmosphere having come unstuck from the star, so it
+      // fades on the same schedule.
+      uSpinConf: { value: 1 },
     }),
     []
   );
@@ -432,10 +511,17 @@ export default function Sun({
   // IS the date, and easing would mean the Sun briefly showed a rotation phase
   // belonging to no date at all.
   useEffect(() => {
-    const ms = new Date(`${date || "2015-01-01"}T12:00:00Z`).getTime();
-    const days = Number.isNaN(ms) ? 0 : ms / 86400000;
-    uniforms.uSpin.value = (days / 27.2753) * Math.PI * 2;
+    uniforms.uSpin.value = spinPhase(date);
   }, [date, uniforms]);
+
+  // How far the Sun has turned since the frame we are holding was taken.
+  // Exactly zero on every settled frame, because the frame that is loaded IS
+  // the frame for the date on screen.
+  useEffect(() => {
+    const rel = relativeSpin(tex, date);
+    uniforms.uSpinRel.value = rel;
+    coronaUniforms.uSpinConf.value = Math.exp(-Math.abs(rel) / 4.5); // keep in step with the shader
+  }, [tex, date, uniforms, coronaUniforms]);
 
   useEffect(() => {
     uniforms.uMap.value = tex ?? BLACK_1PX;
