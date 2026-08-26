@@ -29,10 +29,29 @@ import { useEffect, useRef } from "react";
 // spans roughly half the frame, which survives every aspect in the catalogue.
 const PLATE_CAMERA_Z = 9.4;
 
-// ?sky=1 puts the real starfield behind the plate.
-const SKY =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).get("sky") === "1";
+// Does this plate want the sky behind it?
+//
+// ?sky=1 says so explicitly, and that is what the print pipeline sends. But
+// the store's handoff quad stopped sending it in 513fcb9, when a single sky
+// toggle was replaced by six per-layer chips: the query became
+// "&stars=1&con=1&planets=1&grid=1…" and the one param that MOUNTS the
+// starfield quietly went missing. Every layer flag then arrived, was written
+// into the store correctly, and had no component to act on — so the two
+// Dimensional cells rendered a bare Sun on black for two days (Gilly,
+// 2026-08-26).
+//
+// So the layers are now their own answer: ask for any of them and you get the
+// sky that draws them. sky=1 still works and still wins, which keeps the
+// print pipeline's existing calls intact, but nothing has to remember to send
+// a second parameter that merely repeats what the first six already said.
+const SKY = (() => {
+  if (typeof window === "undefined") return false;
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("sky") === "1") return true;
+  return ["stars", "con", "art", "labels", "planets", "grid"].some(
+    (k) => q.get(k) === "1"
+  );
+})();
 
 export default function PlateScene() {
   // Shared with the film's Scene.tsx: lets the sky's planet labels occlude
@@ -58,8 +77,18 @@ export default function PlateScene() {
     const wl = q.get("ch");
     if (wl !== null && wl !== "") st.setChannel(Number(wl));
     if (q.get("rainbow") === "1") st.setRainbow(true);
+    // guide= is the LEGACY single switch, and it must not overrule the six
+    // per-layer params that replaced it. setSkyGuide writes both
+    // showConstellations and showPlanets, so on a query carrying
+    // "guide=1&con=0" it ran after App.tsx had already honoured con=0 and put
+    // the lines straight back — unticking Constellations (or Planets) in the
+    // handoff panel reloaded the plate with the right URL and changed nothing
+    // on screen (Gilly, 2026-08-26). Explicit beats inherited: only fall back
+    // to guide when the caller said nothing more specific.
+    const LAYER_PARAMS = ["stars", "con", "art", "labels", "planets", "grid"];
+    const explicitLayers = LAYER_PARAMS.some((k) => q.get(k) !== null);
     // explicit, never inherited from the film's opening demonstration
-    st.setSkyGuide(q.get("guide") === "1");
+    if (!explicitLayers) st.setSkyGuide(q.get("guide") === "1");
     const look = q.get("look");
     // dimensional plates default to the enhanced frame, since that is what the
     // SKU is for; an explicit look= still wins
