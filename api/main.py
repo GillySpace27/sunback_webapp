@@ -258,7 +258,17 @@ class _HeavyRenderSlot:
         global _heavy_render_waiting
         with _heavy_render_lock:
             _heavy_render_waiting += 1
-        await _HEAVY_RENDER_SEMAPHORE.acquire()
+        try:
+            await _HEAVY_RENDER_SEMAPHORE.acquire()
+        except BaseException:
+            # A waiter that is cancelled here never enters the `async with`
+            # body, so __aexit__ never runs — and without this the counter
+            # would keep the +1 for the life of the process, reporting a
+            # queue that contains nobody. Depth is what the UI shows the
+            # visitor, so a phantom is not a cosmetic problem.
+            with _heavy_render_lock:
+                _heavy_render_waiting -= 1
+            raise
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -2145,6 +2155,20 @@ tasks: dict = _LRUTasks()
 # Thread lock for status updates
 status_lock = threading.Lock()
 
+# Identity -> task_id for HQ renders that are queued or running.
+#
+# /api/generate minted a fresh task_id per POST with no de-duplication, and
+# every one of them took a slot on the single-permit heavy semaphore. So a
+# visitor who changed wavelength, reloaded, or had two tiers asking at once
+# enqueued the SAME render several times over, and the per-IP budget allows 40
+# of those in five minutes. The preview path has had this guard from the start
+# (_preview_in_progress); the HQ path never got it.
+_hq_inflight: dict = {}
+
+
+def _hq_key(date: str, wavelength, mission: str, detector: str, integrate: bool) -> str:
+    return f"{date}|{wavelength}|{mission}|{detector}|{1 if integrate else 0}"
+
 async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str, format_type: str = "rhef", integrate: bool = False):
     """
     Actual HQ generation logic for async background task.
@@ -2168,6 +2192,20 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         except ValueError:
             dt = datetime.strptime(date, "%Y-%m-%d")
         wl = int(wavelength)
+        # Already on disk? Then this is not a render at all, and it must not
+        # queue like one. Answering here — ahead of the semaphore — is what
+        # keeps a repeated ask cheap instead of parking it behind every real
+        # render in the queue.
+        cached = _hq_cached_url(dt, wl, mission, detector, integrate)
+        if cached:
+            with status_lock:
+                tasks[task_id] = {
+                    "status": "completed",
+                    "message": "HQ image ready (cached)",
+                    "image_url": cached,
+                }
+                log_to_queue(f"[hq-task][{task_id}] Status: completed (cache hit, no slot taken)")
+            return
         # A 4096² HQ render is the biggest thing we write — check headroom
         # before burning 1–3 min on a render that can't be saved.
         _disk_check("hq-task")
@@ -2203,6 +2241,10 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         with status_lock:
             tasks[task_id] = {"status": "failed", "message": str(e)}
             log_to_queue(f"[hq-task][{task_id}] Status: failed ({e})")
+    finally:
+        with status_lock:
+            if _hq_inflight.get(_hq_key(date, wavelength, mission, detector, integrate)) == task_id:
+                _hq_inflight.pop(_hq_key(date, wavelength, mission, detector, integrate), None)
 
 
 # Helper: HQ generation, sync version for to_thread usage
@@ -2248,6 +2290,47 @@ def _write_rhef_webp_artifacts(data, cmap, vmin, vmax, out_dir, base_name):
     return hq_name, rhq_name
 
 
+def _hq_out_name(date: datetime, wavelength: int, mission: str, detector: str,
+                 integrate: bool = False) -> tuple[str, bool]:
+    """The HQ render's cache filename, and whether it is the fixed default tuple.
+
+    Extracted from do_generate_sync so the *cheap* question — "has this
+    already been rendered?" — can be asked WITHOUT first queueing behind the
+    heavy-render semaphore. See _hq_cached_url and run_generation_task."""
+    date_str = date.strftime("%Y%m%d")
+    integ_suffix = "_integrated" if integrate else ""
+    is_default = (
+        not integrate
+        and _is_default_tuple(date, wavelength, mission, detector)
+        and getattr(date, "hour", 0) == 12 and getattr(date, "minute", 0) == 0
+    )
+    if is_default:
+        return DEFAULT_HQ_FILENAME, True
+    return f"hq_{mission}_{wavelength}_{date_str}_{date.strftime('%H%M')}{integ_suffix}.png", False
+
+
+def _hq_cached_url(date: datetime, wavelength: int, mission: str, detector: str,
+                   integrate: bool = False) -> Optional[str]:
+    """/asset/... URL if this HQ render is already on disk, else None.
+
+    Two stat() calls. do_generate_sync makes exactly the same check as its
+    first act — but it only runs once the heavy semaphore has been acquired,
+    so with concurrency 1 an ALREADY-RENDERED image still waited behind every
+    genuine render in front of it. That is what turned a handful of repeat
+    requests into "QUEUED · 80 AHEAD": a queue made almost entirely of
+    no-ops, each of which had to be admitted one at a time before it could
+    discover it had nothing to do (Gilly, 2026-08-25)."""
+    out_name, is_default = _hq_out_name(date, wavelength, mission, detector, integrate)
+    out_path = os.path.join(OUTPUT_DIR, out_name)
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+        return f"/asset/{out_name}"
+    if is_default:
+        persistent = DEFAULT_CACHE_DIR / out_name
+        if persistent.exists() and persistent.stat().st_size > 1000:
+            return f"/asset/{out_name}"   # do_generate_sync restores it; a copy, not a render
+    return None
+
+
 def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str, integrate: bool = False):
     """
     Generate a HQ PNG using the full RHEF pipeline, caching result if already exists.
@@ -2275,17 +2358,7 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     # exception is the fixed landing default (canonically the NOON frame),
     # which keeps a stable, time-less filename (DEFAULT_HQ_FILENAME) so its
     # pre-warmed persistent /var/data PNG still restores across deploys.
-    date_str = date.strftime("%Y%m%d")
-    _integ_suffix = "_integrated" if integrate else ""
-    _is_default = (
-        not integrate
-        and _is_default_tuple(date, wavelength, mission, detector)
-        and getattr(date, "hour", 0) == 12 and getattr(date, "minute", 0) == 0
-    )
-    if _is_default:
-        out_name = DEFAULT_HQ_FILENAME
-    else:
-        out_name = f"hq_{mission}_{wavelength}_{date_str}_{date.strftime('%H%M')}{_integ_suffix}.png"
+    out_name, _is_default = _hq_out_name(date, wavelength, mission, detector, integrate)
     out_path = os.path.join(OUTPUT_DIR, out_name)
     url_path = f"/asset/{out_name}"
     # If already exists and is non-empty, return its URL (cached)
@@ -2463,9 +2536,16 @@ async def start_generate(request: Request, background_tasks: BackgroundTasks, pa
     except Exception:
         # Bad time → leave date as-is; downstream parser falls back to noon.
         pass
-    task_id = str(uuid.uuid4())
+    # Same render already queued or running? Hand back the task that is
+    # already doing it rather than minting a second one to sit behind it.
+    key = _hq_key(date, wavelength, mission, detector, integrate)
     with status_lock:
+        existing = _hq_inflight.get(key)
+        if existing and tasks.get(existing, {}).get("status") in ("queued", "started"):
+            return {"task_id": existing, "status_url": f"/api/status/{existing}", "deduped": True}
+        task_id = str(uuid.uuid4())
         tasks[task_id] = {"status": "queued", "message": "HQ generation queued"}
+        _hq_inflight[key] = task_id
     background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector, format_type, integrate)
     return {"task_id": task_id, "status_url": f"/api/status/{task_id}"}
 
@@ -3935,8 +4015,16 @@ async def redirect_to_shopify(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/store", response_class=HTMLResponse)
 async def root():
-    """Serve the main customer-facing index.html."""
+    """Serve the flat storefront.
+
+    In production the Cloudflare Worker's Static Assets shadow this entirely:
+    "/" serves the 3D experience and "/store" serves this page. Both routes
+    are kept here so hitting the Fly origin directly (dev, debugging, a Worker
+    outage) still reaches the store rather than 404ing on the path the rest of
+    the site now links to.
+    """
     return FileResponse(Path(__file__).parent / "index.html")
 
 

@@ -351,82 +351,147 @@ body {
 #buy::-webkit-scrollbar {
   display: none;
 }
-.picker {
-  width: max-content;
+/* ── HUD ────────────────────────────────────────────────────────────────
+   Every setting that describes the visitor's Sun, always laid out (2026-08-24).
+   Replaces a collapsed "Make yours" panel: the disclosure made the film's own
+   settings feel like a form you had to find, and the one control it did NOT
+   hide was a duplicate wavelength row competing with the 3D filter wheel.
+
+   Kept as a compact plate rather than a full bar: it sits over a 60fps canvas
+   for the whole film, so it has to be readable without owning the frame. */
+.hud {
+  width: min(92vw, 46rem);
   margin: 0 auto;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  /* top padding moved onto .picker-toggle so the button itself has a
-     real hit box (was ~21px tall) instead of the fieldset shell around it */
-  padding: 0.3rem 1.3rem 1rem;
-  /* solid plate so every control clears 4.5:1 over the bright plasma behind */
-  background: rgba(10, 9, 8, 0.74);
-  border: 1px solid rgba(244, 239, 230, 0.12);
-  border-radius: var(--r-lg);
-  box-shadow: 0 10px 44px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
+  gap: 0.42rem;
+  padding: 0.7rem 1.1rem 0.85rem;
+  border: 0;
   opacity: 0;
   transform: translateY(16px);
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease),
     transform var(--dur-slow) var(--ease);
 }
+/* No plate. The HUD used to sit on a bordered, blurred card, which read as a
+   panel bolted over the film rather than part of it (Gilly, 2026-08-24).
+   The card was there for a real reason though — controls have to clear 4.5:1
+   over the brightest plasma frame — so the contrast comes from a scrim.
+
+   A full-width gradient anchored to the BOTTOM of the frame, not a centred
+   ellipse: the HUD is a wide, short element, and an ellipse falls off before
+   it reaches the far chips, which left "Sky" and the layer pills sitting on
+   bare 211 A magenta at marginal contrast (measured at the aperture beat).
+   A bottom scrim also happens to be a film convention rather than a UI one,
+   so it reads as the frame darkening toward its edge. */
+.hud::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  /* Ramps over ~9rem, not ~2.5: the short version reached full strength fast
+     enough to draw a visible horizontal band across the Sun at the surface
+     beat. A long, mostly-transparent lead-in is what makes it read as the
+     frame falling off rather than as an edge. */
+  top: -9rem;
+  bottom: -6rem;
+  z-index: -1;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(10, 9, 8, 0.16) 34%,
+    rgba(10, 9, 8, 0.52) 60%,
+    rgba(10, 9, 8, 0.84) 84%,
+    rgba(10, 9, 8, 0.9) 100%
+  );
+  pointer-events: none;
+}
 /* reveal on scroll OR when a keyboard user focuses into the buy controls */
-.picker--in,
-#buy:focus-within .picker {
+.hud--in,
+#buy:focus-within .hud {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
 }
-/* collapse toggle: a slim pill header; collapsed hides the body so the bar is a
-   small handle through the film, expanding on click / focus / at the gallery */
-.picker-toggle {
+.hud-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  align-self: center;
-  /* was 0.15rem: a ~21px-tall hit box. The rest of the vertical room comes
-     from .picker's own padding above/below, moved here (WCAG 2.5.8). */
-  padding: 0.6rem 0.4rem;
-  background: none;
-  border: 0;
-  color: var(--muted);
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+}
+.hud-row--identity { gap: 0.5rem 0.9rem; }
+.hud-legend {
   font-family: var(--sans);
   font-size: var(--fs-micro);
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
-  cursor: pointer;
+  color: var(--muted);
+  min-width: 3.4rem;
+  text-align: right;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.95);
 }
-.picker-toggle:hover {
-  color: var(--ink);
-}
-.picker-toggle:focus-visible {
-  border-radius: var(--r-sm);
-}
-.picker-chevron {
-  color: currentColor;
-}
-.picker-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-}
-.picker--collapsed {
-  padding-bottom: 0.3rem;
-}
-.picker--collapsed .picker-body {
-  display: none;
-}
-.picker-readout {
+.hud-readout {
   font-family: var(--sans);
   font-size: var(--fs-micro);
   letter-spacing: var(--track-wide);
   color: var(--ink);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
 }
+/* A sky layer. Pill-shaped like .look-option so the HUD reads as one set of
+   controls rather than a pile of one-off widgets. */
+.hud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.34rem 0.7rem;
+  min-height: 34px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(244, 239, 230, 0.2);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.hud-chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+.hud-chip:hover { color: var(--ink); border-color: rgba(244, 239, 230, 0.4); }
+.hud-chip--on {
+  color: var(--bg);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.hud-chip:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
+/* Off the aperture beat there is no wheel to click, so the HUD offers to take
+   you to it rather than implying wavelength is settable from here. */
+.hud-jump {
+  background: none;
+  border: 0;
+  padding: 0.35rem 0.5rem;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  cursor: pointer;
+  min-height: 34px;
+}
+.hud-jump:hover { color: var(--ink); }
+.hud-row--buy { gap: 0.5rem 0.8rem; margin-top: 0.15rem; }
+@media (max-width: 640px) {
+  .hud { width: 96vw; gap: 0.34rem; padding: 0.6rem 0.7rem 0.7rem; }
+  .hud-legend { min-width: 0; }
+  .hud-chip { padding: 0.3rem 0.55rem; }
+}
+
 .date-field {
   display: flex;
   align-items: center;
@@ -465,10 +530,7 @@ body {
 .date-field input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
-.swatches {
-  display: flex;
-  gap: clamp(0.2rem, 1vw, 0.6rem);
-}
+
 .swatch {
   position: relative;
   display: grid;
@@ -770,20 +832,8 @@ body {
   gap: 0.7rem;
   text-align: center;
 }
-.hero-date-field {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-family: var(--sans);
-}
-.hero-date-label {
-  font-size: var(--fs-micro);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--ink);
-  white-space: nowrap;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
-}
+
+
 .hero-date input[type="date"] {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(244, 239, 230, 0.3);
@@ -813,7 +863,13 @@ body {
    prompt moves into it. This also breaks the single centre axis the opening
    was stacked on — masthead, Sun, prompt and footer were all on one vertical
    line, which is most of why the frame read as a template rather than a shot. */
-@media (min-width: 1024px) {
+/* 900, not 1024: the ask moved onto the SURFACE beat, whose copy ("The light
+   that lit your day.") is centred and three lines tall. Centred-under-centred
+   collided at ~1000px — the date field landed on top of the third line. Off to
+   the left it clears the copy entirely, so this rule now starts as soon as
+   there is width for it. Below 900 the copy is narrower and the stack still
+   fits underneath. */
+@media (min-width: 900px) {
   .hero-date {
     --hero-x: 0%;
     left: 7vw;
@@ -989,12 +1045,7 @@ body {
    a narrow-viewport media query like it used to be. Remove each from pointer
    and keyboard entirely while the drawer is open rather than leaving stacked
    controls (e.g. two live date fields) on top of each other. */
-body:has(.picker-toggle[aria-expanded="true"]) .data-credit,
-body:has(.picker-toggle[aria-expanded="true"]) .hero-date,
-body:has(.picker-toggle[aria-expanded="true"]) .masthead,
-body:has(.picker-toggle[aria-expanded="true"]) .arrows {
-  display: none;
-}
+
 
 @media (max-width: 600px) {
   /* The picker plate owns the bottom of a phone screen, but only once it is
@@ -1022,13 +1073,7 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
     max-width: 100%;
     box-sizing: border-box;
   }
-  .swatches {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    justify-items: center;
-    gap: 0.35rem 0.2rem;
-    width: 100%;
-  }
+  
   /* the tip is nowrap for the desktop row; in the grid it would run off the
      edge from the outer columns */
   .swatch-tip {
@@ -1121,26 +1166,8 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
   outline-offset: 4px;
 }
 
-/* Route to the dimensional view (?plate=1). Quiet: it is a way to look at the
-   same Sun differently, not a second commit control competing with "Make one". */
-.dimensional-link {
-  font-family: var(--sans);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--track-wide);
-  text-transform: uppercase;
-  color: var(--muted);
-  text-decoration: none;
-  border-bottom: 1px solid rgba(244, 239, 230, 0.25);
-  padding-bottom: 2px;
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
-}
-.dimensional-link:hover {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
-}
+
+
 
 /* Way back out of the plate view. Absent from print masters (bare=1). */
 .plate-back {
@@ -1180,31 +1207,268 @@ body:has(.picker-toggle[aria-expanded="true"]) .arrows {
 }
 .planet-label--on { opacity: 0.85; }
 
-/* Sky-guide control. Same shape as the look options so the bar reads as one
-   set of settings rather than a pile of one-off widgets. */
-.sky-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 32px;
-  padding: 0.3rem 0.75rem;
-  border: 1px solid rgba(244, 239, 230, 0.22);
-  border-radius: var(--r-pill);
-  color: var(--muted);
+/* Constellation names (2026-08-24): bundled into the SAME sky-guide toggle
+   that already reveals the stick figures and planets — tap the sky once,
+   get lines + labels + planets together, rather than a second control
+   surface for a feature this small. Zodiac names get the warm gold tint the
+   film already uses for "your Sun" accents, so the twelve constellations
+   with the most cultural recognition read as a distinguishable subset
+   without a second toggle or a legend. */
+.constellation-label {
   font-family: var(--sans);
   font-size: var(--fs-micro);
   letter-spacing: var(--track-wide);
   text-transform: uppercase;
-  cursor: pointer;
-  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease),
-    background var(--dur-base) var(--ease);
-}
-.sky-toggle input {
-  position: absolute;
+  color: var(--ink);
   opacity: 0;
-  width: 1px;
-  height: 1px;
+  transition: opacity var(--dur-slow) var(--ease);
+  white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
 }
-.sky-toggle:hover { color: var(--ink); border-color: rgba(244, 239, 230, 0.45); }
-.sky-toggle--on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
-.sky-toggle input:focus-visible ~ span { outline: 2px solid var(--ink); outline-offset: 4px; }
+.constellation-label--on { opacity: 0.55; } /* dimmer than planet labels: 88 of these vs 5 */
+.constellation-label--zodiac {
+  color: var(--accent); /* the film's one brand gold, aliased from the store */
+}
+.constellation-label--zodiac.constellation-label--on { opacity: 0.8; }
+
+
+
+
+
+
+/* ── Beat rail: where you are in the film ─────────────────────────────────
+   Fixed to the right edge, vertically centred. Labels stay hidden until the
+   rail is hovered/focused or the beat is the active one, so nine words of
+   chrome never compete with the frame — the dots alone carry position, the
+   label answers "what is this one?" on demand.
+   Sits opposite the store's own right-hand arrow, hence the extra inset. */
+.beatrail {
+  position: fixed;
+  /* Inboard of the Next arrow, not on top of it. Both are fixed to the right
+     edge and both are vertically centred, so at the default insets the rail's
+     dots ran straight through the arrow (measured on dev: rail 1121-1254px,
+     arrow 1208-1256px, identical centres). The arrow's own inset is
+     clamp(0.4rem,2vw,1.5rem) and it is 48px wide, so clearing it means
+     starting past both, plus a gap. */
+  right: calc(clamp(0.4rem, 2vw, 1.5rem) + 48px + 0.7rem);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.15rem;
+}
+.beatrail__track {
+  position: absolute;
+  right: 10px;
+  top: 0.9rem;
+  bottom: 0.9rem;
+  width: 1px;
+  background: rgba(244, 239, 230, 0.16);
+  overflow: hidden;
+}
+.beatrail__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--gold, #d4a017);
+  opacity: 0.55;
+  transform-origin: top;
+  transform: scaleY(0);
+}
+.beatrail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.62rem;
+}
+.beatrail__tick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 1.05rem;   /* the dot column */
+  gap: 0.55rem;
+  /* Fixed row height. min-height alone let rows differ by ~1.75px depending on
+     their label's rendered box, and `top:50%` then placed each dot at a
+     slightly different y — visible as a wobble in what is meant to be one
+     straight column. */
+  height: 22px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--ink);
+  /* the tap target is bigger than the dot it draws — 8px of gold is not a
+     touch target, and this rail is the film's only random-access control */
+  min-height: 22px;
+}
+/* Absolutely placed, not laid out: as a flex sibling the dot's x still moved
+   with the width of the label beside it, so "Your date" and "Everything else"
+   put their dots in different columns. Pinning it to the tick's right edge is
+   what actually makes the nine dots one vertical line (Gilly, 2026-08-25). */
+.beatrail__dot {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  margin-top: -3.5px;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(244, 239, 230, 0.32);
+  box-shadow: 0 0 0 3px rgba(10, 9, 8, 0.55);
+  transition: background var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+.beatrail__tick:hover .beatrail__dot,
+.beatrail__tick:focus-visible .beatrail__dot {
+  background: rgba(244, 239, 230, 0.7);
+  transform: scale(1.25);
+}
+.beatrail__tick.is-done .beatrail__dot { background: rgba(212, 160, 23, 0.55); }
+.beatrail__tick.is-active .beatrail__dot {
+  background: var(--gold, #d4a017);
+  transform: scale(1.5);
+}
+.beatrail__label {
+  /* right-aligned into the space left of the dot column */
+  text-align: right;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+}
+.beatrail:hover .beatrail__label,
+.beatrail__tick:focus-visible .beatrail__label,
+.beatrail__tick.is-active .beatrail__label {
+  opacity: 0.92;
+  transform: none;
+}
+.beatrail__tick.is-active .beatrail__label { color: var(--gold, #d4a017); }
+
+/* The picker overlay owns the screen when open; the rail steps aside exactly
+   as the arrows already do. */
+
+/* Phones: dots only. Nine labels down the edge of a 390px screen is a wall of
+   text over the frame, and the arrows remain the primary control there. */
+@media (max-width: 640px) {
+  .beatrail__label { display: none; }
+  .beatrail { right: calc(clamp(0.4rem, 2vw, 1.5rem) + 44px + 0.4rem); }
+  .beatrail__list { gap: 0.5rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .beatrail__dot, .beatrail__label, .beatrail__fill { transition: none; }
+}
+
+
+
+@media (max-width: 640px) {
+  
+  
+}
+
+
+/* The cue and the ask never share the screen, so they occupy the same band
+   instead of reserving space for each other — otherwise the opening frame
+   holds an empty gap where the date field will later appear. */
+.hero-date > .hero-date-hint { position: absolute; bottom: 0; white-space: nowrap; }
+.hero-date { position: fixed; }
+
+/* ── Date roll: the sky-drag's own readout ────────────────────────────────
+   Hidden until a drag actually engages (past the deadzone), so it is never
+   chrome — it exists only for the duration of the gesture that needs it. */
+/* ── Date roll ───────────────────────────────────────────────────────────
+   The sky-drag's readout, sitting INSIDE the date field rather than beside it.
+   It used to be a full-screen centred display, which meant dragging the sky
+   spoke through a different control than the one that owns the date — two date
+   UIs, only one of which you could type into (Gilly, 2026-08-24: "unified with
+   the main date picker").
+
+   Absolutely positioned over the native <input type="date">, which renders its
+   own text and cannot be animated, so the value appears to roll inside the
+   field the visitor already knows. Inert unless a drag is live. */
+.date-input-wrap { position: relative; display: inline-block; }
+.dateroll {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  /* matches the field's own plate so the swap is not a visible pop */
+  background: rgba(10, 9, 8, 0.96);
+  border-radius: var(--r-pill);
+  font-family: var(--sans);
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-flat);
+  color: var(--ink);
+}
+.dateroll.is-live { opacity: 1; }
+/* Each field is a clipping window; the cell inside animates through it. That
+   is what makes it read as a dial rather than as text being replaced. */
+.dateroll__win { display: inline-block; overflow: hidden; vertical-align: baseline; }
+.dateroll__win--yr { opacity: 0.62; }
+.dateroll__cell { display: inline-block; will-change: transform; }
+@keyframes dateroll-up {
+  from { transform: translateY(0.9em); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes dateroll-down {
+  from { transform: translateY(-0.9em); opacity: 0; }
+  to   { transform: translateY(0);      opacity: 1; }
+}
+.dateroll__cell.roll-up   { animation: dateroll-up   190ms cubic-bezier(.2,.8,.2,1); }
+.dateroll__cell.roll-down { animation: dateroll-down 190ms cubic-bezier(.2,.8,.2,1); }
+@media (prefers-reduced-motion: reduce) {
+  /* The value still updates; only the travel is removed. A dial that jumps is
+     fine, a dial that is invisible is not. */
+  .dateroll__cell.roll-up, .dateroll__cell.roll-down { animation: none; }
+  .dateroll { transition: none; }
+}
+  .dateroll { transition: none; }
+}
+
+/* How to operate the date. Sits with the field, not as a tooltip: the sky-drag
+   is undiscoverable otherwise, and a hint nobody hovers is not a hint. */
+.hud-hint {
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  letter-spacing: var(--track-flat);
+  color: var(--muted);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* Beat-aware groups. Each row is shown only while the current beat can
+   actually change what it controls, so the HUD is never a wall of settings
+   that mostly do not apply to what is on screen. Fades rather than
+   mounting/unmounting: appearing and vanishing between frames reads as a
+   glitch where a fade reads as the scene handing over. */
+.hud-group {
+  display: contents;
+}
+.hud-row {
+  transition: opacity var(--dur-base) var(--ease);
+}
+.hud-readout { transition: opacity var(--dur-base) var(--ease); }
+.hud-readout[data-off="1"] { opacity: 0; }
+.hud-row[data-off="1"] {
+  opacity: 0;
+  pointer-events: none;
+  /* collapse so the HUD does not reserve a gap for a row nobody can use */
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+}

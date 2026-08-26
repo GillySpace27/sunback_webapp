@@ -58,6 +58,18 @@ const fragment = /* glsl */ `
   uniform sampler2D uRainG;
   uniform sampler2D uRainB;
   uniform float uHasRainbow;
+  // Solar rotation, driven by the DATE rather than by elapsed time: one turn
+  // per 27.2753 days, the synodic Carrington period — the Sun's rotation as
+  // seen from a moving Earth, which is the one an observer actually measures.
+  uniform float uSpin;
+
+  // Rotate about the scene's +Y, which is solar north here (B0 and P angle are
+  // not modelled; at up to ~7 and ~26 degrees they would matter for a
+  // measurement and do not for a turning ball of plasma).
+  vec3 rotY(vec3 p, float a){
+    float c = cos(a), s = sin(a);
+    return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+  }
 
   vec3 hash3(vec3 p){
     p = vec3(dot(p,vec3(127.1,311.7,74.7)),
@@ -137,7 +149,13 @@ const fragment = /* glsl */ `
       return;
     }
 
-    vec3 p = vPos * 2.4;
+    // The generative Sun turns; the photographed one never does. Sampling the
+    // noise field at the INVERSE rotation makes the plasma appear to rotate by
+    // +uSpin about the pole, carrying features from the east limb to the west
+    // — left to right on screen, which is the direction the real Sun turns as
+    // seen from Earth. Rotating the actual SDO frame would be a different
+    // claim entirely: that we know what the far side looked like.
+    vec3 p = rotY(vPos, -uSpin) * 2.4;
     float t = uTime * 0.06;
     float warp = fbm(p + vec3(0.0, t, 0.0));
     float n = fbm(p * 1.6 + warp * 1.4 + vec3(t, 0.0, -t));
@@ -286,7 +304,20 @@ const coronaFragment = /* glsl */ `
 const BLACK_1PX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
 BLACK_1PX.needsUpdate = true;
 
-export default function Sun() {
+// diskOccluderRef: the disk mesh registers itself here so the planet labels
+// in Starfield (rendered as DOM via drei's <Html>) can depth-test against it.
+// <Html> is a screen-projected DOM overlay with NO depth buffer participation
+// by default, so without this a planet whose 3D position is behind the Sun's
+// disk still draws its label on top of the photographic surface — exactly the
+// "MERCURY floating on the disk" bug Gilly reported 2026-08-24. The corona
+// quad is deliberately NOT an occluder: it is meant to read as translucent
+// (see the diegetic-corona work), so a label showing through the glow is
+// correct, only the solid disk should hide it.
+export default function Sun({
+  diskOccluderRef,
+}: {
+  diskOccluderRef?: React.MutableRefObject<THREE.Mesh | null>;
+} = {}) {
   const corona = useRef<THREE.Mesh>(null);
   const seqT = useRef(0);
   const hover = useRef(false);
@@ -324,6 +355,7 @@ export default function Sun() {
 
   // the real texture is loaded centrally (useSunTextureLoader) and published to
   // the store; null while loading/on error, so we fall back to the plasma
+  const date = useStore((s) => s.date);
   const tex = useStore((s) => s.currentTexture);
   const rhefTex = useStore((s) => s.rhefTexture) as THREE.Texture | null;
   const seq = useStore((s) => s.sequence) as THREE.Texture[];
@@ -356,6 +388,7 @@ export default function Sun() {
       uRainG: { value: BLACK_1PX as THREE.Texture },
       uRainB: { value: BLACK_1PX as THREE.Texture },
       uHasRainbow: { value: 0 },
+      uSpin: { value: 0 },
     }),
     []
   );
@@ -392,6 +425,17 @@ export default function Sun() {
     }),
     []
   );
+
+  // One turn per Carrington rotation, tied to the date itself — so winding the
+  // date winds the Sun, and the two are the same gesture rather than two
+  // things that happen to move at once (Gilly, 2026-08-25). Set, not eased: it
+  // IS the date, and easing would mean the Sun briefly showed a rotation phase
+  // belonging to no date at all.
+  useEffect(() => {
+    const ms = new Date(`${date || "2015-01-01"}T12:00:00Z`).getTime();
+    const days = Number.isNaN(ms) ? 0 : ms / 86400000;
+    uniforms.uSpin.value = (days / 27.2753) * Math.PI * 2;
+  }, [date, uniforms]);
 
   useEffect(() => {
     uniforms.uMap.value = tex ?? BLACK_1PX;
@@ -464,7 +508,12 @@ export default function Sun() {
 
   return (
     <>
-      <mesh visible={visible}>
+      <mesh
+        visible={visible}
+        ref={(m) => {
+          if (diskOccluderRef) diskOccluderRef.current = m;
+        }}
+      >
         <icosahedronGeometry args={[1.6, 12]} />
         <shaderMaterial
           vertexShader={vertex}
@@ -478,6 +527,7 @@ export default function Sun() {
         ref={corona}
         visible={visible}
         onPointerOver={(e) => {
+          if (useStore.getState().dateDragging) return;  // the tail of a sky-drag, not a tap
           if (!armed() || !onCorona(e.uv)) return;
           e.stopPropagation();
           hover.current = true;

@@ -71,7 +71,7 @@ type State = {
   setChannel: (i: number) => void;
   // Change the displayed channel WITHOUT claiming the visitor chose it. The
   // film stages the aperture beat on a coronal channel (see AUTO_STAGE_CHANNEL)
-  // so the beat whose whole job is "one Sun, nine kinds of light" actually
+  // so the beat whose whole job is "one Sun, eight kinds of light" actually
   // demonstrates it; that must not silence the "keep scrolling" nudge or
   // override a real preference, both of which hang off channelChosen.
   stageChannel: (i: number) => void;
@@ -92,8 +92,40 @@ type State = {
   // Sky guide: constellation figures + the naked-eye planets. Clicking the
   // empty sky turns it on, so the annotation is discovered by poking at the
   // thing being annotated rather than through a legend.
-  skyGuide: boolean;
+  // The sky annotations, split into three independent layers (2026-08-24).
+  // They were one `skyGuide` boolean, which meant "constellations AND planets,
+  // together, or nothing" — and stars were never optional at all. Splitting
+  // them is what lets the HUD offer them as separate settings.
+  showStars: boolean;
+  showConstellations: boolean;
+  showPlanets: boolean;
+  setShowStars: (v: boolean) => void;
+  setShowConstellations: (v: boolean) => void;
+  setShowPlanets: (v: boolean) => void;
+  // Compound: "annotations on/off" as one gesture. The canvas sky-click, the
+  // opening demonstration and the plate's ?guide=1 all mean this rather than
+  // any single layer, so they keep one call instead of three. There is no
+  // `skyGuide` FIELD — see the skyGuideOn selector below; a stored boolean
+  // beside the three layers would be a second source of truth for the same
+  // fact, and the two would drift the moment one layer was toggled alone.
   setSkyGuide: (v: boolean) => void;
+  // Constellation ARTWORK (the 1824 Urania's Mirror cards) and the name
+  // labels, as their own layers — art is heavy and figurative, labels are
+  // light and textual, and wanting one is not wanting the other.
+  showArt: boolean;
+  showLabels: boolean;
+  // RA/Dec graticule + the ecliptic track the date-drag scrubs along. Its own
+  // layer because it is scaffolding, not sky: someone who wants the figures
+  // rarely wants coordinate lines behind them, and vice versa.
+  showGrid: boolean;
+  setShowGrid: (v: boolean) => void;
+  setShowArt: (v: boolean) => void;
+  setShowLabels: (v: boolean) => void;
+  // Flat print vs the Sun as a body in space. A PURCHASE setting, not a render
+  // mode: the film is already dimensional, so this decides which row of the
+  // store's handoff quad the visitor arrives on, carried in the deep link.
+  form: "flat" | "dimensional";
+  setForm: (f: "flat" | "dimensional") => void;
   // True once the visitor has worked the guide themselves, by either route.
   // The opening demonstration must never fight a real choice.
   skyGuideTouched: boolean;
@@ -137,6 +169,10 @@ type State = {
   // has the visitor explicitly picked a date yet? drives the soft "nudge"
   // (pulsing prompt/arrow) on the opening beat until they do
   dateChosen: boolean;
+  // True while a horizontal sky-drag is actively changing the date. The Sun
+  // and sky click handlers consult it so the END of a drag is not also read as
+  // a tap on whatever happened to be under the finger. See useDateDrag.
+  dateDragging: boolean;
   // False until the archive's real bounds are known one way or the other:
   // either lib/frontier.ts's fetch resolved (setFrontier ran) or it failed/
   // timed out (frontierReady is set directly). Texture loaders gate on this
@@ -159,6 +195,13 @@ type State = {
   setTexture: (t: Texture | null) => void;
   texStatus: TexStatus;
   setTexStatus: (s: TexStatus) => void;
+
+  // Every wavelength of the SAME instant, indexed like CHANNELS. Loaded up
+  // front rather than at the aperture beat (see useWheelTextures) because the
+  // film opens on one of them and the aperture beat CYCLES all of them —
+  // neither works if they arrive one at a time as the beat plays.
+  wheelTextures: (Texture | null)[];
+  setWheelTextures: (t: (Texture | null)[]) => void;
 
   // adaptive quality tier, driven by PerformanceMonitor
   quality: Quality;
@@ -204,8 +247,22 @@ export const useStore = create<State>((set, get) => ({
       return { sequence: t };
     }),
 
-  skyGuide: false,
-  setSkyGuide: (v) => set({ skyGuide: v, skyGuideTouched: true }),
+  showStars: true,          // the sky is the backdrop; off is the exception
+  showConstellations: false,
+  showPlanets: false,
+  setShowStars: (v) => set({ showStars: v }),
+  setShowConstellations: (v) => set({ showConstellations: v, skyGuideTouched: true }),
+  setShowPlanets: (v) => set({ showPlanets: v, skyGuideTouched: true }),
+  setSkyGuide: (v) =>
+    set({ showConstellations: v, showPlanets: v, skyGuideTouched: true }),
+  showArt: false,
+  showLabels: false,
+  showGrid: false,
+  setShowArt: (v) => set({ showArt: v, skyGuideTouched: true }),
+  setShowLabels: (v) => set({ showLabels: v, skyGuideTouched: true }),
+  setShowGrid: (v) => set({ showGrid: v, skyGuideTouched: true }),
+  form: "flat",
+  setForm: (f) => set({ form: f }),
   skyGuideTouched: false,
 
   rainbow: false,
@@ -277,6 +334,7 @@ export const useStore = create<State>((set, get) => ({
       return { minDate, maxDate, date, frontierReady: true, ...rejectPatch };
     }),
   dateChosen: false,
+  dateDragging: false,
   frontierReady: false,
   time: "12:00",
 
@@ -285,6 +343,8 @@ export const useStore = create<State>((set, get) => ({
 
   currentTexture: null,
   setTexture: (t) => set({ currentTexture: t }),
+  wheelTextures: [],
+  setWheelTextures: (t) => set({ wheelTextures: t }),
   texStatus: "idle",
   setTexStatus: (s) => set({ texStatus: s }),
 
@@ -307,6 +367,13 @@ function clampToRange(d: string, min: string, max: string): string {
 }
 
 // Derived, not stored: true when the committed date is non-empty and falls
+// "Is any sky annotation showing?" Derived rather than stored, so it can never
+// disagree with the layers it summarises. Used by the canvas sky-click (which
+// toggles everything off if anything is on) and the opening demonstration.
+export function skyGuideOn(s: State): boolean {
+  return s.showConstellations || s.showPlanets || s.showArt || s.showLabels || s.showGrid;
+}
+
 // within the current [minDate, maxDate] window. Read via `useStore(dateValid)`
 // so every CTA gates on one definition instead of re-deriving the check.
 export function dateValid(s: State): boolean {

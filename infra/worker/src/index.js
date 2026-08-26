@@ -109,6 +109,29 @@ export default {
 async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const { pathname } = url;
+  // ?flat=1 — skip the film, go straight to the flat store.
+  //
+  // The 3D experience is the landing page, which means every visitor
+  // otherwise pays for a WebGL bundle before seeing a product. This is the
+  // documented bypass for traffic that should not: ad campaigns, email,
+  // support links. Handled at the EDGE rather than in the film, so a
+  // ?flat=1 click never downloads the film at all — a client-side forward
+  // would defeat the entire point.
+  //
+  // `flat` is dropped and every other param survives, so
+  // /?flat=1&d=2017-09-06&wl=171 lands on the store with its identity intact.
+  // "/" is opted into run_worker_first (see wrangler.jsonc), so this code runs
+  // for the root INSTEAD of Static Assets — which means it also has to hand
+  // back the landing page itself when there is no bypass to honour.
+  if (pathname === "/") {
+    if (url.searchParams.get("flat") === "1") {
+      const to = new URL(url);
+      to.pathname = "/store/";   // canonical form; "/store" 307s again
+      to.searchParams.delete("flat");
+      return Response.redirect(to.toString(), 302);
+    }
+    return env.ASSETS.fetch(request);
+  }
   // The 3D experience lives at /experience/ (a directory index). Static Assets
   // only serves the trailing-slash form, so the bare /experience falls through
   // to here and would proxy to Fly (404). Redirect it to the canonical path.

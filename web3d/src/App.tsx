@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef } from "react";
 import { useScrollProgress } from "./hooks/useScrollProgress";
+import { useDateDrag } from "./hooks/useDateDrag";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 import { useSunTextureLoader } from "./hooks/useSunTextureLoader";
 import { useRhefTextureLoader } from "./hooks/useRhefTextureLoader";
@@ -26,7 +27,8 @@ import DataCredit from "./ui/DataCredit";
 import SkipToStore from "./ui/SkipToStore";
 import StartOver from "./ui/StartOver";
 import Arrows from "./ui/Arrows";
-import WavelengthPicker from "./ui/WavelengthPicker";
+import BeatRail from "./ui/BeatRail";
+import Hud from "./ui/Hud";
 import { CHANNELS } from "./data/wavelengths";
 
 // The heavy Three.js bundle is code-split and streamed behind the loader.
@@ -66,6 +68,54 @@ if (typeof window !== "undefined") {
   if (wl) {
     const i = CHANNELS.findIndex((c) => String(c.angstrom) === wl);
     if (i >= 0) useStore.getState().setChannel(i);
+  }
+  // `ch` (channel INDEX) and `look`/`sky` used to be read only by PlateScene,
+  // so any link that carried them but not `plate=1` silently opened the film
+  // on the default wavelength in the raw look with no sky — which is exactly
+  // what the store's "see it dimensional" link did. The store speaks
+  // angstroms via `wl`; the plate pipeline speaks indices via `ch`. Both are
+  // honoured here, `wl` winning when somehow both are present.
+  const ch = q.get("ch");
+  if (!wl && ch !== null) {
+    const i = Number(ch);
+    if (Number.isInteger(i) && i >= 0 && i < CHANNELS.length) useStore.getState().setChannel(i);
+  }
+  if (q.get("look") === "rhef") useStore.getState().setLook("rhef");
+  if (q.get("sky") === "1")
+    useStore.setState({ showConstellations: true, showPlanets: true, skyGuideTouched: true });
+  // Per-layer overrides, so a caller can specify the sky EXACTLY rather than
+  // only through the `sky=1` shorthand above.
+  //
+  // Added for the store's handoff bridge (Gilly, 2026-08-25: "the handoff page
+  // should have the full set of tool toggles to support the dimensional sun
+  // offerings"). The Dimensional cells there render this experience in an
+  // iframe, so whatever the buyer switches on has to be expressible in the
+  // URL — otherwise the bridge can only ever preview one fixed sky, and what
+  // they are being asked to buy is not what they configured.
+  //
+  // Absent means "leave the default alone", NOT "off": `sky=1` and these can
+  // be combined, and a link that names only `art=1` should not silently
+  // extinguish the stars. Any explicit value also counts as touched, so the
+  // film's opening auto-demo does not overwrite it three seconds in.
+  {
+    const flag = (name: string) => {
+      const v = q.get(name);
+      return v === null ? null : v === "1" || v === "true";
+    };
+    const layers: Record<string, boolean> = {};
+    const map: [string, string][] = [
+      ["stars", "showStars"],
+      ["con", "showConstellations"],
+      ["planets", "showPlanets"],
+      ["art", "showArt"],
+      ["labels", "showLabels"],
+      ["grid", "showGrid"],
+    ];
+    for (const [param, key] of map) {
+      const v = flag(param);
+      if (v !== null) layers[key] = v;
+    }
+    if (Object.keys(layers).length) useStore.setState({ ...layers, skyGuideTouched: true });
   }
 }
 
@@ -112,6 +162,7 @@ function SunAltText() {
 export default function App() {
   usePrefersReducedMotion();
   useScrollProgress();
+  useDateDrag();    // drag the sky sideways to wind the date
   useSunTextureLoader(); // loads the real Sun for the current identity
   useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
   useRhefRequest(); // asks for the RHEF frame as its beat comes into view
@@ -193,11 +244,13 @@ export default function App() {
         <SkipToStore />
         <HeroDate />
         <Arrows />
+        <BeatRail />
 
         <nav id="buy" aria-label="Customize your Heliograph">
-          {/* the picker carries the real, visible, screen-reader-announced
-              "Make one" CTA (the overlay's is a decorative, aria-hidden twin) */}
-          <WavelengthPicker />
+          {/* The HUD carries the film's settings, and — from the climax beat
+              onward only — the one real, announced, focusable "Make one". The
+              overlay's copy of it is a decorative aria-hidden twin. */}
+          <Hud />
         </nav>
       </main>
 

@@ -21,8 +21,12 @@ export default function Arrows() {
       const prevs = BEAT_STOPS.filter((c) => c < progress - 0.015);
       const prev = prevs.length ? prevs[prevs.length - 1] : undefined;
       targets.current = { prev, next };
-      // soft nudge on the opening beat until a date is picked: pulse "next"
-      const nudge = !dateChosen && progress < 0.08;
+      // Pulse "next" until a date is actually picked, all the way through the
+      // surface beat (0.10-0.22) where the date control now lives. Before it,
+      // the pulse is pointing at the ask; during it, the ask is on screen and
+      // unanswered. It stops the moment they choose, so it never nags someone
+      // who has already done the thing.
+      const nudge = !dateChosen && progress < 0.22;
       if (prevRef.current) prevRef.current.disabled = prev === undefined;
       if (nextRef.current) {
         nextRef.current.disabled = next === undefined;

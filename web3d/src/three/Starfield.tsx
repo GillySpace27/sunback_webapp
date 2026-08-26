@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Html } from "@react-three/drei";
-import { useStore } from "../store";
+import { useStore, skyGuideOn } from "../store";
 import { PLANETS, PLANET_TINT, planetDirection } from "../lib/planets";
+import SkyGrid from "./SkyGrid";
 
 // The real sky behind the Sun on the visitor's date.
 //
@@ -31,6 +32,8 @@ const PLATE =
 
 type Star = [number, number, number, number, number]; // x,y,z (J2000), Vmag, B-V
 type Segment = { c: string; p: number[] };            // constellation polyline
+type NamedConstellation = { c: string; name: string; zodiac: boolean; p: [number, number, number] };
+type ArtPlate = { file: string; plate: string; c: string[]; p: [number, number, number]; r: number };
 
 // USNO low-precision solar position. Validated against astropy's get_sun over
 // 2010-2026: worst separation 22 arcmin, i.e. less than the Sun's own 32-arcmin
@@ -105,14 +108,81 @@ const frag = /* glsl */ `
   }
 `;
 
-export default function Starfield() {
+// Urania's Mirror plates composite onto a NIGHT SKY, which they were never
+// drawn for: they are dark ink on pale paper, so blitting one as-is puts a
+// bright cream rectangle over the stars. This keys the paper out by luminance
+// — alpha rises as the pixel darkens — so the engraved figure survives and the
+// page it was printed on does not. The card is otherwise untouched: no
+// cropping, no per-constellation extraction (Gilly, 2026-08-24).
+const artVert = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const artFrag = /* glsl */ `
+  precision highp float;
+  varying vec2 vUv;
+  uniform sampler2D uMap;
+  uniform float uOpacity;
+  void main() {
+    vec4 t = texture2D(uMap, vUv);
+    float lum = dot(t.rgb, vec3(0.299, 0.587, 0.114));
+    // Paper sits high (~0.85-1.0); ink and colour sit below. Smoothstep gives
+    // a soft key so the engraving's fine hatching does not alias into a hard
+    // cutout, and the top end is pushed to 0.97 so the faintest tint still
+    // reads rather than vanishing with the page.
+    // Paper must reach EXACTLY zero, not merely low. The first version keyed
+    // with smoothstep(0.45, 0.97): at the scans' paper luminance (~0.9) that
+    // still passed ~13% alpha, and with 33 plates tiling the whole sphere the
+    // residue stacked into grey slabs that buried the stars. Measured on dev
+    // 2026-08-24. The window now closes at 0.78, comfortably below paper and
+    // above the darkest coloured washes.
+    float ink = 1.0 - smoothstep(0.34, 0.78, lum);
+    ink = ink * ink;                       // steepen: hatching reads, haze does not
+    // The figures are dark ink on light paper being shown against a BLACK sky,
+    // so the card's own value cannot be used directly — it would draw the
+    // figure darker than the background it sits on. Ink density drives alpha
+    // and the colour is a cool parchment tint, which keeps the engraving
+    // legible and stops 33 plates from turning the sky into a collage.
+    vec3 col = mix(vec3(0.58, 0.66, 0.86), t.rgb + vec3(0.35), 0.35);
+    // Feather the plate's own edge. Each card is a printed rectangle with a
+    // ruled border, and that border is dark — i.e. maximum ink — so without
+    // this every plate reads as a picture frame hanging in space, which is
+    // exactly the "cards floating in the sky" look the layer is trying not to
+    // have. Falls off over the outer ~12% so the figure survives and the
+    // furniture around it does not.
+    // 0.22, was 0.12. Each card's ruled border is the DARKEST ink on it, so
+    // a narrow feather left every plate outlined like a hung picture; the
+    // wider falloff dissolves the furniture and keeps the figure.
+    vec2 e = min(vUv, 1.0 - vUv) / 0.22;
+    float edge = clamp(min(e.x, e.y), 0.0, 1.0);
+    edge = edge * edge * (3.0 - 2.0 * edge);
+    gl_FragColor = vec4(col, ink * uOpacity * edge);
+    if (gl_FragColor.a < 0.02) discard;
+  }
+`;
+
+export default function Starfield({
+  sunOccluderRef,
+}: {
+  sunOccluderRef?: React.MutableRefObject<THREE.Mesh | null>;
+} = {}) {
   const g = useRef<THREE.Group>(null);
   const uniforms = useMemo(
     () => ({ uDpr: { value: Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1) } }),
     []
   );
   const date = useStore((s) => s.date);
-  const guide = useStore((s) => s.skyGuide);
+  const showConstellations = useStore((s) => s.showConstellations);
+  const showPlanets = useStore((s) => s.showPlanets);
+  const showStars = useStore((s) => s.showStars);
+  const showLabels = useStore((s) => s.showLabels);
+  const showArt = useStore((s) => s.showArt);
+  // Any layer that needs the constellation GEOMETRY loaded: lines draw it,
+  // labels and art are positioned from it.
+  const needsFigures = showConstellations || showLabels;
   const [stars, setStars] = useState<Star[] | null>(null);
 
   // Dynamic import, not fetch. Vite emits it as a content-hashed chunk, so it
@@ -194,7 +264,12 @@ export default function Starfield() {
 
   const lines = useRef<THREE.LineSegments>(null);
   const planetMats = useRef<THREE.MeshBasicMaterial[]>([]);
-  const guideAmt = useRef(0);
+  // One fade amount PER LAYER, since they are now independently switchable —
+  // a single shared value would make turning off planets also fade the lines.
+  const conAmt = useRef(0);
+  const planetAmt = useRef(0);
+  const artAmt = useRef(0);
+  const artMats = useRef<THREE.ShaderMaterial[]>([]);
   const first = useRef(true);
   const introAt = useRef<number | null>(null);
   useFrame((_, dt) => {
@@ -224,28 +299,40 @@ export default function Starfield() {
       if (!PLATE && !st.skyGuideTouched && st.progress < 0.51) {
         if (introAt.current === null) introAt.current = 0;
         else introAt.current += dt;
-        if (introAt.current > 3.4 && !st.skyGuide) {
+        if (introAt.current > 3.4 && !skyGuideOn(st)) {
           // set directly, not through setSkyGuide: this is the film showing
           // the visitor the layer, not the visitor choosing it, so it must not
-          // count as having been touched.
-          useStore.setState({ skyGuide: true });
+          // count as having been touched. Demonstrates the two layers the
+          // sky-click controls; art stays off until asked for, being both
+          // heavy and a strong stylistic statement.
+          useStore.setState({ showConstellations: true, showPlanets: true });
         }
       }
     }
 
-    // Fade the guide rather than cutting it in. Frame-rate independent, and
+    // Fade each layer rather than cutting it in. Frame-rate independent, and
     // the layers stay mounted so there is something to fade.
-    const wantGuide = useStore.getState().skyGuide ? 1 : 0;
-    guideAmt.current += (wantGuide - guideAmt.current) * (1 - Math.exp(-dt / 0.42));
-    const a = guideAmt.current;
+    const stNow = useStore.getState();
+    const k = 1 - Math.exp(-dt / 0.42);
+    conAmt.current += ((stNow.showConstellations ? 1 : 0) - conAmt.current) * k;
+    planetAmt.current += ((stNow.showPlanets ? 1 : 0) - planetAmt.current) * k;
+    artAmt.current += ((stNow.showArt ? 1 : 0) - artAmt.current) * k;
+    for (const m of artMats.current) {
+      // 0.17, from 0.5 via 0.28. The engravings are large, high-contrast and
+      // busy: at anything above this a single plate (Cancer's crab spans a
+      // quarter of the frame) reads as the subject rather than as the sky's
+      // annotation, and the real stars disappear behind the thing drawn to
+      // point at them (Gilly, 2026-08-25: "make them more subtle, too").
+      if (m) m.uniforms.uOpacity.value = artAmt.current * 0.17;
+    }
     if (lines.current) {
       const m = lines.current.material as THREE.LineBasicMaterial;
-      m.opacity = 0.34 * a;
-      lines.current.visible = a > 0.004;
+      m.opacity = 0.34 * conAmt.current;
+      lines.current.visible = conAmt.current > 0.004;
     }
     for (const m of planetMats.current) {
       if (!m) continue;
-      m.opacity = a;
+      m.opacity = planetAmt.current;
     }
 
     // Slew, do not snap. Changing the date can move the sky by half a celestial
@@ -258,13 +345,55 @@ export default function Starfield() {
   // registers both. Fetched lazily: nobody pays for them until they ask.
   const [segs, setSegs] = useState<Segment[] | null>(null);
   useEffect(() => {
-    if (!guide || segs) return;
+    if (!needsFigures || segs) return;
     let alive = true;
     import("../data/constellations.json")
       .then((m) => alive && setSegs((m.default.segments as unknown) as Segment[]))
       .catch(() => {});
     return () => { alive = false; };
-  }, [guide, segs]);
+  }, [needsFigures, segs]);
+
+  // Constellation NAMES (2026-08-24) — bundled into the SAME guide toggle
+  // and lazy-loaded the same way: nobody pays for the 88-name list until
+  // they ask for the guide. See tools/build-constellation-names.py for
+  // where the names and the zodiac flag come from.
+  const [art, setArt] = useState<ArtPlate[] | null>(null);
+  useEffect(() => {
+    if (!showArt || art) return;
+    let alive = true;
+    import("../data/constellation-art.json")
+      .then((m) => alive && setArt((m.default.items as unknown) as ArtPlate[]))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [showArt, art]);
+
+  // Plate textures, loaded once the manifest lands. A plain TextureLoader
+  // rather than drei's useLoader: useLoader suspends, and suspending here
+  // would blank the entire scene the moment Art is switched on.
+  const [artTextures, setArtTextures] = useState<Record<string, THREE.Texture>>({});
+  useEffect(() => {
+    if (!art) return;
+    const loader = new THREE.TextureLoader();
+    let alive = true;
+    const base = import.meta.env.BASE_URL;
+    art.forEach((a) => {
+      loader.load(`${base}art/${a.file}`, (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        if (alive) setArtTextures((prev) => (prev[a.file] ? prev : { ...prev, [a.file]: t }));
+      });
+    });
+    return () => { alive = false; };
+  }, [art]);
+
+  const [names, setNames] = useState<NamedConstellation[] | null>(null);
+  useEffect(() => {
+    if (!showLabels || names) return;
+    let alive = true;
+    import("../data/constellation-names.json")
+      .then((m) => alive && setNames((m.default.items as unknown) as NamedConstellation[]))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [showLabels, names]);
 
   const lineGeo = useMemo(() => {
     if (!segs) return null;
@@ -293,10 +422,26 @@ export default function Starfield() {
     [date]
   );
 
+  // Constellation name positions: the centroid the build script computed for
+  // each, at the SAME radius as the planets so both label kinds read as one
+  // layer rather than the names hovering perceptibly nearer or farther.
+  const constellationLabels = useMemo(
+    () =>
+      (names ?? []).map((it) => ({
+        ...it,
+        pos: new THREE.Vector3(...it.p).multiplyScalar(SHELL * 0.97),
+      })),
+    [names]
+  );
+
   if (!geo) return null;
   return (
     <group ref={g}>
-      <points geometry={geo} frustumCulled={false}>
+      {/* Coordinate scaffolding + the ecliptic track, inside this group so the
+          one date rotation carries them with the stars. */}
+      <SkyGrid shell={SHELL} />
+
+      <points geometry={geo} frustumCulled={false} visible={showStars}>
         <shaderMaterial
           vertexShader={vert}
           fragmentShader={frag}
@@ -342,28 +487,138 @@ export default function Starfield() {
           {/* The labels are DOM, so they cross-fade in CSS rather than in the
               render loop — animating them through React state would re-render
               five <Html> portals on every frame of the fade. */}
-          <Html center distanceFactor={SHELL * 0.9} wrapperClass="sky-html">
-            <span className={"planet-label" + (guide ? " planet-label--on" : "")}>
+          <Html
+            center
+            distanceFactor={SHELL * 0.9}
+            wrapperClass="sky-html"
+            // occlude against the Sun's disk mesh only (see Sun.tsx) — Html
+            // does not depth-test the WebGL canvas on its own, so without
+            // this the label draws on top of the disk regardless of which is
+            // actually nearer the camera along that ray.
+            occlude={sunOccluderRef ? [sunOccluderRef] : undefined}
+          >
+            <span className={"planet-label" + (showPlanets ? " planet-label--on" : "")}>
               {pl.name}
             </span>
           </Html>
         </group>
       ))}
 
-      {/* The click target for "the empty sky". A back-side sphere just inside
-          the star shell: it sits behind everything, so anything nearer (the
-          Sun, the corona quad, which stops propagation) is hit first and only
-          genuinely empty sky reaches it. Invisible, but raycast. */}
-      <mesh
-        onClick={(e) => {
-          if (useStore.getState().progress >= 0.51) return;
-          e.stopPropagation();
-          const st = useStore.getState();
-          st.setSkyGuide(!st.skyGuide);
-        }}
-      >
-        <sphereGeometry args={[SHELL * 0.995, 16, 16]} />
-        <meshBasicMaterial side={THREE.BackSide} transparent opacity={0} depthWrite={false} />
+      {constellationLabels.map((c) => (
+        <group key={c.c} position={c.pos.toArray()}>
+          <Html
+            center
+            distanceFactor={SHELL * 0.9}
+            wrapperClass="sky-html"
+            occlude={sunOccluderRef ? [sunOccluderRef] : undefined}
+          >
+            <span
+              className={
+                "constellation-label" +
+                (showLabels ? " constellation-label--on" : "") +
+                (c.zodiac ? " constellation-label--zodiac" : "")
+              }
+            >
+              {c.name}
+            </span>
+          </Html>
+        </group>
+      ))}
+
+      {/* Urania's Mirror, 1824 — each plate WHOLE, on the patch of sky it
+          depicts. Placement comes from the constellations the plate names
+          (see tools/build-constellation-art.py): the card is centred on their
+          mean direction and sized to span them, so a multi-figure plate like
+          "Lacerta, Cygnus, Lyra, Vulpecula and Anser" covers all five rather
+          than being cut into pieces. */}
+      {showArt && art && art.map((a, i) => (
+        <ArtPlate
+          key={a.file}
+          plate={a}
+          texture={artTextures[a.file]}
+          registerMaterial={(m) => { artMats.current[i] = m; }}
+        />
+      ))}
+
+      {/* The sky is no longer a single click target.
+          It used to toggle "the guide" as one thing, which worked when the
+          guide WAS one thing. It is now six independent layers — stars, lines,
+          art, names, planets, grid — and one click cannot mean six switches;
+          whatever it did would be wrong for most of them, and it would also
+          fight the date-drag that now lives on the same surface (Gilly,
+          2026-08-25). The HUD's chips are the control, and they say what they
+          do. The opening demonstration still teaches that the layers exist by
+          drawing them in a few seconds after the sky appears. */}
+    </group>
+  );
+}
+
+// One Urania's Mirror plate on the celestial sphere.
+//
+// Separate component so its uniforms object is created ONCE and mutated when
+// the texture arrives. Passing `uniforms={{...}}` inline from the parent built
+// a fresh object every render and the plate ended up sampling a null uMap —
+// which the key reads as luminance 0, i.e. maximum ink, so all 33 plates
+// painted flat parchment rectangles over the sky. Measured on dev 2026-08-24;
+// the shader was right and the binding was not.
+//
+// It also renders NOTHING until its texture is present, so a slow or failed
+// download leaves empty sky rather than a grey slab.
+function ArtPlate({
+  plate,
+  texture,
+  registerMaterial,
+}: {
+  plate: ArtPlate;
+  texture?: THREE.Texture;
+  registerMaterial: (m: THREE.ShaderMaterial) => void;
+}) {
+  const uniforms = useMemo(
+    () => ({ uMap: { value: null as THREE.Texture | null }, uOpacity: { value: 0 } }),
+    []
+  );
+  const group = useRef<THREE.Group>(null);
+  useEffect(() => {
+    if (texture) uniforms.uMap.value = texture;
+  }, [texture, uniforms]);
+
+  const pos = useMemo(
+    () => new THREE.Vector3(...plate.p).normalize().multiplyScalar(SHELL * 0.985),
+    [plate]
+  );
+  // Angular radius -> plane size at the shell distance. 1.42 is the plates'
+  // own portrait aspect (they are engraved cards, not square).
+  const w = 2 * SHELL * Math.tan(THREE.MathUtils.degToRad(plate.r) / 2);
+
+  useEffect(() => {
+    // face the origin, where the camera lives: the convention these charts
+    // were drawn in, celestial north up.
+    group.current?.lookAt(0, 0, 0);
+    // `texture` is a dep because the group below does not EXIST until the
+    // texture lands. On a cold load this effect first ran with group.current
+    // still null, and `pos` never changes, so it never ran again: the plate
+    // stayed in its unrotated XY orientation and every card hung edge-on and
+    // askew. On a warm load the texture was already in memory on the first
+    // render, the group mounted with it, and the same effect happened to work
+    // — which is exactly why it looked right the second time (Gilly,
+    // 2026-08-25).
+  }, [pos, texture]);
+
+  if (!texture) return null;
+  return (
+    <group ref={group} position={pos.toArray()}>
+      <mesh>
+        <planeGeometry args={[w, w * 1.42]} />
+        <shaderMaterial
+          ref={(m) => { if (m) registerMaterial(m as THREE.ShaderMaterial); }}
+          vertexShader={artVert}
+          fragmentShader={artFrag}
+          uniforms={uniforms}
+          transparent
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+        />
       </mesh>
     </group>
   );

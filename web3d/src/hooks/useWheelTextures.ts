@@ -29,7 +29,18 @@ function clearForDate(date: string) {
 const loader = new THREE.TextureLoader();
 loader.setCrossOrigin("anonymous");
 const WHEEL_SIZE = 512;
-const WHEEL_LOAD_AT = 0.08; // well before the wheel fades in at ~0.205
+// 0, not 0.08. All eight go out as soon as the archive bounds are known.
+//
+// The film used to open on a baked 304 A Sun — a red disk — and swap to the
+// live 171 A frame when it arrived, so the first thing a visitor saw was a
+// colour that was not their Sun, replaced by one that was. And the aperture
+// beat now CYCLES all eight to show what the date can look like, which is not
+// possible if they are still trickling in when the beat arrives. Both wants
+// the same thing: have the whole set early (Gilly, 2026-08-25).
+//
+// Cost is eight 512px JPGs, which is roughly one hero frame's worth of bytes,
+// and they are the only images the first two beats need.
+const WHEEL_LOAD_AT = 0;
 
 export function useWheelTextures(date: string, time: string) {
   const [armed, setArmed] = useState(() => useStore.getState().progress >= WHEEL_LOAD_AT);
@@ -58,7 +69,9 @@ export function useWheelTextures(date: string, time: string) {
     if (!ready) return;
     clearForDate(date);
     let alive = true;
-    setTexes(CHANNELS.map((ch) => cache.get(thumbUrl(date, time, ch.angstrom, WHEEL_SIZE)) ?? null));
+    const seeded = CHANNELS.map((ch) => cache.get(thumbUrl(date, time, ch.angstrom, WHEEL_SIZE)) ?? null);
+    setTexes(seeded);
+    useStore.getState().setWheelTextures(seeded);
     CHANNELS.forEach((ch, i) => {
       const url = thumbUrl(date, time, ch.angstrom, WHEEL_SIZE);
       if (cache.get(url)) return;
@@ -71,6 +84,9 @@ export function useWheelTextures(date: string, time: string) {
             setTexes((prev) => {
               const n = [...prev];
               n[i] = t;
+              // Published so the hero Sun can use its own wavelength's frame
+              // the moment it lands, instead of holding a baked stand-in.
+              useStore.getState().setWheelTextures(n);
               return n;
             });
         },

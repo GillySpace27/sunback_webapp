@@ -12,12 +12,12 @@
   <meta name="theme-color" content="#f0eff5" media="(prefers-color-scheme: light)">
   <title>My Heliograph — The Sun on Any Date, as Wall Art</title>
   <meta name="description" content="Pick any date since 2010 and get the real image of the Sun that day, printed as a poster, print, or canvas. A meaningful birthday or anniversary gift.">
-  <link rel="canonical" href="https://myheliograph.com/">
+  <link rel="canonical" href="https://myheliograph.com/store">
   <!-- Open Graph + Twitter Card for share previews. -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="My Heliograph — Your day, written in sunlight.">
   <meta property="og:description" content="Real NASA/SDO images of the Sun, as it shone on any date since 2010 — printed as art for the day that mattered.">
-  <meta property="og:url" content="https://myheliograph.com/">
+  <meta property="og:url" content="https://myheliograph.com/store">
   <meta property="og:image" content="https://myheliograph.com/asset/default/og_card.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -69,7 +69,7 @@
     } catch (e) { /* theme is cosmetic; never block the page over it */ }
   </script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-  <link href="solar-archive.css" rel="stylesheet">
+  <link href="/solar-archive.css" rel="stylesheet">
 </head>
 <body class="step-product">
 <!-- sqrt display filter for RAW frames of ARBITRARY (non-committed) dates.
@@ -178,47 +178,93 @@
       <p class="handoff-question" id="confirmQuestion">Which look do you want?</p>
 
       <div id="handoffChoicesGroup">
-        <div class="handoff-choices" role="group" aria-label="Choose how your Sun is processed">
-          <button type="button" class="handoff-choice" id="chooseRaw" data-tier="raw"
-                  aria-label="Choose the Original look: the standard rendering of the telescope data">
+        <!-- Quad, not a row of cards (Gilly, 2026-08-24): columns are the LOOK
+             (Original / Enhanced), rows are the FORM (Flat print / Dimensional
+             object). Clicking a cell SELECTS it — nothing commits until Submit,
+             which is the second half of the same request: a picture-based
+             choice screen still needs a deliberate confirm, not a single
+             misclick that jumps straight to checkout.
+
+             The Dimensional row is still two live plate-render iframes (same
+             shaders as the film, not a picture of one), independently deferred
+             on hover/focus exactly as the old single Dimensional card was —
+             see dimIntent() below. Doubling that to two iframes doubles the
+             worst-case cost (~300KB gzipped 3D bundle each) if a visitor
+             hovers both; that is the accepted trade for showing all four
+             combinations rather than only the enhanced dimensional look. -->
+        <div class="handoff-quad" role="group" aria-label="Choose how your Sun is processed">
+          <div class="handoff-quad-corner" aria-hidden="true"></div>
+          <div class="handoff-quad-colhead">Original</div>
+          <div class="handoff-quad-colhead">Enhanced</div>
+
+          <div class="handoff-quad-rowhead">Flat</div>
+          <button type="button" class="handoff-cell" id="chooseRaw" data-tier="raw" data-form="flat"
+                  aria-pressed="false"
+                  aria-label="Original, flat print: the standard rendering of the telescope data">
             <img id="confirmThumbRaw" class="handoff-choice-img" alt="Your Sun in AIA's standard false-color rendering" />
-            <span class="handoff-choice-name">Original</span>
-            <span class="handoff-choice-sub">The standard rendering of the telescope data, in this wavelength's classic false color.</span>
+            <span class="handoff-cell-check" aria-hidden="true"><i class="fas fa-check"></i></span>
           </button>
-          <button type="button" class="handoff-choice" id="chooseRhef" data-tier="rhef"
-                  aria-label="Choose the Enhanced look: the same observation, contrast-enhanced to reveal faint structure in the corona">
+          <button type="button" class="handoff-cell" id="chooseRhef" data-tier="rhef" data-form="flat"
+                  aria-pressed="false"
+                  aria-label="Enhanced, flat print: the same observation, contrast-enhanced to reveal faint structure in the corona">
             <span class="handoff-choice-imgwrap">
               <img id="confirmThumbRhef" class="handoff-choice-img" alt="Your Sun with the corona revealed" />
               <span class="handoff-choice-pending" id="rhefPending">Enhancing…</span>
             </span>
-            <span class="handoff-choice-name">Enhanced</span>
-            <span class="handoff-choice-sub">The same observation, contrast-enhanced (RHEF) to reveal faint structure in the corona.</span>
+            <span class="handoff-cell-check" aria-hidden="true"><i class="fas fa-check"></i></span>
           </button>
-          <!-- Third card: the same Sun as a body in space rather than a flat
-               plate. The preview is a LIVE render of the experience's plate
-               mode in an iframe, not a picture of one — the same shaders, the
-               same identity — so what is previewed is literally the thing that
-               would be printed.
 
-               It is marked as a preview on purpose. There is no server-side
-               plate renderer yet, so there is no print file, and a card that
-               looked orderable would promise something checkout cannot ship —
-               the same conversion leak in reverse. It becomes a real third
-               option by changing this button's handler on the day the renderer
-               lands; everything else here is already in place. -->
-          <button type="button" class="handoff-choice handoff-choice--preview" id="chooseDimensional"
-                  data-tier="dimensional"
-                  aria-label="Preview the Dimensional look: your Sun as a body in space, with its corona and the real sky behind it. Preview only; not yet available to order.">
+          <div class="handoff-quad-rowhead">Dimensional <span class="handoff-choice-badge">Preview</span></div>
+          <!-- Preview only: there is no server-side print pipeline for this
+               form yet, so Submit on either Dimensional cell opens the full
+               3D view instead of committing an order — see handoffSubmitBtn's
+               click handler. It becomes a real fourth/fifth option by changing
+               that one branch the day the renderer is wired to checkout. -->
+          <button type="button" class="handoff-cell handoff-cell--preview" id="chooseDimensionalRaw"
+                  data-tier="raw" data-form="dimensional"
+                  aria-pressed="false"
+                  aria-label="Original, dimensional: your Sun as a body in space. Preview only — Submit opens the full 3D view.">
             <span class="handoff-choice-imgwrap">
-              <iframe id="confirmPlateFrame" class="handoff-choice-frame" title="" aria-hidden="true"
+              <iframe id="confirmPlateFrameRaw" class="handoff-choice-frame" title="" aria-hidden="true"
                       tabindex="-1" loading="lazy" referrerpolicy="same-origin"></iframe>
             </span>
-            <span class="handoff-choice-name">
-              Dimensional <span class="handoff-choice-badge">Preview</span>
+            <span class="handoff-cell-check" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </button>
+          <button type="button" class="handoff-cell handoff-cell--preview" id="chooseDimensionalRhef"
+                  data-tier="rhef" data-form="dimensional"
+                  aria-pressed="false"
+                  aria-label="Enhanced, dimensional: your Sun as a body in space with the corona revealed. Preview only — Submit opens the full 3D view.">
+            <span class="handoff-choice-imgwrap">
+              <iframe id="confirmPlateFrameRhef" class="handoff-choice-frame" title="" aria-hidden="true"
+                      tabindex="-1" loading="lazy" referrerpolicy="same-origin"></iframe>
             </span>
-            <span class="handoff-choice-sub">Your Sun as a body in space, corona and all, against the sky that was actually behind it. Not orderable yet.</span>
+            <span class="handoff-cell-check" aria-hidden="true"><i class="fas fa-check"></i></span>
           </button>
         </div>
+
+        <!-- Sky controls for the Dimensional row (Gilly, 2026-08-25: "the
+             handoff page should have the full set of tool toggles to support
+             the dimensional sun offerings").
+             Flat prints are the Sun alone, so these only apply to the two
+             Dimensional cells and the panel says so rather than appearing to
+             govern the whole quad. Each toggle rewrites the plate iframes'
+             query (see _wireDimensionalCell) and rides along to the full
+             experience on Submit, so the preview, the film and the eventual
+             print all read the same switches. -->
+        <fieldset class="handoff-sky" id="handoffSky" hidden>
+          <legend class="handoff-sky-legend">
+            What's behind it
+            <span class="handoff-sky-note">Dimensional only &middot; flat prints are the Sun alone</span>
+          </legend>
+          <div class="handoff-sky-chips">
+            <label class="handoff-sky-chip"><input type="checkbox" id="skyStars" checked><span>Stars</span></label>
+            <label class="handoff-sky-chip"><input type="checkbox" id="skyCon" checked><span>Constellations</span></label>
+            <label class="handoff-sky-chip"><input type="checkbox" id="skyArt"><span>Star art</span></label>
+            <label class="handoff-sky-chip"><input type="checkbox" id="skyLabels"><span>Names</span></label>
+            <label class="handoff-sky-chip"><input type="checkbox" id="skyPlanets" checked><span>Planets</span></label>
+            <label class="handoff-sky-chip"><input type="checkbox" id="skyGrid"><span>Grid</span></label>
+          </div>
+        </fieldset>
         <p id="confirmProvenance" class="handoff-provenance"></p>
 
         <!-- Reuses the quality-strip's own draggable-divider widget (same
@@ -261,6 +307,18 @@
         <button type="button" class="handoff-compare-pick-btn" id="confirmComparePickRhef" data-tier="rhef">Choose Enhanced</button>
       </div>
 
+      <!-- Submit, not single-click. A quad of four pictures makes it easy to
+           tap the wrong one on a moving thumb; the old single-click cards
+           read the tap as the decision itself. Disabled until a cell is
+           selected, and its label/hint change depending on whether the
+           selection can actually be ordered (Flat) or only previewed
+           (Dimensional) — see the JS below. -->
+      <div class="handoff-submit-row">
+        <button type="button" id="handoffSubmitBtn" class="handoff-submit-btn" disabled>Continue</button>
+        <p id="handoffSubmitHint" class="handoff-submit-hint" hidden>
+          Dimensional isn't orderable yet — Continue opens the full 3D preview instead.
+        </p>
+      </div>
       <div class="handoff-actions">
         <button type="button" id="confirmEdit" class="handoff-edit">Change date or color</button>
       </div>
@@ -1713,6 +1771,6 @@
 <!-- type="module" → browser-native ES modules. Module scripts are
      deferred by default (run after DOM parse) and live in their own
      top-level scope, replacing the old (function(){…})() IIFE wrapper. -->
-<script type="module" src="solar-archive.js"></script>
+<script type="module" src="/solar-archive.js"></script>
 </body>
 </html>

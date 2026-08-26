@@ -33,12 +33,18 @@ kill_timeout = "60s"
   FEEDBACK_DATA_DIR = "/var/data"
   PRINTIFY_SSL_VERIFY = "1"
   PUBLIC_BASE_URL = "https://dev.myheliograph.com"
-  SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "1"
+  # Mirrors prod (2 since 2026-08-25) — a dev tier that queues differently
+  # from prod cannot be used to test queueing.
+  SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "2"
 
 [[mounts]]
   source = "data"
   destination = "/var/data"
-  initial_size = "1gb"
+  # 3gb, matching prod. 1gb filled completely in three days of dev renders
+  # and every dev render then failed with ENOSPC — which is exactly the class
+  # of failure the dev tier exists to catch BEFORE prod, so it has to have
+  # prod's headroom to be a fair rehearsal (2026-08-25).
+  initial_size = "3gb"
 
 [http_service]
   internal_port = 8080

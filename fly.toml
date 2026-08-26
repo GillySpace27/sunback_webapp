@@ -39,7 +39,11 @@ kill_timeout = "60s"
   PRINTIFY_SSL_VERIFY = "1"
   # Public origin for Printify-facing asset URLs + admin approve links.
   PUBLIC_BASE_URL = "https://myheliograph.com"
-  SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "1"
+  # 2 since 2026-08-25. The comment at the semaphore has always said "Pro 4GB
+  # -> 2"; the box has been 4GB/2-cpu since 2026-08-22 and this was still
+  # pinned at the 2GB-era default, so the second core sat idle while renders
+  # queued single file.
+  SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "2"
 
 [[mounts]]
   source = "data"

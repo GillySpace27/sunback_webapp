@@ -1,6 +1,16 @@
 import { useEffect } from "react";
 import Lenis from "lenis";
-import { useStore } from "../store";
+import { useStore, BEAT_STOPS, SPACES } from "../store";
+
+// ?at=<0-based beat index>: which beat an incoming link wants to land on.
+// Read once at module scope so it cannot change under a re-render.
+const AT_BEAT = (() => {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("at");
+  if (raw === null) return null;
+  const i = Number(raw);
+  return Number.isInteger(i) && i >= 0 && i < BEAT_STOPS.length ? i : null;
+})();
 
 // Lenis smooth-scroll → single normalized progress (0..1) in the store.
 // The camera scrubs off this; GSAP-style triggers can read thresholds off it.
@@ -19,6 +29,67 @@ export function useScrollProgress() {
       touchMultiplier: 1.2,
     });
 
+    // ── Beat detents ────────────────────────────────────────────────────
+    // Each beat is a shallow gravity well: come to rest near one and you
+    // settle INTO it, at the composition it was framed for, rather than a few
+    // percent off it with the copy half-faded.
+    //
+    // Deliberately a post-hoc settle, not CSS scroll-snap. Snap points would
+    // fight Lenis for control of the same scroller and make fast flicks feel
+    // sticky; this never intercepts a gesture, it only tidies up once one is
+    // over. Three guards keep it from ever feeling like a fight:
+    //
+    //   PULL   only snap when already close. Stop deliberately between two
+    //          beats and you are left there — the well is shallow, not total.
+    //   QUIET  only after scrolling has actually stopped, so it cannot yank
+    //          the page mid-flick.
+    //   reduced-motion callers get no animated correction at all.
+    const PULL = 0.028;   // ~a third of the narrowest gap between stops
+    const QUIET = 220;    // ms of stillness that counts as "come to rest"
+    let settleTimer = 0;
+    let userDriven = false;
+
+    const scheduleSettle = () => {
+      if (reduced) return;
+      clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        if (!userDriven) return;
+        userDriven = false;
+        const limit = lenis.limit;
+        if (limit <= 0) return;
+        const p = lenis.scroll / limit;
+        // Never drag someone off the very top or bottom: those are real
+        // resting places (the opening frame, the end of the film) and pulling
+        // away from them reads as the page refusing to stay put.
+        if (p <= 0.001 || p >= 0.999) return;
+        // The date beat HOLDS you inside its own slice until the date is set.
+        //
+        // This is the "strong nudge" (Gilly, 2026-08-23), not a scroll lock:
+        // anywhere inside the surface beat, coming to rest returns you to its
+        // framed moment where the date control is. Scroll past the beat and it
+        // lets go completely. A hard gate reads as a broken page and traps
+        // keyboard and screen-reader users at a control nobody announced.
+        //
+        // Expressed as "inside the slice", NOT as a bigger pull radius. The
+        // radius version was measured inert on 2026-08-23: `near` picks the
+        // closest stop FIRST, so past the midpoint to the next stop (0.1975)
+        // the aperture stop always won and the deeper well never applied. Slice
+        // membership is also the honest rule — it holds you within one beat and
+        // never drags you backwards across a boundary you deliberately crossed.
+        const undated = !useStore.getState().dateChosen;
+        const inDateBeat = p >= SPACES[1].start && p < SPACES[2].start;
+        if (undated && inDateBeat) {
+          if (Math.abs(BEAT_STOPS[1] - p) > 0.004) {
+            lenis.scrollTo(BEAT_STOPS[1] * limit, { duration: 0.55 });
+          }
+          return;
+        }
+        const near = BEAT_STOPS.reduce((a, b) => (Math.abs(b - p) < Math.abs(a - p) ? b : a));
+        if (Math.abs(near - p) > PULL) return;
+        lenis.scrollTo(near * limit, { duration: 0.55 });
+      }, QUIET);
+    };
+
     // Lenis maintains its own scroll/limit pair, updated by its internal
     // ResizeObserver in the SAME tick. Deriving progress from
     // scrollY / (scrollHeight - innerHeight) instead made progress JUMP
@@ -28,16 +99,68 @@ export function useScrollProgress() {
     const onScroll = (e: Lenis) => {
       const limit = e.limit;
       setProgress(limit > 0 ? Math.min(1, Math.max(0, e.scroll / limit)) : 0);
+      // Kick the settle timer on every scroll tick, so it expires QUIET ms
+      // after motion actually ceases rather than QUIET ms after the last
+      // wheel notch. Cheap: one clearTimeout/setTimeout per frame while
+      // scrolling, and nothing at all once the page is still.
+      scheduleSettle();
     };
 
     // let the timeline arrows jump to a target progress (0..1) via Lenis
     setScrollToProgress((p: number) => {
-      lenis.scrollTo(Math.min(1, Math.max(0, p)) * lenis.limit, { duration: reduced ? 0 : 1.2 });
+      const to = Math.min(1, Math.max(0, p));
+      // Duration scales with DISTANCE. A fixed 1.2s meant a jump across half
+      // the film travelled thousands of pixels in the same time as a nudge
+      // between neighbouring beats, which scrubbed the scenery past far faster
+      // than any of it could land — the arrows read as a fast-forward button
+      // rather than as moving through a film (Gilly, 2026-08-25). Floored so
+      // short hops still feel deliberate, ceilinged so a long jump never turns
+      // into a wait.
+      const dist = Math.abs(to - (lenis.limit > 0 ? lenis.scroll / lenis.limit : 0));
+      const duration = reduced ? 0 : Math.min(2.8, Math.max(1.1, 0.9 + dist * 4.2));
+      lenis.scrollTo(to * lenis.limit, { duration });
     });
+
+    // ?at=<beat index> — land mid-film instead of at frame one.
+    //
+    // Handled HERE rather than in a component, because this is the only place
+    // that knows Lenis actually exists. It CANNOT fire on mount, though: the
+    // Scene chunk is lazy, so at this moment the document is still viewport-
+    // height and `lenis.limit` is 0 — target = stop x 0 = the top, which is
+    // precisely the "drops you back at the top" bug this was meant to fix.
+    // Measured on dev: limit 0 at mount, 4752 once laid out.
+    //
+    // So it waits for a real limit inside the rAF loop below and fires once.
+    // Jumped without animation: this is where the visitor asked to arrive, so
+    // sliding there from the top would replay beats they chose to skip.
+    let landed = AT_BEAT === null;
+    const tryLand = () => {
+      if (landed || lenis.limit <= 0) return;
+      landed = true;
+      lenis.scrollTo(BEAT_STOPS[AT_BEAT as number] * lenis.limit, { immediate: true });
+    };
+
+    // Only settle after input the VISITOR produced. Without this the
+    // programmatic scrollTo above would re-trigger the settle, which would
+    // re-trigger scrollTo: a loop that never quite lands.
+    //
+    // Marking is all this does — it deliberately does NOT start the timer.
+    // Lenis keeps gliding for ~1.1s after the wheel stops, so a timer keyed to
+    // the INPUT fires while the page is still mid-flight, far from any stop,
+    // declines the snap, and is never rescheduled because no further input
+    // arrives. Measured: a wheel to 1.2% short of a stop settled 71px off it
+    // and stayed there. The timer is kicked from onScroll instead, so it
+    // measures when MOTION stopped, which is the thing actually being waited
+    // for.
+    const markUser = () => { userDriven = true; };
+    window.addEventListener("wheel", markUser, { passive: true });
+    window.addEventListener("touchmove", markUser, { passive: true });
+    window.addEventListener("keydown", markUser, { passive: true });
 
     let raf = 0;
     const loop = (t: number) => {
       lenis.raf(t);
+      tryLand();
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -46,6 +169,10 @@ export function useScrollProgress() {
 
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(settleTimer);
+      window.removeEventListener("wheel", markUser);
+      window.removeEventListener("touchmove", markUser);
+      window.removeEventListener("keydown", markUser);
       lenis.destroy();
     };
   }, [setProgress, setScrollToProgress, reduced]);

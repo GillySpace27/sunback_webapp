@@ -16,14 +16,21 @@ const cache = new Map<string, THREE.Texture>(); // insertion-ordered LRU
 const loader = new THREE.TextureLoader();
 loader.setCrossOrigin("anonymous");
 
-// A real, correctly-framed AIA 304 disk baked at build time. Painted on the
-// very first frame so the hero opens on an actual Sun, not the procedural
-// plasma; the live fetch for the true identity crossfades over it a beat later.
-// Bundled in web3d/public so it deploys with the experience (BASE_URL resolves
-// to /experience/ in prod, / in dev). Previously pointed at /asset/default/
-// sun_304.png, which 404'd in prod: the hero opened black on slow links until
-// the network Sun arrived. Refresh it by re-hitting /api/helioviewer_thumb.
-const DEFAULT_SUN = `${import.meta.env.BASE_URL}sun_304.png`;
+// The baked 304 A stand-in is GONE (Gilly, 2026-08-25: "instead of starting
+// the page with the red sun and then loading the yellow one when it's ready").
+//
+// It was a real, correctly-framed disk — but of the wrong wavelength and the
+// wrong date, so the film's first statement was a Sun belonging to nobody,
+// replaced seconds later by the visitor's actual one. Worse, 304 A is
+// chromospheric and nearly bare off-limb, so the opening frame was the one
+// channel where the enhancement this product sells has nothing to show.
+//
+// What replaces it is not another stand-in: useWheelTextures now fetches all
+// eight channels of the RIGHT instant up front, and the hook below adopts the
+// current channel's frame the moment it lands. Until then the Sun is the
+// procedural plasma, which is at least tinted to the channel actually
+// selected, so the opening colour is already correct even before the
+// photograph is.
 
 function put(url: string, tex: THREE.Texture) {
   cache.set(url, tex);
@@ -44,28 +51,11 @@ export function useSunTextureLoader() {
   const setTexStatus = useStore((s) => s.setTexStatus);
   const url = thumbUrl(date, time, CHANNELS[channel].angstrom);
 
-  // One-shot: paint the baked default Sun immediately, but only while nothing
-  // real has arrived yet, so it can never clobber the live texture on a race.
-  useEffect(() => {
-    let alive = true;
-    loader.load(DEFAULT_SUN, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const s = useStore.getState();
-      if (alive && s.currentTexture === null && s.texStatus !== "ready") {
-        s.setTexture(tex);
-        // keep status "loading": the true-identity fetch is still in flight
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   useEffect(() => {
     // Wait for the real archive bounds before asking for a texture: firing
     // against the still-conservative guess (or an empty, just-cleared date)
-    // is how a pre-frontier 404 burst happens. The baked default Sun painted
-    // by the effect above stays up for this whole wait.
+    // is how a pre-frontier 404 burst happens. The wheel set is gated on the
+    // same flag, so during this wait the Sun is the procedural plasma.
     if (!(frontierReady && date)) return;
     const cached = cache.get(url);
     if (cached) {
@@ -99,4 +89,28 @@ export function useSunTextureLoader() {
       clearTimeout(t);
     };
   }, [url, setTexture, setTexStatus, frontierReady, date]);
+
+  // Stand in with the wheel's 512px frame of the SAME identity while the
+  // 1024px hero frame is still in flight.
+  //
+  // This is not the old baked-default compromise: it is the visitor's date,
+  // their time and their wavelength, just at half the resolution, so nothing
+  // on screen is ever a Sun that belongs to someone else. Declared AFTER the
+  // effect above so that on a channel change the ordering is null-then-fill
+  // rather than fill-then-null.
+  const wheel = useStore((s) => s.wheelTextures);
+  useEffect(() => {
+    const stand = wheel[channel];
+    if (!stand) return;
+    const s = useStore.getState();
+    if (s.currentTexture !== null) return;
+    s.setTexture(stand);
+    // "ready", not "loading". What is on screen IS this visitor's Sun for
+    // this date, time and wavelength — the only thing still in flight is the
+    // same frame at double the resolution, which arrives invisibly. Leaving
+    // the status at "loading" made the HUD read "developing your Sun…"
+    // continuously while the aperture beat cycled channels, over a Sun that
+    // was fully rendered the whole time.
+    s.setTexStatus("ready");
+  }, [wheel, channel]);
 }

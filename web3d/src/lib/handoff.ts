@@ -3,12 +3,21 @@
 // (date + wavelength); the deep link carries it and the original hydrates the
 // same path a real date submit uses (see PRODUCT_CREATION_CONTRACT.md).
 
-// Where the original front end lives (its origin is also the API origin). The
-// store is served at the site ROOT (the 3D experience is hosted under
-// /experience/). NOTE: /store/ 404s in production — the store is at "/".
-export const ORIGINAL_SITE =
-  import.meta.env.VITE_ORIGINAL_SITE || "https://myheliograph.com";
-export const STORE_PATH = import.meta.env.VITE_STORE_PATH || "/";
+// Where the original front end lives (its origin is also the API origin).
+// As of 2026-08-23 the 3D experience IS the landing page, served at "/", and
+// the flat store moved to "/store" — so every buy link and the Skip-to-store
+// control point there. (This comment previously warned that /store/ 404s;
+// that stopped being true when build-public.sh started writing it.)
+// Empty = SAME ORIGIN, which is now the truth everywhere: the film and the
+// store are one deployment (film at "/", store at "/store"). The hardcoded
+// production origin dated from when they were separate hosts, and it meant
+// every buy link and the Skip-to-store control jumped to
+// https://myheliograph.com from WHEREVER it was running — so on the dev tier
+// "skip to the store" silently left dev for production and the funnel could
+// not be reviewed at all. Override with VITE_ORIGINAL_SITE if they are ever
+// split across origins again.
+export const ORIGINAL_SITE = import.meta.env.VITE_ORIGINAL_SITE ?? "";
+export const STORE_PATH = import.meta.env.VITE_STORE_PATH || "/store";
 
 // Texture API base. "" = same-origin (prod when co-hosted; dev via Vite proxy).
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -32,7 +41,7 @@ export function buyUrl(
   date: string,
   time: string,
   angstrom: number,
-  opts?: { cat?: string; tune?: boolean }
+  opts?: { cat?: string; tune?: boolean; look?: "raw" | "rhef"; form?: "flat" | "dimensional" }
 ) {
   // date arrives "" when the visitor has cleared the date field (see
   // store.ts's setDate) : SkipToStore leans on this to hand off a bare store
@@ -48,6 +57,11 @@ export function buyUrl(
   // far easier to answer with the day's flares and CMEs in front of you than
   // from a bare time field.
   if (opts?.tune) q.set("tune", "1");
+  // The two axes of the store's handoff quad. Carried so the bridge opens
+  // with the visitor's own choices already selected rather than asking the
+  // same two questions the HUD just answered.
+  if (opts?.look) q.set("look", opts.look);
+  if (opts?.form) q.set("form", opts.form);
   return `${ORIGINAL_SITE}${STORE_PATH}?${q.toString()}`;
 }
 

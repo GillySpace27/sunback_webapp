@@ -20,7 +20,14 @@
   "assets": {
     "directory": "./public",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "none"
+    "not_found_handling": "none",
+    // Static Assets are served BEFORE worker code, so anything the worker
+    // needs to decide about a path that HAS an asset must opt that path in
+    // here. Only "/" does: it is where ?flat=1 has to be caught, and a
+    // client-side bounce would have already downloaded the film it exists to
+    // skip. Everything else stays asset-first.
+    "binding": "ASSETS",
+    "run_worker_first": ["/"]
   },
   "vars": {
     "ORIGIN": "https://myheliograph-api.fly.dev"
@@ -56,7 +63,9 @@
       "assets": {
         "directory": "./public",
         "html_handling": "auto-trailing-slash",
-        "not_found_handling": "none"
+        "not_found_handling": "none",
+        "binding": "ASSETS",
+        "run_worker_first": ["/"]
       },
       "vars": {
         "ORIGIN": "https://myheliograph-api-dev.fly.dev",

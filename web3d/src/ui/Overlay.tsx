@@ -15,7 +15,11 @@ const COPY: Record<string, { line: string }> = {
   // illustration, and a command implied the wedges were tappable (they are
   // not; the real controls live in the customizer drawer). Descriptive line
   // instead; the drawer is where choosing happens.
-  aperture: { line: "One Sun, in nine kinds of light." },
+  // EIGHT, not nine. 1700 A was dropped from both wheels on 2026-08-18
+  // (JSOC has no synoptic bypass for it, so it queued for minutes), and
+  // this line kept counting it — a page that states a number the picture
+  // beside it contradicts, on the beat whose entire job is to show them.
+  aperture: { line: "One Sun, in eight kinds of light." },
   // Distance, not elapsed time. "Eight minutes ago" is only true for an image
   // taken right now, and almost every visitor is buying a historical date — for
   // a 2017 frame the light left the Sun nine years ago, not eight minutes. The

@@ -24,13 +24,17 @@ export default function BuyLink({
   const date = useStore((s) => s.date);
   const time = useStore((s) => s.time);
   const channel = useStore((s) => s.channel);
+  const look = useStore((s) => s.look);
+  const form = useStore((s) => s.form);
   const valid = useStore(dateValid);
   const [preparing, setPreparing] = useState(false);
   // No committed date to sell (cleared field, or the frontier clamp just
   // invalidated the last pick): this CTA has no honest destination, so it
   // renders inert rather than promising a Sun it can't deliver. SkipToStore
   // stays live either way; it's the deliberate escape hatch (see its comment).
-  const href = valid ? buyUrl(date, time, CHANNELS[channel].angstrom, cat ? { cat } : undefined) : undefined;
+  const href = valid
+    ? buyUrl(date, time, CHANNELS[channel].angstrom, { look, form, ...(cat ? { cat } : {}) })
+    : undefined;
 
   const go = (e: MouseEvent) => {
     if (!valid) return; // no href, nothing for this click to do

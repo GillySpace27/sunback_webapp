@@ -5716,10 +5716,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       ask();
     }
 
-    // Start the dimensional preview on intent rather than on sight: pointer or
-    // keyboard focus anywhere on its card. Listeners are one-shot.
-    function dimIntent(frame, start) {
-      var card = document.getElementById("chooseDimensional");
+    // Start a dimensional preview on intent rather than on sight: pointer or
+    // keyboard focus anywhere on ITS card. Listeners are one-shot. Takes the
+    // card explicitly (there are now two — Original-dimensional and
+    // Enhanced-dimensional — and each arms only its own iframe).
+    function dimIntent(card, start) {
       if (!card) return;
       var fire = function () {
         card.removeEventListener("pointerenter", fire);
@@ -5809,55 +5810,125 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (comparePending) comparePending.textContent = "Enhanced isn't ready yet — Original is ready now.";
         });
 
-        // Dimensional preview: a LIVE plate render of this exact identity, in
-        // an iframe, so the card shows the real thing rather than a picture of
+        // Dimensional previews: LIVE plate renders of this exact identity, one
+        // per look, so each cell shows the real thing rather than a picture of
         // one. bare=1 keeps the experience's own chrome out of the frame;
-        // look=rhef because the dimensional SKU is built on the enhanced frame;
-        // sky=1 puts the real stars for this date behind it, which is only
-        // honest now that the starfield is the actual catalogue.
+        // sky=1+guide=1 puts the real stars AND constellation lines for this
+        // date behind it, which is only honest now that the starfield is the
+        // actual catalogue.
         //
         // The experience addresses wavelengths by INDEX, the store by
         // angstroms, so the two vocabularies have to be reconciled here. Keep
         // in sync with web3d/src/data/wavelengths.ts.
         var _EXP_CHANNELS = [94, 131, 171, 193, 211, 304, 335, 1600];
-        var frame = document.getElementById("confirmPlateFrame");
-        if (frame) {
-          var chIdx = _EXP_CHANNELS.indexOf(parseInt(wlNum, 10));
-          if (chIdx < 0) chIdx = 2; // 171: the channel the film itself opens on
-          var q = "?plate=1&bare=1&sky=1&look=rhef" +
+        var _chIdx = _EXP_CHANNELS.indexOf(parseInt(wlNum, 10));
+        if (_chIdx < 0) _chIdx = 2; // 171: the channel the film itself opens on
+
+        // The Dimensional row's sky switches. Each maps to one layer the
+        // experience understands (see the per-layer block in web3d App.tsx);
+        // they are written into the plate query so the preview shows exactly
+        // the sky being ordered, and they ride along on Submit.
+        var _SKY_CHIPS = [
+          ["skyStars", "stars"],
+          ["skyCon", "con"],
+          ["skyArt", "art"],
+          ["skyLabels", "labels"],
+          ["skyPlanets", "planets"],
+          ["skyGrid", "grid"],
+        ];
+        function _skyQuery() {
+          // Every layer is stated EXPLICITLY, on or off. Sending only the
+          // switched-on ones would let the experience's own defaults fill in
+          // the rest, so unticking a box would appear to do nothing.
+          return _SKY_CHIPS.map(function (pair) {
+            var el = document.getElementById(pair[0]);
+            return "&" + pair[1] + "=" + (el && el.checked ? "1" : "0");
+          }).join("");
+        }
+
+        // One helper wires a look ("raw"|"rhef") to its own frame + card, so
+        // the two Dimensional cells are symmetric rather than one being the
+        // "real" one and the other bolted on.
+        function _wireDimensionalCell(look, frameId, cardId) {
+          var frame = document.getElementById(frameId);
+          var card = document.getElementById(cardId);
+          if (!frame) return;
+          var q = "?plate=1&bare=1&guide=1&look=" + look +
                   "&d=" + encodeURIComponent(dateStr) +
                   "&t=" + encodeURIComponent(timeStr || "12:00") +
-                  "&ch=" + chIdx;
+                  "&ch=" + _chIdx + _skyQuery();
           // only (re)load when the identity actually changed — an iframe reload
           // restarts a WebGL context and refetches the RHEF frames
-          if (frame.getAttribute("data-q") !== q) {
-            frame.setAttribute("data-q", q);
-            // DEFERRED, deliberately. This bridge is the conversion decision,
-            // and the plate pulls the whole 3D bundle (three + r3f, ~300 KB
-            // gzipped) plus its own RHEF frames. Loading it immediately would
-            // put a preview of the option nobody can order yet in front of the
-            // two that can. It starts on intent — hover or keyboard focus — or
-            // after the primary decision has had a few seconds of clear air,
-            // whichever comes first.
-            var _armPlate = function () {
-              if (frame.src) return;
-              frame.src = "/experience/" + frame.getAttribute("data-q");
-            };
-            dimIntent(frame, _armPlate);
-            clearTimeout(frame._plateTimer);
-            frame._plateTimer = setTimeout(_armPlate, 4500);
-          }
-        }
-        var dim = document.getElementById("chooseDimensional");
-        if (dim) {
-          // Not a look pick: there is no print file for it yet, so choosing it
-          // would promise something checkout cannot ship. It opens the full
-          // dimensional view instead, and the bridge stays where it was.
-          dim.onclick = function () {
-            try {
-              window.open("/experience/" + (frame ? frame.getAttribute("data-q").replace("&bare=1", "") : "?plate=1"), "_blank", "noopener");
-            } catch (_e) {}
+          if (frame.getAttribute("data-q") === q) return;
+          frame.setAttribute("data-q", q);
+          // DEFERRED, deliberately. This bridge is the conversion decision, and
+          // each plate pulls the whole 3D bundle (three + r3f, ~300 KB gzipped)
+          // plus its own frame fetch. Loading either immediately would put a
+          // preview of the row nobody can order yet in front of the row that
+          // can. Each starts on intent — hover or keyboard focus on ITS OWN
+          // card — or after the primary decision has had a few seconds of
+          // clear air, whichever comes first.
+          var _armPlate = function () {
+            if (frame.src) return;
+            frame.src = "/experience/" + frame.getAttribute("data-q");
           };
+          dimIntent(card, _armPlate);
+          clearTimeout(frame._plateTimer);
+          frame._plateTimer = setTimeout(_armPlate, 4500);
+        }
+        function _wireDimensionalCells() {
+          _wireDimensionalCell("raw", "confirmPlateFrameRaw", "chooseDimensionalRaw");
+          _wireDimensionalCell("rhef", "confirmPlateFrameRhef", "chooseDimensionalRhef");
+        }
+        _wireDimensionalCells();
+        var _skyPanel = document.getElementById("handoffSky");
+        if (_skyPanel) _skyPanel.hidden = false;
+        // Debounced, and only frames that have ALREADY loaded get reloaded.
+        // Each reload tears down and rebuilds a WebGL context and refetches
+        // the frame, so reacting to every click of a six-box panel would make
+        // the panel feel like it was fighting the visitor. 450ms is long
+        // enough to collect a run of ticks and short enough to still read as
+        // a response to the last one.
+        var _skyTimer = 0;
+        _SKY_CHIPS.forEach(function (pair) {
+          var el = document.getElementById(pair[0]);
+          if (!el || el._skyWired) return;
+          el._skyWired = true;
+          el.addEventListener("change", function () {
+            clearTimeout(_skyTimer);
+            _skyTimer = setTimeout(function () {
+              ["confirmPlateFrameRaw", "confirmPlateFrameRhef"].forEach(function (id) {
+                var f = document.getElementById(id);
+                // data-q is cleared so _wireDimensionalCell sees a changed
+                // identity; src is only re-set for a frame that was already
+                // showing something, so an un-armed cell stays deferred.
+                if (!f) return;
+                f._wasArmed = !!f.src;
+                f.removeAttribute("data-q");
+              });
+              _wireDimensionalCells();
+              ["confirmPlateFrameRaw", "confirmPlateFrameRhef"].forEach(function (id) {
+                var f = document.getElementById(id);
+                if (f && f._wasArmed) f.src = "/experience/" + f.getAttribute("data-q");
+              });
+            }, 450);
+          });
+        });
+
+        // Opens the full film for a Dimensional selection, standing in for the
+        // order that cannot yet be placed. Called from the Submit handler
+        // below, not from a click on the cell itself — selecting a Dimensional
+        // cell only highlights it now; Submit is what acts on the selection.
+        function _openDimensionalExperience(look) {
+          try {
+            // `at=1` lands on the "surface" beat, where the Sun is presented
+            // dimensionally, rather than at frame one asking them to scroll
+            // back to the thing they just chose.
+            var q = "?d=" + encodeURIComponent(dateStr) +
+                    "&t=" + encodeURIComponent(timeStr || "12:00") +
+                    "&ch=" + _chIdx + "&guide=1&look=" + look + "&at=1" + _skyQuery();
+            window.open("/experience/" + q, "_blank", "noopener");
+          } catch (_e) {}
         }
 
         var chip = document.getElementById("sunSummaryChip");
@@ -5941,10 +6012,58 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             setTimeout(function () { _landOnCategory(); }, 120);
           }
         }
-        var braw = document.getElementById("chooseRaw");
-        var brhef = document.getElementById("chooseRhef");
-        if (braw) braw.onclick = function () { pick("raw"); };
-        if (brhef) brhef.onclick = function () { pick("rhef"); };
+        // Select, then Submit (Gilly, 2026-08-24) — a click on a quad cell no
+        // longer commits by itself. Four pictures in a tight grid is easy to
+        // mis-tap on a moving thumb, and the old single-click cards read that
+        // mis-tap as the actual decision. Selecting only highlights a cell and
+        // arms the submit button; Submit is the one action that actually
+        // proceeds — pick(tier) for the two orderable Flat cells,
+        // _openDimensionalExperience(look) for the two Dimensional ones (see
+        // above for why those cannot commit an order yet).
+        var _quadCells = [
+          document.getElementById("chooseRaw"),
+          document.getElementById("chooseRhef"),
+          document.getElementById("chooseDimensionalRaw"),
+          document.getElementById("chooseDimensionalRhef"),
+        ].filter(Boolean);
+        var _quadSelection = null; // { tier, form }
+        var submitBtn = document.getElementById("handoffSubmitBtn");
+        var submitHint = document.getElementById("handoffSubmitHint");
+
+        function _selectQuadCell(btn) {
+          _quadSelection = { tier: btn.getAttribute("data-tier"), form: btn.getAttribute("data-form") };
+          _quadCells.forEach(function (c) {
+            var on = c === btn;
+            c.setAttribute("aria-pressed", on ? "true" : "false");
+            c.classList.toggle("is-selected", on);
+          });
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = _quadSelection.form === "dimensional" ? "View in 3D" : "Continue";
+          }
+          if (submitHint) submitHint.hidden = _quadSelection.form !== "dimensional";
+        }
+        _quadCells.forEach(function (c) {
+          c.onclick = function () { _selectQuadCell(c); };
+        });
+        // Fresh overlay, fresh decision: a re-pick from a prior Sun must not
+        // leave the previous identity's cell looking chosen for this one.
+        _quadSelection = null;
+        _quadCells.forEach(function (c) { c.setAttribute("aria-pressed", "false"); c.classList.remove("is-selected"); });
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Continue"; }
+        if (submitHint) submitHint.hidden = true;
+
+        if (submitBtn) {
+          submitBtn.onclick = function () {
+            if (!_quadSelection) return;
+            if (_quadSelection.form === "dimensional") {
+              _openDimensionalExperience(_quadSelection.tier);
+            } else {
+              pick(_quadSelection.tier);
+            }
+          };
+        }
+
         // Same pick(tier), reachable without closing "Help me compare" first
         // (Gilly, 2026-08-18: closing it just to reach the cards was an
         // extra step once you've already decided by looking). Shown/hidden

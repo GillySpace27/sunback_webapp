@@ -7041,6 +7041,45 @@ body.handoff-confirm #workflowBreadcrumb {
 .handoff-continue:hover {
   background: #fffdf7;
 }
+/* Same visual weight as .handoff-continue (it replaces the old single-click
+   commit as the funnel's real action button) plus a disabled state, since
+   Submit starts disabled until a quad cell is selected. */
+.handoff-submit-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.handoff-submit-btn {
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #0a0908;
+  background: var(--text-primary);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.7rem 2.4rem;
+  min-height: 44px;
+  cursor: pointer;
+  transition: background var(--transition), opacity var(--transition);
+}
+.handoff-submit-btn:hover:not(:disabled) {
+  background: #fffdf7;
+}
+.handoff-submit-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.handoff-submit-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--handoff-text-dim);
+  text-align: center;
+  max-width: 40ch;
+}
 .handoff-edit {
   font-family: var(--sans);
   font-size: 0.74rem;
@@ -7836,32 +7875,92 @@ body:has(#imageStage.loading) .field-cell {
   font-size: 1.15rem;
   color: var(--handoff-text);
 }
-.handoff-choices {
+/* ── The quad (2026-08-24) ──────────────────────────────────────────────
+   Columns = look (Original, Enhanced). Rows = form (Flat print, Dimensional
+   object). Row 1 (auto) holds the corner + two column headers; the corner
+   cell is empty so the row-head column lines up under it. */
+.handoff-quad {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(64px, auto) 1fr 1fr;
+  grid-auto-rows: auto;
+  gap: 10px 14px;
+  align-items: center;
 }
-.handoff-choice {
+.handoff-quad-corner { grid-column: 1; }
+.handoff-quad-colhead {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--handoff-text-dim);
+}
+.handoff-quad-rowhead {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--handoff-text-dim);
+  /* rotated on wide layouts only — see the media query below; stacked
+     (horizontal) by default so it never clips on a phone */
+  writing-mode: horizontal-tb;
+}
+@media (min-width: 561px) {
+  .handoff-quad-rowhead {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    justify-self: center;
+    white-space: nowrap;
+  }
+}
+.handoff-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 12px 12px 14px;
+  padding: 10px;
   border-radius: var(--radius-md);
   border: 2px solid var(--border);
   background: rgba(0, 0, 0, 0.22);
   color: var(--handoff-text);
   font: inherit;
   cursor: pointer;
+  position: relative;
   transition: border-color var(--transition), background var(--transition),
               transform var(--transition);
 }
-.handoff-choice:hover,
-.handoff-choice:focus-visible {
+.handoff-cell:hover,
+.handoff-cell:focus-visible {
   border-color: var(--accent-sun);
   background: rgba(217, 169, 26, 0.10);
   transform: translateY(-2px);
 }
+/* The selected state IS the decision now (Submit acts on it), so it needs to
+   read unmistakably — not just a slightly warmer hover tint. */
+.handoff-cell.is-selected {
+  border-color: var(--accent-sun);
+  background: rgba(217, 169, 26, 0.16);
+  box-shadow: 0 0 0 1px var(--accent-sun) inset;
+}
+.handoff-cell-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-sun);
+  color: #1a1408;
+  font-size: 0.7rem;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--dur-fast, 140ms) ease, transform var(--dur-fast, 140ms) ease;
+}
+.handoff-cell.is-selected .handoff-cell-check { opacity: 1; transform: scale(1); }
 .handoff-choice-imgwrap { position: relative; display: block; width: 100%; }
 .handoff-choice-img {
   width: 100%;
@@ -7885,7 +7984,7 @@ body:has(#imageStage.loading) .field-cell {
 /* Enhanced needs a real FITS fetch plus RHEF, so it arrives a beat later. The
    panel holds its place and says so, rather than the layout jumping when it
    lands — and Original stays pickable the whole time. */
-.handoff-choice.is-pending .handoff-choice-img { opacity: 0.25; }
+.handoff-cell.is-pending .handoff-choice-img { opacity: 0.25; }
 .handoff-choice-pending {
   position: absolute;
   inset: 0;
@@ -7899,7 +7998,9 @@ body:has(#imageStage.loading) .field-cell {
   pointer-events: none;
 }
 @media (max-width: 560px) {
-  .handoff-choices { grid-template-columns: 1fr; }
+  /* .handoff-choices { grid-template-columns: 1fr } removed 2026-08-24: dead
+     since the quad rework — the container is .handoff-quad now, which has its
+     own 560px rule further down (34px rowhead + 2 cell columns). */
   .handoff-choice-img { aspect-ratio: 16 / 10; }
 }
 /* Provenance line (contrast + honesty pass): names the mission, instrument
@@ -7907,6 +8008,60 @@ body:has(#imageStage.loading) .field-cell {
    two preview images are compared, so neither card reads as a literal
    photograph. --handoff-text-dim measures 7.2-7.9:1 on this overlay, so a
    small font still clears the 4.5:1 AA floor. */
+/* Sky controls for the Dimensional row of the handoff quad. Deliberately
+   quieter than the four cells above: the quad is the decision, this is how the
+   chosen thing is dressed. */
+.handoff-sky {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  padding: 0.55rem 0.8rem 0.7rem;
+  margin: 0.75rem 0 0.25rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+.handoff-sky-legend {
+  padding: 0 0.4rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+}
+.handoff-sky-note {
+  display: block;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.40);
+}
+.handoff-sky-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+.handoff-sky-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.3rem 0.62rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.66);
+  cursor: pointer;
+  user-select: none;
+}
+.handoff-sky-chip:hover { border-color: rgba(255, 255, 255, 0.28); }
+/* The checkbox stays a real focusable checkbox — it is the control, and the
+   chip is only its skin. Hiding it entirely would take the whole panel out of
+   the keyboard order. */
+.handoff-sky-chip input { accent-color: #d9a91a; margin: 0; }
+.handoff-sky-chip:has(input:checked) {
+  border-color: rgba(217, 169, 26, 0.55);
+  background: rgba(217, 169, 26, 0.10);
+  color: rgba(255, 255, 255, 0.92);
+}
+.handoff-sky-chip:focus-within { outline: 2px solid rgba(217, 169, 26, 0.7); outline-offset: 2px; }
+
 .handoff-provenance {
   margin: 10px 0 0;
   font-size: 0.68rem;
@@ -7929,7 +8084,7 @@ body:has(#imageStage.loading) .field-cell {
 }
 /* Marked as not-yet-orderable rather than styled identically to the two cards
    that are. */
-.handoff-choice--preview { opacity: 0.94; }
+.handoff-cell--preview { opacity: 0.94; }
 .handoff-choice-badge {
   display: inline-block;
   margin-left: 0.4rem;
@@ -7943,9 +8098,22 @@ body:has(#imageStage.loading) .field-cell {
   color: var(--handoff-text-dim, #c3b9a9);
   vertical-align: middle;
 }
-@media (max-width: 900px) {
-  /* three cards do not fit side by side on a phone; the two orderable looks
-     stay paired and the preview drops below them */
-  .handoff-choices { grid-template-columns: repeat(2, 1fr); }
-  .handoff-choice--preview { grid-column: 1 / -1; }
+/* The grid SHAPE stays the same at every width (rowhead column + two
+   image columns) — collapsing to one column would either stack both column
+   headers before any cell (decoupling "Original"/"Enhanced" from the row
+   they label) or need per-cell repeated labelling to stay legible. Easier
+   and clearer to keep 4 real cells arranged as a genuine quad and just
+   shrink it: the rowhead column narrows and the vertical-text rowhead label
+   (see the >=561px rule above) reverts to compact horizontal text that fits
+   the pinched space. */
+@media (max-width: 560px) {
+  .handoff-quad { grid-template-columns: 46px 1fr 1fr; gap: 6px 8px; }
+  .handoff-quad-rowhead { font-size: 0.6rem; line-height: 1.15; }
+  .handoff-cell { padding: 6px; }
+  /* The badge fit fine spelled out beside "Dimensional" in the vertical,
+     wide-screen rowhead; at 46px it wrapped both words across each other
+     ("DIMENSIO" / "PREVI") rather than stacking cleanly. The badge's
+     information survives on this width regardless — every Dimensional
+     cell's own aria-label already says "Preview only". */
+  .handoff-quad-rowhead .handoff-choice-badge { display: none; }
 }

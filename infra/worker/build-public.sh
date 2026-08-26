@@ -13,15 +13,22 @@ OUT="public"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# Core page + ES modules at the ROOT (the store is the site root; the 3D
-# experience lives under /experience/). The /{module}.js whitelist mirrors
-# api/main.py so .py source is never served.
-for f in index.html solar-archive.js solar-archive.css \
+# Store ES modules + shared files stay at the ROOT even though the store page
+# itself now lives at /store/ — every one of them is referenced root-absolute
+# (/solar-archive.js and friends), and the FastAPI origin serves them from the
+# same flat whitelist, so moving them would mean changing both. The /{module}.js
+# whitelist mirrors api/main.py so .py source is never served.
+for f in solar-archive.js solar-archive.css \
          state.js products.js colors.js mockups.js feedback.js stats.js bundler.js \
          motion.js \
          favicon.svg robots.txt sitemap.xml; do
   cp "$API_DIR/$f" "$OUT/$f"
 done
+
+# The STORE page moves to /store/ (2026-08-23). The 3D experience is now the
+# landing page; see the root index.html written at the bottom of this script.
+mkdir -p "$OUT/store"
+cp "$API_DIR/index.html" "$OUT/store/index.html"
 
 # Legal pages: /privacy → privacy.html etc.
 for f in "$API_DIR"/legal/*.html; do
@@ -37,6 +44,51 @@ WEB3D="../../web3d/dist"
 if [ -d "$WEB3D" ]; then
   cp -r "$WEB3D" "$OUT/experience"
   echo "web3d: $(find "$OUT/experience" -type f | wc -l | tr -d ' ') files -> public/experience/"
+
+  # ── The experience IS the landing page (2026-08-23) ──────────────────
+  # Served at / by copying its built index.html to the root. No rebuild and
+  # no second bundle: every asset it references is root-absolute
+  # (/experience/assets/...), so the same HTML works from either path. That
+  # is the whole reason this is a copy rather than a base-path change.
+  #
+  # /experience/ keeps working and is NOT redirected — it is the canonical
+  # URL baked into every link already shared, and the store's Dimensional
+  # card opens it directly.
+  #
+  # Only the canonical/og:url is rewritten, so search engines are told the
+  # landing page is / rather than pointing both copies at /experience/.
+  python3 - "$OUT/experience/index.html" "$OUT/index.html" <<'PY'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+h = open(src, encoding="utf-8").read()
+h = h.replace("https://myheliograph.com/experience/", "https://myheliograph.com/")
+
+# Legacy store deep links kept working.
+#
+# Every link ever shared into the editor looks like
+# /?d=2017-09-06&wl=171#editor. The store used to own "/", so those now land
+# on the film. The HASH is the only unambiguous signal — the film reads d and
+# wl itself, so a query string cannot tell the two apart — and the hash is
+# invisible to the worker, so this cannot be fixed at the edge.
+#
+# Inline and FIRST in <head>, before the module preloads: a forward that waits
+# for the React bundle would download three.js on its way to the store.
+FORWARD = """<script>
+(function () {
+  var s = (location.hash || "").replace(/^#/, "").trim();
+  if (s === "image" || s === "product" || s === "editor" || s === "review") {
+    // "/store/" WITH the trailing slash on purpose: "/store" 307s to it via
+    // html_handling, and the fragment does not survive that hop — verified
+    // 2026-08-23, #editor arrived empty. Going straight to the canonical
+    // form keeps the hash and saves a round trip.
+    location.replace("/store/" + location.search + location.hash);
+  }
+})();
+</script>"""
+h = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + "\n" + FORWARD, h, count=1, flags=re.I)
+open(dst, "w", encoding="utf-8").write(h)
+PY
+  echo "landing: web3d index.html -> public/index.html (canonical rewritten to /)"
 else
   # HARD FAIL, not a warning. Static Assets deploys public/ atomically: a
   # public/ built without web3d/dist does not merely "404 /experience/", it

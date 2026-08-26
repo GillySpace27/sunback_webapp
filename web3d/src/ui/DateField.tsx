@@ -1,5 +1,7 @@
-import { ChangeEvent, KeyboardEvent, useEffect, useState } from "react";
+import { ChangeEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // The one date-input implementation, extracted once WavelengthPicker's bar and
 // HeroDate's opening prompt needed the byte-identical field. Local DRAFT state
@@ -52,16 +54,28 @@ export default function DateField({
     <>
       <label className={labelClassName}>
         <span className={labelSpanClassName}>{labelText}</span>
-        <input
-          type="date"
-          value={draft}
-          min={minDate}
-          max={maxDate}
-          onChange={onChange}
-          onBlur={onBlur}
-          onKeyDown={onKeyDown}
-          aria-label={ariaLabel}
-        />
+        <span className="date-input-wrap">
+          <input
+            type="date"
+            value={draft}
+            min={minDate}
+            max={maxDate}
+            onChange={onChange}
+            onBlur={onBlur}
+            onKeyDown={onKeyDown}
+            aria-label={ariaLabel}
+          />
+          {/* The sky-drag's readout, IN the field rather than beside it.
+              It was a separate full-screen display, which meant dragging the
+              sky spoke through a different control than the one that owns the
+              date — two date UIs, one of which you could not type into. This
+              covers the native input exactly while a drag is live, so the
+              value appears to roll inside the field the visitor already knows,
+              and hands straight back to it on release. <input type="date">
+              renders its own text natively and cannot be animated, which is
+              why this is an overlay and not a restyle. */}
+          <DateRollOverlay />
+        </span>
       </label>
       {/* why the field didn't take/kept the value it has: reuses the picker's
           existing status-line styling (see WavelengthPicker's "no image for
@@ -72,5 +86,49 @@ export default function DateField({
         </span>
       )}
     </>
+  );
+}
+
+// Rolls the date in place over the native input while a sky-drag is running.
+// Imperative: the value changes on pointermove, so a React render per change
+// would be a render per frame of the gesture.
+function DateRollOverlay() {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const dayRef = useRef<HTMLSpanElement>(null);
+  const monRef = useRef<HTMLSpanElement>(null);
+  const yrRef = useRef<HTMLSpanElement>(null);
+  const prev = useRef("");
+
+  useEffect(() => {
+    const write = (date: string, dragging: boolean) => {
+      const root = rootRef.current;
+      if (!root) return;
+      root.classList.toggle("is-live", dragging);
+      if (!date || date === prev.current) return;
+      const up = prev.current !== "" && date > prev.current;
+      prev.current = date;
+      const [y, m, d] = date.split("-");
+      const set = (el: HTMLSpanElement | null, v: string) => {
+        if (!el || el.textContent === v) return;
+        el.textContent = v;
+        el.classList.remove("roll-up", "roll-down");
+        void el.offsetWidth; // restart the animation
+        el.classList.add(up ? "roll-up" : "roll-down");
+      };
+      set(dayRef.current, String(Number(d)));
+      set(monRef.current, MONTHS[Number(m) - 1] ?? m);
+      set(yrRef.current, y);
+    };
+    const s0 = useStore.getState();
+    write(s0.date, s0.dateDragging);
+    return useStore.subscribe((s) => write(s.date, s.dateDragging));
+  }, []);
+
+  return (
+    <span ref={rootRef} className="dateroll" aria-hidden="true">
+      <span className="dateroll__win"><span ref={dayRef} className="dateroll__cell" /></span>
+      <span className="dateroll__win"><span ref={monRef} className="dateroll__cell" /></span>
+      <span className="dateroll__win dateroll__win--yr"><span ref={yrRef} className="dateroll__cell" /></span>
+    </span>
   );
 }

@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { PerformanceMonitor, Preload } from "@react-three/drei";
 import * as THREE from "three";
@@ -46,6 +46,9 @@ function ResponsiveFov() {
 // Single persistent Canvas for the whole film. Sections are state, never
 // remounted. Quality tier drops adaptively on sustained frame loss.
 export default function Scene() {
+  // Shared between Sun and Starfield: the disk mesh registers itself here
+  // so the planet labels can occlude against it. See Sun.tsx.
+  const sunDiskRef = useRef<THREE.Mesh | null>(null);
   const setQuality = useStore((s) => s.setQuality);
   const quality = useStore((s) => s.quality);
   // drop resolution before shader quality on weak GPUs (cheap global win)
@@ -81,10 +84,10 @@ export default function Scene() {
         flipflops={3}
       />
       <Suspense fallback={null}>
-        <Sun />
+        <Sun diskOccluderRef={sunDiskRef} />
         <Heliograph />
         <SDOModel />
-        <Starfield />
+        <Starfield sunOccluderRef={sunDiskRef} />
         <Earth />
         <SkyGround />
         <Cabin />
