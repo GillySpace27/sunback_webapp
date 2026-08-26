@@ -18,21 +18,26 @@ const cache = new Map<string, THREE.Texture>(); // insertion-ordered LRU
 const loader = new THREE.TextureLoader();
 loader.setCrossOrigin("anonymous");
 
-// The baked 304 A stand-in is GONE (Gilly, 2026-08-25: "instead of starting
-// the page with the red sun and then loading the yellow one when it's ready").
+// The opening frame: a real 171 A disk, baked into the build.
 //
-// It was a real, correctly-framed disk — but of the wrong wavelength and the
-// wrong date, so the film's first statement was a Sun belonging to nobody,
-// replaced seconds later by the visitor's actual one. Worse, 304 A is
-// chromospheric and nearly bare off-limb, so the opening frame was the one
-// channel where the enhancement this product sells has nothing to show.
+// This replaces the old baked 304 A stand-in, which was dropped because it
+// was the WRONG CHANNEL — the film opens on 171, so the page turned red and
+// then yellow (Gilly, 2026-08-25). Dropping it entirely was one step too far:
+// the landing frame then had nothing photographic at all for the first
+// several seconds, and audit-in-Chrome found the film opening on a black void
+// and then a soft procedural blob. A generative ball is a WEAKER claim than a
+// real photograph of a different day, not a stronger one: the plasma is not
+// the Sun on any date, whereas this is a genuine AIA frame (2014-10-24, the
+// AR 2192 disk the backend already uses as its canonical default).
 //
-// What replaces it is not another stand-in: useWheelTextures now fetches all
-// eight channels of the RIGHT instant up front, and the hook below adopts the
-// current channel's frame the moment it lands. Until then the Sun is the
-// procedural plasma, which is at least tinted to the channel actually
-// selected, so the opening colour is already correct even before the
-// photograph is.
+// So it paints instantly, at the right colour, and the visitor's own frame
+// dissolves over it seconds later via the anchor cross-fade. It is 24 KB of
+// WebP against the old 638 KB PNG, so it costs the landing almost nothing.
+//
+// It NEVER overwrites a real frame: the adopt below refuses once anything
+// for the true identity has arrived, and it is skipped entirely for a
+// deep-link that lands mid-film with a date already chosen.
+const OPENING_SUN = `${import.meta.env.BASE_URL}sun_171.webp`;
 
 // How far the Sun may turn away from the frame we are holding before we
 // fetch a fresh one MID-SCRUB.
@@ -82,6 +87,21 @@ export function useSunTextureLoader() {
   const setTexture = useStore((s) => s.setTexture);
   const setTexStatus = useStore((s) => s.setTexStatus);
   const url = thumbUrl(date, time, CHANNELS[channel].angstrom);
+
+  // Instant first paint. Runs once, before anything else can have arrived, and
+  // refuses to touch the sphere if a real frame beat it there.
+  useEffect(() => {
+    let alive = true;
+    loader.load(OPENING_SUN, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const st = useStore.getState();
+      if (!alive || st.currentTexture !== null || st.texStatus === "ready") return;
+      st.setTexture(tex);
+      // status stays "loading": this is not their Sun yet, and the HUD's
+      // "developing your Sun…" must keep running until the real one lands.
+    });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     // Wait for the real archive bounds before asking for a texture: firing

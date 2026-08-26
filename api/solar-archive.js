@@ -135,6 +135,24 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         }
         return;
       }
+      // NOT while the handoff overlay is up.
+      //
+      // A visitor arriving from the experience lands straight into "Which look
+      // do you want?", and the banner is bottom-fixed — so it materialised
+      // directly over the Continue button at the exact moment of the decision
+      // (audit in Chrome, 2026-08-26). Consent is not urgent and the purchase
+      // is: defer to whenever the overlay closes, which is a beat where the
+      // banner costs nothing. Everything stays strictly-necessary until then,
+      // so nothing is consented-to by the delay.
+      if (document.body.classList.contains("handoff-confirm")) {
+        var _defer = new MutationObserver(function () {
+          if (document.body.classList.contains("handoff-confirm")) return;
+          _defer.disconnect();
+          _wireCookieBanner();
+        });
+        _defer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+        return;
+      }
       banner.classList.remove("hidden");
       var accept = document.getElementById("cookieBannerAccept");
       var decline = document.getElementById("cookieBannerDecline");
@@ -6029,6 +6047,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         var _quadSelection = null; // { tier, form }
         var submitBtn = document.getElementById("handoffSubmitBtn");
         var submitHint = document.getElementById("handoffSubmitHint");
+        var pickHint = document.getElementById("handoffPickHint");
 
         function _selectQuadCell(btn) {
           _quadSelection = { tier: btn.getAttribute("data-tier"), form: btn.getAttribute("data-form") };
@@ -6042,6 +6061,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             submitBtn.textContent = _quadSelection.form === "dimensional" ? "View in 3D" : "Continue";
           }
           if (submitHint) submitHint.hidden = _quadSelection.form !== "dimensional";
+          if (pickHint) pickHint.hidden = true;
         }
         _quadCells.forEach(function (c) {
           c.onclick = function () { _selectQuadCell(c); };
@@ -6052,6 +6072,32 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         _quadCells.forEach(function (c) { c.setAttribute("aria-pressed", "false"); c.classList.remove("is-selected"); });
         if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Continue"; }
         if (submitHint) submitHint.hidden = true;
+        if (pickHint) pickHint.hidden = false;
+
+        // Carry the film's answers in, rather than asking them again.
+        //
+        // The experience already made the visitor choose Original vs Enhanced
+        // (the HUD's LOOK toggle) and Flat vs Dimensional, and hands both over
+        // as ?look= and ?form=. Landing on four unselected cards threw that
+        // away and re-asked, which reads as the two halves of the product not
+        // talking to each other — the single most avoidable friction on the
+        // conversion path (audit in Chrome, 2026-08-26).
+        //
+        // Preselected, NOT auto-submitted: this is still the last look before
+        // committing, and it is where the two treatments sit side by side at
+        // full size, which is the comparison that sells the enhancement.
+        try {
+          var _hq = new URLSearchParams(location.search);
+          var _look = _hq.get("look") === "raw" ? "raw" : _hq.get("look") === "rhef" ? "rhef" : null;
+          var _form = _hq.get("form") === "dimensional" ? "dimensional" : _hq.get("form") === "flat" ? "flat" : null;
+          if (_look) {
+            var _want = _quadCells.filter(function (c) {
+              return c.getAttribute("data-tier") === _look &&
+                     c.getAttribute("data-form") === (_form || "flat");
+            })[0];
+            if (_want) _selectQuadCell(_want);
+          }
+        } catch (_e) { /* a malformed query must never block the handoff */ }
 
         if (submitBtn) {
           submitBtn.onclick = function () {

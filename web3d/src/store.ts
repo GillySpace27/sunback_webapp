@@ -393,7 +393,11 @@ export function spaceCenters(): number[] {
 // beat at its intended composition — is reachable scroll-free. Keep in sync with
 // the camera dwell + copy peaks (aperture peaks at its start, Earth after it slides
 // in, the print once materialized, etc.).
-export const BEAT_STOPS = [0.02, 0.16, 0.235, 0.45, 0.585, 0.69, 0.82, 0.885, 0.965];
+// The last stop is 0.99, not 0.965: the gallery beat's camera is already at its
+// final control point from 0.93 (easedParam saturates at the last space), so
+// moving the rest position down the page costs no camera motion at all and
+// lands the visitor on the film's closing card instead of just above it.
+export const BEAT_STOPS = [0.02, 0.16, 0.235, 0.45, 0.585, 0.69, 0.82, 0.885, 0.99];
 
 // Dev-only handle for driving progress in tests (stripped from prod builds),
 // EXCEPT in ?plate=1 mode: render-plate.mjs — the print-master renderer, run

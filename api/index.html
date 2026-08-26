@@ -318,6 +318,11 @@
         <p id="handoffSubmitHint" class="handoff-submit-hint" hidden>
           Dimensional isn't orderable yet — Continue opens the full 3D preview instead.
         </p>
+        <!-- Shown while nothing is selected. A greyed Continue with no
+             explanation is a dead end that looks like a broken page: the
+             visitor has to guess that the four pictures above are the thing
+             blocking it (audit in Chrome, 2026-08-26). -->
+        <p id="handoffPickHint" class="handoff-submit-hint">Pick one of the four above to continue.</p>
       </div>
       <div class="handoff-actions">
         <button type="button" id="confirmEdit" class="handoff-edit">Change date or color</button>

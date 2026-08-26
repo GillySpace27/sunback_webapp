@@ -169,11 +169,20 @@ export default function SkyGrid({ shell }: { shell: number }) {
     const dragging = useStore.getState().dateDragging;
     const k = 1 - Math.exp(-dt / 0.4);
     amt.current += ((showGrid ? 1 : 0) - amt.current) * k;
-    // The track and its playhead are ALWAYS on (Gilly, 2026-08-25): they are
-    // the date scrubber's face, and a scrubber that only appears once you have
-    // already found the gesture teaches nobody. Only the graticule stays
+    // The track and its playhead are on by default (Gilly, 2026-08-25): they
+    // are the date scrubber's face, and a scrubber that only appears once you
+    // have already found the gesture teaches nobody. Only the graticule stays
     // behind the GRID chip — it is reference furniture, not a control.
-    trackAmt.current += (1 - trackAmt.current) * k;
+    //
+    // But only where the gesture EXISTS. The drag is armed below 0.22 (see
+    // useDateDrag's ARM_BELOW_PROGRESS); past that the track kept riding into
+    // the aperture beat, where the triangle and its stem landed on the filter
+    // wheel and read as a pointer aimed at the 171 wedge — an indicator for a
+    // control that is no longer live, pointing at a different control
+    // entirely (audit in Chrome, 2026-08-26). A live drag overrides, so the
+    // marker never vanishes out from under a hand that is using it.
+    const live = useStore.getState().progress < 0.22 || dragging;
+    trackAmt.current += ((live ? 1 : 0) - trackAmt.current) * k;
     const a = amt.current;
     const tr = trackAmt.current;
     if (gridRef.current) {

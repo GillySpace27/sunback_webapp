@@ -102,7 +102,15 @@ body {
   grid-area: 1 / 1;
   margin: 0;
   text-align: center;
-  max-width: 20ch;
+  /* rem, NOT ch — the third time this bug has been fixed on this file, so it
+     is worth naming: `ch` resolves against the element's OWN inherited font,
+     which here is the <figure>'s 16px sans. The text inside is `.line`, a
+     serif at up to 3.2rem (51px). So `20ch` asked for 20 characters and
+     delivered ~160px, about three characters of the font actually doing the
+     wrapping, and every headline in the second half of the film set one word
+     per line down the middle of the frame (audit in Chrome, 2026-08-26).
+     Capped against the viewport so phones still fit. */
+  max-width: min(26rem, 80vw);
 }
 /* scrim so copy holds 4.5:1 even over the BRIGHTEST plasma frame: a strong,
    tight core that fades out, not a weak wash. */
@@ -178,7 +186,10 @@ body {
     justify-self: start;
     align-self: end;
     text-align: left;
-    max-width: 10ch;
+    /* was 10ch (~80px): "Held still. Made to keep." set one word per line,
+       stacked down the middle of the print it is describing. See the note on
+       .overlay-line above. */
+    max-width: 15rem;
     margin: 0 0 24vh 5vw;
   }
 }
@@ -199,7 +210,7 @@ body {
     align-self: start;
     justify-self: center;
     text-align: center;
-    max-width: 16ch;
+    max-width: 80vw;
     margin: 6vh 0 0;
   }
 }
@@ -212,6 +223,42 @@ body {
   text-transform: uppercase;
   color: var(--muted);
   opacity: 0.85;
+  animation: hint-pulse 2.2s ease-in-out infinite;
+}
+.hud-prompts {
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.hud-prompts-lead {
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.25rem;
+}
+.hud-prompt {
+  pointer-events: auto;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: rgba(244, 239, 230, 0.07);
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  border-radius: 999px;
+  padding: 0.32rem 0.7rem;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.hud-prompt:hover,
+.hud-prompt:focus-visible {
+  background: rgba(212, 160, 23, 0.16);
+  border-color: rgba(212, 160, 23, 0.5);
+}
+.hud-hint--developing {
+  font-style: italic;
+  opacity: 0.75;
   animation: hint-pulse 2.2s ease-in-out infinite;
 }
 @keyframes hint-pulse {
@@ -240,11 +287,81 @@ body {
     align-self: start;
     text-align: right;
     /* 11ch wrapped this sentence one word per line (live screenshot,
-       2026-08-15); 16ch gives it three natural lines. */
-    max-width: 16ch;
+       2026-08-15) and 16ch did NOT fix it — same ch-vs-serif mismatch as
+       .overlay-line; the 2026-08-26 audit still found "Printed / on just /
+       about / anything / you / can / imagine." down the right edge. */
+    max-width: 22rem;
     margin: 6vh 6vw 0 0;
   }
 }
+/* The date, named, under the climax line. Small and quiet: it is a caption on
+   the print, not a second headline. */
+.line-date {
+  margin: 0.9rem 0 0;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold, #d4a017);
+  opacity: 0.9;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 18px rgba(0, 0, 0, 0.7);
+}
+
+/* The curtain call (Overlay's ClosingCard). Fixed rather than in the overlay
+   grid: it is not one of the nine beats' copy slots, it is the frame that
+   closes over all of them. */
+.closing {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+  padding: 6vh 8vw;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(10, 9, 8, 0.92) 0%,
+    rgba(10, 9, 8, 0.78) 45%,
+    rgba(10, 9, 8, 0.42) 78%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 900ms ease, transform 900ms ease;
+  pointer-events: none;
+}
+.closing--in {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.closing-date {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold, #d4a017);
+}
+.closing-line {
+  margin: 0.5rem 0 1.6rem;
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 380;
+  font-style: italic;
+  font-size: clamp(1.8rem, 4.6vw, 3.1rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  max-width: min(24rem, 82vw);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.85);
+}
+@media (prefers-reduced-motion: reduce) {
+  .closing { transition: opacity 200ms linear; transform: none; }
+}
+
 .cta,
 .fallback .cta {
   pointer-events: auto;
@@ -713,6 +830,24 @@ body {
   place-items: center;
   background: var(--bg);
   z-index: 5;
+}
+/* Composed to sit where the scene's own Sun lands at the threshold beat, so
+   the canvas dissolves in over it rather than replacing it. The spark stays,
+   centred over the disk, as the only moving thing on the frame. */
+.loader-poster {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: min(46vh, 42vw);
+  aspect-ratio: 1;
+  transform: translate(-58%, -50%);
+  object-fit: contain;
+  opacity: 0.92;
+  /* the baked frame is a hard-edged disk on black; feather it so it reads as
+     a star rather than as a pasted circle */
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 62%, transparent 82%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 62%, transparent 82%);
+  pointer-events: none;
 }
 .loader-spark {
   width: 10px;

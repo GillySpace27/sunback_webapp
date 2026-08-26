@@ -10,6 +10,12 @@
          the store's api/apple-touch-icon.png). -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
+    <!-- The opening Sun (see useSunTextureLoader's OPENING_SUN). Preloaded at
+         PARSE time, because the hook that paints it lives behind the lazily
+         loaded 3D chunk — measured, the fetch did not even start until the
+         chunk had booted, which is the whole window this image exists to
+         cover. 24 KB, and it is the first thing anybody sees. -->
+    <link rel="preload" as="image" type="image/webp" href="/sun_171.webp" fetchpriority="high" />
 
     <title>My Heliograph — Your day, written in sunlight</title>
     <meta

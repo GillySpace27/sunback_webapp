@@ -180,6 +180,21 @@ export default function Starfield({
   const showStars = useStore((s) => s.showStars);
   const showLabels = useStore((s) => s.showLabels);
   const showArt = useStore((s) => s.showArt);
+  // Is the sky actually on screen? The group's `visible` below already hides
+  // the WebGL half at 0.51, but the labels are drei <Html>: real DOM in a
+  // portal, which does not participate in three's visibility at all. So
+  // MERCURY, JUPITER and MARS went on floating over the cabin wall, over the
+  // framed print, and over the product shelf — sky furniture indoors, at
+  // exactly the three beats where the sale happens (audit in Chrome,
+  // 2026-08-26).
+  //
+  // Unmounted rather than hidden: each <Html> re-projects its position every
+  // frame, so leaving 5 (or 93, with names on) mounted through the whole
+  // second half was also paying for labels nobody can see.
+  //
+  // A derived boolean, so this re-renders on the threshold crossing rather
+  // than at 60Hz.
+  const skyOnScreen = useStore((s) => s.progress < 0.51);
   // Any layer that needs the constellation GEOMETRY loaded: lines draw it,
   // labels and art are positioned from it.
   const needsFigures = showConstellations || showLabels;
@@ -487,6 +502,7 @@ export default function Starfield({
           {/* The labels are DOM, so they cross-fade in CSS rather than in the
               render loop — animating them through React state would re-render
               five <Html> portals on every frame of the fade. */}
+          {skyOnScreen && (
           <Html
             center
             distanceFactor={SHELL * 0.9}
@@ -501,10 +517,11 @@ export default function Starfield({
               {pl.name}
             </span>
           </Html>
+          )}
         </group>
       ))}
 
-      {constellationLabels.map((c) => (
+      {skyOnScreen && constellationLabels.map((c) => (
         <group key={c.c} position={c.pos.toArray()}>
           <Html
             center

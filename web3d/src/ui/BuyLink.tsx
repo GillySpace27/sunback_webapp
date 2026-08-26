@@ -54,7 +54,18 @@ export default function BuyLink({
       // send a now-superseded date.
       const s = useStore.getState();
       if (!dateValid(s)) return; // went invalid mid-hold, nothing honest to send
-      window.location.href = buyUrl(s.date, s.time, CHANNELS[s.channel].angstrom, cat ? { cat } : undefined);
+      // look + form, same as the href above. They were missing HERE, and this
+      // is the branch every ordinary click actually takes — the href is only
+      // used for middle-click/new-tab. So the handoff always arrived without
+      // them and the store re-asked Original-vs-Enhanced, a question the HUD
+      // had already answered, with the film's choice not even preselected
+      // (audit in Chrome, 2026-08-26). Read fresh from state at fire time for
+      // the same reason the date is.
+      window.location.href = buyUrl(s.date, s.time, CHANNELS[s.channel].angstrom, {
+        look: s.look,
+        form: s.form,
+        ...(cat ? { cat } : {}),
+      });
     });
   };
 

@@ -96,6 +96,11 @@ export default function Hud() {
   // AT-reachable way to buy — an escape hatch doing a CTA's job. This is in
   // the real <nav id="buy">, so it is announced and focusable.
   const atClimax = useStore((s) => s.progress >= 0.84);
+  // Only while the date is genuinely unanswered, and only on the beats where
+  // choosing it is the job. Once a date is committed the prompts have done
+  // their work and would just be clutter over the film.
+  const dateChosen = useStore((s) => s.dateChosen);
+  const askMeaning = useStore((s) => s.progress < 0.22) && !dateChosen;
   const valid = useStore(dateValid);
 
   const layer = (
@@ -117,6 +122,38 @@ export default function Hud() {
     >
       <legend className="visually-hidden">Settings for your Sun</legend>
 
+      {/* WHOSE day is this?
+          The film sold the Sun and never once asked the question that
+          actually converts. A date field asks for a VALUE; these ask for a
+          MEANING, and the difference is the whole product: the moment someone
+          types the day they got married, this stops being a poster of a star
+          and becomes a record of their own life (audit, 2026-08-26).
+          They are real controls, not decoration — each opens the date picker,
+          which is the next thing you need after deciding which day it is.
+          Shown only while the date is still an open question. */}
+      {askMeaning && (
+        <div className="hud-row hud-prompts">
+          <span className="hud-prompts-lead">Whose day is this?</span>
+          {["A birthday", "An anniversary", "The day everything changed"].map((label) => (
+            <button
+              key={label}
+              type="button"
+              className="hud-prompt"
+              onClick={() => {
+                const el = document.querySelector<HTMLInputElement>(".date-input-wrap input");
+                if (!el) return;
+                el.focus();
+                // showPicker throws if the call is not user-activated, and is
+                // absent on older Safari — the focus above is the fallback.
+                try { el.showPicker?.(); } catch { /* focus is enough */ }
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="hud-row hud-row--identity">
         <DateField labelClassName="date-field" labelSpanClassName="date-label" labelText="Your date" />
         {/* How to work it. The field is a normal date input, but the sky-drag
@@ -124,6 +161,14 @@ export default function Hud() {
             expressive of the two. Naming both, next to the control, is the
             whole instruction. */}
         <span className="hud-hint">type it, or drag the sky</span>
+        {/* The landing frame has no wavelength readout yet (that waits for
+            0.19), so while the opening stand-in is up there was nothing at
+            all saying the picture was still arriving — and a soft, not-yet-
+            sharp disk with no explanation reads as a cheap render rather
+            than as one that is developing (audit in Chrome, 2026-08-26). */}
+        {!showReadout && status === "loading" && (
+          <span className="hud-hint hud-hint--developing">developing your Sun…</span>
+        )}
         <output className="hud-readout" aria-live="polite" data-off={showReadout ? undefined : "1"}>
           {active.instrument} · {active.label} · <span className="picker-sees">{active.sees}</span>
           {status === "loading" && <span className="picker-status"> · developing your Sun…</span>}

@@ -46,6 +46,12 @@ export function useScrollProgress() {
     //   reduced-motion callers get no animated correction at all.
     const PULL = 0.028;   // ~a third of the narrowest gap between stops
     const QUIET = 220;    // ms of stillness that counts as "come to rest"
+    // Stretches with nothing composed to rest on. Currently just the
+    // atmosphere flash between the crossing and the ground (see below).
+    // Both of AtmosphereFlash's windows: the space-to-ground flash and the
+    // outside-to-inside-the-cabin one. Kept slightly inside each so a rest at
+    // a real stop next door is never dragged.
+    const DEAD_ZONES: [number, number][] = [[0.478, 0.556], [0.726, 0.792]];
     let settleTimer = 0;
     let userDriven = false;
 
@@ -85,8 +91,21 @@ export function useScrollProgress() {
           return;
         }
         const near = BEAT_STOPS.reduce((a, b) => (Math.abs(b - p) < Math.abs(a - p) ? b : a));
-        if (Math.abs(near - p) > PULL) return;
-        lenis.scrollTo(near * limit, { duration: 0.55 });
+        // DEAD_ZONES override PULL: some stretches of the film are transitions
+        // with nothing composed to look at, and coming to rest inside one is
+        // never what anybody meant to do.
+        //
+        // The atmosphere flash is the case that forced this. The starfield and
+        // the Sun both cut out at 0.51 and the ground has not resolved yet, so
+        // the band between them is a blank cream field — and it sits 0.05 from
+        // the crossing stop and 0.085 from the sky stop, i.e. outside PULL from
+        // BOTH. Stopping there left the film looking crashed, with the crossing
+        // copy floating in a grey smudge over nothing (audit in Chrome,
+        // 2026-08-26). Inside a dead zone the nearest stop always wins, however
+        // far away it is.
+        const dead = DEAD_ZONES.some(([a, b]) => p > a && p < b);
+        if (!dead && Math.abs(near - p) > PULL) return;
+        lenis.scrollTo(near * limit, { duration: dead ? 0.85 : 0.55 });
       }, QUIET);
     };
 
