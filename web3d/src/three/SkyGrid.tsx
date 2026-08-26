@@ -169,7 +169,11 @@ export default function SkyGrid({ shell }: { shell: number }) {
     const dragging = useStore.getState().dateDragging;
     const k = 1 - Math.exp(-dt / 0.4);
     amt.current += ((showGrid ? 1 : 0) - amt.current) * k;
-    trackAmt.current += ((showGrid || dragging ? 1 : 0) - trackAmt.current) * k;
+    // The track and its playhead are ALWAYS on (Gilly, 2026-08-25): they are
+    // the date scrubber's face, and a scrubber that only appears once you have
+    // already found the gesture teaches nobody. Only the graticule stays
+    // behind the GRID chip — it is reference furniture, not a control.
+    trackAmt.current += (1 - trackAmt.current) * k;
     const a = amt.current;
     const tr = trackAmt.current;
     if (gridRef.current) {

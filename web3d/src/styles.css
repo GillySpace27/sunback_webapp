@@ -1290,7 +1290,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 1.05rem;   /* the dot column */
   gap: 0.55rem;
   /* Fixed row height. min-height alone let rows differ by ~1.75px depending on
      their label's rendered box, and `top:50%` then placed each dot at a
@@ -1298,7 +1297,11 @@ body {
      straight column. */
   height: 22px;
   width: 100%;
-  padding: 0;
+  /* Right padding is the dot column. It must live INSIDE this shorthand: an
+     earlier version declared `padding-right: 1.05rem` above a `padding: 0`,
+     and the shorthand quietly reset it — every label ran under its dot and
+     truncated ("YOUR DAT●", Gilly 2026-08-25). */
+  padding: 0 1.05rem 0 0;
   background: none;
   border: 0;
   cursor: pointer;
