@@ -20,8 +20,29 @@ const SIZE = Number(process.env.PLATE_SIZE || 2048);
 const DATE = process.env.PLATE_DATE || "2017-09-06";
 const CHANNEL = process.env.PLATE_CHANNEL || "5";
 const LOOK = process.env.PLATE_LOOK || "raw";
+// Time of day. The product identity is date AND time — two instants on one
+// date are different observations and must not share a print — but the plate
+// renderer only ever sent the date, so every dimensional master would have
+// been the noon frame whatever the visitor picked.
+const TIME = process.env.PLATE_TIME || "";
 const SKY = process.env.PLATE_SKY === "1" ? "&sky=1" : "";
 const GUIDE = process.env.PLATE_GUIDE === "1" ? "&guide=1" : "";
+// The six sky layers, individually.
+//
+// sky=1/guide=1 are the old coarse pair, and they cannot express what the
+// store's handoff panel now asks for: it offers Stars, Constellations, Star
+// art, Names, Planets and Grid as separate switches, and the Dimensional
+// preview honours all six. A print master rendered from only sky+guide would
+// therefore be a DIFFERENT PICTURE from the one the visitor approved — the
+// exact fidelity gap that makes a preview dishonest. Each is passed through
+// only when the caller states it, so an unset layer still falls back to the
+// experience's own default rather than being forced off.
+const LAYERS = ["stars", "con", "art", "labels", "planets", "grid"]
+  .map((k) => {
+    const v = process.env[`PLATE_${k.toUpperCase()}`];
+    return v === "1" || v === "0" ? `&${k}=${v}` : "";
+  })
+  .join("");
 
 mkdirSync(OUT, { recursive: true });
 
@@ -40,7 +61,7 @@ page.on("response", (res) => {
   if (!res.ok() && res.status() !== 304) console.error(`[response ${res.status()}] ${res.url()}`);
 });
 
-await page.goto(`${BASE}?plate=1&bare=1&look=${LOOK}&ch=${CHANNEL}&d=${DATE}${SKY}${GUIDE}`, { waitUntil: "load", timeout: 90_000 });
+await page.goto(`${BASE}?plate=1&bare=1&look=${LOOK}&ch=${CHANNEL}&d=${DATE}${TIME ? `&t=${encodeURIComponent(TIME)}` : ""}${SKY}${GUIDE}${LAYERS}`, { waitUntil: "load", timeout: 90_000 });
 await page.waitForSelector("canvas", { timeout: 90_000 });
 
 await page.evaluate(([d, c]) => {

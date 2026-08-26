@@ -46,6 +46,8 @@ const MIME = {
 };
 
 const LOOKS = new Set(["raw", "rhef"]);
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const LAYER_KEYS = ["stars", "con", "art", "labels", "planets", "grid"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // The app's texture/RHEF fetches are relative (`/api/...`, `/asset/...`) so
@@ -92,14 +94,33 @@ async function serveStatic(req, res) {
 }
 
 function validate(body) {
-  const { date, channel, look = "raw", sky, guide, size } = body;
+  const { date, time, channel, look = "raw", sky, guide, size } = body;
   if (!DATE_RE.test(date)) throw new Error("date must be YYYY-MM-DD");
   const ch = Number(channel);
   if (!Number.isInteger(ch) || ch < 0 || ch > 7) throw new Error("channel must be an integer 0-7");
   if (!LOOKS.has(look)) throw new Error("look must be 'raw' or 'rhef'");
   const sz = Number(size ?? 2048);
   if (!Number.isInteger(sz) || sz < 256 || sz > 4096) throw new Error("size must be an integer 256-4096");
-  return { date, channel: ch, look, sky: !!sky, guide: !!guide, size: sz };
+  if (time != null && !TIME_RE.test(String(time))) throw new Error("time must be HH:MM");
+  // The six sky layers, tri-state: true, false, or "not stated" (absent), so a
+  // caller that does not care still gets the experience's own defaults. These
+  // are what make an ordered dimensional print match the preview the visitor
+  // approved — see the note in render-plate.mjs.
+  const layers = {};
+  for (const k of LAYER_KEYS) {
+    if (body[k] == null) continue;
+    layers[k] = body[k] === true || body[k] === 1 || body[k] === "1";
+  }
+  return {
+    date,
+    time: time == null ? null : String(time),
+    channel: ch,
+    look,
+    sky: !!sky,
+    guide: !!guide,
+    size: sz,
+    layers,
+  };
 }
 
 async function render(params) {
@@ -116,6 +137,10 @@ async function render(params) {
     PLATE_SKY: params.sky ? "1" : "0",
     PLATE_GUIDE: params.guide ? "1" : "0",
   };
+  if (params.time) env.PLATE_TIME = params.time;
+  for (const [k, v] of Object.entries(params.layers)) {
+    env[`PLATE_${k.toUpperCase()}`] = v ? "1" : "0";
+  }
   try {
     const exitCode = await new Promise((resolve) => {
       const p = spawn("node", [RENDER_SCRIPT], { env, stdio: ["ignore", "inherit", "inherit"] });

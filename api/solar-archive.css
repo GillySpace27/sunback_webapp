@@ -8139,9 +8139,9 @@ body:has(#imageStage.loading) .field-cell {
   .plate-skel { transition: none; }
 }
 
-/* Marked as not-yet-orderable rather than styled identically to the two cards
-   that are. */
-.handoff-cell--preview { opacity: 0.94; }
+/* Dimensional is orderable now (2026-08-26), so it is no longer dimmed to
+   mark it as second-class. The class stays as a styling hook. */
+.handoff-cell--preview { opacity: 1; }
 .handoff-choice-badge {
   display: inline-block;
   margin-left: 0.4rem;

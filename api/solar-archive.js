@@ -6117,9 +6117,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           });
           if (submitBtn) {
             submitBtn.disabled = false;
-            submitBtn.textContent = _quadSelection.form === "dimensional" ? "View in 3D" : "Continue";
+            submitBtn.textContent = "Continue";
           }
-          if (submitHint) submitHint.hidden = _quadSelection.form !== "dimensional";
+          // No special hint on selection any more: all four cells order the
+          // same way. The hint is reused as live status while a dimensional
+          // master renders (see _orderDimensional).
+          if (submitHint) submitHint.hidden = true;
           if (pickHint) pickHint.hidden = true;
         }
         _quadCells.forEach(function (c) {
@@ -6158,11 +6161,109 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           }
         } catch (_e) { /* a malformed query must never block the handoff */ }
 
+        // Ordering a Dimensional print.
+        //
+        // Until now both Dimensional cells were preview-only: Submit opened
+        // the film instead of buying anything, because there was no
+        // server-side path that could turn the 3D scene into a print master.
+        // There is now — POST /api/generate with format:"dimensional" renders
+        // it on the separate myheliograph-render app and returns an /asset
+        // URL like any other master — so this joins the ordinary order flow
+        // rather than being a side door (Gilly, 2026-08-26).
+        //
+        // The sky the visitor configured rides along, because the master has
+        // to be the SAME PICTURE they approved in the cell above. Sending
+        // date/wavelength alone would print a different sky from the preview,
+        // which is the one thing a preview may never do.
+        function _orderDimensional(look) {
+          var sky = {};
+          _SKY_CHIPS.forEach(function (pair) {
+            var el = document.getElementById(pair[0]);
+            sky[pair[1]] = !!(el && el.checked);
+          });
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Building your Sun…";
+          }
+          if (submitHint) {
+            submitHint.hidden = false;
+            submitHint.textContent =
+              "Rendering your Sun as a body in space. This takes a minute or two.";
+          }
+          state.dimensionalOrder = { look: look, sky: sky };
+          fetchWithTimeout(API_BASE + "/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: dateStr,
+              time: timeStr || "12:00",
+              wavelength: parseInt(wlNum, 10),
+              format: "dimensional",
+              look: look,
+              sky: sky,
+            }),
+          }, 30000)
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (!d || !d.task_id) throw new Error(d && d.detail ? d.detail : "Could not start the render");
+              return _pollDimensional(d.task_id);
+            })
+            .then(function (imageUrl) {
+              // Install it exactly like the flat HQ master, so everything
+              // downstream — the editor, the mockups, the checkout upload —
+              // treats a dimensional print as just another image.
+              var url = imageUrl.indexOf("/") === 0 ? API_BASE + imageUrl : imageUrl;
+              return loadImage(url).then(function (img) {
+                state.hqFilterImage = img;
+                state.hqImageUrl = url;
+                state.hqReady = true;
+                state.dimensionalImageUrl = url;
+                if (typeof renderCanvas === "function") renderCanvas();
+                if (typeof updateMockupDisplay === "function") updateMockupDisplay();
+                pick(look);
+              });
+            })
+            .catch(function (err) {
+              if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Try again";
+              }
+              if (submitHint) {
+                submitHint.hidden = false;
+                submitHint.textContent =
+                  (err && err.message ? err.message : "The render failed") +
+                  " — you can try again, or pick a Flat print above.";
+              }
+            });
+        }
+
+        // Poll the same /api/status the flat HQ path uses.
+        function _pollDimensional(taskId) {
+          var started = Date.now();
+          var DEADLINE_MS = 6 * 60 * 1000; // a 2048 SwiftShader render is minutes
+          return new Promise(function (resolve, reject) {
+            (function tick() {
+              if (Date.now() - started > DEADLINE_MS) {
+                reject(new Error("The render is taking longer than expected"));
+                return;
+              }
+              fetchWithTimeout(API_BASE + "/api/status/" + taskId, {}, 15000)
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                  if (d && d.status === "completed" && d.image_url) { resolve(d.image_url); return; }
+                  if (d && d.status === "failed") { reject(new Error(d.message || "The render failed")); return; }
+                  setTimeout(tick, 3000);
+                })
+                .catch(function () { setTimeout(tick, 3000); });
+            })();
+          });
+        }
+
         if (submitBtn) {
           submitBtn.onclick = function () {
             if (!_quadSelection) return;
             if (_quadSelection.form === "dimensional") {
-              _openDimensionalExperience(_quadSelection.tier);
+              _orderDimensional(_quadSelection.tier);
             } else {
               pick(_quadSelection.tier);
             }

@@ -19,6 +19,17 @@ import { useStore } from "../store";
 // so it is mounted inside Starfield's rotating group and the one date rotation
 // carries all of it together.
 
+// A print master is the Sun and its sky, and NOTHING ELSE — the same rule
+// PLATE_BARE enforces for the DOM chrome. The playhead is a control: it marks
+// where the date-drag is pointing, which is meaningless on a wall. And the
+// ecliptic is coordinate scaffolding like the graticule, so in a master it
+// belongs to the GRID switch rather than being always-on the way it is in the
+// film. Both were being sold into the artwork (measured on a real 2048 master,
+// 2026-08-26).
+const PLATE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("plate") === "1";
+
 const DEG = Math.PI / 180;
 const OBLIQUITY = 23.439 * DEG; // Earth's axial tilt: the ecliptic's inclination
 
@@ -181,7 +192,11 @@ export default function SkyGrid({ shell }: { shell: number }) {
     // control that is no longer live, pointing at a different control
     // entirely (audit in Chrome, 2026-08-26). A live drag overrides, so the
     // marker never vanishes out from under a hand that is using it.
-    const live = useStore.getState().progress < 0.22 || dragging;
+    // In a plate the track is scaffolding, so it follows GRID; in the film it
+    // is the scrubber's face and is on wherever the drag is armed.
+    const live = PLATE
+      ? showGrid
+      : useStore.getState().progress < 0.22 || dragging;
     trackAmt.current += ((live ? 1 : 0) - trackAmt.current) * k;
     const a = amt.current;
     const tr = trackAmt.current;
@@ -195,10 +210,11 @@ export default function SkyGrid({ shell }: { shell: number }) {
     }
     if (stemRef.current) {
       (stemRef.current.material as THREE.LineBasicMaterial).opacity = 0.55 * tr;
-      stemRef.current.visible = tr > 0.004;
+      stemRef.current.visible = !PLATE && tr > 0.004;
     }
     if (headRef.current) {
-      headRef.current.visible = tr > 0.004;
+      // never in a master: this is a control, not artwork
+      headRef.current.visible = !PLATE && tr > 0.004;
       // Face the camera so the triangle always reads as a triangle rather than
       // as an edge-on sliver.
       headRef.current.lookAt(state.camera.position);
@@ -229,7 +245,13 @@ export default function SkyGrid({ shell }: { shell: number }) {
           along it — slides through: a scrubber with a fixed head and a moving
           tape, which is exactly what the date-drag is. */}
       <lineSegments ref={stemRef} geometry={stemGeo} frustumCulled={false}>
-        <lineBasicMaterial color="#ffd97a" transparent opacity={0} depthWrite={false} depthTest={false} toneMapped={false} />
+        {/* Depth-TESTED, unlike the graticule. The stem runs from the Sun's
+            own point on the ecliptic outward, and the Sun is a solid body
+            sitting between it and the camera, so the inner stretch belongs
+            behind the disk. Drawn on top it read as a line lying across the
+            Sun's face; occluded, the marker reads as standing behind the Sun
+            with only its head clear of the limb (Gilly, 2026-08-26). */}
+        <lineBasicMaterial color="#ffd97a" transparent opacity={0} depthWrite={false} toneMapped={false} />
       </lineSegments>
 
       <group ref={headRef} position={headPos.clone().multiplyScalar(shell * 0.975).toArray()}>
@@ -246,9 +268,10 @@ export default function SkyGrid({ shell }: { shell: number }) {
             transparent
             opacity={0}
             side={THREE.DoubleSide}
-            // it is an indicator, not scenery: never let the corona quad or a
-            // constellation plate bury it
-            depthTest={false}
+            // Depth-tested so the Sun occludes it (see the stem above). The
+            // corona quad and the art plates cannot bury it regardless: both
+            // are transparent with depthWrite off, so they never lay down the
+            // depth that would hide this.
             depthWrite={false}
             toneMapped={false}
           />

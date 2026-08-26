@@ -214,16 +214,16 @@
             <span class="handoff-cell-check" aria-hidden="true"><i class="fas fa-check"></i></span>
           </button>
 
-          <div class="handoff-quad-rowhead">Dimensional <span class="handoff-choice-badge">Preview</span></div>
-          <!-- Preview only: there is no server-side print pipeline for this
-               form yet, so Submit on either Dimensional cell opens the full
-               3D view instead of committing an order — see handoffSubmitBtn's
-               click handler. It becomes a real fourth/fifth option by changing
-               that one branch the day the renderer is wired to checkout. -->
+          <div class="handoff-quad-rowhead">Dimensional</div>
+          <!-- Orderable since 2026-08-26. The private myheliograph-render app
+               renders the same three.js scene headless at print resolution and
+               returns it as an /asset master, so Submit here commits a real
+               order through the ordinary flow. The "Preview" badge and the
+               not-orderable-yet hint are gone with it. -->
           <button type="button" class="handoff-cell handoff-cell--preview" id="chooseDimensionalRaw"
                   data-tier="raw" data-form="dimensional"
                   aria-pressed="false"
-                  aria-label="Original, dimensional: your Sun as a body in space. Preview only — Submit opens the full 3D view.">
+                  aria-label="Original, dimensional: your Sun as a body in space, with the sky behind it.">
             <span class="handoff-choice-imgwrap">
             <span class="plate-skel" data-state="idle" aria-hidden="true">
               <span class="plate-skel-orb"></span>
@@ -237,7 +237,7 @@
           <button type="button" class="handoff-cell handoff-cell--preview" id="chooseDimensionalRhef"
                   data-tier="rhef" data-form="dimensional"
                   aria-pressed="false"
-                  aria-label="Enhanced, dimensional: your Sun as a body in space with the corona revealed. Preview only — Submit opens the full 3D view.">
+                  aria-label="Enhanced, dimensional: your Sun as a body in space with the corona revealed, and the sky behind it.">
             <span class="handoff-choice-imgwrap">
             <span class="plate-skel" data-state="idle" aria-hidden="true">
               <span class="plate-skel-orb"></span>
@@ -323,9 +323,7 @@
            (Dimensional) — see the JS below. -->
       <div class="handoff-submit-row">
         <button type="button" id="handoffSubmitBtn" class="handoff-submit-btn" disabled>Continue</button>
-        <p id="handoffSubmitHint" class="handoff-submit-hint" hidden>
-          Dimensional isn't orderable yet — Continue opens the full 3D preview instead.
-        </p>
+        <p id="handoffSubmitHint" class="handoff-submit-hint" hidden></p>
         <!-- Shown while nothing is selected. A greyed Continue with no
              explanation is a dead end that looks like a broken page: the
              visitor has to guess that the four pictures above are the thing

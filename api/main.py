@@ -2180,15 +2180,116 @@ status_lock = threading.Lock()
 _hq_inflight: dict = {}
 
 
-def _hq_key(date: str, wavelength, mission: str, detector: str, integrate: bool) -> str:
-    return f"{date}|{wavelength}|{mission}|{detector}|{1 if integrate else 0}"
+def _hq_key(date: str, wavelength, mission: str, detector: str, integrate: bool,
+            variant: str = "") -> str:
+    return f"{date}|{wavelength}|{mission}|{detector}|{1 if integrate else 0}|{variant}"
 
-async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str, format_type: str = "rhef", integrate: bool = False):
+
+# ──────────────────────────────────────────────────────────────────────
+# Dimensional print masters
+# ──────────────────────────────────────────────────────────────────────
+# The Dimensional SKU is the visitor's Sun rendered as a BODY IN SPACE —
+# the same three.js scene the film uses, run headless at print resolution
+# by the private `myheliograph-render` app. This is the wiring that makes
+# it orderable rather than preview-only.
+#
+# .flycast, NOT .internal. Both resolve on the private network, but only
+# flycast goes through Fly's proxy — which is what honours the render
+# app's auto_start_machines. The render box scales to zero, so over
+# .internal the very first order of the day would hit a stopped machine
+# and simply time out.
+_DIM_RENDER_URL = os.getenv(
+    "DIMENSIONAL_RENDER_URL", "http://myheliograph-render.flycast:8090/render"
+)
+# The render service takes a channel INDEX; the store speaks Angstroms.
+# Same order as web3d/src/data/wavelengths.ts — keep the two in step.
+_DIM_CHANNELS = [94, 131, 171, 193, 211, 304, 335, 1600]
+_DIM_LAYER_KEYS = ("stars", "con", "art", "labels", "planets", "grid")
+
+
+def _dim_variant(look: str, layers: dict) -> str:
+    """A short, stable tag for one dimensional configuration.
+
+    Two dimensional prints of the same instant differ if the sky behind them
+    differs, so look + the six layer switches are part of the identity: they
+    key the cache file AND the in-flight dedupe. Without this, turning the
+    constellations off and re-ordering would silently return the previous
+    render, which is the wrong picture."""
+    bits = "".join(
+        "1" if layers.get(k) else "0" for k in _DIM_LAYER_KEYS
+    )
+    return f"dim-{look}-{bits}"
+
+
+def do_render_dimensional_sync(date: datetime, wavelength: int, look: str,
+                               layers: dict, size: int = 2048) -> str:
+    """Render one dimensional print master and return its /asset/... URL.
+
+    Cached on the same persistent disk as every other master, keyed by the
+    full identity (instant + channel + look + sky), so a re-order or a retry
+    costs nothing.
+    """
+    try:
+        ch_idx = _DIM_CHANNELS.index(int(wavelength))
+    except ValueError:
+        raise ValueError(f"{wavelength} A has no dimensional channel")
+
+    date_str = date.strftime("%Y%m%d")
+    hhmm = date.strftime("%H%M")
+    variant = _dim_variant(look, layers)
+    out_name = f"dim_{wavelength}_{date_str}_{hhmm}_{variant}_{size}.png"
+    out_path = os.path.join(OUTPUT_DIR, out_name)
+    url_path = f"/asset/{out_name}"
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+        log_to_queue(f"[dimensional] cached: {out_name}")
+        return url_path
+
+    payload = {
+        "date": date.strftime("%Y-%m-%d"),
+        "time": date.strftime("%H:%M"),
+        "channel": ch_idx,
+        "look": look,
+        "size": size,
+        # sky=1 mounts the starfield at all; the per-layer flags then say what
+        # of it to draw. Sent together because the renderer needs both.
+        "sky": any(layers.get(k) for k in _DIM_LAYER_KEYS),
+    }
+    for k in _DIM_LAYER_KEYS:
+        if k in layers:
+            payload[k] = bool(layers[k])
+
+    log_to_queue(f"[dimensional] rendering {out_name} via {_DIM_RENDER_URL}")
+    # Long timeout: a 2048px SwiftShader render of a scene that also waits on
+    # NASA frames is minutes, not seconds. The render box is separate hardware
+    # from this one, so this deliberately does NOT take the heavy semaphore —
+    # queueing it behind local RHEF work would be queueing for a resource it
+    # never touches.
+    resp = requests.post(_DIM_RENDER_URL, json=payload, timeout=420)
+    if resp.status_code == 422:
+        # The renderer refuses to write a plate whose data never arrived. That
+        # is a data problem, not a service fault, so it must not be cached as
+        # a permanent failure.
+        raise RuntimeError("dimensional render: frames unavailable for this instant")
+    resp.raise_for_status()
+    if len(resp.content) < 1000:
+        raise RuntimeError("dimensional render returned an empty image")
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    tmp = out_path + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(resp.content)
+    os.replace(tmp, out_path)   # atomic: a killed write never leaves a half file
+    log_to_queue(f"[dimensional] wrote {out_name} ({len(resp.content)} bytes)")
+    return url_path
+
+async def run_generation_task(task_id: str, date: str, wavelength: str, mission: str, detector: str, format_type: str = "rhef", integrate: bool = False, look: str = "rhef", layers: Optional[dict] = None):
     """
     Actual HQ generation logic for async background task.
-    format_type: 'jpg' | 'raw' | 'rhef'. Currently only rhef is implemented.
+    format_type: 'jpg' | 'raw' | 'rhef' | 'dimensional'.
     integrate: forward to do_generate_sync — True renders the multi-frame
     time-integrated print (checkout), False the fast single-frame editor HQ.
+    look/layers: dimensional only — which treatment and which sky layers, so
+    the ordered master is the same picture the visitor approved in the bridge.
     """
     try:
         with status_lock:
@@ -2223,6 +2324,27 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         # A 4096² HQ render is the biggest thing we write — check headroom
         # before burning 1–3 min on a render that can't be saved.
         _disk_check("hq-task")
+        # Dimensional takes an entirely different road: it is rendered by the
+        # separate `myheliograph-render` app, on its own hardware. So it does
+        # NOT take the heavy semaphore below — that guards THIS box's memory
+        # against concurrent 4096-squared RHEF arrays, and a dimensional job
+        # allocates none of it. Queueing behind local work would just make
+        # both slower for no reason.
+        if format_type == "dimensional":
+            with status_lock:
+                tasks[task_id] = {"status": "started", "message": "Dimensional render started"}
+                log_to_queue(f"[hq-task][{task_id}] Status: started (dimensional)")
+            png_url = await asyncio.to_thread(
+                do_render_dimensional_sync, dt, wl, look, layers or {}
+            )
+            with status_lock:
+                tasks[task_id] = {
+                    "status": "completed",
+                    "message": "Dimensional master ready",
+                    "image_url": png_url,
+                }
+                log_to_queue(f"[hq-task][{task_id}] Status: completed (dimensional {png_url})")
+            return
         # Heavy semaphore: queues this HQ render behind any preview/HQ
         # already in flight. status flips from "queued" to "started" the
         # instant we acquire the slot, so the UI can differentiate the
@@ -2257,8 +2379,14 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
             log_to_queue(f"[hq-task][{task_id}] Status: failed ({e})")
     finally:
         with status_lock:
-            if _hq_inflight.get(_hq_key(date, wavelength, mission, detector, integrate)) == task_id:
-                _hq_inflight.pop(_hq_key(date, wavelength, mission, detector, integrate), None)
+            # Must match the key start_generate registered, VARIANT INCLUDED —
+            # otherwise a dimensional task would clear the flat entry (or
+            # nothing at all) and the dedupe would leak an in-flight slot that
+            # never frees.
+            _v = _dim_variant(look, layers or {}) if format_type == "dimensional" else ""
+            _k = _hq_key(date, wavelength, mission, detector, integrate, _v)
+            if _hq_inflight.get(_k) == task_id:
+                _hq_inflight.pop(_k, None)
 
 
 # Helper: HQ generation, sync version for to_thread usage
@@ -2526,17 +2654,33 @@ async def start_generate(request: Request, background_tasks: BackgroundTasks, pa
     # dates can't run us into a VSO/JSOC block-list (breaks renders for all).
     enforce_origin(request)
     enforce_rate_limit(request, "generate", 40, 300.0)  # 40 renders / 5 min / IP
-    _check_ram_headroom()
+    format_type = payload.get("format", "rhef")
+    # The RAM guard protects THIS box against concurrent 4096-squared float
+    # arrays. A dimensional job allocates none of that here — it is rendered on
+    # the separate render app — so refusing one because the local box is busy
+    # would turn an unrelated queue into a failed order.
+    if format_type != "dimensional":
+        _check_ram_headroom()
     date = payload.get("date")
     time_raw = (payload.get("time") or "12:00").strip()
     wavelength = payload.get("wavelength")
     mission = payload.get("mission", "SDO")
     detector = payload.get("detector", "AIA")
-    format_type = payload.get("format", "rhef")
     # integrate=True → the multi-frame, time-integrated print render used at
     # checkout. Defaults False so the editor's HQ tier stays the fast
     # single-frame reuse.
     integrate = bool(payload.get("integrate", False))
+    # Dimensional: which treatment, and which of the six sky layers. Both are
+    # part of the print's identity (see _dim_variant), so they key the cache
+    # and the in-flight dedupe rather than being render-time decoration.
+    look = payload.get("look") if payload.get("look") in ("raw", "rhef") else "rhef"
+    _sky = payload.get("sky") or {}
+    layers = {k: bool(_sky.get(k)) for k in _DIM_LAYER_KEYS if k in _sky} \
+        if isinstance(_sky, dict) else {}
+    variant = _dim_variant(look, layers) if format_type == "dimensional" else ""
+    if format_type == "dimensional" and int(wavelength) not in _DIM_CHANNELS:
+        raise HTTPException(status_code=400,
+                            detail=f"{wavelength} A is not available as a dimensional print")
     if not date or not wavelength:
         raise HTTPException(status_code=400, detail="Missing date or wavelength")
     # Fold time into the date string the worker receives so we don't
@@ -2552,7 +2696,7 @@ async def start_generate(request: Request, background_tasks: BackgroundTasks, pa
         pass
     # Same render already queued or running? Hand back the task that is
     # already doing it rather than minting a second one to sit behind it.
-    key = _hq_key(date, wavelength, mission, detector, integrate)
+    key = _hq_key(date, wavelength, mission, detector, integrate, variant)
     with status_lock:
         existing = _hq_inflight.get(key)
         if existing and tasks.get(existing, {}).get("status") in ("queued", "started"):
@@ -2560,7 +2704,8 @@ async def start_generate(request: Request, background_tasks: BackgroundTasks, pa
         task_id = str(uuid.uuid4())
         tasks[task_id] = {"status": "queued", "message": "HQ generation queued"}
         _hq_inflight[key] = task_id
-    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission, detector, format_type, integrate)
+    background_tasks.add_task(run_generation_task, task_id, date, wavelength, mission,
+                              detector, format_type, integrate, look, layers)
     return {"task_id": task_id, "status_url": f"/api/status/{task_id}"}
 
 @app.get("/api/status/{task_id}")
