@@ -1,11 +1,11 @@
-import { Suspense } from "react";
+import {Suspense} from "react";
 import { Canvas } from "@react-three/fiber";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import Sun from "./Sun";
 import Starfield from "./Starfield";
 import { useStore } from "../store";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 // The print master for the "Dimensional" SKU.
 //
@@ -56,7 +56,6 @@ const SKY = (() => {
 export default function PlateScene() {
   // Shared with the film's Scene.tsx: lets the sky's planet labels occlude
   // against the disk when guide=1 is printed. See Sun.tsx.
-  const sunDiskRef = useRef<THREE.Mesh | null>(null);
   // ?look=rhef selects the enhanced frame for the master. Read here rather than
   // in the renderer so the plate and the film share one code path.
   useEffect(() => {
@@ -112,7 +111,7 @@ export default function PlateScene() {
           print without banding */}
       <color attach="background" args={["#0a0908"]} />
       <Suspense fallback={null}>
-        <Sun diskOccluderRef={sunDiskRef} />
+        <Sun />
         {/* The real sky, optionally, behind the Sun.
             This was cut from the master on the grounds that the stars were
             INVENTED — procedural, the same sky on every date — so printing them
@@ -122,7 +121,7 @@ export default function PlateScene() {
             the stars that were genuinely behind their Sun. It is now a real
             option rather than decoration, which is why the sky had to be
             correct before it could be printed. */}
-        {SKY && <Starfield sunOccluderRef={sunDiskRef} />}
+        {SKY && <Starfield />}
       </Suspense>
       <EffectComposer multisampling={0}>
         {/* Bloom stays: the corona's above-1.0 values are what become glow, and

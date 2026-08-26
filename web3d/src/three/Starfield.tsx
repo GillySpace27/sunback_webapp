@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { Html } from "@react-three/drei";
+import { Line } from "@react-three/drei";
 import { useStore, skyGuideOn } from "../store";
 import { PLANETS, PLANET_TINT, planetDirection } from "../lib/planets";
 import SkyGrid from "./SkyGrid";
@@ -24,6 +24,8 @@ import SkyGrid from "./SkyGrid";
 // real is every star's DIRECTION, magnitude and colour; what is stylised is the
 // distance. That split is the honest version of "correct sky, with parallax".
 const SHELL = 150;
+// The framebuffer height the star point-sizes below were tuned against.
+const REF_H = 900;
 
 // Plate mode renders a print master, so nothing here may depend on elapsed time.
 const PLATE =
@@ -164,19 +166,100 @@ const artFrag = /* glsl */ `
   }
 `;
 
-export default function Starfield({
-  sunOccluderRef,
+// A label rendered INTO the scene, not over it.
+//
+// These were drei <Html>: real DOM in a portal. That works on screen and
+// fails at the one moment that matters — a print master is captured with
+// canvas.toDataURL(), which sees only WebGL, so every planet and
+// constellation name silently vanished from the ordered print while still
+// showing in the preview beside it (found 2026-08-26; the server-side
+// renderer used page.screenshot(), which DID include the DOM, so the two
+// capture paths disagreed about what the product even was).
+//
+// As sprites they are part of the picture: captured by either path, scaled
+// with the framebuffer like everything else, and depth-tested against the
+// Sun for free — which also retires the <Html occlude> workaround that
+// existed only because DOM cannot depth-test against a canvas.
+const LABEL_PAD = 12;
+const labelCache = new Map<string, THREE.CanvasTexture>();
+
+function labelTexture(text: string, tint: string): THREE.CanvasTexture {
+  const key = `${text}|${tint}`;
+  const hit = labelCache.get(key);
+  if (hit) return hit;
+  const font = 600;
+  const px = 64;
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d")!;
+  ctx.font = `${font} ${px}px "Inter Variable", Inter, system-ui, sans-serif`;
+  const w = Math.ceil(ctx.measureText(text).width) + LABEL_PAD * 2;
+  c.width = w;
+  c.height = px + LABEL_PAD * 2;
+  const g = c.getContext("2d")!;
+  g.font = `${font} ${px}px "Inter Variable", Inter, system-ui, sans-serif`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  // A dark rim so a name stays readable over a bright limb or a star, the
+  // same job the CSS text-shadow used to do.
+  g.lineWidth = 6;
+  g.strokeStyle = "rgba(4,4,6,0.85)";
+  g.strokeText(text, c.width / 2, c.height / 2);
+  g.fillStyle = tint;
+  g.fillText(text, c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  labelCache.set(key, tex);
+  return tex;
+}
+
+function SkyLabel({
+  text,
+  tint,
+  scale,
+  registerMaterial,
 }: {
-  sunOccluderRef?: React.MutableRefObject<THREE.Mesh | null>;
-} = {}) {
-  const g = useRef<THREE.Group>(null);
-  const uniforms = useMemo(
-    () => ({ uDpr: { value: Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1) } }),
-    []
+  text: string;
+  tint: string;
+  scale: number;
+  registerMaterial: (m: THREE.SpriteMaterial) => void;
+}) {
+  const tex = useMemo(() => labelTexture(text, tint), [text, tint]);
+  const aspect = (tex.image as HTMLCanvasElement).width / (tex.image as HTMLCanvasElement).height;
+  return (
+    <sprite scale={[scale * aspect, scale, 1]}>
+      <spriteMaterial
+        ref={(m) => { if (m) registerMaterial(m as THREE.SpriteMaterial); }}
+        map={tex}
+        transparent
+        opacity={0}
+        depthWrite={false}
+        toneMapped={false}
+      />
+    </sprite>
   );
+}
+
+// sunOccluderRef is gone with the <Html> labels. It existed for one reason:
+// drei's Html is a screen-projected DOM overlay with no depth-buffer
+// participation, so a planet behind the Sun still drew its name on top of the
+// disk and had to be told, explicitly, what to hide behind. Sprites are scene
+// objects and depth-test for free.
+export default function Starfield() {
+  const g = useRef<THREE.Group>(null);
+  // gl_PointSize is in FRAMEBUFFER PIXELS, so a star's apparent size depends
+  // on how big the framebuffer is — not on how big the picture is. At the
+  // preview's 290px a 6px star is a clear point; captured at 2048 the same
+  // star is still 6px, i.e. seven times smaller relative to the frame, and by
+  // the time a product mockup shrinks that to ~160px the sky is empty.
+  //
+  // So this is driven from the actual drawing-buffer height each frame rather
+  // than being fixed at mount from devicePixelRatio. REF_H is the height the
+  // star sizes in `geo` were tuned against; the ratio makes them
+  // resolution-independent, which is also just correct on a retina display.
+  const uniforms = useMemo(() => ({ uDpr: { value: 1 } }), []);
   const date = useStore((s) => s.date);
   const showConstellations = useStore((s) => s.showConstellations);
-  const showPlanets = useStore((s) => s.showPlanets);
   const showStars = useStore((s) => s.showStars);
   const showLabels = useStore((s) => s.showLabels);
   const showArt = useStore((s) => s.showArt);
@@ -277,8 +360,13 @@ export default function Starfield({
     return new THREE.Quaternion().setFromRotationMatrix(m);
   }, [date]);
 
-  const lines = useRef<THREE.LineSegments>(null);
+  const lines = useRef<THREE.Object3D & { material: THREE.Material & { opacity: number } }>(null);
   const planetMats = useRef<THREE.MeshBasicMaterial[]>([]);
+  // Sprite labels fade in the render loop now that they are scene objects,
+  // rather than cross-fading in CSS as the DOM ones did.
+  const planetLabelMats = useRef<THREE.SpriteMaterial[]>([]);
+  const conLabelMats = useRef<THREE.SpriteMaterial[]>([]);
+  const labelAmt = useRef(0);
   // One fade amount PER LAYER, since they are now independently switchable —
   // a single shared value would make turning off planets also fade the lines.
   const conAmt = useRef(0);
@@ -287,9 +375,15 @@ export default function Starfield({
   const artMats = useRef<THREE.ShaderMaterial[]>([]);
   const first = useRef(true);
   const introAt = useRef<number | null>(null);
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     const el = g.current;
     if (!el) return;
+    // Star size tracks the framebuffer (see the uniforms note above). Capped
+    // so a very large capture does not turn the sky into blobs.
+    {
+      const h = state.gl.domElement.height || REF_H;
+      uniforms.uDpr.value = Math.min(4, Math.max(0.75, h / REF_H));
+    }
     // belongs to the space beats; gone before the atmosphere flash
     el.visible = useStore.getState().progress < 0.51;
     if (first.current) {
@@ -341,7 +435,7 @@ export default function Starfield({
       if (m) m.uniforms.uOpacity.value = artAmt.current * 0.17;
     }
     if (lines.current) {
-      const m = lines.current.material as THREE.LineBasicMaterial;
+      const m = lines.current.material as THREE.Material & { opacity: number };
       m.opacity = 0.34 * conAmt.current;
       lines.current.visible = conAmt.current > 0.004;
     }
@@ -349,6 +443,11 @@ export default function Starfield({
       if (!m) continue;
       m.opacity = planetAmt.current;
     }
+    labelAmt.current += ((stNow.showLabels ? 1 : 0) - labelAmt.current) * k;
+    // A planet's NAME belongs to the planet layer; a constellation's name is
+    // its own switch (the NAMES chip), which is why these fade separately.
+    for (const m of planetLabelMats.current) if (m) m.opacity = planetAmt.current;
+    for (const m of conLabelMats.current) if (m) m.opacity = labelAmt.current;
 
     // Slew, do not snap. Changing the date can move the sky by half a celestial
     // sphere, and cutting between two orientations reads as a glitch where the
@@ -410,21 +509,34 @@ export default function Starfield({
     return () => { alive = false; };
   }, [showLabels, names]);
 
-  const lineGeo = useMemo(() => {
+  // Segment endpoints as point pairs, for drei's <Line segments>.
+  //
+  // Was a raw <lineSegments> with lineBasicMaterial, whose width is ONE
+  // DEVICE PIXEL and cannot be changed — WebGL ignores lineWidth on nearly
+  // every desktop driver. That is invisible at preview size and worse than
+  // invisible in a print: the master is captured at 2048 and a product mockup
+  // renders it at ~160, so a 1px line downsamples to about a twelfth of a
+  // pixel and the constellations simply are not there (Gilly, 2026-08-26).
+  //
+  // drei's <Line> is LineMaterial underneath: it expands each segment into a
+  // screen-space quad, so linewidth is real and is expressed in pixels
+  // against a `resolution` uniform that drei keeps in step with the canvas.
+  // That last part is what makes it survive the capture — when the plate
+  // iframe is resized to 2048 to be photographed, the lines scale with it
+  // instead of staying hairlines.
+  const linePoints = useMemo(() => {
     if (!segs) return null;
-    const pos: number[] = [];
+    const pts: [number, number, number][] = [];
     for (const seg of segs) {
       const p = seg.p;
       // polyline -> line segments, drawn just inside the star shell so the
       // figures never occlude the stars they connect
       for (let i = 0; i + 5 < p.length; i += 3) {
-        pos.push(p[i] * SHELL * 0.99, p[i + 1] * SHELL * 0.99, p[i + 2] * SHELL * 0.99);
-        pos.push(p[i + 3] * SHELL * 0.99, p[i + 4] * SHELL * 0.99, p[i + 5] * SHELL * 0.99);
+        pts.push([p[i] * SHELL * 0.99, p[i + 1] * SHELL * 0.99, p[i + 2] * SHELL * 0.99]);
+        pts.push([p[i + 3] * SHELL * 0.99, p[i + 4] * SHELL * 0.99, p[i + 5] * SHELL * 0.99]);
       }
     }
-    const bg = new THREE.BufferGeometry();
-    bg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-    return bg;
+    return pts.length ? pts : null;
   }, [segs]);
 
   // The naked-eye planets, on the ecliptic where they actually are that day.
@@ -472,16 +584,22 @@ export default function Starfield({
           toggle. Conditional mounting is what made it blink: the figures
           appeared and vanished between one frame and the next, which reads as a
           glitch where a fade reads as an overlay being drawn. */}
-      {lineGeo && (
-        <lineSegments ref={lines} geometry={lineGeo} frustumCulled={false}>
-          <lineBasicMaterial
-            color="#7fa8d8"
-            transparent
-            opacity={0}
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </lineSegments>
+      {linePoints && (
+        <Line
+          ref={lines as never}
+          points={linePoints}
+          segments
+          color="#7fa8d8"
+          // Pixels, against drei's resolution uniform. 2.6 reads as a fine
+          // drawn line on screen and still survives a 12x downsample into a
+          // product mockup.
+          lineWidth={2.6}
+          transparent
+          opacity={0}
+          depthWrite={false}
+          toneMapped={false}
+          frustumCulled={false}
+        />
       )}
 
       {planets.map((pl, i) => (
@@ -499,46 +617,27 @@ export default function Starfield({
               toneMapped={false}
             />
           </mesh>
-          {/* The labels are DOM, so they cross-fade in CSS rather than in the
-              render loop — animating them through React state would re-render
-              five <Html> portals on every frame of the fade. */}
           {skyOnScreen && (
-          <Html
-            center
-            distanceFactor={SHELL * 0.9}
-            wrapperClass="sky-html"
-            // occlude against the Sun's disk mesh only (see Sun.tsx) — Html
-            // does not depth-test the WebGL canvas on its own, so without
-            // this the label draws on top of the disk regardless of which is
-            // actually nearer the camera along that ray.
-            occlude={sunOccluderRef ? [sunOccluderRef] : undefined}
-          >
-            <span className={"planet-label" + (showPlanets ? " planet-label--on" : "")}>
-              {pl.name}
-            </span>
-          </Html>
+            <SkyLabel
+              text={pl.name}
+              tint="#e9e4da"
+              scale={SHELL * 0.021}
+              registerMaterial={(m) => { planetLabelMats.current[i] = m; }}
+            />
           )}
         </group>
       ))}
 
-      {skyOnScreen && constellationLabels.map((c) => (
+      {skyOnScreen && constellationLabels.map((c, i) => (
         <group key={c.c} position={c.pos.toArray()}>
-          <Html
-            center
-            distanceFactor={SHELL * 0.9}
-            wrapperClass="sky-html"
-            occlude={sunOccluderRef ? [sunOccluderRef] : undefined}
-          >
-            <span
-              className={
-                "constellation-label" +
-                (showLabels ? " constellation-label--on" : "") +
-                (c.zodiac ? " constellation-label--zodiac" : "")
-              }
-            >
-              {c.name}
-            </span>
-          </Html>
+          <SkyLabel
+            text={c.name}
+            // the zodiac reads gold, as it did in CSS: those are the twelve
+            // the date actually travels through
+            tint={c.zodiac ? "#d9b45a" : "#8fa6c4"}
+            scale={SHELL * 0.019}
+            registerMaterial={(m) => { conLabelMats.current[i] = m; }}
+          />
         </group>
       ))}
 

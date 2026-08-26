@@ -405,11 +405,7 @@ BLACK_1PX.needsUpdate = true;
 // quad is deliberately NOT an occluder: it is meant to read as translucent
 // (see the diegetic-corona work), so a label showing through the glow is
 // correct, only the solid disk should hide it.
-export default function Sun({
-  diskOccluderRef,
-}: {
-  diskOccluderRef?: React.MutableRefObject<THREE.Mesh | null>;
-} = {}) {
+export default function Sun() {
   const corona = useRef<THREE.Mesh>(null);
   const seqT = useRef(0);
 
@@ -628,12 +624,7 @@ export default function Sun({
 
   return (
     <>
-      <mesh
-        visible={visible}
-        ref={(m) => {
-          if (diskOccluderRef) diskOccluderRef.current = m;
-        }}
-      >
+      <mesh visible={visible}>
         <icosahedronGeometry args={[1.6, 12]} />
         <shaderMaterial
           vertexShader={vertex}
