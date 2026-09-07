@@ -48,8 +48,8 @@ export default function Masthead() {
           Here it is a fourth clause competing with the opening frame, and the
           3D journey demonstrates the enhancement rather than asserting it. */}
       <p className="masthead-intro">
-        Pick any date since 2010: real NASA/SDO observations of the Sun from that day. Yours as a
-        print, poster, or canvas.
+        A birthday. An anniversary. A day worth keeping.
+        Choose an available date and turn NASA/SDO solar imagery into a print, poster, or canvas.
       </p>
     </header>
   );

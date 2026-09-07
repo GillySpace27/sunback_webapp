@@ -3,7 +3,7 @@ import { useFrame, ThreeEvent } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { useStore } from "../store";
-import { CHANNELS, DEFAULT_CHANNEL } from "../data/wavelengths";
+import { CHANNELS } from "../data/wavelengths";
 import { useWheelTextures } from "../hooks/useWheelTextures";
 
 // The filter wheel: the day's Sun in every wavelength, as a clean palette. A
@@ -13,20 +13,8 @@ import { useWheelTextures } from "../hooks/useWheelTextures";
 const INNER = 1.6; // ring hole sits OUTSIDE the 3D Sun's silhouette (whole disk + a gap)
 const OUTER = 3.0;
 const DISC_UV = 0.31; // solar-disk radius in the thumb's UV space (FOV ~3072")
-const WHEEL_Z = 2.0; // in front of the 3D sphere, which shows through the hole
-// The beat auto-walks every channel until the visitor picks one.
-//
-// The wheel showed eight slices of the day's Sun but the SPHERE in the middle
-// — the big one, the one the whole frame is composed around — sat on a single
-// wavelength, so the beat asserted "one Sun, eight kinds of light" while
-// demonstrating one. Walking the selection makes the claim and the picture the
-// same statement, and it makes "Select a color." a live question rather than a
-// caption (Gilly, 2026-08-25).
-//
-// It runs on stageChannel, NOT setChannel: this is the film showing the
-// options, not the visitor choosing one, so it must not silence the "keep
-// scrolling" nudge or masquerade as a preference. First real pick stops it.
-const CYCLE_SECONDS = 1.35;
+const WHEEL_Z = -1.0; // in front of the 3D sphere, which shows through the hole
+// Selection remains stable until the visitor chooses a wavelength.
 
 function ringWedge(a0: number, a1: number) {
   const shape = new THREE.Shape();
@@ -91,7 +79,6 @@ export default function Heliograph() {
     });
   }, []);
 
-  const cycleT = useRef(0);
   useFrame((_, dt) => {
     const { channel: ch, progress } = useStore.getState();
     // the camera only frames the wheel centered near the aperture dwell (~0.22–
@@ -137,27 +124,7 @@ export default function Heliograph() {
       const z = (selected ? 0.14 : hot ? 0.08 : 0) * fade;
       m.position.z += (z - m.position.z) * aZ;
     }
-    // Cycle only while the wheel is actually up, nobody has chosen, and motion
-    // is welcome. All eight frames are already in memory by now
-    // (useWheelTextures loads them at mount), so each step is a texture swap,
-    // not a fetch.
-    const st = useStore.getState();
-    if (fade > 0.9 && !st.channelChosen && !st.reducedMotion) {
-      cycleT.current += dt;
-      if (cycleT.current >= CYCLE_SECONDS) {
-        cycleT.current = 0;
-        st.stageChannel((ch + 1) % CHANNELS.length);
-      }
-    } else {
-      cycleT.current = 0;
-      // Left the beat without choosing? Put it back where the film staged it.
-      // Otherwise the wavelength — a real purchase parameter — is whatever the
-      // carousel happened to be showing when they scrolled away, which is a
-      // choice nobody made.
-      if (fade <= 0.01 && !st.channelChosen && ch !== DEFAULT_CHANNEL) {
-        st.stageChannel(DEFAULT_CHANNEL);
-      }
-    }
+    // The wavelength is a purchase choice; change it only on user input.
     group.current.visible = fade > 0.01;
     // the invisible wheel is still raycast by R3F, so clear any hover that
     // lingers (or fires) once we've left the aperture beat — no tooltip in the
@@ -213,7 +180,7 @@ export default function Heliograph() {
             />
           </mesh>
           <mesh position={w.labelPos} raycast={() => null}>
-            <planeGeometry args={[1.64, 0.46]} />
+            <planeGeometry args={[1.1, 0.31]} />
             <meshBasicMaterial map={w.label} transparent depthWrite={false} toneMapped={false} />
           </mesh>
         </group>

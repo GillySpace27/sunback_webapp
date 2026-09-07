@@ -157,7 +157,7 @@ export default function Cabin() {
     // interior beat (the "half-composed" bug). The spline TARGET z crosses this
     // wall's fade zone (~28.5 darkroom @0.64 -> 25.5 room @0.74) over roughly
     // progress [0.66, 0.73]; remap that span 1 -> 0 directly.
-    const frontFade = THREE.MathUtils.clamp((0.73 - p) / (0.73 - 0.66), 0, 1);
+    const frontFade = THREE.MathUtils.clamp((0.69 - p) / (0.69 - 0.64), 0, 1);
     for (const m of frontMats.current) (m as THREE.Material).opacity = o * frontFade;
     // the window pulses faintly warmer so it reads as lit-from-within (also fades
     // on approach so we fly through the pane, not into it)

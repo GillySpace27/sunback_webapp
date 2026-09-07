@@ -44,16 +44,24 @@ export function useRhefTextureLoader() {
   const channel = useStore((s) => s.channel);
   const look = useStore((s) => s.look);
   const frontierReady = useStore((s) => s.frontierReady);
+  const dragging = useStore((s) => s.dateDragging);
 
   useEffect(() => {
     // Nothing to do until someone actually asks for the enhanced look.
-    if (look !== "rhef" || !date || !frontierReady) return;
+    if (look !== "rhef" || !date || !frontierReady || dragging) return;
     const wl = CHANNELS[channel].angstrom;
     const key = `${date}T${time}_${wl}`;
     let alive = true;
+    const controller = new AbortController();
+    const deadline = window.setTimeout(() => {
+      alive = false;
+      controller.abort();
+      useStore.getState().setRhefStatus("error");
+    }, 60000);
 
     const cached = cache.get(key);
     if (cached) {
+      clearTimeout(deadline);
       useStore.getState().setRhefTexture(cached);
       useStore.getState().setRhefStatus("ready");
       return;
@@ -70,10 +78,15 @@ export function useRhefTextureLoader() {
         try {
           const r = await fetch(`${API_BASE}/api/generate_preview`, {
             method: "POST",
+            signal: controller.signal,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ date, time: time || "12:00", wavelength: wl }),
           });
-          if (r.ok) url = (await r.json())?.preview_url ?? null;
+          if (r.ok) {
+            const result = await r.json();
+            if (result.error) break;
+            url = result.preview_url ?? null;
+          } else if (r.status >= 400 && r.status < 500 && r.status !== 429) break;
         } catch {
           /* transient; the retry below covers it */
         }
@@ -84,6 +97,7 @@ export function useRhefTextureLoader() {
             abs,
             (tex) => {
               if (!alive) { tex.dispose(); return; }
+              clearTimeout(deadline);
               tex.colorSpace = THREE.SRGBColorSpace;
               put(key, tex);
               const st = useStore.getState();
@@ -91,15 +105,16 @@ export function useRhefTextureLoader() {
               st.setRhefStatus("ready");
             },
             undefined,
-            () => alive && useStore.getState().setRhefStatus("error")
+            () => { clearTimeout(deadline); if (alive) useStore.getState().setRhefStatus("error"); }
           );
           return;
         }
         await new Promise((res) => setTimeout(res, attempt < 6 ? 2500 : 5000));
       }
+      clearTimeout(deadline);
       if (alive) useStore.getState().setRhefStatus("error");
     };
     void ask();
-    return () => { alive = false; };
-  }, [date, time, channel, look, frontierReady]);
+    return () => { alive = false; clearTimeout(deadline); controller.abort(); };
+  }, [date, time, channel, look, frontierReady, dragging]);
 }

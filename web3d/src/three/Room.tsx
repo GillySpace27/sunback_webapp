@@ -112,7 +112,7 @@ function MaterializingPrint({ tex }: { tex: THREE.Texture }) {
     // scroll-driven inkblot bloom as you settle into the room
     uniforms.uReveal.value = reducedMotion
       ? 1
-      : THREE.MathUtils.clamp((progress - 0.74) / 0.09, 0, 1);
+      : THREE.MathUtils.clamp((progress - 0.63) / 0.07, 0, 1);
   });
   return (
     <mesh position={[0, 0, 0.02]}>
@@ -143,11 +143,11 @@ function Shimmer() {
 }
 
 export default function Room() {
-  const tex = useStore((s) => s.currentTexture);
+  const tex = useStore((s) => s.look === "rhef" && s.rhefStatus === "ready" && s.rhefTexture instanceof THREE.Texture ? s.rhefTexture : s.currentTexture);
   // reveal as the cabin exterior dissolves — a hair earlier than the wall-cross
   // so the interior is already present UNDER the warm entry bloom (no see-through
   // gap while the exterior front wall has faded but the interior hasn't shown)
-  const near = useStore((s) => s.progress > 0.7);
+  const near = useStore((s) => s.progress > 0.63);
   const showPrint = near && !!tex;
   const sky = useMemo(makeSky, []);
   const shaft = useMemo(makeShaft, []);
@@ -170,7 +170,7 @@ export default function Room() {
           reading as a flat plane */}
       <mesh position={[0, 0, -0.5]}>
         <planeGeometry args={[60, 36]} />
-        <meshStandardMaterial color="#3a2717" roughness={1} />
+        <meshStandardMaterial color="#80766b" roughness={0.96} />
       </mesh>
       {/* wood floor at standing height (just below the eye), wide + deep enough
           to fully cover the field grass behind it as we step inside — so the
@@ -218,14 +218,14 @@ export default function Room() {
 
       {/* ── the framed print, where the light lands ── */}
       <group position={[1.2, 0.1, 0]}>
-        <mesh position={[0, 0, -0.02]}>
-          <planeGeometry args={[2.36, 2.36]} />
+        <mesh position={[0, 0, -0.07]}>
+          <boxGeometry args={[2.36, 2.36, 0.12]} />
           <meshStandardMaterial color="#0f0b08" roughness={0.6} metalness={0.1} />
         </mesh>
         {/* muted paper mat — a near-white mat blooms into a harsh white rim */}
         <mesh position={[0, 0, 0]}>
           <planeGeometry args={[2.12, 2.12]} />
-          <meshStandardMaterial color="#a89a7e" roughness={0.95} />
+          <meshStandardMaterial color="#d4c9b7" roughness={0.95} />
         </mesh>
         {/* warm-dark backing so the print reads as a dim image while it
             materializes, not a black void inside a glowing frame */}

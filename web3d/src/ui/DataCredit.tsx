@@ -20,7 +20,7 @@ export default function DataCredit() {
         endorsement implied.
       </p>
       <nav className="data-credit-legal" aria-label="Legal">
-        <span className="data-credit-owner">© 2026 Chris Gilly</span>
+        <span className="data-credit-owner">© 2026 My Heliograph</span>
         <span aria-hidden="true">·</span>
         <a href="/privacy">Privacy</a>
         <span aria-hidden="true">·</span>

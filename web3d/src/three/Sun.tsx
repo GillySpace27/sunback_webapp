@@ -297,11 +297,16 @@ const RHEF_EXPOSURE = 1.0;
 const CORONA_DISC_R = 0.31;
 const CORONA_SIZE = 1.6 / CORONA_DISC_R;
 
+const CORONA_RELIEF = new URLSearchParams(window.location.search).get("corona") === "relief";
 const coronaVertex = /* glsl */ `
   varying vec2 vUv;
+  uniform float uRelief;
   void main() {
     vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec3 staged = position;
+    float radius = length(position.xy);
+    staged.z -= uRelief * smoothstep(1.55, 2.5, radius);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(staged, 1.0);
   }
 `;
 
@@ -491,6 +496,7 @@ export default function Sun() {
       uRainG: { value: BLACK_1PX as THREE.Texture },
       uRainB: { value: BLACK_1PX as THREE.Texture },
       uHasRainbow: { value: 0 },
+      uRelief: { value: CORONA_RELIEF ? 0.7 : 0 },
       uQuadR: { value: CORONA_SIZE / 2 / 1.6 },  // quad half-width, in solar radii
       // The disk's re-projection confidence, applied here too. Off-limb
       // structure is optically thin, so a single frame carries no depth to
@@ -636,7 +642,7 @@ export default function Sun() {
       {/* Corona quad, kept facing the camera in useFrame below. No pointer
           handlers — see the header note; the HUD toggle owns raw/RHEF. */}
       <mesh ref={corona} visible={visible}>
-        <planeGeometry args={[CORONA_SIZE, CORONA_SIZE]} />
+        <planeGeometry args={[CORONA_SIZE, CORONA_SIZE, CORONA_RELIEF ? 64 : 1, CORONA_RELIEF ? 64 : 1]} />
         <shaderMaterial
           vertexShader={coronaVertex}
           fragmentShader={coronaFragment}

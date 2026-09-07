@@ -1,7 +1,7 @@
 import { CSSProperties, MouseEvent, ReactNode, useState } from "react";
 import { useStore, dateValid } from "../store";
 import { CHANNELS } from "../data/wavelengths";
-import { buyUrl, warmBackend } from "../lib/handoff";
+import { buyUrl, warmBackend, skySettings } from "../lib/handoff";
 
 // The purchase CTA: builds the deep link to the original front end with the
 // chosen date + wavelength, warms the backend on intent, and shows a short
@@ -26,6 +26,12 @@ export default function BuyLink({
   const channel = useStore((s) => s.channel);
   const look = useStore((s) => s.look);
   const form = useStore((s) => s.form);
+  const stars = useStore((s) => s.showStars);
+  const con = useStore((s) => s.showConstellations);
+  const planets = useStore((s) => s.showPlanets);
+  const art = useStore((s) => s.showArt);
+  const labels = useStore((s) => s.showLabels);
+  const grid = useStore((s) => s.showGrid);
   const valid = useStore(dateValid);
   const [preparing, setPreparing] = useState(false);
   // No committed date to sell (cleared field, or the frontier clamp just
@@ -33,7 +39,7 @@ export default function BuyLink({
   // renders inert rather than promising a Sun it can't deliver. SkipToStore
   // stays live either way; it's the deliberate escape hatch (see its comment).
   const href = valid
-    ? buyUrl(date, time, CHANNELS[channel].angstrom, { look, form, ...(cat ? { cat } : {}) })
+    ? buyUrl(date, time, CHANNELS[channel].angstrom, { look, form, sky: { stars, con, planets, art, labels, grid }, ...(cat ? { cat } : {}) })
     : undefined;
 
   const go = (e: MouseEvent) => {
@@ -53,7 +59,7 @@ export default function BuyLink({
       // date/time/channel, so a frontier clamp landing during the hold can't
       // send a now-superseded date.
       const s = useStore.getState();
-      if (!dateValid(s)) return; // went invalid mid-hold, nothing honest to send
+      if (!dateValid(s)) { setPreparing(false); return; } // went invalid mid-hold, nothing honest to send
       // look + form, same as the href above. They were missing HERE, and this
       // is the branch every ordinary click actually takes — the href is only
       // used for middle-click/new-tab. So the handoff always arrived without
@@ -64,6 +70,7 @@ export default function BuyLink({
       window.location.href = buyUrl(s.date, s.time, CHANNELS[s.channel].angstrom, {
         look: s.look,
         form: s.form,
+        sky: skySettings(s),
         ...(cat ? { cat } : {}),
       });
     });

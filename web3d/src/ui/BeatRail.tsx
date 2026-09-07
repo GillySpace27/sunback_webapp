@@ -25,7 +25,7 @@ const LABELS: Record<string, string> = {
   darkroom: "Your wall",
   room: "The print",
   gift: "The gift",
-  gallery: "Everything else",
+  gallery: "Choose your object",
 };
 
 export default function BeatRail() {

@@ -17,7 +17,7 @@ const POS: [number, number, number][] = [
   [0, 0, 7.4], // aperture — pull back so the wheel reads as a full ring, clear of the title
   [3.0, -1.2, 34.0], // crossing — pulled back toward the viewer: Sun small+far, Earth near, beam
   [5.5, -5.9, 42.0], // sky — standing back in the field, the whole log cabin in view
-  [4.3, -6.75, 28.5], // darkroom — dolly right up to the cabin's warm, lit window
+  [5.8, -6.3, 27.5], // darkroom — dolly right up to the cabin's warm, lit window
   [5.2, -6.4, 25.5], // room — just inside the (dissolved) window, a proper viewing distance from the print
   [5.45, -6.35, 26.6], // gift — settle, still on the ground floor
   [11.5, -6.2, 31.5], // gallery — pull back to fit the whole product display (frames + object shelf)
@@ -28,7 +28,7 @@ const TGT: [number, number, number][] = [
   [0, 0, 0], // aperture — the wheel around the Sun
   [5.7, -3.8, 17], // crossing — frame Earth's sun-facing limb (where we descend), Sun off to the side
   [5.4, -6.7, 24.6], // sky — the cabin sitting in the field, mountains behind
-  [4.2, -6.9, 24.6], // darkroom — the glowing window we zoom into
+  [6.7, -6.5, 22], // darkroom — the glowing window we zoom into
   [6.3, -6.8, 22], // room — the print on the wall where the light lands
   [6.3, -6.75, 22], // gift
   [12.0, -7.1, 21.6], // gallery — look slightly down so the object shelf sits in frame below the wall art
@@ -41,8 +41,8 @@ const REACT: Record<SpaceKey, number> = {
   aperture: 0.18, // keep the wheel centered/stable, not drifting with the cursor
   sky: 0.15, // a gentle up-look; too much parallax here reads as a wobble
   darkroom: 0.3,
-  room: 0.5,
-  gift: 0.4,
+  room: 0.08,
+  gift: 0.08,
   gallery: 0.35,
 };
 

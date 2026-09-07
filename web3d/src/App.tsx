@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { useScrollProgress } from "./hooks/useScrollProgress";
 import { useDateDrag } from "./hooks/useDateDrag";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
@@ -125,23 +125,6 @@ const PLATE_BARE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("bare") === "1";
 
-// The film opens on 171 now (see DEFAULT_CHANNEL), so there is no channel to
-// stage. What still has to happen at the aperture beat is asking for the RHEF
-// frame: it is a real FITS fetch and filter pass, so it is requested when the
-// beat that shows it off comes into view rather than on page load.
-const RHEF_REQUEST_AT = 0.2;
-
-function useRhefRequest() {
-  const asked = useRef(false);
-  useEffect(() => {
-    return useStore.subscribe((s) => {
-      if (asked.current || s.progress < RHEF_REQUEST_AT) return;
-      asked.current = true;
-      if (useStore.getState().look === "raw") useStore.getState().setLook("rhef");
-    });
-  }, []);
-}
-
 // Screen-reader text alternative for the (aria-hidden) WebGL stage that tracks
 // the CURRENT selection, not a static description. Subscribes only to date +
 // channel, which change on explicit user action, so this re-renders rarely.
@@ -165,7 +148,6 @@ export default function App() {
   useDateDrag();    // drag the sky sideways to wind the date
   useSunTextureLoader(); // loads the real Sun for the current identity
   useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
-  useRhefRequest(); // asks for the RHEF frame as its beat comes into view
   useTimelapseLoader(); // opt-in: the day as a sequence of real frames
   useRainbowLoader(); // opt-in: 171/193/211 RHEF composited to RGB
 

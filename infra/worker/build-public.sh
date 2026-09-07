@@ -158,8 +158,8 @@ fi
 # ponytail: static-copy, not a sync tool — warms are rare and re-deploy is one line.
 DC="data_mirror/mirror/default_cache"
 if [ -d "../../$DC" ] || [ -d "../$DC" ]; then
-  SRC=$(cd "$(dirname "$0")" && cd ../.. 2>/dev/null && pwd)/$DC
-  [ -d "$SRC" ] || SRC=$(cd "$(dirname "$0")" && cd .. && pwd)/$DC
+  SRC="../../$DC"
+  [ -d "$SRC" ] || SRC="../$DC"
   DEST="$OUT/asset/default"
   mkdir -p "$DEST/mockups"
   cp "$SRC/default_mockups.json" "$DEST/" 2>/dev/null || true

@@ -37,11 +37,16 @@ export type GalleryKind = keyof typeof GALLERY_CATEGORY;
 
 // Deep link that lands the buyer at the store with identity preloaded. Optional
 // `cat` scrolls the product grid to a category group (from a gallery piece).
+export function skySettings(s: { showStars: boolean; showConstellations: boolean; showPlanets: boolean; showArt: boolean; showLabels: boolean; showGrid: boolean }) {
+  return { stars: s.showStars, con: s.showConstellations, planets: s.showPlanets,
+    art: s.showArt, labels: s.showLabels, grid: s.showGrid };
+}
+
 export function buyUrl(
   date: string,
   time: string,
   angstrom: number,
-  opts?: { cat?: string; tune?: boolean; look?: "raw" | "rhef"; form?: "flat" | "dimensional" }
+  opts?: { cat?: string; tune?: boolean; look?: "raw" | "rhef"; form?: "flat" | "dimensional"; sky?: ReturnType<typeof skySettings> }
 ) {
   // date arrives "" when the visitor has cleared the date field (see
   // store.ts's setDate) : SkipToStore leans on this to hand off a bare store
@@ -62,6 +67,7 @@ export function buyUrl(
   // same two questions the HUD just answered.
   if (opts?.look) q.set("look", opts.look);
   if (opts?.form) q.set("form", opts.form);
+  if (opts?.sky) Object.entries(opts.sky).forEach(([key, value]) => q.set(key, value ? "1" : "0"));
   return `${ORIGINAL_SITE}${STORE_PATH}?${q.toString()}`;
 }
 
@@ -83,8 +89,7 @@ export function warmBackend(): Promise<void> {
 // Real full-disk SDO/AIA JPG for a date + wavelength. FOV is kept at ~3072"
 // (disk ~62% of frame) by scaling image_scale with size.
 export function thumbUrl(date: string, time: string, angstrom: number, size = 1024) {
-  const hh = (time || "12:00").slice(0, 2);
-  const iso = `${date}T${hh}:00:00Z`;
+  const iso = `${date}T${time || "12:00"}:00Z`;
   const scale = Math.max(1, Math.round(3072 / size)); // arcsec/pixel
   const q = new URLSearchParams({
     date: iso,

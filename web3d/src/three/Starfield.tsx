@@ -460,7 +460,7 @@ export default function Starfield() {
       // Never in plate mode. A print master must be deterministic — one
       // rendered at 3.3s and one at 3.5s would otherwise differ — so the plate
       // takes the guide explicitly (?guide=1) and never from a timer.
-      if (!PLATE && !st.skyGuideTouched && st.progress < 0.51) {
+      if (!PLATE && !st.skyGuideTouched && st.progress >= 0.37 && st.progress < 0.51) {
         if (introAt.current === null) introAt.current = 0;
         else introAt.current += dt;
         if (introAt.current > 3.4 && !skyGuideOn(st)) {

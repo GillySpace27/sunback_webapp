@@ -5893,6 +5893,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           ["skyPlanets", "planets"],
           ["skyGrid", "grid"],
         ];
+        var incomingSky = new URLSearchParams(window.location.search);
+        _SKY_CHIPS.forEach(function (pair) {
+          var value = incomingSky.get(pair[1]);
+          var el = document.getElementById(pair[0]);
+          if (el && value !== null) el.checked = value === "1" || value === "true";
+        });
         function _skyQuery() {
           // Every layer is stated EXPLICITLY, on or off. Sending only the
           // switched-on ones would let the experience's own defaults fill in

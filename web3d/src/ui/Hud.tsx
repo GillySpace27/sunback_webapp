@@ -95,7 +95,7 @@ export default function Hud() {
   // button removed, that left "Skip to the store" as the only keyboard- or
   // AT-reachable way to buy — an escape hatch doing a CTA's job. This is in
   // the real <nav id="buy">, so it is announced and focusable.
-  const atClimax = useStore((s) => s.progress >= 0.84);
+  const atClimax = useStore((s) => s.progress >= 0.64);
   // Only while the date is genuinely unanswered, and only on the beats where
   // choosing it is the job. Once a date is committed the prompts have done
   // their work and would just be clutter over the film.
@@ -179,7 +179,7 @@ export default function Hud() {
       {/* Wavelength: screen-reader/keyboard only. See the header comment — the
           3D wheel is the visual selector, this is what makes it operable
           without a pointer. */}
-      <div className="visually-hidden" role="radiogroup" aria-label="Wavelength">
+      <div className={wheelOnScreen ? "wavelength-palette" : "visually-hidden"} role="radiogroup" aria-label="Wavelength">
         {CHANNELS.map((ch, i) => (
           <label key={ch.angstrom}>
             <input
@@ -212,10 +212,12 @@ export default function Hud() {
           ))}
         </div>
         {look === "rhef" && rhefStatus === "loading" && (
-          <span className="picker-status"> · revealing the corona…</span>
+          <span className="picker-status">Preparing enhanced detail. Original is shown until it is ready.</span>
         )}
         {look === "rhef" && rhefStatus === "error" && (
-          <span className="picker-status err"> · enhanced view unavailable</span>
+          <span className="picker-status err" role="status">
+            Enhanced view unavailable. <button type="button" className="hud-prompt" onClick={() => setLook("raw")}>Use original</button>
+          </span>
         )}
       </div>
 
@@ -234,12 +236,18 @@ export default function Hud() {
 
       {atClimax && (
         <div className="hud-row hud-row--buy">
-          <BuyLink className="cta cta--bar">Make one</BuyLink>
+          <BuyLink className="cta cta--bar" cat="wall">Create my print</BuyLink>
           {!valid && <span className="picker-hint">Pick a date to continue</span>}
           <span className="price-anchor">Prints from $9.99</span>
         </div>
       )}
 
+      {showReadout && (
+        <p className="image-provenance">
+          {status === "ready" ? "Solar imagery" : "Preview loading; displayed image may be a reference"} · false colour · staged in 3D
+          {new URLSearchParams(window.location.search).get("corona") === "relief" && " · experimental depth, not measured geometry"}
+        </p>
+      )}
       {!wheelOnScreen && (
         <button
           type="button"

@@ -1575,8 +1575,6 @@ body {
   .dateroll__cell.roll-up, .dateroll__cell.roll-down { animation: none; }
   .dateroll { transition: none; }
 }
-  .dateroll { transition: none; }
-}
 
 /* How to operate the date. Sits with the field, not as a tooltip: the sky-drag
    is undiscoverable otherwise, and a hint nobody hovers is not a hint. */
@@ -1603,10 +1601,25 @@ body {
 .hud-readout { transition: opacity var(--dur-base) var(--ease); }
 .hud-readout[data-off="1"] { opacity: 0; }
 .hud-row[data-off="1"] {
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
   /* collapse so the HUD does not reserve a gap for a row nobody can use */
   height: 0;
   margin: 0;
   overflow: hidden;
+}
+
+/* A readable, native counterpart to the wavelength wheel. */
+.wavelength-palette { display: flex; flex-wrap: wrap; justify-content: center; gap: .35rem; }
+.wavelength-palette label { position: relative; padding: .5rem .65rem; border: 1px solid #766a57; border-radius: 4px; font-size: .875rem; cursor: pointer; background: #171411; }
+.wavelength-palette label:has(input:checked) { border-color: #e5be7e; background: #453523; color: #fff3df; }
+.wavelength-palette input { position: absolute; opacity: 0; }
+.wavelength-palette label:focus-within { outline: 2px solid #fff3df; outline-offset: 3px; }
+.image-provenance { margin: .2rem 0 0; text-align: center; color: #c1b7a9; font-size: .75rem; }
+@media (max-width: 600px) {
+  .hud { max-height: 43svh; overflow-y: auto; }
+  .hud-prompts { display: none; }
+  .wavelength-palette label { padding: .4rem .55rem; }
+  .hud-row--sky { gap: .25rem; }
 }

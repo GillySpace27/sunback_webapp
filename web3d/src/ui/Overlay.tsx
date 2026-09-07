@@ -33,12 +33,7 @@ function ClosingCard() {
   return (
     <div className={"closing" + (shown ? " closing--in" : "")} aria-hidden={!shown}>
       <p className="closing-date">{longDate(date)}</p>
-      {/* True, and the entire pitch. The Sun is resurfacing constantly: the
-          corona reorganises over days and the photosphere is replaced on a
-          timescale of minutes, so this arrangement of it genuinely occurred
-          once and was never repeated. It is also the honest answer to "why
-          does the date matter?" */}
-      <p className="closing-line">This exact Sun existed once.</p>
+      <p className="closing-line">A day worth keeping.</p>
       <BuyLink className="cta closing-cta">Make this one</BuyLink>
     </div>
   );
@@ -80,7 +75,7 @@ const COPY: Record<string, { line: string }> = {
   darkroom: { line: "Into your home, onto your wall." },
   room: { line: "Your day, written in sunlight." },
   gift: { line: "Held still. Made to keep." },
-  gallery: { line: "Printed on just about anything you can imagine." },
+  gallery: { line: "Choose something to keep it on." },
 };
 
 // One line per space. Each line HOLDS at full opacity across the middle of its
