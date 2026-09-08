@@ -456,9 +456,12 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  /* the footer credit sits below this bar and now carries the legal row too,
-     so reserve its height (~2 lines) or the two collide */
-  bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + 1.9rem);
+  /* The footer credit sits below this bar and carries the legal row too, so
+     reserve its height or the two collide. --credit-h is written by
+     DataCredit from the element's own measured height (see its comment); the
+     1.9rem fallback is the old hardcoded one-line guess, which is only ever
+     used for the frame or two before the observer first fires. */
+  bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + var(--credit-h, 1.9rem) + 0.75rem);
   z-index: 3;
   padding-top: 14px; /* room for the plate's drop shadow */
   overflow-x: auto;

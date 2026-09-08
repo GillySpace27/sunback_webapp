@@ -28,6 +28,12 @@ import DateField from "./DateField";
 // control, wavelength becomes unreachable by keyboard or screen reader
 // entirely. That group is the accessible counterpart it was always described
 // as — it just no longer draws a second, competing UI.
+// Read once: the query string cannot change without a reload, and this was
+// being re-parsed on every render of the provenance line.
+const CORONA_RELIEF =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("corona") === "relief";
+
 export default function Hud() {
   const channel = useStore((s) => s.channel);
   const setChannel = useStore((s) => s.setChannel);
@@ -80,7 +86,14 @@ export default function Hud() {
   // layers genuinely have nothing to act on past there — offering them would
   // be four switches that do nothing visible. The wavelength readout waits
   // for the aperture beat, where the wheel that sets it appears.
-  const showSkyRow = useStore((s) => s.progress >= 0.1 && s.progress < 0.51);
+  // Starts at the CROSSING (0.37), not 0.10. The old window opened at the
+  // surface beat, so six sky chips sat under the wavelength wheel through the
+  // whole aperture beat — on a phone they wrapped to two rows directly beneath
+  // the radio palette and competed with the one choice that beat exists to ask
+  // (captured 2026-09-08, mobile beat 03). The upper bound stays 0.51 because
+  // that is where the starfield itself stops rendering: past it these six
+  // switches would change nothing on screen.
+  const showSkyRow = useStore((s) => s.progress >= 0.37 && s.progress < 0.51);
   const showLookRow = useStore((s) => s.progress >= 0.19);
   const showReadout = useStore((s) => s.progress >= 0.19);
   // The date stays for the whole film: it is the identity, not a setting, and
@@ -242,10 +255,15 @@ export default function Hud() {
         </div>
       )}
 
-      {showReadout && (
+      {/* Gated on `relief` as well as showReadout. The relief study starts
+          shading the disk from the first frame, but showReadout only turns on
+          at 0.19 — so beats 01 and 02 rendered brightness-derived relief with
+          no label at all (captured 2026-09-08, ?corona=relief at 0.16). The
+          disclosure has to outlive the readout it was nested inside. */}
+      {(showReadout || CORONA_RELIEF) && (
         <p className="image-provenance">
           {status === "ready" ? "Solar imagery" : "Preview loading; displayed image may be a reference"} · false colour · staged in 3D
-          {new URLSearchParams(window.location.search).get("corona") === "relief" && " · experimental depth, not measured geometry"}
+          {CORONA_RELIEF && " · experimental depth, not measured geometry"}
         </p>
       )}
       {!wheelOnScreen && (

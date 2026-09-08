@@ -130,6 +130,10 @@ function ClimaxDate() {
 // The fixed, static list of spaces that actually carry copy (threshold is
 // intentionally silent) — computed once so the mount-time ref array and the
 // per-frame subscription below always walk the same order.
+// The beats whose subject is the printed object. Their copy is positioned off
+// the print (see .overlay-line--climax) rather than across it.
+const PRODUCT_BEATS = new Set(["darkroom", "room", "gift"]);
+
 const ITEMS = SPACES.map((s, i) => ({ space: s, index: i, copy: COPY[s.key] })).filter(
   (it): it is typeof it & { copy: NonNullable<typeof it.copy> } => Boolean(it.copy)
 );
@@ -146,7 +150,7 @@ export default function Overlay() {
   useEffect(() => {
     const write = (progress: number) => {
       for (let n = 0; n < ITEMS.length; n++) {
-        const { space: s, index } = ITEMS[n];
+        const { index } = ITEMS[n];
         const el = refs.current[n];
         if (!el) continue;
         const o = opacityFor(progress, index);
@@ -155,12 +159,6 @@ export default function Overlay() {
         // Fully-faded lines paint nothing — also kills the "dark smudge" of a
         // faded line's blurred ::before scrim (see styles.css).
         el.style.visibility = o <= 0.001 ? "hidden" : "visible";
-        if (s.key === "gift") {
-          // decorative CTA: only clickable once its figure has actually
-          // faded in (was an inline pointerEvents style on the render path;
-          // see the .overlay-cta-off rule in styles.css)
-          el.classList.toggle("overlay-cta-off", o <= 0.15);
-        }
       }
     };
     write(useStore.getState().progress); // paint the initial frame before the first tick
@@ -180,7 +178,12 @@ export default function Overlay() {
           className={
             "overlay-line" +
             (s.key === "aperture" ? " overlay-line--top" : "") +
-            (s.key === "room" ? " overlay-line--climax" : "") +
+            // The three product beats: darkroom, room, gift. On all three the
+            // print IS the argument, so the copy has to clear it. Only `room`
+            // carried this class, so "Into your home, onto your wall." and
+            // "Held still. Made to keep." each set dead-centre across the
+            // print they were describing (captured 2026-09-08, beats 06/08).
+            (PRODUCT_BEATS.has(s.key) ? " overlay-line--climax" : "") +
             (s.key === "crossing" ? " overlay-line--crossing" : "") +
             (s.key === "gallery" ? " overlay-line--gallery" : "") +
             // light-background beats: the dark plasma scrim would be a stain,
@@ -220,13 +223,13 @@ export default function Overlay() {
               {channelChosen ? "Keep scrolling to continue" : "Pick a light to keep"}
             </p>
           )}
-          {s.key === "gift" && (
-            // decorative twin of the real CTA in <nav id="buy">; kept out of the
-            // tab order since the whole overlay is aria-hidden
-            <BuyLink className="cta" decorative>
-              Make one
-            </BuyLink>
-          )}
+          {/* The decorative "Make one" twin used to sit here. It was written
+              when the real CTA appeared only at the very end; the real one now
+              shows from progress 0.64 (Hud's atClimax), so the gift beat
+              carried BOTH — "Make one" stacked directly above "Create my
+              print", two buttons for one ask (captured 2026-09-08, beat 08).
+              The aria-hidden twin was the one to lose: it was never in the tab
+              order and never announced. */}
         </figure>
       ))}
     </div>

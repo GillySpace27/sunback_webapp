@@ -13,8 +13,22 @@
 // whole time, just one page over. These are the same paths the store footer
 // uses; keep the two in sync.
 export default function DataCredit() {
+  // Publish this block's real height as --credit-h so #buy can reserve exactly
+  // it. The reserve used to be a hardcoded 1.9rem, which is one line: on a
+  // 390px phone the credit wraps to four (both the courtesy sentence and the
+  // legal row), so the HUD's provenance line landed on top of the NASA
+  // attribution and neither was readable (captured 2026-09-08, mobile beat
+  // 03). A measured value also survives the next copy or font change, which a
+  // second hardcoded constant would not.
+  const publish = (el: HTMLDivElement | null) => {
+    if (!el) return;
+    const write = () =>
+      document.documentElement.style.setProperty("--credit-h", `${el.offsetHeight}px`);
+    write();
+    new ResizeObserver(write).observe(el);
+  };
   return (
-    <div className="data-credit">
+    <div className="data-credit" ref={publish}>
       <p className="data-credit-line">
         Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams. Not affiliated; no
         endorsement implied.
