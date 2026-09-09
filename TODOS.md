@@ -1153,6 +1153,54 @@ no new error, which is the runbook's only blocking condition.
 
 ### Resolutions, 2026-09-09
 
+**P3 skip links.** Measured with real pointer activation on the local build,
+which does move focus, unlike the synthetic keys the lens was using. The two
+links do not behave the same way. The film's `a.skip` → `nav#buy` already
+worked: hash became `#buy` AND focus landed on the nav. The store's
+`a.skip-link` → `main#mainContent` set the hash and scrolled 322px but left
+focus on `<body>`, so the next Tab resumed in the header the link exists to
+bypass. That is the classic skip-link failure and it was real. `<main>` now
+carries `tabindex="-1"`; re-measured, focus lands on `#mainContent`. `nav#buy`
+got the same attribute: it worked, but nothing in the markup made a `<nav>`
+focusable, so that was the browser's fragment handling rather than a promise
+this page was making.
+
+**P3 tabbable hidden CTA.** Real. `.closing` is `visibility: visible;
+opacity: 0` until progress >= 0.972, so its `<a>` was in the tab order the
+whole film while the container was `aria-hidden`. The CTA is now mounted only
+when the card is shown; verified absent from the DOM before the last beat.
+Worth recording what this is NOT: the HUD's look and sky rows are also
+`aria-hidden` with focusable inputs inside, but they use
+`visibility: hidden`, which removes them from the tab order. `focus()` on one
+is refused. Those are correct; a scan that keys on `offsetParent` will keep
+flagging them.
+
+**P3 heading structure.** Fixed somewhere other than where the finding pointed.
+The beats' copy cannot carry headings: it lives inside
+`<div className="overlay" aria-hidden="true">`, deliberately, because it
+cross-fades every scroll frame. Marking up text that assistive tech never sees
+would have been a cosmetic change reported as an accessibility fix. The film's
+chapters are already named, ordered and announced in `BeatRail`
+(`nav aria-label="Film chapters"`, nine buttons, `aria-current="step"`), so the
+`h2` went there, wrapping each button rather than sitting inside it (a button
+takes phrasing content only). The film went from one heading to h1 + nine
+chapter h2s; rail geometry is unchanged, measured: row heights all 22px, one
+dot column at the same x, list height 277px, label font-size 10.56px.
+
+While checking that on a phone: under 640px `.beatrail__label` is
+`display: none`, which takes the name out of the accessibility tree as well, so
+the rail was **nine unnamed buttons on every phone** and would have been nine
+unnamed headings too. Pre-existing, not in the findings. The buttons now carry
+`aria-label`, which no media query can remove.
+
+**Naming, raised not changed.** `terms.html` (5x, including two indemnification
+clauses), `privacy.html`, `accessibility.html` and the site footer all name the
+operator "My Heliograph (operated by Chris Gilly)". That is neither the legal
+name nor the formal one. Not edited: these strings name a contracting party,
+the three legal pages have to agree with each other, and the Colorado LLC
+filing due 2026-09-11 supersedes the question. Revisit after the LLC and the
+attorney hour, in one pass across all four files.
+
 - The confirm dialog now uses the `installModalFocusTrap` that already existed
   in this file and that every other modal was already using. It was the only
   `aria-modal` dialog on the site that never called it. Escape maps to
@@ -1185,16 +1233,16 @@ no new error, which is the runbook's only blocking condition.
   the implementation. Native key routing (Enter on a button, skip-link
   activation) cannot be tested this way and remains unverified.
 
-- [ ] **P3 — skip links do not activate.** "Skip to buying options" (`#buy`) and
+- [x] **P3 — skip links do not activate.** PART REAL, PART REFUTED; FIXED 2026-09-09. "Skip to buying options" (`#buy`) and
   "Skip to main content" (`#mainContent`) take focus and show an outline, but
   Enter changes neither `location.hash` nor `scrollY`. Both targets exist.
 
-- [ ] **P3 — the closing CTA stays tabbable while its section is hidden.**
+- [x] **P3 — the closing CTA stays tabbable while its section is hidden.** FIXED 2026-09-09.
   `a.closing-cta` keeps `tabindex="0"` inside a container that is `opacity:0`
   and `aria-hidden="true"` until the last chapter, so a keyboard user can focus
   an invisible, unannounced control.
 
-- [ ] **P3 — the film's narrative beats carry no heading structure.** Chapter
+- [x] **P3 — the film's narrative beats carry no heading structure.** FIXED 2026-09-09, in the rail rather than the beats. Chapter
   lines are unheaded text, so heading navigation cannot move between them.
 
 - [ ] **P3 — treatment is asked three times in three idioms.** The look choice

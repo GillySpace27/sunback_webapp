@@ -69,9 +69,27 @@ export default function BeatRail() {
       <ol className="beatrail__list">
         {SPACES.map((s, i) => (
           <li key={s.key}>
+            {/* The chapter name is a heading as well as a jump control, so
+                heading navigation moves through the film. The beats' own copy
+                cannot carry this: it lives in <div className="overlay"
+                aria-hidden="true">, deliberately, because it cross-fades on
+                every scroll frame and would be announced as noise. The rail is
+                where the film's structure is already named, announced and in
+                order, so it is the honest place to put it (deploy panel,
+                2026-09-09). h2 wrapping the button, never inside it: a button's
+                content model is phrasing content, so a heading in there is
+                invalid and unreliably exposed. */}
+            <h2 className="beatrail__heading">
             <button
               type="button"
               className="beatrail__tick"
+              /* The name has to survive the CSS. Under 640px the label below
+                 is display:none, which takes it out of the accessibility tree
+                 too, so the rail was nine unnamed buttons on every phone --
+                 and, since a heading is named from its subtree, nine unnamed
+                 headings as well. aria-label does not care what the media
+                 query does. */
+              aria-label={LABELS[s.key] ?? s.key}
               onClick={() => scrollToProgress(BEAT_STOPS[i])}
             >
               {/* Label FIRST, dot last: the dots then line up in a single
@@ -81,6 +99,7 @@ export default function BeatRail() {
               <span className="beatrail__label">{LABELS[s.key] ?? s.key}</span>
               <span className="beatrail__dot" aria-hidden="true" />
             </button>
+            </h2>
           </li>
         ))}
       </ol>

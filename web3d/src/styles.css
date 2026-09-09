@@ -1417,6 +1417,15 @@ body {
   flex-direction: column;
   gap: 0.62rem;
 }
+/* Semantics only. The h2 exists so heading navigation can walk the film's
+   chapters; it must add no box of its own, or its default margins and 1.5em
+   font-size would push every row apart and break the single dot column. */
+.beatrail__heading {
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+}
 .beatrail__tick {
   position: relative;
   display: flex;

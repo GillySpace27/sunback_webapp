@@ -228,7 +228,14 @@ export default function App() {
         <Arrows />
         <BeatRail />
 
-        <nav id="buy" aria-label="Customize your Heliograph">
+        {/* tabIndex -1 so "Skip to buying options" lands focus HERE and the
+            next Tab continues inside the HUD. It already did in Chrome, but
+            nothing in the markup made a <nav> focusable, so that was the
+            browser's fragment-target handling rather than anything this page
+            promised. The store's <main> in the same role did NOT take focus
+            (measured 2026-09-09), which is what a skip link failing looks
+            like. -1 keeps it out of the tab order. */}
+        <nav id="buy" tabIndex={-1} aria-label="Customize your Heliograph">
           {/* The HUD carries the film's settings, and — from the climax beat
               onward only — the one real, announced, focusable "Make one". The
               overlay's copy of it is a decorative aria-hidden twin. */}

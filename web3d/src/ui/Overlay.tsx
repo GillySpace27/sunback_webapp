@@ -34,7 +34,13 @@ function ClosingCard() {
     <div className={"closing" + (shown ? " closing--in" : "")} aria-hidden={!shown}>
       <p className="closing-date">{longDate(date)}</p>
       <p className="closing-line">A day worth keeping.</p>
-      <BuyLink className="cta closing-cta">Make this one</BuyLink>
+      {/* Mounted only once the card is shown. It used to render always, so a
+          real, tabbable <a> sat inside a container that is opacity:0 and
+          aria-hidden until the last beat: a keyboard user could focus an
+          invisible control that a screen reader would not announce (deploy
+          panel, 2026-09-09). The card fades in on the same flag, so the
+          button still arrives with the fade. */}
+      {shown && <BuyLink className="cta closing-cta">Make this one</BuyLink>}
     </div>
   );
 }
