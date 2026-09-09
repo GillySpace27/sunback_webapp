@@ -1,7 +1,7 @@
 import { Component, ReactNode } from "react";
 import { useStore, dateValid } from "../store";
 import { CHANNELS } from "../data/wavelengths";
-import { buyUrl } from "../lib/handoff";
+import { buyUrl, skySettings } from "../lib/handoff";
 
 // Graceful fallback if WebGL is unavailable or a scene error escapes. Never
 // leaves the visitor on a black void — routes them to the live store WITH the
@@ -23,7 +23,11 @@ export default class ErrorBoundary extends Component<
       const s = useStore.getState();
       // No committed date to carry (cleared field, or never resolved a
       // frontier): land on the bare store rather than a broken d=.
-      const href = buyUrl(dateValid(s) ? s.date : "", s.time, CHANNELS[s.channel].angstrom);
+      const href = buyUrl(dateValid(s) ? s.date : "", s.time, CHANNELS[s.channel].angstrom, {
+        look: s.look,
+        form: s.form,
+        sky: skySettings(s),
+      });
       return (
         <div className="fallback" role="alert">
           <h1>My Heliograph</h1>

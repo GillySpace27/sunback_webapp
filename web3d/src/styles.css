@@ -396,12 +396,6 @@ body {
   pointer-events: none;
   cursor: not-allowed;
 }
-/* the decorative "gift" CTA in the overlay: Overlay.tsx toggles this class
-   once its figure has faded in enough to be legible (was an inline
-   pointerEvents style previously computed on every scroll tick) */
-.overlay-cta-off .cta {
-  pointer-events: none;
-}
 /* dual-tone focus ring: a dark halo under the light outline guarantees >=3:1
    on any backdrop (bright plasma or dark void) */
 .cta:focus-visible,

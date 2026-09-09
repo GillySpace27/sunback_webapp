@@ -1092,7 +1092,7 @@ no new error, which is the runbook's only blocking condition.
 
 ### Confirmed, adjudicated by re-measurement
 
-- [ ] **P1 — "Skip to the store" drops six of the nine choices.** `SkipToStore.tsx`
+- [x] **P1 — "Skip to the store" drops six of the nine choices.** FIXED 2026-09-09: `SkipToStore.tsx`
   calls `buyUrl(date, time, angstrom)` with no `opts`, so `look`, `form` and all
   six sky layers are absent from the URL. The store's hydration only writes a
   chip when its param is present, so absent params fall through to the store's
@@ -1104,7 +1104,16 @@ no new error, which is the runbook's only blocking condition.
   `?d=&t=&wl=` only. Fix is one argument, but it changes handoff behaviour, so
   it wants a decision rather than a drive-by.
 
-- [ ] **P3 — dead CSS.** `styles.css:402` `.overlay-cta-off .cta` no longer has
+  Resolved: the brief settles the decision ("every sky layer must arrive in the
+  store and remain selected"), so `SkipToStore` now passes `look`, `form` and
+  `sky` too. They ride along even when the date is withheld, since none of them
+  is date-dependent. `ErrorBoundary`'s WebGL-failure exit had the same gap and
+  got the same treatment. Verified on the local assembled build with a
+  non-default state (`2017-09-06 09:30`, 304 A, `rhef`, all six layers on):
+  both exits emit the identical 11-param URL, and `/store` hydrates date, time,
+  304 A, Enhanced and all six sky checkboxes from it.
+
+- [x] **P3 — dead CSS.** DELETED 2026-09-09. `styles.css:402` `.overlay-cta-off .cta` no longer has
   anything toggling that class after the decorative CTA was removed in 2acb6d3.
   Inert, not a defect. Delete on the next pass through the file.
 
