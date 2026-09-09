@@ -1080,3 +1080,100 @@ place — keeps the file honest.
 - All round-2 submissions are tagged
   `context.alpha_test: true` + `context.round: 2` +
   `context.persona: <slug>` — filterable in the operator inbox.
+
+---
+
+## Deploy panel, candidate 2acb6d3 (2026-09-09)
+
+Partial panel: `regression`, `accessibility` and `conversion-funnel` returned.
+`presentation` and `safety-claims` were interrupted before finishing and have
+not run against this candidate. Nothing here blocks: the regression lens found
+no new error, which is the runbook's only blocking condition.
+
+### Confirmed, adjudicated by re-measurement
+
+- [ ] **P1 — "Skip to the store" drops six of the nine choices.** `SkipToStore.tsx`
+  calls `buyUrl(date, time, angstrom)` with no `opts`, so `look`, `form` and all
+  six sky layers are absent from the URL. The store's hydration only writes a
+  chip when its param is present, so absent params fall through to the store's
+  own HTML defaults, which do not match the film's: store is stars ON,
+  constellations ON, planets ON; the film is stars ON and the rest off.
+  Net effect: the two exits from the same untouched film land the buyer on two
+  different pictures. Verified on the deployed dev tier, `?at=5`:
+  `Create my print` carries the full set, `Skip to the store` carries
+  `?d=&t=&wl=` only. Fix is one argument, but it changes handoff behaviour, so
+  it wants a decision rather than a drive-by.
+
+- [ ] **P3 — dead CSS.** `styles.css:402` `.overlay-cta-off .cta` no longer has
+  anything toggling that class after the decorative CTA was removed in 2acb6d3.
+  Inert, not a defect. Delete on the next pass through the file.
+
+### Pre-existing store findings, not from this candidate
+
+- [ ] **P2 — store confirm dialog fails three modal basics.** `#confirmOverlay`
+  declares `role="dialog" aria-modal="true"` but focus escapes it to
+  `#sunSummaryChip` in the page header, Escape does not close it, and its
+  Continue button responds to Space but not Enter. Focus is dropped to `<body>`
+  on close rather than returned. Reported by the accessibility lens with
+  repeated real key input.
+
+- [ ] **P2 — the published accessibility statement is now falsified by the site.**
+  `/accessibility` (dated 2026-05-28) states "Modals trap focus and close on
+  Escape". The finding above contradicts that in the store's own confirm dialog.
+  A published statement that overclaims is worse than none. Fix the dialog or
+  amend the statement, and do not leave both.
+
+- [ ] **P2 — "Image stretch" claims radiogroup semantics it does not have.**
+  Container carries `role="radiogroup"` while its children are `<button>` with
+  `aria-pressed`, so AT announces "button, pressed" rather than a 1-of-2
+  selection. Either give the children `role="radio"` + `aria-checked` or drop
+  the container role.
+
+- [ ] **P2 — an out-of-range date resets silently.** `/store?d=2099-01-01` shows
+  no error and no clamp; the page falls back to the 2014-10-24 AR 2192 sample
+  with the date field quietly rewritten. Someone opening a stale shared link can
+  buy the wrong day without ever being told the date moved. Note the film's own
+  `setDate` already does this correctly, with a `dateRejectReason` explaining
+  which bound was missed; the store should borrow that.
+
+- [ ] **P3 — skip links do not activate.** "Skip to buying options" (`#buy`) and
+  "Skip to main content" (`#mainContent`) take focus and show an outline, but
+  Enter changes neither `location.hash` nor `scrollY`. Both targets exist.
+
+- [ ] **P3 — the closing CTA stays tabbable while its section is hidden.**
+  `a.closing-cta` keeps `tabindex="0"` inside a container that is `opacity:0`
+  and `aria-hidden="true"` until the last chapter, so a keyboard user can focus
+  an invisible, unannounced control.
+
+- [ ] **P3 — the film's narrative beats carry no heading structure.** Chapter
+  lines are unheaded text, so heading navigation cannot move between them.
+
+- [ ] **P3 — treatment is asked three times in three idioms.** The look choice
+  appears as the top 4-tile grid, an "Image stretch" toggle by the date picker,
+  and an "Image quality" radio group in the editor, whose third tier ("HQ
+  Filtered, 1-3 minutes") is introduced nowhere earlier.
+
+- [ ] **P3 — shipping cost and ship-to countries surface only in the variant
+  dialog**, after date, wavelength, treatment, sky layers, product and size are
+  all chosen. A buyer outside US/CA/EU/UK completes the whole flow before
+  learning they cannot order.
+
+### Dropped in adjudication, with the reason
+
+- **DROPPED: "wavelength radio group cannot be changed by keyboard at all"**
+  (accessibility, reported as VERIFIED, WCAG 2.1.1). Re-measured on the deployed
+  dev tier with real Chrome and real key events at `?at=2`: ArrowRight from the
+  checked radio walks `3 4 5 6 7 0 1 2`, all eight channels, wrapping correctly,
+  and the readout follows. The look toggle also responds. The lens's own report
+  flags that its environment could not drive Lenis scrolling with synthetic
+  events and that later beats captured as solid black, so this reads as
+  synthetic-key delivery in the browser pane, not site behaviour. The same
+  measurement had already passed on the local build before the deploy.
+
+- **DROPPED: "the full-state CTA is unreachable until the film's last chapter"**
+  (conversion-funnel). At `?at=5`, four chapters before the end, `Create my
+  print` is present at opacity 1, `pointer-events: auto`, on screen, carrying
+  `d,t,wl,cat,look,form` and all six sky layers. The lens appears to have missed
+  it for the same scrolling reason and mistook the closing card for the only
+  full-state CTA. The half of that finding about "Skip to the store" is real and
+  is filed above.
