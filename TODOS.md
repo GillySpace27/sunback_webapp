@@ -1119,20 +1119,20 @@ no new error, which is the runbook's only blocking condition.
 
 ### Pre-existing store findings, not from this candidate
 
-- [ ] **P2 — store confirm dialog fails three modal basics.** `#confirmOverlay`
+- [x] **P2 — store confirm dialog fails three modal basics.** FIXED 2026-09-09. `#confirmOverlay`
   declares `role="dialog" aria-modal="true"` but focus escapes it to
   `#sunSummaryChip` in the page header, Escape does not close it, and its
   Continue button responds to Space but not Enter. Focus is dropped to `<body>`
   on close rather than returned. Reported by the accessibility lens with
   repeated real key input.
 
-- [ ] **P2 — the published accessibility statement is now falsified by the site.**
+- [x] **P2 — the published accessibility statement is now falsified by the site.** FIXED 2026-09-09.
   `/accessibility` (dated 2026-05-28) states "Modals trap focus and close on
   Escape". The finding above contradicts that in the store's own confirm dialog.
   A published statement that overclaims is worse than none. Fix the dialog or
   amend the statement, and do not leave both.
 
-- [ ] **P2 — "Image stretch" claims radiogroup semantics it does not have.**
+- [x] **P2 — "Image stretch" claims radiogroup semantics it does not have.** FIXED 2026-09-09.
   Container carries `role="radiogroup"` while its children are `<button>` with
   `aria-pressed`, so AT announces "button, pressed" rather than a 1-of-2
   selection. Either give the children `role="radio"` + `aria-checked` or drop
@@ -1144,6 +1144,46 @@ no new error, which is the runbook's only blocking condition.
   buy the wrong day without ever being told the date moved. Note the film's own
   `setDate` already does this correctly, with a `dateRejectReason` explaining
   which bound was missed; the store should borrow that.
+
+  Reproduced 2026-09-09 on the local assembled build: `/store?d=2099-01-01`
+  leaves `#vibeBirthdayInput` empty, rewrites `#solarDate` to 2014-10-24 and
+  renders no alert or live-region message. Still open; now disclosed in
+  `/accessibility` under Known gaps so the published statement is not ahead of
+  the code.
+
+### Resolutions, 2026-09-09
+
+- The confirm dialog now uses the `installModalFocusTrap` that already existed
+  in this file and that every other modal was already using. It was the only
+  `aria-modal` dialog on the site that never called it. Escape maps to
+  `_editHandoffSun`, which is what the visible "Change date or color" button
+  does, and the exit lands focus on the first VISIBLE control in the config
+  section rather than `<body>` (`#solarDate` is `display:none` in the
+  birthday-card layout, and `focus()` on a `display:none` element fails
+  silently).
+- Two things had to move for that to work. `_deactivateSlider` returned focus
+  to "Help me compare" unconditionally, and `_showHandoffConfirm` calls it as a
+  reset on every open, so it stole focus from the dialog a frame after the
+  dialog took it; it now only returns focus when the close came from inside the
+  slider. And `installModalFocusTrap`'s initial focus ran in a
+  `requestAnimationFrame`, which does not fire at all in a background tab, so
+  `opts.initialFocus` uses a timer instead. The rAF path is untouched for the
+  callers that do not pass `initialFocus`.
+- `#betaThanksModal` declared `aria-modal="true"` with no trap at all. It was
+  not in the panel's findings; it turned up while checking whether the
+  statement's claim was true across every modal, which it was not. Wired to the
+  same helper.
+- **The Enter-vs-Space finding on Continue could not be reproduced or refuted.**
+  `computer key` in the reviewing browser delivers ZERO keydown events to the
+  page: a capture-phase `document` listener recorded an empty array across
+  Escape, Tab and a letter key. Every keyboard finding from that lens is
+  therefore evidence-free, in both directions. `#handoffSubmitBtn` is a native
+  `<button type="button">` with an `onclick`, which fires on Enter and Space
+  alike; nothing in the file intercepts either. No change made. The trap, the
+  Escape path and the Tab cycle above were verified with dispatched
+  `KeyboardEvent`s, which DO reach the handlers, because there the handler is
+  the implementation. Native key routing (Enter on a button, skip-link
+  activation) cannot be tested this way and remains unverified.
 
 - [ ] **P3 — skip links do not activate.** "Skip to buying options" (`#buy`) and
   "Skip to main content" (`#mainContent`) take focus and show an outline, but

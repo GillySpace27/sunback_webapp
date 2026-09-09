@@ -491,8 +491,16 @@
            state.vibeMasterTier, and the manifest schema don't churn.
            Mapping is documented at the top of solar-archive.js where the
            toggle is wired. -->
+      <!-- role="group", not "radiogroup": the children are <button
+           aria-pressed>, so assistive tech announced "button, pressed"
+           rather than the 1-of-2 selection a radiogroup promises (deploy
+           panel, 2026-09-09). The group role keeps the label without
+           claiming semantics the children do not implement. The other
+           radiogroups on this page really do have radio children
+           (#editorFilterToggle native inputs, #hekTileGrid role="radio"
+           tiles built in _renderHekTiles). -->
       <div class="vibe-master-toggle hidden" id="vibeMasterToggle"
-           role="radiogroup" aria-label="Image stretch — original telescope frame or radial-equalized filtered">
+           role="group" aria-label="Image stretch — original telescope frame or radial-equalized filtered">
         <!-- No is-active on initial markup: JS (_wireVibeGrid) picks the
              tier when the manifest resolves (rhef if cached, jpg
              otherwise) and applies is-active to the matching pill.

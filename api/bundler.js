@@ -475,17 +475,35 @@ export function initBundler(deps) {
     // run through the editor again with different settings, while
     // keeping their date/wavelength/time intact (those are session-
     // level choices the user almost never wants to redo).
+    // Release handle for the focus trap below; null when the popup is closed.
+    var _betaThanksRelease = null;
     function _showBetaThanksPopup() {
       var modal = document.getElementById("betaThanksModal");
       if (!modal) return;
       modal.classList.remove("hidden");
-      // Trap focus on the primary button so Enter triggers it.
+      // This declares aria-modal="true" but had no trap, so Tab walked out
+      // into the page behind it — the only aria-modal dialog on the site
+      // still doing that, and the published accessibility statement says
+      // otherwise (deploy panel, 2026-09-09). The shared trap also restores
+      // focus on close, which the bare .focus() below never did.
+      if (typeof _deps.installModalFocusTrap === "function") {
+        if (_betaThanksRelease) { try { _betaThanksRelease(); } catch (_e) {} }
+        _betaThanksRelease = _deps.installModalFocusTrap(modal, {
+          onEscape: _hideBetaThanksPopup,
+        });
+      }
+      // Land on the primary button so Enter triggers it (the trap would
+      // otherwise land on the close X, which is not the likely intent here).
       var primary = document.getElementById("betaThanksReset");
       if (primary) setTimeout(function() { primary.focus(); }, 50);
     }
     function _hideBetaThanksPopup() {
       var modal = document.getElementById("betaThanksModal");
       if (modal) modal.classList.add("hidden");
+      if (_betaThanksRelease) {
+        try { _betaThanksRelease(); } catch (_e) {}
+        _betaThanksRelease = null;
+      }
     }
     function _resetWorkflowFromTop() {
       _hideBetaThanksPopup();

@@ -22,7 +22,7 @@
 <body>
   <main class="legal">
     <h1>Accessibility Statement</h1>
-    <p class="updated">Last updated: 2026-05-28</p>
+    <p class="updated">Last updated: 2026-09-09</p>
 
     <h2>Our commitment</h2>
     <p><strong>My Heliograph (operated by Chris Gilly)</strong> is committed to ensuring My Heliograph is accessible to as many people as possible, including people who use assistive technologies. We aim for conformance with <strong>WCAG 2.1 Level AA</strong>.</p>
@@ -38,7 +38,7 @@
       <li>Color contrast ≥ 4.5:1 for body text and ≥ 3:1 for non-text UI in the default dark theme</li>
       <li>Proper landmark structure (<code>&lt;main&gt;</code>, <code>&lt;nav&gt;</code>, <code>&lt;footer&gt;</code>)</li>
       <li>Step badges and section headings convey the user's position in the workflow</li>
-      <li>Modals trap focus and close on Escape</li>
+      <li>Dialogs that declare <code>aria-modal</code> keep Tab inside themselves, close on Escape, and return focus to whatever opened them. This covers the look bridge, the variant picker, the checkout overlay, the feedback form and the reset prompt.</li>
       <li><code>prefers-reduced-motion</code> respected: radial wipes, fades, and scroll animations short-circuit when the OS preference is set</li>
       <li>Solar-image content carries descriptive <code>alt</code> attributes</li>
       <li>Cookie banner does not block content and can be operated by keyboard</li>
@@ -50,10 +50,12 @@
       <li>The radial-wipe animation on the master toggle can be visually intense; it is short-circuited under <code>prefers-reduced-motion</code> but a hard-stop &ldquo;disable all motion&rdquo; toggle is on the roadmap.</li>
       <li>The product-mockup canvas does not currently announce its content to screen readers. We surface the product name in a centred heading above the canvas as a workaround.</li>
       <li>The custom HEK event-picker tiles have basic ARIA labelling but the keyboard focus order across the 4-tile grid is left-to-right + top-to-bottom only (no arrow-key navigation).</li>
+      <li>A date outside the SDO archive supplied in a link (for example <code>/store?d=2099-01-01</code>) is replaced with a sample date and the field is rewritten, with nothing announced and no visible message. Someone opening an old shared link is not told the date moved. Being fixed; the 3D experience already reports which bound was missed and the store will do the same.</li>
     </ul>
 
     <h2>Preparation of this statement</h2>
-    <p>This statement was prepared on 2026-05-28. The audit was self-assessment using automated tooling (Lighthouse, axe-core) and manual keyboard + screen-reader walk-throughs (VoiceOver on macOS, NVDA on Windows). A third-party audit is planned for <strong>Q1 2027</strong>.</p>
+    <p>This statement was prepared on 2026-05-28 and revised on 2026-09-09. The original audit was self-assessment using automated tooling (Lighthouse, axe-core) and manual keyboard + screen-reader walk-throughs (VoiceOver on macOS, NVDA on Windows). A third-party audit is planned for <strong>Q1 2027</strong>.</p>
+    <p>The 2026-09-09 revision followed an internal review that found the look bridge and the reset prompt were declaring themselves as modal dialogs without trapping Tab or handling Escape, which the previous wording of this statement did not admit. Both now do, and the claim above has been narrowed to what is actually implemented. The same review found the &ldquo;Image stretch&rdquo; control announcing itself as a radio group while its children were toggle buttons; the group no longer claims that. The date-link gap listed above was found in the same pass and is still open.</p>
 
     <h2>Feedback</h2>
     <p>If you encounter an accessibility barrier on My Heliograph, please contact us at <a href="mailto:support@myheliograph.com">support@myheliograph.com</a>. We aim to respond within <strong>5 business days</strong> and to remediate identified issues within <strong>30 days</strong> where feasible.</p>

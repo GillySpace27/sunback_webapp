@@ -1328,6 +1328,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       CITATIONS:       CITATIONS,
       _scrollToEl:     _scrollToEl,
       renderProducts:  renderProducts,
+      installModalFocusTrap: installModalFocusTrap,
     });
     var cropOverlay = $("#cropOverlay");
     var productSection = $("#productSection");
@@ -5716,9 +5717,24 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           { year: "numeric", month: "long", day: "numeric" });
       } catch (_e) { return dateStr; }
     }
+    // Focus trap currently installed on #confirmOverlay, or null. Module
+    // scope because the dialog opens in _showHandoffConfirm but closes from
+    // four places (pick, edit, Escape, the open-failed fallback), and every
+    // one of them has to release the trap or its keydown handler outlives
+    // the dialog and Tab stays captured on a page with no modal on it.
+    var _handoffTrapRelease = null;
+    function _releaseHandoffTrap() {
+      if (!_handoffTrapRelease) return;
+      try { _handoffTrapRelease(); } catch (_eRel) {}
+      _handoffTrapRelease = null;
+    }
     // Let the buyer change date/colour: drop the overlay and reveal config.
+    // Also the dialog's Escape handler: this is what the visible "Change date
+    // or color" button does, and Escape on a decision dialog is expected to
+    // do what its cancel affordance does.
     function _editHandoffSun() {
       try {
+        _releaseHandoffTrap();
         var ov = document.getElementById("confirmOverlay");
         if (ov) ov.hidden = true;
         document.body.classList.remove("handoff-confirm");
@@ -5729,6 +5745,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           var tog = document.getElementById("configSectionToggle");
           if (tog) tog.setAttribute("aria-expanded", "true");
           _scrollToEl(cfg, "start", true);
+          // Land focus where this exit just scrolled to. The trap's release()
+          // has restored focus to whatever was focused when the dialog opened,
+          // which on a deep link from the film is <body> — so a keyboard user
+          // was scrolled to the config section and then made to Tab there from
+          // the top of the document (deploy panel, 2026-09-09).
+          //
+          // First VISIBLE control, not #solarDate: the classic controls-grid
+          // is display:none in the birthday-card layout, and focus() on a
+          // display:none element fails silently, which is exactly how this
+          // would rot back to <body> without anyone noticing. The section
+          // itself is the fallback, so there is always somewhere to land.
+          var _land = _focusableInsideModal(cfg)[0];
+          if (!_land) { cfg.setAttribute("tabindex", "-1"); _land = cfg; }
+          try { _land.focus({ preventScroll: true }); } catch (_eD) {}
         }
       } catch (_e) {}
     }
@@ -6076,10 +6106,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // next Tab on the two choice buttons rather than back at the top of
         // the document. Deferred a tick so the element is visible (a hidden
         // element cannot take focus) before we ask for it.
+        // Focus the dialog AND trap Tab inside it. The bare focus() this
+        // replaces satisfied the announcement half only: one Tab from the
+        // dialog walked straight out to #sunSummaryChip in the page header,
+        // Escape did nothing, and closing dropped focus to <body> instead of
+        // returning it (deploy panel, accessibility lens, 2026-09-09). The
+        // shared trap already does all three; this dialog simply never used
+        // it. initialFocus keeps focus on the container so the question is
+        // read before the first cell, which is why the bare focus() was here.
         if (ov) {
-          setTimeout(function () {
-            try { ov.focus({ preventScroll: true }); } catch (_eFocus) {}
-          }, 0);
+          _releaseHandoffTrap();
+          _handoffTrapRelease = installModalFocusTrap(ov, {
+            onEscape: _editHandoffSun,
+            initialFocus: ov,
+          });
         }
 
         // Picking a look IS the continue. One screen, one decision, and the
@@ -6117,6 +6157,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             var _finishLeave = function () {
               if (_leftOnce) return;
               _leftOnce = true;
+              _releaseHandoffTrap();
               ov.hidden = true;
               ov.classList.remove("is-leaving");
               document.body.classList.remove("handoff-confirm");
@@ -6499,6 +6540,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         try { console.error("[handoff-confirm] could not open the look bridge:", _e); } catch (_e2) {}
         try {
           document.body.classList.remove("handoff-confirm");
+          _releaseHandoffTrap();
           var _ovFail = document.getElementById("confirmOverlay");
           if (_ovFail) _ovFail.hidden = true;
           if (typeof setStep === "function") setStep("product");
@@ -7054,11 +7096,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       // returns focus to whatever opened the slider, so a keyboard user
       // isn't dumped at the top of the document.
       function _deactivateSlider() {
+        // Only a close FROM the slider returns focus to what opened it. The
+        // handoff bridge calls deactivate() as a reset every time it opens
+        // (see _showHandoffConfirm), and that reset was pulling focus onto
+        // "Help me compare" a frame after the dialog had deliberately taken
+        // it — so the dialog's own question was never the announced thing
+        // (deploy panel, 2026-09-09).
+        var cameFromSlider = el.contains(document.activeElement);
         if (teaseRaf) { cancelAnimationFrame(teaseRaf); teaseRaf = null; }
         _set(50);                       // hand it back at a clean 50/50
         el.classList.add("hidden");
         if (diptych) diptych.classList.remove("hidden");
-        try { if (activator) activator.focus({ preventScroll: true }); } catch (_e) {}
+        if (cameFromSlider) {
+          try { if (activator) activator.focus({ preventScroll: true }); } catch (_e) {}
+        }
       }
       if (closeBtn) {
         closeBtn.addEventListener("click", function (e) {
@@ -12825,7 +12876,21 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       document.addEventListener("keydown", onKey);
       // Focus the first focusable on the next frame so any layout
       // settling (e.g. animations, async content) doesn't steal it.
-      requestAnimationFrame(function() {
+      // opts.initialFocus overrides "first focusable": a dialog whose own
+      // container carries the label and description wants focus THERE, so
+      // assistive tech reads the question before the first answer.
+      //
+      // A timer, not the requestAnimationFrame below, and not the touch guard
+      // either: callers pass a container rather than an input, so there is no
+      // soft keyboard to pop, and rAF does not fire at all in a background tab
+      // (found while testing this — the dialog opened with focus still on
+      // <body>). A tick is enough for the element to be visible, which is the
+      // only thing the deferral was ever for.
+      if (opts.initialFocus) {
+        setTimeout(function () {
+          try { opts.initialFocus.focus({ preventScroll: true }); } catch (_eIF) {}
+        }, 0);
+      } else requestAnimationFrame(function() {
         var fs = _focusableInsideModal(modalEl);
         // Skip programmatic focus on touch devices — iOS Safari pops
         // the soft keyboard when an input gets focus, and a tester
