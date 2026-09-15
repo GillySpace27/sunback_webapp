@@ -21,7 +21,8 @@ mkdir -p "$OUT"
 for f in solar-archive.js solar-archive.css \
          state.js products.js colors.js mockups.js feedback.js stats.js bundler.js \
          motion.js \
-         favicon.svg robots.txt sitemap.xml; do
+         favicon.svg favicon.ico favicon-16.png favicon-32.png apple-touch-icon.png \
+         robots.txt sitemap.xml; do
   cp "$API_DIR/$f" "$OUT/$f"
 done
 

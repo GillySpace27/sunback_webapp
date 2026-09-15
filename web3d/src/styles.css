@@ -1187,7 +1187,13 @@ body {
   /* the footer runs three lines at this width (attribution wraps to two, plus
      the legal row), which measures ~49px — reserve that plus a gap */
   #buy {
-    bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + 3.1rem);
+    /* The measured credit height, not a guess. This rule hardcoded 3.1rem
+       (the ~49px three-line footer described above), but at 390px the credit
+       wraps to four lines and measures ~73px, so the HUD sat 10px over the
+       NASA attribution on phones: the collision 2acb6d3 fixed on desktop,
+       back again at the one width it was not fixed at (QA sweep, 2026-09-14).
+       Fallback keeps the old total: 2.35rem + 0.75rem = 3.1rem. */
+    bottom: calc(max(2.4vh, env(safe-area-inset-bottom)) + var(--credit-h, 2.35rem) + 0.75rem);
   }
 
   /* The open drawer did not fit the phone it was built for. The plate measured
