@@ -1274,3 +1274,112 @@ attorney hour, in one pass across all four files.
   it for the same scrolling reason and mistook the closing card for the only
   full-state CTA. The half of that finding about "Skip to the store" is real and
   is filed above.
+
+---
+
+## QA sweep, premium polish (2026-09-14)
+
+Product-QA pass against the local assembled build (`build-public.sh` +
+`tools/preview-store.mjs`, dev API) plus read-only GETs against production.
+Every number below was measured in this pass unless marked. Ranked by effect on
+conversion and on whether the site reads as premium.
+
+Limits: the browser pane was hidden for the whole pass, so there are no
+screenshots, no judgment of motion or visual finish, no real scroll through the
+film, and no keyboard testing. The product grid, editor, variant dialog and
+Shopify checkout were not exercised.
+
+### Conversion and first impression
+
+- [ ] **P1: the store landing downloads ~18.6 MB of full-resolution PNG before
+  anyone does anything.** `solar-archive.js:5325-5327` preloads
+  `entry.raw_full_url` and `entry.rhef_full_url` for the default AR 2192 sample.
+  Production sizes: `raw_full.png` 5,619,152 B, `rhef_full.png` 13,032,853 B.
+  Locally the `rhef_full.png` request fired on a bare `/store` load with no
+  interaction (the `raw_full` request fell outside the captured window, so that
+  half is inferred from the code, not observed). On a phone this is the largest
+  cost on the page by an order of magnitude. Load thumbs on landing, full-res
+  when the editor opens, and at display size rather than as 4k PNG.
+
+- [ ] **P1: the cookie banner sits on the primary CTA on first load.** 1280x800:
+  banner spans y=666-784, "See the Sun" spans y=778-822, so the button is partly
+  under the banner and partly below the fold. 390x844: banner covers 24% of the
+  screen (y=551-754) and the CTA sits at y=799-843, on the bottom edge. The
+  banner is live on production (`/store` injects GA4 `G-YQGH255Z02`). A single
+  compact bar, or deferring the banner until after the first interaction, gives
+  the first screen back to the one action it exists for.
+
+- [ ] **P1: four names for two choices.** Visible store HTML says Original 8x,
+  Enhanced 6x, RHEF 4x, Filtered 3x, HQ 1x; strings in `solar-archive.js` add
+  Filtered 55x, "HQ Filtered" 14x, Enhanced 12x. The film says only
+  Original/Enhanced. Above the fold the buyer meets "Original vs Filtered: see
+  what RHEF reveals" before picking a date. Use Original/Enhanced everywhere a
+  buyer reads; keep RHEF for provenance and credits.
+
+- [ ] **P2: "any day since 2010" is not true.** The store H2 and the meta
+  description both say it; `/api/data_frontier` returns `earliest: 2010-05-15`.
+  Someone with a January-May 2010 date is promised a day the site cannot sell.
+  "Any day since May 2010."
+
+- [ ] **P2: the first screen asks for a Share before there is anything to
+  share,** and the date field renders empty while the page shows a sample Sun
+  from 2014-10-24, so the picture and the input disagree about what is selected.
+
+- [ ] **P2: on phones the HUD overlaps the NASA credit by 10px.** `styles.css`
+  mobile rule (~line 1190) hardcodes `+ 3.1rem` instead of
+  `var(--credit-h)`, which reintroduces on phones exactly the collision
+  2acb6d3 fixed on desktop. Measured at 390x844: HUD y=607-775, credit
+  y=765-838.
+
+- [ ] **P3 (judgment, not a defect): "Prints from $9.99" leads the premium
+  pitch.** It appears in the film HUD and the store. The flagship is a wall
+  print; the first number a buyer sees prices it like a poster. Consider
+  anchoring on the flagship form, or no price until a product is chosen. Which
+  SKU produces $9.99 was not verified.
+
+- [ ] **P3: tone.** "Can't decide? See some examples here!" (the only
+  exclamation in buyer copy besides a thank-you), and a text "▾" glyph in
+  "Fine-tune time & wavelength (optional) ▾" where the rest of the UI uses
+  icons.
+
+### Trust and professionalism
+
+- [ ] **P1: `/api/stats` is public and shows the store has made about one sale.**
+  Unauthenticated GET returns per-product buys and clicks: `framed_poster` 1 buy,
+  every other product 0 buys and 1-4 clicks. `stats.js` calls the badge
+  "operator-only", but the endpoint is not. Gate it, or return only a sort
+  order.
+
+- [ ] **P2: no security headers on production `/`.** No HSTS, CSP or
+  frame-ancestors, X-Frame-Options, X-Content-Type-Options, Referrer-Policy or
+  Permissions-Policy. Card data stays on Shopify, but clickjacking protection and
+  HSTS are table stakes a reviewer or a skeptical buyer's tooling will flag.
+
+- [ ] **P2: favicons wake the origin.** `/store` references `/favicon-32.png`,
+  `/favicon-16.png` and `/apple-touch-icon.png`; `build-public.sh` copies only
+  `favicon.svg`, so these fall through to Fly. First production request for
+  `favicon-32.png` took 8.49 s. All three exist in `api/`; add them to the
+  whitelist.
+
+- [ ] **P2: `sitemap.xml` omits `/store`,** the canonical shop URL, while listing
+  `/experience/`, which duplicates `/`. No `lastmod`.
+
+- [ ] **P3: legal pages predate two products.** Terms, Refund and Shipping are
+  dated 2026-05-28; none mentions Dimensional prints (orderable since 2026-08-26)
+  or gift cards. Coverage may be fine as written; needs a read, and belongs in
+  the same pass as the operator-name change after the LLC.
+
+- [ ] **P3: store has no JSON-LD** (Product / Organization); the film page has
+  one block.
+
+- [ ] **P3: the local preview is not the deployment for ES modules.**
+  `tools/preview-store.mjs` has no `.mjs` MIME entry, so `lenis.mjs` is served as
+  `application/octet-stream` and fails to load locally ("Failed to load module
+  script"), while production serves `text/javascript`. Smooth scrolling in the
+  store is therefore never exercised in local QA.
+
+### Checked and fine
+
+`support@myheliograph.com` has MX (Cloudflare routing). The 404 page is branded.
+The OG card is really 1200x630. No console errors on the film. No horizontal
+overflow at 390px on either page. Store images all carry `alt`.
