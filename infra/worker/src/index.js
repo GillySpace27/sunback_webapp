@@ -111,12 +111,20 @@ function noindex(resp) {
 // Assets responses never pass through here, so /store and the legal pages get
 // the same two headers from public/_headers instead (copied by
 // build-public.sh). Deliberately only the two that cannot break anything:
-// HSTS, frame-ancestors and a CSP each need a decision first (QA sweep,
-// 2026-09-14).
+// Framing is limited to this origin: the only frames the site uses are its own
+// Dimensional plate previews (same-origin), and third-party iframe embedding
+// was dropped on 2026-08-10. HSTS starts at one day on purpose: it is cached by
+// browsers and cannot be recalled, so raise it to 31536000 after a week of
+// clean HTTPS, and never add includeSubDomains without auditing every
+// subdomain. No CSP yet; it needs a real policy for GA4, Sentry, Helioviewer
+// and fonts (QA sweep, 2026-09-14).
 function secure(resp) {
   const headers = new Headers(resp.headers);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("X-Frame-Options", "SAMEORIGIN");
+  headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+  headers.set("Strict-Transport-Security", "max-age=86400");
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 

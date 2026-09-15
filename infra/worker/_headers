@@ -2,7 +2,11 @@
 # files served from public/). Worker-generated responses, including "/" and
 # every proxied /api call, get the same two headers from secure() in
 # src/index.js, because Cloudflare does not apply this file to them.
-# HSTS, frame-ancestors and CSP are intentionally absent until decided.
+# Keep in step with secure() there; the reasoning for each value lives in
+# that comment (one-day HSTS ramp, same-origin framing, no CSP yet).
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self'
+  Strict-Transport-Security: max-age=86400
