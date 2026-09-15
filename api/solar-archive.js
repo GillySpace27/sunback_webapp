@@ -6863,21 +6863,29 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           probe.onerror = function () { /* not cached yet — fine */ };
           probe.src = defaultUrl;
         }
-        // Defer the 13 MB default-HQ prime until AFTER the page has loaded.
+        // Defer the 13 MB default-HQ prime until the visitor has made a real
+        // selection (confirmed a date + look and moved past step "image").
         // It warms hqCache for the rare visitor who enters the editor on the
-        // untouched default image — but the product-first flow doesn't
-        // auto-load that image, so it must never compete with the thumbnails
-        // on screen. requestIdleCallback alone was NOT enough: it fires on
-        // CPU-idle (~300 ms here), not network-idle, so the 13 MB fetch still
-        // started alongside the thumbnails. Gate on window 'load' (all
-        // critical resources done) THEN idle. (2026-07-24 landing-perf audit.)
+        // untouched default image, but arming it on window 'load' (2026-07-24
+        // landing-perf audit) still charged every bare landing the same
+        // 13 MB fetch, selection or not (QA sweep, 2026-09-14: traced to
+        // this exact URL — confirmed via console instrumentation that
+        // _applyStep's OWN initial "image -> image" boot dispatch fires
+        // before this listener even attaches, so only a later, real
+        // transition ever reaches it). "image" is the only step reached
+        // with no selection at all; every later step (product, editor,
+        // review) means the visitor picked something.
         var _armPrime = function () {
           (window.requestIdleCallback || function (cb) { setTimeout(cb, 1500); })(
             _primeDefaultHQ, { timeout: 15000 }
           );
         };
-        if (document.readyState === "complete") _armPrime();
-        else window.addEventListener("load", _armPrime, { once: true });
+        document.body.addEventListener("solar-archive:step-change", function _onFirstSelection(ev) {
+          if (ev.detail && ev.detail.to && ev.detail.to !== "image") {
+            document.body.removeEventListener("solar-archive:step-change", _onFirstSelection);
+            _armPrime();
+          }
+        });
         // Product-first refactor: do NOT auto-load the default 193 Å
         // image on cold load. The user is on step "product" and the
         // Phase B Printify mockups render photoreal previews without a
@@ -8087,7 +8095,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         // activated <1500ms ago — the "X Å loaded!" toast is still
         // on screen and the agent reported the wording was confusing.
         if (!state._lastVibeActivatedAt || (Date.now() - state._lastVibeActivatedAt) > 1500) {
-          showToast("Full-resolution Filtered image ready!", "success");
+          showToast("Full-resolution Enhanced image ready!", "success");
         }
         return Promise.resolve(cached.imageObj);
       }
@@ -8121,7 +8129,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             // surfaces "Queued \u00b7 N ahead" via _recordQueueDepth above.
           } else if (data.status === "started" || data.status === "processing") {
             setProgress(50);
-            updateFilterStatusLine("Full-res Filtered rendering\u2026", "loading");
+            updateFilterStatusLine("Full-res Enhanced rendering\u2026", "loading");
           }
         });
       }).then(function(result) {
@@ -8151,11 +8159,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             hqCache[cacheKey] = { url: hqUrl, imageObj: img };
             setProgress(100);
             hideProgress();
-            updateFilterStatusLine("Full-res Filtered ready!", "success");
+            updateFilterStatusLine("Full-res Enhanced ready!", "success");
             _hqApplyUpgrade(format);
             if (typeof maybeAutoAdvanceFilter === "function") maybeAutoAdvanceFilter();
             if (!state._lastVibeActivatedAt || (Date.now() - state._lastVibeActivatedAt) > 1500) {
-              showToast("Full-resolution Filtered image ready! \u2728", "success");
+              showToast("Full-resolution Enhanced image ready! \u2728", "success");
             }
             return img;
           });
@@ -8191,7 +8199,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
         hideProgress();
         updateFilterStatusLine("HQ generation failed: " + msg, "error");
-        showToast("HQ failed: " + msg + " — tap \u201cHQ Filtered\u201d to retry.", "error");
+        showToast("HQ failed: " + msg + " — tap \u201cEnhanced\u201d to retry.", "error");
         // Resolve rather than reject: HQ is a background upgrade, and an
         // unhandled rejection here used to look like a hung app.
         return null;

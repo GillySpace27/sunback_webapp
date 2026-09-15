@@ -44,6 +44,16 @@ const _deps = {
     // productStats being undefined — otherwise the first render throws a
     // TypeError and aborts the whole script.
     var productStats = {};
+    // True only once the server has actually sent real per-product counts
+    // (operator IP or admin key — see api/stats_routes.py). A normal
+    // visitor never gets those, only the rank order below, so the sort
+    // falls back to it and the badge just doesn't render rather than
+    // showing a fabricated number (QA sweep, 2026-09-14: raw counts were
+    // visible to any visitor's network tab).
+    var _haveFullStats = false;
+    // Popularity RANK only (buys desc, then non-converting clicks desc),
+    // sent to every visitor so the grid can still sort itself.
+    var productOrder = null;
     // Merged-product stat canonicalization: a colour-sibling child id
     // (e.g. the black mug) maps onto the visible card's id (the white
     // mug) so both colours' clicks/buys aggregate under one honest
@@ -79,15 +89,33 @@ const _deps = {
       return { buys: buys, other: Math.max(0, clicks - buys) };
     }
     function _productsByPopularity() {
-      return PRODUCTS.slice().sort(function(a, b) {
-        var sa = _statShown(a.id), sb = _statShown(b.id);
-        if (sb.buys !== sa.buys) return sb.buys - sa.buys;     // buys desc
-        if (sb.other !== sa.other) return sb.other - sa.other; // then clicks desc
-        return PRODUCTS.indexOf(a) - PRODUCTS.indexOf(b);      // stable original order
-      });
+      if (_haveFullStats) {
+        return PRODUCTS.slice().sort(function(a, b) {
+          var sa = _statShown(a.id), sb = _statShown(b.id);
+          if (sb.buys !== sa.buys) return sb.buys - sa.buys;     // buys desc
+          if (sb.other !== sa.other) return sb.other - sa.other; // then clicks desc
+          return PRODUCTS.indexOf(a) - PRODUCTS.indexOf(b);      // stable original order
+        });
+      }
+      // No real counts (normal visitor) — sort by the server-sent rank
+      // order instead; unranked ids (nothing recorded yet) fall to the end.
+      if (productOrder && productOrder.length) {
+        var rank = {};
+        productOrder.forEach(function(pid, i) {
+          var cid = _canonicalStatId(pid);
+          if (!(cid in rank)) rank[cid] = i;
+        });
+        return PRODUCTS.slice().sort(function(a, b) {
+          var ra = rank.hasOwnProperty(a.id) ? rank[a.id] : productOrder.length;
+          var rb = rank.hasOwnProperty(b.id) ? rank[b.id] : productOrder.length;
+          if (ra !== rb) return ra - rb;
+          return PRODUCTS.indexOf(a) - PRODUCTS.indexOf(b);
+        });
+      }
+      return PRODUCTS.slice();
     }
     function _addStatsBadge(parentEl, prod) {
-      if (!_canSeeStatsBadge()) return;  // operator/beta only
+      if (!_canSeeStatsBadge() || !_haveFullStats) return;  // operator/beta only, real counts only
       if (!parentEl || parentEl.querySelector(".product-stats-badge")) return;
       var s = _statShown(prod.id);
       var badge = document.createElement("span");
@@ -148,7 +176,8 @@ const _deps = {
       fetch(_deps.API_BASE + "/api/stats")
         .then(function(r) { return r.json(); })
         .then(function(d) {
-          if (d && d.stats) productStats = d.stats;
+          if (d && d.stats) { productStats = d.stats; _haveFullStats = true; }
+          if (d && Array.isArray(d.order)) productOrder = d.order;
           if (d && typeof d.viewer_excluded !== "undefined") _viewerIpExcluded = !!d.viewer_excluded;
           if (_deps.renderProducts) _deps.renderProducts();
         })

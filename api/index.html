@@ -488,10 +488,10 @@
               title="Sharpen every card — brings out the Sun's faint outer glow, invisible in the original photo."
               aria-label="Sharpen all Sun cards — brings out the faint outer glow invisible in the original photo">
         <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-        Reveal the filtered view
+        Reveal the enhanced view
         <span class="vibe-reveal-sub">(brings out the faint outer glow)</span>
       </button>
-      <!-- Labels: user-facing copy is Preview / Original / Filtered.
+      <!-- Labels: user-facing copy is Preview / Original / Enhanced.
            Internal data-tier values stay jpg/raw/rhef so the URL keys,
            state.vibeMasterTier, and the manifest schema don't churn.
            Mapping is documented at the top of solar-archive.js where the
@@ -535,9 +535,9 @@
            must stay put rather than ride the entrance. -->
       <button type="button" class="quality-strip-bar" id="qualityStripBar"
               aria-expanded="false"
-              aria-label="Show the Original vs Filtered comparison">
+              aria-label="Show the Original vs Enhanced comparison">
         <i class="fas fa-arrows-left-right" aria-hidden="true"></i>
-        Original vs Filtered &mdash; see what RHEF reveals
+        Original vs Enhanced &mdash; see what changes
       </button>
      <!-- .flow-inner carries the entrance only. This section is a stillness
           BASIN: it is the proof moment, and you cannot compare two images while
@@ -1027,8 +1027,10 @@
         <div class="filter-timeline editor-filter" id="editorFilterToggle" role="radiogroup" aria-label="Image quality">
           <span class="filter-timeline-label">Quality</span>
           <!-- User-facing labels match the master toggle convention
-               (Preview / Original / Filtered). data-filter keys and
-               radio values STAY jpg/raw/rhef/hq_rhef so all the
+               (Preview / Original / Enhanced — decided 2026-09-14, folding
+               the HQ tier into the same "Enhanced" word since it's the same
+               look at print resolution, not a third option). data-filter
+               keys and radio values STAY jpg/raw/rhef/hq_rhef so all the
                state.editorFilter / _filterIsReady / quality-pipeline
                wiring continues to work unchanged. -->
           <div class="filter-step" data-filter="raw" title="The conventional NASA SDO look — what astronomers see published. Original AIA FITS data via VSO/JSOC. Paints instantly from a fast web preview, then upgrades to the full-resolution telescope frame.">
@@ -1043,19 +1045,19 @@
           <div class="filter-step" data-filter="rhef" title="RHEF — re-balances brightness with distance from centre, revealing outer-atmosphere structure the original hides. Published research: Gilly &amp; Cranmer 2025 (Sol. Phys. 300, 174).">
             <span class="filter-step-num"><i class="fas fa-magic" aria-hidden="true"></i></span>
             <span class="filter-step-info">
-              <span class="filter-step-name">Filtered</span>
+              <span class="filter-step-name">Enhanced</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="rhef" aria-label="Filtered quality">
+            <input type="radio" name="editorFilter" value="rhef" aria-label="Enhanced quality">
           </div>
           <div class="filter-step-connector"></div>
-          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution Filtered render — best for large prints. Takes 1–3 minutes.">
+          <div class="filter-step" data-filter="hq_rhef" id="hqRhefFilterOpt" title="High-resolution Enhanced render — best for large prints. Takes 1–3 minutes.">
             <span class="filter-step-num"><i class="fas fa-star" aria-hidden="true"></i></span>
             <span class="filter-step-info">
-              <span class="filter-step-name">HQ Filtered</span>
+              <span class="filter-step-name">Enhanced</span>
               <span class="filter-step-status" data-status="locked"></span>
             </span>
-            <input type="radio" name="editorFilter" value="hq_rhef" aria-label="HQ Filtered quality">
+            <input type="radio" name="editorFilter" value="hq_rhef" aria-label="Enhanced quality, full resolution">
           </div>
           <span class="filter-loading-indicator hidden" id="filterLoadingIndicator" title="Preview image generating…"><span class="filter-loading-spinner"></span> Processing…</span>
         </div>

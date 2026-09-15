@@ -14,15 +14,23 @@ webapp root in local dev), so they survive deploys:
              but we store the raw total here.)
 
 Endpoints (mounted under /api):
-  GET  /api/stats          → { "stats": { "<product_id>": {buys, clicks}, … } }
-                             public read — the frontend needs it to render
-                             the badges + sort the grid.
+  GET  /api/stats          → { "order": [product_id, …], "viewer_excluded": bool,
+                               "stats": { "<product_id>": {buys, clicks}, … } }
+                             Public read, but "order" (the popularity RANK
+                             only) is all a normal visitor gets — raw counts
+                             are commercially sensitive (a visitor with dev
+                             tools open could read "1 buy" off a product,
+                             QA sweep 2026-09-14). "stats" (the real numbers)
+                             is only included for the operator's own
+                             IP (STATS_EXCLUDE_IPS) or a valid X-Admin-Key,
+                             same gate as /api/stats/reset.
   POST /api/stats/event    → { "product_id": "...", "kind": "click"|"buy" }
                              Origin-gated + per-IP rate-limited (reuses
                              api.security) so a random internet caller
                              can't inflate the counts.
 """
 
+import hmac
 import json
 import os
 import re
@@ -34,7 +42,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from api.security import enforce_origin, enforce_rate_limit, _client_ip
-from api.feedback_routes import _data_dir, _check_admin_key  # shared disk + admin gate
+from api.feedback_routes import _data_dir, _check_admin_key, ADMIN_KEY_ENV  # shared disk + admin gate
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
@@ -146,19 +154,39 @@ def _increment(product_id: str, kind: str) -> dict:
         return entry
 
 
+def _is_admin(header_key: Optional[str]) -> bool:
+    """Non-raising cousin of _check_admin_key, for a route that stays 200
+    for everyone and only ADDS data for an authorized caller."""
+    expected = os.getenv(ADMIN_KEY_ENV, "").strip()
+    provided = (header_key or "").strip()
+    return bool(expected) and bool(provided) and hmac.compare_digest(provided, expected)
+
+
 @router.get("")
-async def get_stats(request: Request):
-    """Public read of all product counters (for badges + sort).
-    Also reports whether THIS caller's IP is excluded, so the frontend
-    can decide to show the (operator-only) popularity badge."""
+async def get_stats(
+    request: Request,
+    x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
+):
+    """Public read: everyone gets the popularity ORDER (buys desc, then
+    non-converting clicks desc) so the grid can sort itself without a raw
+    count ever reaching a visitor's network tab. The real counts are added
+    only for the operator's own excluded IP or a valid X-Admin-Key."""
     data = await run_in_threadpool(_read_stats)
-    # Strip the internal ts field from the public payload.
+    # Strip the internal ts field from the internal payload.
     clean = {
         pid: {"buys": int(v.get("buys", 0)), "clicks": int(v.get("clicks", 0))}
         for pid, v in data.items()
         if isinstance(v, dict)
     }
-    return {"stats": clean, "viewer_excluded": _client_ip(request) in _excluded_ips()}
+    order = sorted(
+        clean.keys(),
+        key=lambda pid: (-clean[pid]["buys"], -max(0, clean[pid]["clicks"] - clean[pid]["buys"])),
+    )
+    viewer_excluded = _client_ip(request) in _excluded_ips()
+    out = {"order": order, "viewer_excluded": viewer_excluded}
+    if viewer_excluded or _is_admin(x_admin_key):
+        out["stats"] = clean
+    return out
 
 
 @router.post("/event")

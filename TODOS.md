@@ -1291,19 +1291,19 @@ Shopify checkout were not exercised.
 
 ### Conversion and first impression
 
-- [ ] **P1: the store landing downloads a 13.0 MB full-resolution PNG before
-  anyone does anything.** Corrected 2026-09-14 after a clean-storage re-test
-  (localStorage and sessionStorage cleared, bare `/store`, resource timing after
-  10 s): `/asset/default/vibe/ar2192/rhef_full.png` is requested (13,032,853 B
-  on production) along with one `generate_preview` POST. `raw_full.png` is NOT
-  requested, so the earlier "~18.6 MB" figure, which added it from reading the
-  code, was wrong. The trigger is still untraced: every `_activateVibe` caller
-  is a user action (card click, birthday submit, share-link params), so the
-  landing request comes from another path, most likely the `_vibeEntry`
-  re-install in `solar-archive.js` (~line 2680) that calls
-  `_preloadVibeTiersIntoState`. Trace it before patching; the fix is to keep
-  the landing sample on thumbs and start the full-res load on the first real
-  selection.
+- [x] **P1** the store landing downloads a 13.0 MB full-resolution PNG before
+  anyone does anything. Traced 2026-09-14: not `_activateVibe` at all, but
+  `_primeDefaultHQ` in `solar-archive.js` (~line 6833), an idle-callback probe
+  of `/asset/default/vibe/ar2192/rhef_full.png` armed unconditionally on
+  `window` 'load' for any visitor whose date field starts empty, i.e. every
+  bare landing. Fixed by arming it instead on the step machine's own
+  `solar-archive:step-change` event, the first time it leaves "image" (a real
+  date+look confirmation) — confirmed via console instrumentation that the
+  event fires synchronously during boot (so the always-there "image → image"
+  dispatch never reaches a listener registered after it) and again, for real,
+  after a genuine selection. Verified in the local preview: zero `*_full.png`
+  requests on a bare `/store` load; the fetch resumes normally once a vibe
+  card + look is confirmed.
 
 - [ ] **P1: the cookie banner sits on the primary CTA on first load.** 1280x800:
   banner spans y=666-784, "See the Sun" spans y=778-822, so the button is partly
@@ -1313,12 +1313,15 @@ Shopify checkout were not exercised.
   compact bar, or deferring the banner until after the first interaction, gives
   the first screen back to the one action it exists for.
 
-- [ ] **P1: four names for two choices.** Visible store HTML says Original 8x,
-  Enhanced 6x, RHEF 4x, Filtered 3x, HQ 1x; strings in `solar-archive.js` add
-  Filtered 55x, "HQ Filtered" 14x, Enhanced 12x. The film says only
-  Original/Enhanced. Above the fold the buyer meets "Original vs Filtered: see
-  what RHEF reveals" before picking a date. Use Original/Enhanced everywhere a
-  buyer reads; keep RHEF for provenance and credits.
+- [x] **P1** four names for two choices. Renamed every buyer-facing
+  "Filtered"/"HQ Filtered" to Enhanced across `index.html` and
+  `solar-archive.js` (toasts, status lines, the editor's Quality timeline, the
+  above-the-fold "Original vs Filtered — see what RHEF reveals" heading, now
+  "Original vs Enhanced — see what changes"). `data-filter`/radio values
+  (`raw`/`rhef`/`hq_rhef`) and internal identifiers untouched. The Enhanced and
+  HQ-Enhanced tiers now share one label per Dr. Gilly's decision (see below);
+  distinguished by icon and tooltip only, and by a full-resolution-specific
+  aria-label so the two radios stay distinguishable to a screen reader.
 
 - [ ] **P2: "any day since 2010" is not true.** The store H2 and the meta
   description both say it; `/api/data_frontier` returns `earliest: 2010-05-15`.
@@ -1348,11 +1351,14 @@ Shopify checkout were not exercised.
 
 ### Trust and professionalism
 
-- [ ] **P1: `/api/stats` is public and shows the store has made about one sale.**
-  Unauthenticated GET returns per-product buys and clicks: `framed_poster` 1 buy,
-  every other product 0 buys and 1-4 clicks. `stats.js` calls the badge
-  "operator-only", but the endpoint is not. Gate it, or return only a sort
-  order.
+- [x] **P1** `/api/stats` is public and shows the store has made about one
+  sale. `GET /api/stats` now returns `order` (rank only) to every caller;
+  `stats` (real `{buys, clicks}`) is added only for the operator's excluded
+  IP or a valid `X-Admin-Key`, same gate as `/api/stats/reset`. `stats.js`
+  sorts from the rank order when it doesn't have real counts, and the
+  operator badge simply doesn't render (no fabricated numbers) for anyone who
+  isn't IP-excluded or admin-keyed. Smoke-tested with FastAPI's TestClient:
+  public caller gets no `stats` key, admin key unlocks it, wrong key doesn't.
 
 - [ ] **P2: no security headers on production `/`.** No HSTS, CSP or
   frame-ancestors, X-Frame-Options, X-Content-Type-Options, Referrer-Policy or
@@ -1390,18 +1396,12 @@ overflow at 390px on either page. Store images all carry `alt`.
 
 ### Decisions taken 2026-09-14, not yet built
 
-- [ ] **Vocabulary: Original / Enhanced only** (Dr. Gilly). Rename every
-  buyer-facing "Filtered" (55 strings in `solar-archive.js`, 3 in visible
-  `index.html`) to Enhanced; fold "HQ Filtered" (14 strings) into Enhanced as
-  its print source rather than a third visible tier; RHEF only in credits and
-  provenance. Keep `data-filter`/radio values (`raw`/`rhef`/`hq_rhef`) as they
-  are, since the state wiring keys on them. Needs a full editor walk-through
-  after, which the hidden browser pane could not do.
-- [ ] **`/api/stats`: public order only** (Dr. Gilly). `api/stats_routes.py`
-  `GET /api/stats` returns ranked product ids without counts; raw
-  `{buys, clicks}` move behind the admin key for the operator badge.
-  `api/stats.js:148` sorts client-side from the counts today, so it has to
-  read the ranked list instead. Backend change, so it ships with a Fly deploy.
+- [x] **Vocabulary: Original / Enhanced only** (Dr. Gilly). Built 2026-09-14 —
+  see the P1 above. Still needs a full editor walk-through in a real
+  (non-hidden) browser, which hasn't happened yet.
+- [x] **`/api/stats`: public order only** (Dr. Gilly). Built 2026-09-14 — see
+  the P1 above. Backend change, so it ships with the next Fly deploy (not
+  deployed yet — dev only, pending Dr. Gilly's go-ahead).
 - [ ] **HSTS ramp:** raise `max-age=86400` to `31536000` in both
   `infra/worker/src/index.js` and `infra/worker/_headers` after a week of clean
   HTTPS on production.
