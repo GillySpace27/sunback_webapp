@@ -3748,8 +3748,34 @@ body.step-editor .vibe-reveal-btn {
     gap: 24px;
   }
 }
-.cookie-banner-body strong { color: var(--text-primary, #eeeef6); display: block; margin-bottom: 4px; font-size: 0.92rem; }
-.cookie-banner-body p { margin: 0; }
+.cookie-banner-body strong { color: var(--text-primary, #eeeef6); display: inline; margin-right: 4px; font-size: inherit; }
+.cookie-banner-body p { margin: 0; display: inline; }
+/* Compact strip (2026-09-14): the banner was a floating card that sat on the
+   primary CTA. Now a slim bar flush to the bottom edge. The 90px mobile lift
+   above the feedback FABs is obsolete: those FABs are already display:none
+   while the banner shows (see body:has(.cookie-banner:not(.hidden))). */
+.cookie-banner {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (min-width: 720px) {
+  .cookie-banner { bottom: 0; }
+}
+.cookie-banner-inner {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+}
+/* Buttons keep their original 8px 14px padding: shrinking them made 34px
+   tap targets on a 390px phone, which is the wrong trade for a thinner bar. */
 .cookie-banner-body a { color: var(--accent-corona-text, #f3d385); }
 .cookie-banner-actions {
   display: flex;

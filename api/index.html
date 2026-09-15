@@ -1551,8 +1551,12 @@
   <div id="cookieBanner" class="cookie-banner hidden" role="dialog" aria-modal="false" aria-labelledby="cookieBannerTitle">
     <div class="cookie-banner-inner">
       <div class="cookie-banner-body">
-        <strong id="cookieBannerTitle">We use cookies and browser storage.</strong>
-        <p>My Heliograph stores UI preferences in your browser (strict-necessary) and, with your consent, may use Google Analytics 4 (aggregated traffic stats) and Sentry (error reporting). See our <a href="/privacy">Privacy Policy</a>.</p>
+        <!-- Compact on purpose (Dr. Gilly, 2026-09-14): the full two-sentence
+             banner covered "See the Sun" on first load at 1280x800 and took
+             24% of a 390x844 phone. Same disclosure, same two choices, same
+             gating in _wireCookieBanner; the detail lives in /privacy. -->
+        <strong id="cookieBannerTitle">Cookies:</strong>
+        <p>only what the site needs, plus Google Analytics and Sentry error reports if you allow them. <a href="/privacy">Privacy</a></p>
       </div>
       <div class="cookie-banner-actions">
         <button type="button" class="cookie-banner-btn cookie-banner-btn-decline" id="cookieBannerDecline" aria-label="Decline analytics cookies">Decline analytics</button>

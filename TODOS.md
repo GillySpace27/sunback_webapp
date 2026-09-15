@@ -1387,3 +1387,29 @@ Shopify checkout were not exercised.
 `support@myheliograph.com` has MX (Cloudflare routing). The 404 page is branded.
 The OG card is really 1200x630. No console errors on the film. No horizontal
 overflow at 390px on either page. Store images all carry `alt`.
+
+### Decisions taken 2026-09-14, not yet built
+
+- [ ] **Vocabulary: Original / Enhanced only** (Dr. Gilly). Rename every
+  buyer-facing "Filtered" (55 strings in `solar-archive.js`, 3 in visible
+  `index.html`) to Enhanced; fold "HQ Filtered" (14 strings) into Enhanced as
+  its print source rather than a third visible tier; RHEF only in credits and
+  provenance. Keep `data-filter`/radio values (`raw`/`rhef`/`hq_rhef`) as they
+  are, since the state wiring keys on them. Needs a full editor walk-through
+  after, which the hidden browser pane could not do.
+- [ ] **`/api/stats`: public order only** (Dr. Gilly). `api/stats_routes.py`
+  `GET /api/stats` returns ranked product ids without counts; raw
+  `{buys, clicks}` move behind the admin key for the operator badge.
+  `api/stats.js:148` sorts client-side from the counts today, so it has to
+  read the ranked list instead. Backend change, so it ships with a Fly deploy.
+- [ ] **HSTS ramp:** raise `max-age=86400` to `31536000` in both
+  `infra/worker/src/index.js` and `infra/worker/_headers` after a week of clean
+  HTTPS on production.
+- [ ] **The real reason the banner covers "See the Sun": the CTA is below the
+  fold.** Compacting the banner (built 2026-09-14) shrank it from 118px to 51px
+  at 1280x800 and from 203px (24% of screen) to 121px (14%) at 390x844, but the
+  CTA still starts at y=778 on an 800px laptop and y=824 on an 844px phone, so
+  it is off the first screen with or without a banner. Everything stacked above
+  it (hidden H1, H2, Share, "Original vs Filtered", date label, input, time
+  label) has to lose height, or the CTA has to move up beside the date input.
+  Layout call; not attempted without being able to see the page.
