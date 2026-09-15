@@ -36,6 +36,10 @@ kill_timeout = "60s"
   # Mirrors prod (2 since 2026-08-25) — a dev tier that queues differently
   # from prod cannot be used to test queueing.
   SOLAR_ARCHIVE_HEAVY_CONCURRENCY = "2"
+  # Same name/value as the Worker's dev env (infra/worker/wrangler.jsonc) —
+  # lets api/main.py 404 the dynamic /sitemap.xml route on dev, since
+  # build-public.sh only deletes the STATIC copy.
+  IS_DEV = "1"
 
 [[mounts]]
   source = "data"

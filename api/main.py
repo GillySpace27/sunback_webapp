@@ -4235,6 +4235,12 @@ async def robots_txt():
 
 @app.get("/sitemap.xml")
 async def sitemap_xml():
+    # build-public.sh deletes the static public/sitemap.xml on dev builds
+    # (it advertises prod URLs), so a dev request falls through the Worker
+    # to this route instead of hitting a static asset. Without this check it
+    # served prod's sitemap unconditionally — found 2026-09-15.
+    if os.getenv("IS_DEV") == "1":
+        return Response(status_code=404)
     return FileResponse(Path(__file__).parent / "sitemap.xml", media_type="application/xml")
 
 @app.get("/favicon.svg")
