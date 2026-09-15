@@ -1291,15 +1291,19 @@ Shopify checkout were not exercised.
 
 ### Conversion and first impression
 
-- [ ] **P1: the store landing downloads ~18.6 MB of full-resolution PNG before
-  anyone does anything.** `solar-archive.js:5325-5327` preloads
-  `entry.raw_full_url` and `entry.rhef_full_url` for the default AR 2192 sample.
-  Production sizes: `raw_full.png` 5,619,152 B, `rhef_full.png` 13,032,853 B.
-  Locally the `rhef_full.png` request fired on a bare `/store` load with no
-  interaction (the `raw_full` request fell outside the captured window, so that
-  half is inferred from the code, not observed). On a phone this is the largest
-  cost on the page by an order of magnitude. Load thumbs on landing, full-res
-  when the editor opens, and at display size rather than as 4k PNG.
+- [ ] **P1: the store landing downloads a 13.0 MB full-resolution PNG before
+  anyone does anything.** Corrected 2026-09-14 after a clean-storage re-test
+  (localStorage and sessionStorage cleared, bare `/store`, resource timing after
+  10 s): `/asset/default/vibe/ar2192/rhef_full.png` is requested (13,032,853 B
+  on production) along with one `generate_preview` POST. `raw_full.png` is NOT
+  requested, so the earlier "~18.6 MB" figure, which added it from reading the
+  code, was wrong. The trigger is still untraced: every `_activateVibe` caller
+  is a user action (card click, birthday submit, share-link params), so the
+  landing request comes from another path, most likely the `_vibeEntry`
+  re-install in `solar-archive.js` (~line 2680) that calls
+  `_preloadVibeTiersIntoState`. Trace it before patching; the fix is to keep
+  the landing sample on thumbs and start the full-res load on the first real
+  selection.
 
 - [ ] **P1: the cookie banner sits on the primary CTA on first load.** 1280x800:
   banner spans y=666-784, "See the Sun" spans y=778-822, so the button is partly

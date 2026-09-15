@@ -36,6 +36,9 @@ for f in "$API_DIR"/legal/*.html; do
   cp "$f" "$OUT/$(basename "$f")"
 done
 
+# Response headers for Static Assets (see the comment inside the file).
+cp _headers "$OUT/_headers"
+
 
 # ── 3D experience (web3d), served SAME-ORIGIN under /experience/ ──
 # So its origin-enforced Helioviewer textures (/api/*) and the deep-link handoff

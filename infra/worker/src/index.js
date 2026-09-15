@@ -106,12 +106,26 @@ function noindex(resp) {
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
+// Baseline hardening for everything this Worker returns: the film at "/"
+// (run_worker_first) and every proxied /api and /asset response. Static
+// Assets responses never pass through here, so /store and the legal pages get
+// the same two headers from public/_headers instead (copied by
+// build-public.sh). Deliberately only the two that cannot break anything:
+// HSTS, frame-ancestors and a CSP each need a decision first (QA sweep,
+// 2026-09-14).
+function secure(resp) {
+  const headers = new Headers(resp.headers);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (env.IS_DEV === "1") {
-      return noindex(await handle(request, env, ctx));
+      return secure(noindex(await handle(request, env, ctx)));
     }
-    return handle(request, env, ctx);
+    return secure(await handle(request, env, ctx));
   },
 
   async scheduled(_event, env, ctx) {

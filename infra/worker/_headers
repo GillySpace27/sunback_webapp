@@ -1,0 +1,8 @@
+# Baseline hardening for Static Assets responses (/store, legal pages, /asset
+# files served from public/). Worker-generated responses, including "/" and
+# every proxied /api call, get the same two headers from secure() in
+# src/index.js, because Cloudflare does not apply this file to them.
+# HSTS, frame-ancestors and CSP are intentionally absent until decided.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
