@@ -173,7 +173,7 @@ export default function Hud() {
             is invisible unless someone happens to try it — and it is the more
             expressive of the two. Naming both, next to the control, is the
             whole instruction. */}
-        <span className="hud-hint">type it, or drag the sky</span>
+        <span className="hud-hint">type it, or drag the sky: slow for days, fast for years</span>
         {/* The landing frame has no wavelength readout yet (that waits for
             0.19), so while the opening stand-in is up there was nothing at
             all saying the picture was still arriving — and a soft, not-yet-

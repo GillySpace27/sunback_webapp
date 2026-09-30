@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { sunOnScreen } from "../lib/sunOnScreen";
 import * as THREE from "three";
 import { useStore } from "../store";
 import { CHANNELS, DEFAULT_CHANNEL } from "../data/wavelengths";
@@ -575,7 +576,21 @@ export default function Sun() {
     coronaUniforms.uHasRhef.value = rhefTex ? 1 : 0;
   }, [tex, rhefTex, rain, uniforms, coronaUniforms]);
 
+  const disc = useRef<THREE.Mesh>(null);
+  const probe = useMemo(() => ({ c: new THREE.Vector3(), e: new THREE.Vector3() }), []);
   useFrame((state, dt) => {
+    // The prologue lands on this: centre and radius in CSS px.
+    if (disc.current) {
+      const { c, e } = probe;
+      disc.current.getWorldPosition(c);
+      e.setFromMatrixColumn(state.camera.matrixWorld, 0).multiplyScalar(1.6).add(c);
+      c.project(state.camera);
+      e.project(state.camera);
+      const { width: w, height: h } = state.size;
+      sunOnScreen.x = ((c.x + 1) / 2) * w;
+      sunOnScreen.y = ((1 - c.y) / 2) * h;
+      sunOnScreen.r = Math.hypot(((e.x - c.x) / 2) * w, ((e.y - c.y) / 2) * h);
+    }
     // billboard: the corona is a flat quad, so it must always face the camera
     if (corona.current) corona.current.quaternion.copy(state.camera.quaternion);
     const { channel: ch, quality, reducedMotion } = useStore.getState();
@@ -630,7 +645,7 @@ export default function Sun() {
 
   return (
     <>
-      <mesh visible={visible}>
+      <mesh ref={disc} visible={visible}>
         <icosahedronGeometry args={[1.6, 12]} />
         <shaderMaterial
           vertexShader={vertex}

@@ -1635,3 +1635,101 @@ body {
   .wavelength-palette label { padding: .4rem .55rem; }
   .hud-row--sky { gap: .25rem; }
 }
+
+/* ── Prologue: Earth, the day, the Sun, the flight (ui/Prologue.tsx) ───────── */
+.prologue {
+  position: fixed; inset: 0; z-index: 50; overflow: hidden; background: #000;
+  color: var(--ink); font-family: var(--sans); touch-action: none;
+  transition: opacity 0.9s ease;
+}
+.prologue[data-leaving] { opacity: 0; pointer-events: none; }
+/* The camera: a sky twice the screen's height. It starts on the ground and
+   tilts up to the Sun by sliding down. */
+.pro-world {
+  position: absolute; left: 0; right: 0; top: 0; height: 200%;
+  transform: translateY(-50%);
+  transition: transform 2.8s cubic-bezier(0.65, 0, 0.35, 1);
+  background: linear-gradient(to bottom, #04050c 0%, #0c1433 24%, var(--sky-top) 52%, var(--sky-low) 100%);
+}
+.pro-scene { position: absolute; left: 0; bottom: 0; width: 100%; height: 23%; color: #0b0c14; fill: currentColor; }
+.pro-scene-g { animation: pro-in 0.7s ease both; }
+.pro-flame { fill: #ffd271; animation: pro-flicker 0.45s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 50% 100%; }
+.pro-balloon { animation: pro-bob 3.6s ease-in-out infinite alternate; }
+.pro-cap { animation: pro-float 4.8s ease-in-out infinite alternate; }
+/* Space: the blue drains out of the sky as we leave it. */
+.pro-space { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity 2.6s ease; pointer-events: none; }
+.pro-stars {
+  position: absolute; left: 50%; top: 50%; width: 1.5px; height: 1.5px; border-radius: 50%;
+  transform: scale(0.55); transition: transform 3.2s cubic-bezier(0.5, 0, 0.85, 0.35);
+}
+/* The Sun: white in a blue sky, then the film's own 171 Å Sun once we are
+   above the air. It sits at screen centre from the tilt on, and only grows. */
+.pro-sun {
+  position: absolute; left: 50%; top: 50%; width: 10vmin; aspect-ratio: 1; border-radius: 50%;
+  transform: translate(-50%, -50%) translateY(-100vh) scale(1);
+  transition: transform 2.8s cubic-bezier(0.65, 0, 0.35, 1), box-shadow 2.5s ease;
+  background: radial-gradient(circle, #fff 0 56%, #fff4d2 66%, rgba(255, 232, 170, 0) 72%);
+  box-shadow: 0 0 5vmin 1.5vmin rgba(255, 238, 196, 0.55), 0 0 22vmin 8vmin rgba(255, 222, 150, 0.22);
+}
+/* The disc is ~64% of sun_171.webp; the rest is black sky. Enlarge it so the
+   limb meets this circle: no dark ring, and 2r of the film's Sun is the disc. */
+.pro-sun { overflow: hidden; }
+.pro-sun img { position: absolute; left: -28%; top: -28%; width: 156%; height: 156%; display: block; opacity: 0; transition: opacity 1.8s ease 0.6s; }
+.prologue:is([data-phase="pan"], [data-phase="fly"], [data-phase="arrive"]) .pro-world { transform: translateY(0); }
+.prologue[data-phase="pan"] .pro-sun { transform: translate(-50%, -50%) scale(1); }
+.prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-sun {
+  left: var(--sun-x, 50%); top: var(--sun-y, 50%);
+  transform: translate(-50%, -50%) scale(var(--sun-arrive, 3.5));
+  transition: transform 3.2s cubic-bezier(0.55, 0, 0.25, 1), left 3.2s ease, top 3.2s ease, box-shadow 2.5s ease;
+  box-shadow: 0 0 3vmin 0.5vmin rgba(240, 190, 80, 0.35);
+}
+.prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-sun img { opacity: 1; }
+.prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-space { opacity: 1; }
+.prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-stars { transform: scale(2.6); }
+/* Words */
+.pro-caption {
+  position: absolute; left: 0; right: 0; top: 30%; margin: 0; padding: 0 1.5rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.7rem; text-align: center;
+  pointer-events: none; transition: top 1.2s ease;
+}
+.prologue:is([data-phase="pan"], [data-phase="fly"], [data-phase="arrive"]) .pro-caption { top: 74%; }
+.pro-caption span { animation: pro-in 1s ease both; font-family: var(--serif); font-size: clamp(1.5rem, 3.6vw, 2.6rem); line-height: 1.2; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45); }
+.pro-caption .pro-date { font-family: var(--sans); font-size: var(--fs-label); letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink); opacity: 0.9; animation-delay: 0.6s; }
+.pro-picker {
+  position: absolute; left: 0; right: 0; margin: 0 auto; top: max(4rem, 8%); width: min(40rem, calc(100% - 2rem));
+  display: flex; flex-direction: column; align-items: center; gap: 0.9rem; text-align: center; animation: pro-in 0.9s ease both;
+}
+.pro-q { margin: 0; font-family: var(--serif); font-size: clamp(1.6rem, 4vw, 2.5rem); text-shadow: 0 2px 16px rgba(0, 0, 0, 0.35); }
+.pro-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; }
+.pro-chip {
+  font: inherit; font-size: var(--fs-label); letter-spacing: var(--track-flat); color: var(--ink); cursor: pointer;
+  padding: 0.4rem 0.85rem; border-radius: var(--r-pill); border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(8, 10, 22, 0.28); backdrop-filter: blur(6px); transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.pro-chip:hover { background: rgba(8, 10, 22, 0.45); }
+.pro-chip[aria-checked="true"] { background: var(--ink); color: #14110c; border-color: var(--ink); }
+.pro-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.8rem 1.2rem; }
+.pro-when { display: flex; align-items: center; gap: 0.6rem; font-size: var(--fs-label); letter-spacing: var(--track-caps); text-transform: uppercase; }
+.pro-when input {
+  font: inherit; letter-spacing: var(--track-flat); text-transform: none; color: var(--ink); color-scheme: dark;
+  padding: 0.45rem 0.7rem; border-radius: var(--r-sm); border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(8, 10, 22, 0.35);
+}
+.pro-range { margin: 0; font-size: var(--fs-micro); color: var(--ink); opacity: 0.8; max-width: 30rem; }
+.pro-begin {
+  font: inherit; font-weight: 600; font-size: var(--fs-body); letter-spacing: var(--track-wide); text-transform: uppercase;
+  padding: 0.6rem 1.6rem; border-radius: var(--r-pill); border: 0; cursor: pointer; background: var(--accent); color: #140f02;
+}
+.pro-begin:disabled { opacity: 0.45; cursor: default; }
+.pro-skip {
+  position: absolute; top: 1rem; right: 1rem; font: inherit; font-size: var(--fs-micro); letter-spacing: var(--track-caps);
+  text-transform: uppercase; color: var(--ink); cursor: pointer; padding: 0.45rem 0.9rem; border-radius: var(--r-pill);
+  border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(0, 0, 0, 0.25);
+}
+@keyframes pro-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes pro-flicker { from { transform: scaleY(0.85); opacity: 0.8; } to { transform: scaleY(1.08); opacity: 1; } }
+@keyframes pro-bob { from { transform: translateY(0); } to { transform: translateY(-14px); } }
+@keyframes pro-float { from { transform: translateY(0); } to { transform: translateY(-22px); } }
+@media (prefers-reduced-motion: reduce) {
+  .pro-world, .pro-sun, .pro-stars, .pro-caption { transition-duration: 0.01s !important; }
+  .pro-flame, .pro-balloon, .pro-cap { animation: none; }
+}
