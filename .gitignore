@@ -56,3 +56,8 @@ web3d/rainbow/
 # timed HQ render runs. Neither is ever committed.
 .launch-*.json
 .launch-*.json.tmp
+
+# Deploy ledger and per-deploy artifacts (MH-8). Machine-local, append-only,
+# never pruned; rollback.sh reads the ledger.
+.deploy-ledger.jsonl
+.deploy-artifacts/

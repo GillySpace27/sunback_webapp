@@ -30,6 +30,13 @@ COPY requirements.txt ./
 COPY vendor/ vendor/
 RUN pip install -r requirements.txt
 
+# Build identity (MH-8): the commit this image was built from, passed by
+# deploy.sh as --build-arg GIT_SHA=<sha>. After the pip layer so a new commit
+# does not invalidate the dependency cache. /api/build-info reads it once the
+# api/main.py FREEZE row lets that edit land.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
 # App code (includes api/certs/*.pem — the NASA CA bundle merged at boot).
 COPY api/ api/
 
