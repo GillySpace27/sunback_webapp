@@ -373,8 +373,8 @@ CORS_HEADERS = {
 }
 
 # SSL/certifi/NASA CA bundle setup — standalone chain, no in-place certifi patching
-import certifi
-import ssl
+import certifi  # duplicate import kept (MH-7) # noqa: F811
+import ssl  # duplicate import kept (MH-7) # noqa: F811
 import tempfile
 
 def ensure_nasa_cert():
@@ -696,7 +696,7 @@ SOHO_EPOCH = datetime(1996, 1, 1)    # after which EIT/LASCO is available
 # ──────────────────────────────────────────────────────────────────────────────
 
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI
+from fastapi import FastAPI  # duplicate import kept (MH-7) # noqa: F811
 from fastapi.staticfiles import StaticFiles
 import sys
 import threading
@@ -796,7 +796,7 @@ async def serve_index_direct():
 # in production by setting ALLOWED_ORIGINS=comma,separated,list. The
 # api.security module reads the same env var for server-side Origin
 # checks on POSTs, so CORS and the per-route check stay in sync.
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware  # duplicate import kept (MH-7) # noqa: F811
 
 # Origin + rate-limit helpers shared with the printify routes.
 from api.security import enforce_origin, enforce_rate_limit, _allowed_origins
@@ -2156,7 +2156,7 @@ from api import stats_routes
 app.include_router(stats_routes.router, prefix="/api")
 
 # --- Asynchronous HQ generation endpoints ---
-from fastapi import BackgroundTasks, HTTPException, APIRouter
+from fastapi import BackgroundTasks, HTTPException, APIRouter  # duplicate import kept (MH-7) # noqa: F811
 import uuid, asyncio
 
 import threading

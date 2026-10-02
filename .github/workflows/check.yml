@@ -36,5 +36,10 @@ jobs:
       - name: Install web3d dependencies
         working-directory: web3d
         run: npm ci --no-audit --no-fund
+      - name: Lint (pyflakes rules, pinned ruff)
+        run: |
+          . infra/scripts/pins.env
+          pip install "ruff==${RUFF_VERSION}"
+          ruff check --select F --ignore F401,F541,F841 api/
       - name: check.sh
         run: ./infra/scripts/check.sh
