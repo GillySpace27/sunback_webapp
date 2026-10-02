@@ -18,7 +18,7 @@ CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smo
          store_syntax worker_syntax whitelist_parity web3d_typecheck
          fixtures_pii claude_md_paths
          playwright_pins
-         vendor_drift hsts_agree )
+         vendor_drift hsts_agree release_gates_copy )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -312,6 +312,16 @@ check_hsts_agree() {
     return 1
   fi
   echo "secure() and _headers agree: $a"
+}
+
+# SU-3: the vendored release-gates.sh still matches its sha256 header (canonical copy: HelioFITS).
+check_release_gates_copy() {
+  if ./infra/scripts/release-gates.sh --verify-copy >/dev/null 2>&1; then
+    echo "vendored copy matches its sha256 header"
+  else
+    echo "infra/scripts/release-gates.sh differs from its vendored header; recopy from HelioFITS"
+    return 1
+  fi
 }
 
 SELECTED=( "${CHECKS[@]}" )

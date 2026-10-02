@@ -234,6 +234,19 @@ if [ "$TARGET" = "render" ]; then
   gate_render_playwright
 fi
 
+# Shared release gates (SU-3), prod only: pushed, ancestor of origin/main, the
+# recorded dev candidate is this commit, no em dash in CHANGELOG.md, not Friday
+# afternoon. Runs before DRY_RUN's exit so a dry run shows the gates too. Each
+# refusal names its override; set one only on Gilly's yes for that deploy.
+if [ "$TARGET" = "prod" ]; then
+  GATE_ARGS=(--product myheliograph --version "$GIT_SHA")
+  if [ -f "$RUN_STATE" ]; then
+    GATE_ARGS+=(--version-check "deploy-run=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("git_sha",""))' "$RUN_STATE")")
+  fi
+  if [ -f CHANGELOG.md ]; then GATE_ARGS+=(--notes CHANGELOG.md); fi
+  ./infra/scripts/release-gates.sh "${GATE_ARGS[@]}"
+fi
+
 if [ "$DRY_RUN" = "1" ]; then
   echo "### DRY_RUN=1: gates passed for $TARGET at ${GIT_SHA:0:8} ($GIT_BRANCH); nothing deployed."
   echo "  would append one line to $LEDGER and write $ARTIFACTS/$GIT_SHA/receipt.html"
