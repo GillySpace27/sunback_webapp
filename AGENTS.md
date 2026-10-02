@@ -2,6 +2,10 @@
 
 This document provides guidelines for agentic coding agents working in this repository.
 
+> Corrected 2026-10-02 (MH-4): for the webapp, start with README.md and CLAUDE.md at the
+> repo root; they are kept current and CLAUDE.md's paths are checked by
+> infra/scripts/check.sh. Two stale claims below were corrected in place.
+
 ## Project Overview
 
 This repository contains two main projects:
@@ -191,7 +195,7 @@ sunback/
     │   ├── main.py           # Main API endpoints
     │   └── printify_routes.py  # Printify integration
     ├── dep/                 # Deprecated modules
-    └── pipeline.py         # Data pipeline
+    └── infra/              # Worker and deploy scripts (pipeline.py no longer exists)
 ```
 
 ---
@@ -211,7 +215,7 @@ sunback/
 - SSL certificates for NASA are handled specially (see `ensure_nasa_cert()`)
 - The API uses SSE (Server-Sent Events) for log streaming at `/logs/stream`
 - Preview generation runs asynchronously with status polling at `/api/status/{task_id}`
-- CORS is configured to allow all origins (`allow_origins=["*"]`)
+- CORS uses an origin allowlist: env `ALLOWED_ORIGINS`, else `_DEFAULT_ALLOWED` in `api/main.py`; write routes also check the Origin header with `enforce_origin` (`api/security.py`). It is not `*`.
 
 ---
 
