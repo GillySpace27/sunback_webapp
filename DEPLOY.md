@@ -99,6 +99,17 @@ Only needed once per machine/account. Skip if `fly apps list` already shows
 A dirty tree is allowed on dev and **refused** on prod: a promoted image must
 map to a real commit or the whole audit trail is fiction.
 
+**Branches first.** Read `BRANCHES.md` at the repo root before any deploy:
+it names the integration line, Gilly's landing order and the FREEZE list.
+A branch that is not on the integration line is never deployed.
+
+**Revoked key history on GitHub.** The revoked Printful key is still
+reachable through GitHub pull-request refs. Removing it takes a
+GitHub Support purge request, which only Gilly can file. No agent files it,
+and no agent pushes any pre-purge branch listed in `BRANCHES.md`. The
+`.env` history guard in `.githooks/pre-push` (MH-3 Task 6) is not landed
+yet; until it is, nothing but this rule stops such a push.
+
 ### 1. Deploy to dev
 
     TARGET=dev ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh
