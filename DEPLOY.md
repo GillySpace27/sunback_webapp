@@ -267,6 +267,28 @@ time.
 
 - Fly volume snapshots (read 2026-10-02): not read: the listing needs a Fly login and no Fly call was allowed in this session (UNCHECKED); run fly volumes snapshots list <volume id> --app myheliograph-api, newest snapshot UNCHECKED
 
+## Pinned build inputs
+
+Two builds of one commit must be the same build. Status as of MH-7 (2026-10-02): the rows marked **not yet** are written in the task file but waiting on Gilly (the prod `pip freeze`, MH-3's libraqm0 layer, the `api/main.py` and `build-public.sh` freezes, GitHub Actions); the others are in place.
+
+| Input | Where | Changed by |
+|---|---|---|
+| Python packages (**not yet**) | `constraints.txt` (a `pip freeze` of the running prod image; `Dockerfile` installs with `-c constraints.txt`; `requirements.txt` stays the readable list and the vendored sunkit-image wheel is not listed) | monthly refresh |
+| Base images (**not yet**) | `Dockerfile` `FROM python:3.12-slim@sha256:...` and `render-service/Dockerfile` `FROM mcr.microsoft.com/playwright:v<x.y.z>-noble@sha256:...`, each with a dated comment line | monthly refresh |
+| wrangler, ruff | `infra/scripts/pins.env`, sourced by `deploy.sh` (the `check` workflow does not exist yet) | monthly refresh |
+| Playwright | `render-service/package.json` `playwright`, `web3d/package.json` `playwright-core` (no caret), the version locked in `web3d/package-lock.json` and the render Dockerfile tag, all one number; `./infra/scripts/check.sh --only playwright_pins` | with the base image |
+| GSAP, Lenis, two fonts | committed under `infra/worker/vendor/` (`SOURCES.txt`, `VERSIONS.txt`, `SHA256SUMS`; `./infra/scripts/check.sh --only vendor_drift`); `build-public.sh` still copies from `web3d/node_modules` (**not yet** switched to the committed files) | `REFRESH=1 ./infra/scripts/refresh_vendor.sh`, on purpose |
+
+**Monthly pin refresh.** One commit, nothing else in it, and a dev deploy before it can be promoted; never mixed with a feature.
+
+1. Read the new digests (Docker Hub for `python:3.12-slim`, MCR for the Playwright tag) and edit the two `FROM` lines and their dated comments.
+2. With Gilly's yes for the `fly ssh`, take a fresh `pip freeze` from the running prod image and rebuild `constraints.txt` from it (keep the header; drop sunkit-image).
+3. Update `WRANGLER_VERSION` and `RUFF_VERSION` in `infra/scripts/pins.env`.
+4. `./infra/scripts/check.sh` must be green.
+5. Dev deploy (`TARGET=dev`), then compare `pip freeze` on dev with `constraints.txt`.
+
+The Playwright pin never moves alone: the base image tag, `render-service/package.json` and web3d's `playwright-core` change together, and a render deploy follows (`TARGET=render`), because a different Playwright can change plate output.
+
 ---
 
 ## Things that have actually gone wrong here
