@@ -95,6 +95,31 @@ sys.exit(0 if got == {{want}} else 1)
 EOF
 """
 
+_DRIFT_CHECK = f"cd {REPO} && ./infra/scripts/drift.sh >/dev/null 2>&1"
+
+# The newest backup folder under BACKUP_ROOT must have a SHA256SUMS (backup_state.sh writes it
+# only for a complete backup) and be under 14 days old (estimated). Folder names start with
+# the UTC date; a second same-day run has a suffix.
+_BACKUP_AGE_CHECK = """python3 - <<'EOF'
+import datetime, os, re, sys
+root = os.environ.get("BACKUP_ROOT") or os.path.expanduser("~/Documents/NWRA/vault-backups/myheliograph")
+newest = None
+try:
+    names = os.listdir(root)
+except OSError:
+    sys.exit(1)
+for n in names:
+    m = re.match(r"^(\\d{4}-\\d{2}-\\d{2})", n)
+    if m and os.path.isfile(os.path.join(root, n, "SHA256SUMS")):
+        d = datetime.date.fromisoformat(m.group(1))
+        if newest is None or d > newest:
+            newest = d
+if newest is None:
+    sys.exit(1)
+today = datetime.datetime.now(datetime.timezone.utc).date()
+sys.exit(0 if (today - newest).days < 14 else 1)
+EOF"""
+
 # (key, label, check)
 MILESTONES = [
     ("preflight", "Preflight: tree clean, typecheck passes",
@@ -139,6 +164,9 @@ MILESTONES = [
      f"({_PROMOTED_CHECK.strip()}) "
      "&& curl -fsS --max-time 25 https://myheliograph.com/api/health >/dev/null "
      "&& curl -fsS --max-time 25 -o /dev/null https://myheliograph.com/"),
+    ("drift", "Fly and Cloudflare match the repo (drift.sh, read-only)", _DRIFT_CHECK),
+
+    ("backup_age", "Newest volume backup is under 14 days old", _BACKUP_AGE_CHECK),
 ]
 
 # HOW to advance each step: (kind, text). Taken verbatim from DEPLOY.md rather
@@ -196,6 +224,14 @@ HOW = {
 }
 
 GATED = {"promoted"}
+HOW["drift"] = ("shell",
+    "./infra/scripts/drift.sh\n"
+    "# read-only: fly machine/volumes/secrets lists and wrangler secret list against fly*.toml,\n"
+    "# wrangler.jsonc and infra/secrets.names (names only). Never run it in CI.")
+HOW["backup_age"] = ("shell",
+    "DRY_RUN=1 ./infra/scripts/backup_state.sh   # plan only\n"
+    "./infra/scripts/backup_state.sh             # needs Gilly's yes: reads prod's volume over fly ssh;\n"
+    "# the copy holds PII (feedback.jsonl) and stays on this machine")
 
 FOOTER_CMD = (
     "fly status --app myheliograph-api --json 2>/dev/null | python3 -c "
