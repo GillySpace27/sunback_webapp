@@ -20,6 +20,7 @@ Env:
 from __future__ import annotations
 
 import os
+from api import settings
 import re
 import time
 from typing import Optional
@@ -27,13 +28,13 @@ from typing import Optional
 import requests
 
 
-SHOPIFY_STORE_DOMAIN = os.getenv(
+SHOPIFY_STORE_DOMAIN = settings.env(
     "SHOPIFY_STORE_DOMAIN", "solar-archive.myshopify.com"
 )
-SHOPIFY_STOREFRONT_API_VERSION = os.getenv(
+SHOPIFY_STOREFRONT_API_VERSION = settings.env(
     "SHOPIFY_STOREFRONT_API_VERSION", "2024-10"
 )
-SHOPIFY_STOREFRONT_ACCESS_TOKEN = os.getenv("SHOPIFY_STOREFRONT_ACCESS_TOKEN")
+SHOPIFY_STOREFRONT_ACCESS_TOKEN = settings.env("SHOPIFY_STOREFRONT_ACCESS_TOKEN")
 
 _STOREFRONT_TIMEOUT_SECONDS = 12
 
@@ -169,10 +170,10 @@ def storefront_configured() -> bool:
 # With neither set this module is a no-op and checkout keeps working
 # exactly as before (DENY inventory, product-page fallback) — same
 # graceful pattern as the Storefront token above.
-SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv("SHOPIFY_ADMIN_ACCESS_TOKEN")
-SHOPIFY_ADMIN_CLIENT_ID = os.getenv("SHOPIFY_ADMIN_CLIENT_ID")
-SHOPIFY_ADMIN_CLIENT_SECRET = os.getenv("SHOPIFY_ADMIN_CLIENT_SECRET")
-SHOPIFY_ADMIN_API_VERSION = os.getenv("SHOPIFY_ADMIN_API_VERSION", "2024-10")
+SHOPIFY_ADMIN_ACCESS_TOKEN = settings.env("SHOPIFY_ADMIN_ACCESS_TOKEN")
+SHOPIFY_ADMIN_CLIENT_ID = settings.env("SHOPIFY_ADMIN_CLIENT_ID")
+SHOPIFY_ADMIN_CLIENT_SECRET = settings.env("SHOPIFY_ADMIN_CLIENT_SECRET")
+SHOPIFY_ADMIN_API_VERSION = settings.env("SHOPIFY_ADMIN_API_VERSION", "2024-10")
 
 # Minted-token cache for the client-credentials flow.
 _admin_token_cache = {"token": None, "expires_at": 0.0}
@@ -223,7 +224,7 @@ def _admin_token() -> Optional[str]:
 # Headless" + "…02"); override via env if the store's channels change.
 SHOPIFY_HEADLESS_PUBLICATION_IDS = [
     p.strip()
-    for p in os.getenv(
+    for p in settings.env(
         "SHOPIFY_HEADLESS_PUBLICATION_IDS",
         "gid://shopify/Publication/356457185649,"
         "gid://shopify/Publication/356474061169",
