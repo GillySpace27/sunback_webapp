@@ -50,3 +50,9 @@ infra/worker/.wrangler/
 # deploy.sh's prod dirty-tree refusal (see DEPLOY.md, Preflight).
 /solar_archive_output/
 web3d/rainbow/
+
+# Launch gate records (MH-5). Machine-local. .launch-attest.json holds Gilly's
+# dated attestations, typed by him at a terminal; .launch-hq.json holds the
+# timed HQ render runs. Neither is ever committed.
+.launch-*.json
+.launch-*.json.tmp
