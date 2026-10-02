@@ -191,10 +191,9 @@ check_fixtures_pii() {
   return 0
 }
 
-check_claude_md_paths() {
-  local f="${CLAUDE_MD_FILE:-CLAUDE.md}" missing
-  if [ ! -f "$f" ]; then echo "no $f"; return 1; fi
-  missing=$(CLAUDE_MD_FILE="$f" "$PYTHON" - <<'PY'
+# Its own function: macOS bash 3.2 misparses backticks in a heredoc nested in $( ).
+claude_md_missing() {
+  CLAUDE_MD_FILE="$1" "$PYTHON" - <<'PY'
 import os, re
 text = open(os.environ["CLAUDE_MD_FILE"], encoding="utf-8").read()
 ext = re.compile(r"\.(md|py|js|mjs|ts|tsx|sh|json|jsonc|toml|txt|css|html|yml)$")
@@ -208,7 +207,12 @@ for tok in re.findall(r"`([^`\s]+)`", text):
         bad.add(tok)
 print(" ".join(sorted(bad)))
 PY
-)
+}
+
+check_claude_md_paths() {
+  local f="${CLAUDE_MD_FILE:-CLAUDE.md}" missing
+  if [ ! -f "$f" ]; then echo "no $f"; return 1; fi
+  missing=$(claude_md_missing "$f")
   if [ -n "$missing" ]; then echo "$f names missing paths: $missing"; return 1; fi
   echo "every backticked path in $f exists"
   return 0
