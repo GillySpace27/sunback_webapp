@@ -10,7 +10,7 @@ check.sh. Run any one alone with the command in its row.
 | File | Covers | Network | Run alone |
 |---|---|---|---|
 | test_coregistration.mjs | the solar disk fills the same fraction of the frame on every image tier | no | node api/scripts/test_coregistration.mjs |
-| test_design_hash.mjs | design-identity hash ignores overlay text (personal data) and follows wavelength and crop; hand copy of the store helpers | no | node api/scripts/test_design_hash.mjs |
+| test_design_hash.mjs | design-identity hash ignores overlay text (personal data) and follows wavelength and crop; imports the helpers from api/identity.js | no | node api/scripts/test_design_hash.mjs |
 | test_disk_guard.py | disk-full vs no-data failure classification, failure TTL, temp-cache pruning | no | python3 api/scripts/test_disk_guard.py |
 | test_full_res_guard.py | full-resolution AIA guard: no 1024 px synoptic frame reaches a 4K print | only with GUARD_TEST_NETWORK=1 (JSOC) | python3 api/scripts/test_full_res_guard.py |
 | test_grid_mockups.py | mockup grid cache keys, crop geometry, coverage, manifest round trip | no | python3 api/scripts/test_grid_mockups.py |
@@ -21,6 +21,13 @@ check.sh. Run any one alone with the command in its row.
 | test_dockerfile_git_sha.py | the Dockerfile bakes GIT_SHA after the pip layer; deploy.sh passes the build arg once | no | python3 api/scripts/test_dockerfile_git_sha.py |
 | test_deploy_receipt.py | deploy receipt: commit range, both capture columns, escaping, no external request | no | python3 api/scripts/test_deploy_receipt.py |
 | test_status_identity.py | the tracker's Build identity lines (OK, SKEW, UNKNOWN) and newest receipt, with stubbed requests | no | python3 api/scripts/test_status_identity.py |
+| test_settings.py | api/settings.py: env() matches getenv, REQUIRED_ENV has no Shopify name for dev and is covered by secrets.names or the Fly [env], startup lines never show a secret | no | python3 api/scripts/test_settings.py |
+| test_no_stray_env.py | api/*.py reads configuration only through settings.env; lists the files still pending (main.py, printify_routes.py) | no | python3 api/scripts/test_no_stray_env.py |
+| test_config_aliases.py | feedback_routes PRINTIFY_BASE, _public_base_url and _data_dir delegate to settings.py | no | python3 api/scripts/test_config_aliases.py |
+| test_check_headers.py | infra/scripts/check_headers.py: PASS, FAIL and SKIP rows, and the HSTS values in its table equal the files that set them | no | python3 api/scripts/test_check_headers.py |
+| test_ladder.mjs | api/pricing.js against the shared ladder vectors (the file test_ladder.py also reads), and the store's inline copy against it | no | node api/scripts/test_ladder.mjs |
+| test_catalog_drift.py | catalog ids and Printify ids agree between api/main.py and api/products.js (backpack is the one known drift) | no | python3 api/scripts/test_catalog_drift.py |
+| test_wavelength_drift.py | wavelength tiles in api/index.html and the film channels are consistent with the store wavelength list in api/main.py | no | python3 api/scripts/test_wavelength_drift.py |
 
 ## Tools (never run by check.sh)
 
