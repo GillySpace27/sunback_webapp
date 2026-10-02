@@ -903,10 +903,13 @@ async def api_health():
     """Return 200 as soon as the server can respond. Frontend uses this instead of /docs for status."""
     body = {"status": "ok"}
     used = _disk_used_pct()
+    # disk_pct is always reported (MH-6) so the outside probe can alert at 80 percent,
+    # before the 85 percent warning below. 0 is also what _disk_used_pct returns when
+    # statvfs fails, so the probe treats 0 as a reading, not as proof of an empty disk.
+    body["disk_pct"] = round(used)
     if used >= _DISK_WARN_PCT:
         # Surfaced, not fatal: a full volume breaks renders while /health still
         # says "ok", which is how the 2026-07-24 outage stayed invisible.
-        body["disk_pct"] = round(used)
         body["warning"] = "disk nearly full"
         print(f"[disk][WARN] health check: {used:.0f}% used at {OUTPUT_DIR}", flush=True)
     # MH-10: required configuration this tier is missing, by NAME only (never a value).
