@@ -410,7 +410,7 @@ if ((import.meta.env.DEV || isPlateMode) && typeof window !== "undefined") {
   (window as unknown as { __store?: unknown }).__store = useStore;
 }
 
-// The eight spaces, as progress thresholds. Ordered as one journey home: the
+// The nine spaces, as progress thresholds. Ordered as one journey home: the
 // Sun (hero -> awe -> choose the light), then out across the dark to Earth lit
 // by a sunbeam, then DOWN to the surface (the same star, from your own backyard
 // sky), then in backwards through a window to the home where the print

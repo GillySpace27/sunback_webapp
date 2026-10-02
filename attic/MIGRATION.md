@@ -1,3 +1,6 @@
+> ATTIC: moved from MIGRATION.md on 2026-10-02 (MH-4). Historical; not current.
+> Current docs: README.md, CLAUDE.md, DEPLOY.md. Register: attic/README.md.
+
 # Render → Cloudflare + Fly.io migration runbook
 
 Goal: ~$100/mo (Render Standard + bandwidth) → ~$1–3/mo, with zero

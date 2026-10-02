@@ -36,6 +36,12 @@ Also gated, because each mutates real external state:
 - Creating the dev Fly app or volume (one-time setup).
 - Any `fly secrets set`.
 - Rolling production back.
+- Deploying the render service (`TARGET=render ./infra/scripts/deploy.sh`).
+
+**Never run `fly deploy` or `wrangler deploy` by hand, on any tier.** Every
+deploy goes through `infra/scripts/deploy.sh`, which records what it shipped;
+a hand deploy turns the tracker's `dev_drift` milestone red. The one
+exception is a rollback Gilly has said yes to.
 
 ## Credentials
 
@@ -110,6 +116,12 @@ and promotion.
 
        TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh
 
+   deploy.sh refuses unless HEAD is an ancestor of `origin/main` (the
+   2026-08-11 incident). Rehearse first; the rehearsal needs no secret and
+   ships nothing:
+
+       DRY_RUN=1 TARGET=prod ./infra/scripts/deploy.sh
+
 7. **Verify.** Re-render the tracker. `promoted` must be green — if it isn't,
    production is not running the reviewed image and you must say so plainly
    rather than calling the deploy done.
@@ -160,3 +172,12 @@ filed. Do not let "deployed" imply "reviewed clean".
   real production builds while local dev worked. Anything behind
   `import.meta.env.DEV` is invisible to the dev tier too, because the dev tier
   builds for production.
+
+- **2026-08-11: a deploy from an unmerged branch, then a deploy from `main`,
+  silently reverted six days of work.** `deploy.sh` now refuses `TARGET=prod`
+  and `TARGET=render` unless HEAD is an ancestor of `origin/main`.
+
+- **2026-09-15: a dev deploy ran as a hand `fly deploy` plus
+  `wrangler deploy --env dev`, outside deploy.sh**, so `.deploy-run.json` kept
+  recording an older commit. The tracker's `dev_drift` milestone now reads red
+  when dev runs a digest the record does not hold.

@@ -24,7 +24,7 @@ import sys
 
 TITLE = "Deploy myheliograph.com (dev → gate → prod)"
 
-REPO = os.path.expanduser("~/vscode/sunback/webapp")
+REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 RUN_STATE = os.path.join(REPO, ".deploy-run.json")
 SHOTS = os.path.join(REPO, ".deploy-shots")
 
@@ -70,6 +70,28 @@ sys.exit(0 if want in got else 1)
 EOF
 """
 
+# Dev running a digest that .deploy-run.json does not record means someone
+# ran `fly deploy` by hand (the 2026-09-15 dev deploy was one), so the record
+# no longer describes dev and a promotion would ship an unrecorded image.
+# Every dev machine must run the recorded digest; no machines reads as red.
+_DEV_DRIFT_CHECK = f"""
+cd {REPO} && python3 - <<'EOF'
+import json, subprocess, sys
+try:
+    want = json.load(open(".deploy-run.json"))["image"].split("@")[-1]
+except Exception:
+    sys.exit(1)
+out = subprocess.run(
+    ["fly", "status", "--app", "myheliograph-api-dev", "--json"],
+    capture_output=True, text=True, timeout=45)
+if out.returncode != 0:
+    sys.exit(1)
+machines = json.loads(out.stdout).get("Machines") or []
+got = {{m.get("image_ref", {{}}).get("digest") for m in machines}}
+sys.exit(0 if got == {{want}} else 1)
+EOF
+"""
+
 # (key, label, check)
 MILESTONES = [
     ("preflight", "Preflight: tree clean, typecheck passes",
@@ -77,6 +99,9 @@ MILESTONES = [
 
     ("dev", "Dev deployed and serving",
      f"{_DEV_CURL} /api/health >/dev/null"),
+
+    ("dev_drift", "Dev runs the recorded candidate digest (red: out-of-band deploy, re-run deploy.sh)",
+     _DEV_DRIFT_CHECK.strip()),
 
     # Checks the META TAG, not robots.txt. Measured 2026-08-22: Cloudflare
     # prepends its own managed robots.txt containing `User-agent: * / Allow: /`,
@@ -131,6 +156,10 @@ HOW = {
         "TARGET=dev ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh\n"
         "# writes .deploy-run.json (git SHA + image digest) — that file is what makes\n"
         "# the promotion in step 4 verifiable"),
+
+    "dev_drift": ("shell",
+        "# out-of-band deploy, re-run deploy.sh: dev runs a digest .deploy-run.json does not record\n"
+        "TARGET=dev ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh"),
 
     "noindex": ("shell",
         "curl -fsS https://dev.myheliograph.com/experience/ | grep -i 'name=\"robots\"'\n"

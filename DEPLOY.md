@@ -94,9 +94,26 @@ Only needed once per machine/account. Skip if `fly apps list` already shows
     source ~/.claude/secrets/solar-archive.env      # FEEDBACK_ADMIN_KEY
     git status --porcelain                          # must be clean for prod
     ( cd web3d && npm run typecheck )
+    ./infra/scripts/check.sh                        # every row PASS or SKIP
 
 A dirty tree is allowed on dev and **refused** on prod: a promoted image must
 map to a real commit or the whole audit trail is fiction.
+
+**Ignored scratch.** `solar_archive_output/` and `web3d/rainbow/` are
+gitignored (MH-4), so they no longer make the tree dirty for the prod
+refusal; any other untracked file still does. The full list of untracked
+folders left in place is in `attic/README.md`.
+
+**Branches first.** Read `BRANCHES.md` at the repo root before any deploy:
+it names the integration line, Gilly's landing order and the FREEZE list.
+A branch that is not on the integration line is never deployed.
+
+**Revoked key history on GitHub.** The revoked Printful key is still
+reachable through GitHub pull-request refs. Removing it takes a
+GitHub Support purge request, which only Gilly can file. No agent files it,
+and no agent pushes any pre-purge branch listed in `BRANCHES.md`. The
+`.env` history guard in `.githooks/pre-push` (MH-3 Task 6) is not landed
+yet; until it is, nothing but this rule stops such a push.
 
 ### 1. Deploy to dev
 
@@ -104,6 +121,21 @@ map to a real commit or the whole audit trail is fiction.
 
 Writes `.deploy-run.json` (gitignored) recording the git SHA and the image
 digest. That file is what makes the promotion in step 4 verifiable.
+deploy.sh merges into the file rather than overwriting it, and also records
+`branch`, `deployed_by_script: true` and `worker_version_id` (parsed from the
+wrangler output; `null` when it could not be parsed). A dev deploy from a
+commit that is not on `origin/main` prints `### dev from unmerged branch
+<name>`: prod will refuse to promote that candidate until the commit is on
+`origin/main`.
+
+Rehearse any tier without deploying anything and without a secret:
+
+    DRY_RUN=1 TARGET=prod ./infra/scripts/deploy.sh
+
+**Never run `fly deploy` or `wrangler deploy` by hand, on any tier.** A hand
+deploy leaves `.deploy-run.json` describing something that is not running;
+the tracker's `dev_drift` milestone turns red when dev runs an unrecorded
+digest. The one exception is a rollback Gilly has said yes to (see Rollback).
 
 ### 2. Capture evidence for the panel
 
@@ -179,8 +211,11 @@ myheliograph.com for real customers"* — never a vague "shall I continue?".
 
     TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh
 
-Refuses to run if the tree is dirty, if `.deploy-run.json` is missing, or if
-HEAD has moved since the dev deploy.
+Refuses to run if the tree is dirty, if HEAD is not an ancestor of
+`origin/main` (the 2026-08-11 incident below), if `.deploy-run.json` is
+missing, or if HEAD has moved since the dev deploy. Because prod promotes the
+dev candidate, the dev deploy that feeds a promotion must itself be from
+`origin/main` ancestry. Pushing `main` is Gilly's call.
 
 ### 5. Verify production
 
@@ -188,6 +223,17 @@ HEAD has moved since the dev deploy.
 
 The tracker compares prod's running image digest against the recorded
 candidate. If they differ, the promotion did not ship what was reviewed.
+
+### Render service (myheliograph-render)
+
+    DRY_RUN=1 TARGET=render ./infra/scripts/deploy.sh   # rehearse
+    TARGET=render ./infra/scripts/deploy.sh             # GATED: Gilly's yes, every time
+
+The render service has no dev tier, so it takes the prod gates: clean tree,
+HEAD an ancestor of `origin/main`, and the `render-service/Dockerfile` base
+image tag equal to the `playwright` version in `render-service/package.json`.
+The deployed image digest is recorded under `render` in `.deploy-run.json`;
+a dev deploy never drops that key.
 
 ---
 
@@ -268,3 +314,12 @@ time.
   perfectly. Anything that only exists under `import.meta.env.DEV` is invisible
   to the dev tier too, because the dev tier builds for production. When a tool
   depends on a debug handle, gate it on a URL flag, not on the build mode.
+
+- **2026-08-11: a deploy from an unmerged branch, then a deploy from `main`,
+  silently reverted six days of work.** `deploy.sh` now refuses `TARGET=prod`
+  and `TARGET=render` unless HEAD is an ancestor of `origin/main`.
+
+- **2026-09-15: a dev deploy ran as a hand `fly deploy` plus
+  `wrangler deploy --env dev`, outside deploy.sh**, so `.deploy-run.json` kept
+  recording an older commit. The tracker's `dev_drift` milestone now reads red
+  when dev runs a digest the record does not hold.

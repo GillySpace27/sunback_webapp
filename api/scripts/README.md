@@ -1,0 +1,46 @@
+# api/scripts
+
+Self-checks and operator tools for the origin. `./infra/scripts/check.sh`
+runs every `test_*.py` (as `python3 <file>`) and every `test_*.mjs` (as
+`node <file>`) in this folder; a new test file is picked up with no edit to
+check.sh. Run any one alone with the command in its row.
+
+## Self-checks (run by check.sh)
+
+| File | Covers | Network | Run alone |
+|---|---|---|---|
+| test_coregistration.mjs | the solar disk fills the same fraction of the frame on every image tier | no | node api/scripts/test_coregistration.mjs |
+| test_design_hash.mjs | design-identity hash ignores overlay text (personal data) and follows wavelength and crop; hand copy of the store helpers | no | node api/scripts/test_design_hash.mjs |
+| test_disk_guard.py | disk-full vs no-data failure classification, failure TTL, temp-cache pruning | no | python3 api/scripts/test_disk_guard.py |
+| test_full_res_guard.py | full-resolution AIA guard: no 1024 px synoptic frame reaches a 4K print | only with GUARD_TEST_NETWORK=1 (JSOC) | python3 api/scripts/test_full_res_guard.py |
+| test_grid_mockups.py | mockup grid cache keys, crop geometry, coverage, manifest round trip | no | python3 api/scripts/test_grid_mockups.py |
+| test_ladder.py | price ladder: never below cost, anchor, $1.00 steps, .99 endings | no | python3 api/scripts/test_ladder.py |
+| test_lazy_imports.py | importing api.main does not load the science stack | no | python3 api/scripts/test_lazy_imports.py |
+| test_print_compose.py | print compositor formulas against hand-computed values | no | python3 api/scripts/test_print_compose.py |
+
+## Tools (never run by check.sh)
+
+| File | What it does | Network and gates |
+|---|---|---|
+| compare_print_compose.mjs | browser canvas vs server compositor, per-case pixel deltas | local Chromium via playwright-core in web3d/node_modules |
+| race_repro.js | stale-render race repro; paste into DevTools on a page served by ./run_server | local origin only |
+| make_compare_pair.py | builds the landing before/after webp pair into infra/data_mirror | local files |
+| snapshot_routes.py | compares the FastAPI route table with routes.snapshot.json (check.sh runs it as routes_snapshot); `--update` rewrites the snapshot, only in a commit that adds or removes a route | imports api.main with scratch output and data dirs; no network |
+| printify_swap_probe.py | creates a throwaway Printify product and an on-hold order, swaps the image, then cancels and deletes them | real Printify shop: Gilly's yes for every run |
+| warm_cache.py | pre-seeds the preview cache on a deployed tier | live tier: Gilly's yes |
+| warm_and_upload_vibe.sh | renders vibe tiles locally and uploads them with the admin key | live tier and admin key: Gilly's yes |
+| warm_vibe_jpg_hq.py, warm_vibe_jpg_thumbs.py, warm_vibe_mq.py | warm the vibe-grid tiers into default_cache | Helioviewer, VSO and JSOC; any upload to a tier needs Gilly's yes |
+| checkout_decouple_plan.md | design note for the checkout decouple (not a script) | none |
+
+
+## Fixtures
+
+Not recorded yet. MH-4 Task 8 (scrubbed Printify, Helioviewer and frontier
+responses in `fixtures/`, plus `test_fixtures.py`) needs read-only requests to
+the dev tier and Helioviewer, so it waits for a run by Gilly or a session
+allowed to use the network. `./infra/scripts/check.sh --only fixtures_pii`
+reports SKIP until the folder exists.
+
+Never record /api/printify/blueprints/<bp>/providers/<pp>/pricing: on a
+cost gap it creates and deletes a reference product in the real Printify
+shop.

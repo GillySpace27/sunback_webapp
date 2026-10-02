@@ -44,3 +44,9 @@ infra/worker/.wrangler/
 # Tiered-deploy candidate record (image digest + git sha of the dev-reviewed
 # build). Machine-local run state, never shared.
 .deploy-run.json
+
+# Local render and capture output (MH-4). Untracked scratch, left in place and
+# listed in attic/README.md. Ignoring it means it no longer counts toward
+# deploy.sh's prod dirty-tree refusal (see DEPLOY.md, Preflight).
+/solar_archive_output/
+web3d/rainbow/
