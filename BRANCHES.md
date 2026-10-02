@@ -16,7 +16,7 @@ Implementation notes in MH-3).
 - Integration line: `codex/store-production-value` (tip `f2396ef`).
   Decision B10 (Gilly, 2026-10-02): tag the old `main` as `archive/main-<date>`
   first, then `codex/store-production-value` becomes `main`; nothing is deleted.
-  The tag and the move are Gilly's actions; neither has been done.
+  Done 2026-10-02 (see Landing order row 1).
 - `origin/main`: `a7edb0a`, 66 commits behind `codex/store-production-value`.
 - Live on prod (Q1): unknown until Gilly records the commit and the Worker version here.
 
@@ -55,7 +55,7 @@ Gilly's order (decision B10 only; the rest is empty until he answers Q2 and Q3):
 
 | # | Branch | Method | Gilly's yes (date) | Result |
 |---|---|---|---|---|
-| 1 | codex/store-production-value | tag old main as archive/main-<date>, then it becomes main | 2026-10-02 (decision sheet B10); the tag and the move themselves still need his action | not done |
+| 1 | codex/store-production-value | tag old main as archive/main-<date>, then it becomes main | 2026-10-02 (decision sheet B10); tag and move: Gilly's yes in chat, 2026-10-02 | done 2026-10-02: old main tagged `archive/main-2026-10-02` (`a7edb0a`, local, not pushed); `origin/main` fast-forwarded to `31bb5c0`, which also carries `claude/prologue` |
 
 ## Pre-purge bundle
 
