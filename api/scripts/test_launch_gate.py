@@ -316,6 +316,79 @@ class SentryTests(unittest.TestCase):
         self.assertNotIn(self.TOKEN["LAUNCH_SENTRY_TOKEN"], detail)
 
 
+class HqCheckTests(Sandbox):
+    BASE = "https://dev.myheliograph.com"
+
+    def run_record(self, **kw):
+        base = {"base": self.BASE, "started_at": "2026-10-06T03:10:00+00:00", "date": "2014-10-24",
+                "time": "12:04", "wavelength": 193, "integrate": False, "ok": True, "cached": False,
+                "task_id": "t1", "image_url": "/asset/hq_SDO_193_20141024_1204.png",
+                "bytes": 31415926, "elapsed_s": 142.3, "peak_mb": None, "error": None}
+        base.update(kw)
+        return base
+
+    def write_runs(self, *runs):
+        self.put(st.HQ_FILE, {"runs": list(runs)})
+
+    def test_no_record_is_unchecked(self):
+        state, detail = st.check_hq_4gb(head_fn=Fetch(None))
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("hq_retest.py", detail)
+
+    def test_cached_and_failed_runs_do_not_count(self):
+        head = Fetch(31415926)
+        self.write_runs(self.run_record(cached=True), self.run_record(ok=False, error="x", bytes=None))
+        state, _ = st.check_hq_4gb(head_fn=head)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertEqual(head.calls, [])
+
+    def test_a_recorded_render_whose_master_is_still_served_is_ok(self):
+        self.write_runs(self.run_record())
+        state, detail = st.check_hq_4gb(head_fn=Fetch(31415926))
+        self.assertEqual(state, "OK")
+        self.assertIn("took 142 s", detail)
+        self.assertIn("31415926", detail)
+        self.assertIn("peak memory UNCHECKED", detail)
+
+    def test_a_recorded_peak_is_shown(self):
+        self.write_runs(self.run_record(peak_mb=2900))
+        _, detail = st.check_hq_4gb(head_fn=Fetch(31415926))
+        self.assertIn("peak memory 2900 MB (read by Gilly)", detail)
+
+    def test_a_changed_size_is_unchecked(self):
+        self.write_runs(self.run_record())
+        state, detail = st.check_hq_4gb(head_fn=Fetch(1000))
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("recorded 31415926", detail)
+
+    def test_an_unreachable_master_is_unchecked_after_trying_both_dev_hosts(self):
+        head = Fetch(None)
+        self.write_runs(self.run_record())
+        state, detail = st.check_hq_4gb(head_fn=head)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("not reachable", detail)
+        self.assertEqual(len(head.calls), 2)
+
+    def test_a_non_dev_host_in_the_record_is_not_fetched(self):
+        head = Fetch(31415926)
+        self.write_runs(self.run_record(base="https://myheliograph.com"))
+        state, _ = st.check_hq_4gb(head_fn=head)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertEqual(head.calls, [])
+
+    def test_a_path_that_climbs_out_of_asset_is_not_fetched(self):
+        head = Fetch(31415926)
+        self.write_runs(self.run_record(image_url="/asset/../etc/passwd.png"))
+        state, _ = st.check_hq_4gb(head_fn=head)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertEqual(head.calls, [])
+
+    def test_the_latest_good_run_is_the_one_checked(self):
+        self.write_runs(self.run_record(bytes=100), self.run_record(bytes=200))
+        state, _ = st.check_hq_4gb(head_fn=Fetch(200))
+        self.assertEqual(state, "OK")
+
+
 # --- tests: insert new test classes above this line ---
 if __name__ == "__main__":
     unittest.main()

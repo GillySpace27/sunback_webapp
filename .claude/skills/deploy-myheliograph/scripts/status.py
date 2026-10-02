@@ -544,6 +544,55 @@ def check_sentry_event(env=None, fetch=None):
     return (LAUNCH_UNCHECKED, "no event titled like %r among the newest events" % SENTRY_MARKER)
 
 
+# HQ re-test on the 4 GB origin. infra/scripts/hq_retest.py renders once on dev
+# and appends a run to .launch-hq.json; this check only reads that record and
+# re-verifies, from real state, that dev still serves the recorded master at
+# the recorded size. A cache hit, a failure or a vanished file is UNCHECKED.
+DEV_BASES = ("https://dev.myheliograph.com",
+             "https://myheliograph-router-dev.gilly-22d.workers.dev")
+_ASSET_RE = re.compile(r"/asset/[A-Za-z0-9_.-]+\.png")
+
+
+def _launch_content_length(base, path):
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + path, timeout=30) as resp:
+            value = resp.headers.get("Content-Length")
+        return int(value) if value else None
+    except Exception:
+        return None
+
+
+def check_hq_4gb(head_fn=None):
+    head_fn = head_fn or _launch_content_length
+    rec = _launch_json_file(HQ_FILE, {})
+    runs = rec.get("runs") if isinstance(rec, dict) else None
+    good = [r for r in (runs or []) if isinstance(r, dict) and r.get("ok") is True
+            and r.get("cached") is not True and isinstance(r.get("bytes"), int)]
+    if not good:
+        return (LAUNCH_UNCHECKED, "no timed render recorded in .launch-hq.json; run "
+                                  "infra/scripts/hq_retest.py (dev, once, with Gilly's yes)")
+    run = good[-1]
+    base = str(run.get("base", "")).rstrip("/")
+    url = str(run.get("image_url", ""))
+    if base not in DEV_BASES or ".." in url or not _ASSET_RE.fullmatch(url):
+        return (LAUNCH_UNCHECKED, "the latest recorded run names a host or file this check will not fetch")
+    size = None
+    for b in [base] + [x for x in DEV_BASES if x != base]:
+        size = head_fn(b, url)
+        if size is not None:
+            break
+    if size is None:
+        return (LAUNCH_UNCHECKED, "the master %s is not reachable on dev now" % url)
+    if size != run["bytes"]:
+        return (LAUNCH_UNCHECKED, "the master on dev is %d bytes, the run recorded %d" % (size, run["bytes"]))
+    peak = run.get("peak_mb")
+    mem = ("peak memory %g MB (read by Gilly)" % peak if isinstance(peak, (int, float))
+           else "peak memory UNCHECKED")
+    kind = "integrated" if run.get("integrate") else "editor HQ"
+    return (LAUNCH_OK, "%s render of %s %s UTC took %.0f s, master %d bytes; %s"
+            % (kind, run.get("date", "?"), run.get("time", "?"), float(run.get("elapsed_s") or 0), size, mem))
+
+
 # --- launch-gate: checks end ---
 # <<< launch-gate (MH-5) <<<
 
