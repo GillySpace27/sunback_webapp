@@ -45,9 +45,21 @@ the row reads `open YYYY-MM-DD`. Additive edits wait until every branch in
 
 | File | Status | Waiting on rows |
 |---|---|---|
-| api/main.py | frozen | claude/prologue, codex/store-production-value |
+| api/main.py | open 2026-10-02 (small targeted edits only; see Decision below) | claude/prologue, codex/store-production-value |
 | api/solar-archive.js | frozen | claude/prologue, codex/store-production-value |
 | infra/worker/build-public.sh | frozen | claude/prologue, codex/store-production-value |
+
+Decision (Gilly, 2026-10-02): `api/main.py` is unfrozen for small targeted
+edits only (the RH-9 fallback fixes, MH-10 configuration, MH-8 `/api/build-info`,
+MH-6 `disk_pct`, MH-7 lint comments). It stays closed to structural moves (file
+splits, module carve-outs). Reason: those edits are small, tested, and the
+waiting branches are not being landed ahead of them. `api/solar-archive.js` and
+`infra/worker/build-public.sh` stay FROZEN: nothing may touch them, and any
+task that needs them stays skipped (footer build stamp, `build.json`, the
+`solar-archive.js` side of the RHEF changes). Also decided the same day:
+`.github/workflows/check.yml` is approved (Linux, runs `infra/scripts/check.sh`
+on pull requests, no secrets, no production calls); `probe.yml` is NOT approved
+and no scheduled or live-probing workflow may be added.
 
 ## Landing order
 
