@@ -15,7 +15,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."           # repo root, same idiom as deploy.sh
 PYTHON="${PYTHON:-python3}"
 CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smoke
-         store_syntax worker_syntax whitelist_parity web3d_typecheck )
+         store_syntax worker_syntax whitelist_parity web3d_typecheck
+         fixtures_pii claude_md_paths )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -176,6 +177,41 @@ check_web3d_typecheck() {
   tail -n 30 "$log" >&2
   echo "web3d typecheck failed"
   return 1
+}
+
+check_fixtures_pii() {
+  local dir="${FIXTURES_DIR:-api/scripts/fixtures}" hits
+  if [ ! -d "$dir" ]; then echo "no $dir"; return 77; fi
+  hits=$(grep -rnoE '@|[0-9]{1,6} +[A-Za-z0-9.]+( +[A-Za-z0-9.]+)* +(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct|Suite|Ste)([ .,"]|$)' "$dir" | cut -d: -f1,2 || true)
+  if [ -n "$hits" ]; then
+    echo "PII pattern on $(printf '%s\n' "$hits" | wc -l | tr -d ' ') line(s), first at $(printf '%s\n' "$hits" | head -n 1)"
+    return 1
+  fi
+  echo "no @ or street address in $(find "$dir" -type f | wc -l | tr -d ' ') files"
+  return 0
+}
+
+check_claude_md_paths() {
+  local f="${CLAUDE_MD_FILE:-CLAUDE.md}" missing
+  if [ ! -f "$f" ]; then echo "no $f"; return 1; fi
+  missing=$(CLAUDE_MD_FILE="$f" "$PYTHON" - <<'PY'
+import os, re
+text = open(os.environ["CLAUDE_MD_FILE"], encoding="utf-8").read()
+ext = re.compile(r"\.(md|py|js|mjs|ts|tsx|sh|json|jsonc|toml|txt|css|html|yml)$")
+bad = set()
+for tok in re.findall(r"`([^`\s]+)`", text):
+    if tok.startswith(("http", "/", "~", "-", "$")) or any(c in tok for c in "<>*=()|:"):
+        continue
+    if "/" not in tok and not ext.search(tok):
+        continue
+    if not os.path.exists(tok.rstrip("/")):
+        bad.add(tok)
+print(" ".join(sorted(bad)))
+PY
+)
+  if [ -n "$missing" ]; then echo "$f names missing paths: $missing"; return 1; fi
+  echo "every backticked path in $f exists"
+  return 0
 }
 
 SELECTED=( "${CHECKS[@]}" )
