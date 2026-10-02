@@ -13,6 +13,7 @@ import datetime
 import importlib.util
 import io
 import json
+import sys
 import unittest
 from pathlib import Path
 
@@ -215,7 +216,7 @@ class RunnerTests(Base):
             raise OSError("connection refused")
         probe.fetch = probe.tls_expiry = probe.first_byte_seconds = boom
         rows = probe.run_tier("prod")
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 8)
         self.assertTrue(all(status == "FAIL" for status, _, _ in rows), rows)
 
     def test_main_exit_code_follows_the_rows_and_json_is_a_list(self):
@@ -233,9 +234,26 @@ class RunnerTests(Base):
     def test_tiers_name_the_probes_the_register_lists(self):
         self.assertEqual(probe.TIER_PROBES["prod"], (
             "probe_health", "probe_frontier", "probe_pages", "probe_tls", "probe_ttfb",
-            "probe_noindex", "probe_build_skew"))
+            "probe_noindex", "probe_build_skew", "probe_headers"))
         self.assertEqual(probe.TIER_PROBES["dev"], (
-            "probe_health", "probe_pages", "probe_tls", "probe_noindex", "probe_build_skew"))
+            "probe_health", "probe_pages", "probe_tls", "probe_noindex", "probe_build_skew",
+            "probe_headers"))
+
+    def test_probe_headers_passes_and_fails_on_stubbed_headers(self):
+        sys.path.insert(0, str(PROBE_PATH.parent))
+        import check_headers
+        good = {k.lower(): v for k, v in check_headers.EXPECTED[probe.PROD].items()}
+        probe.fetch = lambda url, timeout=60.0: (200, good, b"", 0.0)
+        self.assertEqual(probe.probe_headers(probe.PROD)[0], "PASS")
+        bad = dict(good, **{"strict-transport-security": "max-age=1"})
+        probe.fetch = lambda url, timeout=60.0: (200, bad, b"", 0.0)
+        status, detail = probe.probe_headers(probe.PROD)
+        self.assertEqual(status, "FAIL")
+        self.assertIn("Strict-Transport-Security", detail)
+
+    def test_probe_headers_skips_an_unknown_host_and_never_touches_the_network_for_it(self):
+        self.assertEqual(probe.probe_headers("https://example.invalid"),
+                         ("SKIP", "no expected header table for https://example.invalid"))
 
 
 class GuardTests(unittest.TestCase):

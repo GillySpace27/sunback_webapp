@@ -18,7 +18,7 @@ CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smo
          store_syntax worker_syntax whitelist_parity web3d_typecheck
          fixtures_pii claude_md_paths
          playwright_pins
-         vendor_drift )
+         vendor_drift hsts_agree )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -294,6 +294,24 @@ if notes:
 else:
     print("%d vendored files match SHA256SUMS and web3d/node_modules" % len(pairs))
 PY
+}
+
+# One HSTS owner (MH-10): the Worker. secure() in index.js covers the film and every
+# proxied response; _headers covers the Static Assets pages. They must say the same.
+# HSTS_INDEX_JS and HSTS_HEADERS_FILE override the paths (used to prove this can fail).
+check_hsts_agree() {
+  local js="${HSTS_INDEX_JS:-infra/worker/src/index.js}" hf="${HSTS_HEADERS_FILE:-infra/worker/_headers}" a b
+  a="$(sed -n 's/.*headers\.set("Strict-Transport-Security", *"\([^"]*\)").*/\1/p' "$js" | head -n1)"
+  b="$(sed -n 's/^[[:space:]]*Strict-Transport-Security:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$hf" | head -n1)"
+  if [ -z "$a" ] || [ -z "$b" ]; then
+    echo "could not read the Strict-Transport-Security value from $js (${a:-none}) or $hf (${b:-none})"
+    return 1
+  fi
+  if [ "$a" != "$b" ]; then
+    echo "HSTS differs: secure() says '$a', _headers says '$b'"
+    return 1
+  fi
+  echo "secure() and _headers agree: $a"
 }
 
 SELECTED=( "${CHECKS[@]}" )

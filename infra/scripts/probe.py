@@ -38,8 +38,9 @@ UA = "myheliograph-probe/1"
 
 TIER_PROBES = {
     "prod": ("probe_health", "probe_frontier", "probe_pages", "probe_tls", "probe_ttfb",
-             "probe_noindex", "probe_build_skew"),
-    "dev": ("probe_health", "probe_pages", "probe_tls", "probe_noindex", "probe_build_skew"),
+             "probe_noindex", "probe_build_skew", "probe_headers"),
+    "dev": ("probe_health", "probe_pages", "probe_tls", "probe_noindex", "probe_build_skew",
+            "probe_headers"),
 }
 TIER_BASE = {"prod": PROD, "dev": DEV}
 
@@ -200,6 +201,26 @@ def probe_build_skew(base):
     if edge == origin:
         return "PASS", "edge and origin are both at %s" % edge[:8]
     return "FAIL", "edge is at %s but origin is at %s" % (edge[:8], origin[:8])
+
+
+def probe_headers(base):
+    """Security headers users receive on `base` (an edge host or a raw origin), via check_headers.py."""
+    import os
+    if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import check_headers  # same folder
+    expected = check_headers.EXPECTED.get(base)
+    if expected is None:
+        return ("SKIP", f"no expected header table for {base}")
+    # Requests go through this module's fetch(), so the tests' stubs apply and the
+    # probe sends the same User-Agent as its siblings. Unlike the stand-alone
+    # check_headers.py (where an unreachable host is SKIP), an unreachable host
+    # here is a FAIL, as for every other probe: a blind probe must not read green.
+    rows = check_headers.check_host(base, expected, fetch=lambda url, timeout=60.0: fetch(url, timeout)[1])
+    bad = [f"{h}: {d}" for st, h, d in rows if st in ("FAIL", "SKIP")]
+    if bad:
+        return ("FAIL", "; ".join(bad))
+    return ("PASS", f"{len(rows)} headers as expected")
 
 
 def run_tier(tier):
