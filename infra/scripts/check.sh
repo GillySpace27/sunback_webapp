@@ -17,7 +17,8 @@ PYTHON="${PYTHON:-python3}"
 CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smoke
          store_syntax worker_syntax whitelist_parity web3d_typecheck
          fixtures_pii claude_md_paths
-         playwright_pins )
+         playwright_pins
+         vendor_drift )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -242,6 +243,56 @@ if None in vals.values() or len(set(vals.values())) != 1:
     print("; ".join("%s=%s" % kv for kv in vals.items()))
     sys.exit(1)
 print("all four agree on playwright %s" % rs["dependencies"]["playwright"])
+PY
+}
+
+# The committed store vendor files against their SHA256SUMS and, when web3d/node_modules is
+# installed, against the node_modules copies (MH-7). Never FAILs: a difference is a WARN in
+# the reason, because refresh_vendor.sh is the deliberate way to change them.
+check_vendor_drift() {
+  if [ ! -d web3d/node_modules ]; then
+    echo "web3d/node_modules absent (cd web3d && npm ci)"
+    return 77
+  fi
+  "$PYTHON" - <<'PY'
+import hashlib
+import pathlib
+
+v = pathlib.Path("infra/worker/vendor")
+nm = pathlib.Path("web3d/node_modules")
+
+
+def sha(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+src = v / "SOURCES.txt"
+if not src.is_file():
+    print("WARN: infra/worker/vendor/SOURCES.txt is missing")
+    raise SystemExit(0)
+pairs = [ln.split() for ln in src.read_text().splitlines()
+         if ln.strip() and not ln.lstrip().startswith("#")]
+sums = {}
+sf = v / "SHA256SUMS"
+if sf.is_file():
+    for ln in sf.read_text().splitlines():
+        h, _, r = ln.partition("  ")
+        if r:
+            sums[r.strip()] = h.strip()
+notes = []
+for rel, node in pairs:
+    p, q = v / rel, nm / node
+    if not p.is_file():
+        notes.append("%s is missing from vendor/" % rel)
+        continue
+    if sums.get(rel) != sha(p):
+        notes.append("%s differs from SHA256SUMS" % rel)
+    if q.is_file() and sha(p) != sha(q):
+        notes.append("%s differs from node_modules (refresh_vendor.sh on purpose, or node_modules is older)" % rel)
+if notes:
+    print("WARN: " + "; ".join(notes))
+else:
+    print("%d vendored files match SHA256SUMS and web3d/node_modules" % len(pairs))
 PY
 }
 
