@@ -1844,9 +1844,12 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         from sunkit_image import radial
         try:
             rhef_data = radial.rhef(smap_reduced, progress=True).data
-        except Exception:
-            log_to_queue("[rhef][warn] Preview RHEF failed on Map — using array fallback.")
-            rhef_data = radial.rhef(smap_reduced.data, progress=True).data
+        except Exception as _rhef_err:
+            # RH-9: rhef needs a Map (it reads .wcs); the old ndarray retry could only
+            # raise a second, less useful AttributeError. Kept for the record:
+            # rhef_data = radial.rhef(smap_reduced.data, progress=True).data
+            log_to_queue(f"[rhef][error] Preview RHEF failed on Map: {type(_rhef_err).__name__}: {_rhef_err}")
+            raise
         vmin = np.nanpercentile(rhef_data, 1)
         vmax = np.nanpercentile(rhef_data, 99.7)
         plt.figure(figsize=(fig_inches, fig_inches), dpi=fig_dpi)
@@ -2556,8 +2559,11 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
             rhef_map = rhef(smap, progress=True)
             data = rhef_map.data
         except Exception as e:
-            log_to_queue(f"[do_generate_sync][warn] RHEF failed on Map, falling back to array: {e}")
-            data = rhef(smap.data, progress=True).data
+            # RH-9: rhef needs a Map (it reads .wcs); the old ndarray retry could only
+            # raise a second, less useful AttributeError. Kept for the record:
+            # data = rhef(smap.data, progress=True).data
+            log_to_queue(f"[do_generate_sync][error] RHEF failed on Map: {type(e).__name__}: {e}")
+            raise
         # Colorize and save PNG
         import matplotlib.pyplot as plt
         import numpy as np
@@ -3791,8 +3797,11 @@ def _render_vibe_pair(vibe: dict) -> dict:
             rhef_map = rhef(smap, progress=False)
             rhef_data = rhef_map.data
         except Exception as e:
-            print(f"[warm_vibe_grid] {slug}: RHEF on Map failed ({e}); falling back to array path", flush=True)
-            rhef_data = rhef(smap.data, progress=False).data
+            # RH-9: rhef needs a Map (it reads .wcs); the old ndarray retry could only
+            # raise a second, less useful AttributeError. Kept for the record:
+            # rhef_data = rhef(smap.data, progress=False).data
+            print(f"[warm_vibe_grid] {slug}: RHEF on Map failed ({type(e).__name__}: {e}); re-raising", flush=True)
+            raise
         _vibe_render_array_to_png(rhef_data, str(rhef_full), cmap)
     _vibe_write_thumb(str(rhef_full), str(rhef_thumb))
 
