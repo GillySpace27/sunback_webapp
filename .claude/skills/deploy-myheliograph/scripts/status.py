@@ -17,8 +17,11 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 # ─────────────────────────── CONFIG ───────────────────────────
 
@@ -271,6 +274,162 @@ def render(state):
             lines.append(f"({FOOTER_LABEL}: {raw})")
 
     return "\n".join(lines)
+
+
+# >>> launch-gate (MH-5) >>>
+# LAUNCH GATE: what must be true before any ad spend.
+#
+# MILESTONES above track ONE deploy. These track the one-time launch. Each
+# item is OK (verified from real external state, or attested by Gilly with a
+# date) or UNCHECKED (nothing proves it yet). There is no "failed" state on
+# purpose: an unverifiable step is UNCHECKED, neither done nor failed, and
+# nothing here reports a step done on its own say-so. An agent never makes the
+# test purchase, never enters payment details, never accepts the cookie banner
+# and never runs --attest (LAUNCH_REVIEW.md section 6).
+
+ATTEST_FILE = os.path.join(REPO, ".launch-attest.json")
+HQ_FILE = os.path.join(REPO, ".launch-hq.json")
+LEDGER_FILE = os.path.join(REPO, ".deploy-ledger.jsonl")
+ATTESTABLE = {"test_purchase", "sentry_event", "phone_store", "phone_film",
+              "tablet", "hq_4gb"}
+PROD_APP = "myheliograph-api"
+LAUNCH_OK = "OK"
+LAUNCH_UNCHECKED = "UNCHECKED"
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _launch_json_file(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def load_attest():
+    data = _launch_json_file(ATTEST_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def attested(key):
+    """The attest record for key when it carries a real YYYY-MM-DD date, else None."""
+    rec = load_attest().get(key)
+    if isinstance(rec, dict) and _DATE_RE.fullmatch(str(rec.get("attested_at", ""))):
+        return rec
+    return None
+
+
+def attest(key, note="", today=None, input_fn=input, is_tty=None):
+    """Write one dated attestation. Returns an exit code: 0 written, 2 refused.
+
+    Refuses without a terminal (an agent has none), asks Gilly to type the key,
+    never overwrites an existing key and never overwrites a file it cannot read
+    as a JSON object. Delete nothing: changing an attestation is done by hand.
+    """
+    def refuse(why):
+        print("refusing: " + why, file=sys.stderr)
+        return 2
+
+    if key not in ATTESTABLE:
+        return refuse("%r cannot be attested. Attestable: %s. first_gated_promotion is "
+                      "verified from the digest prod runs, or not at all."
+                      % (key, ", ".join(sorted(ATTESTABLE))))
+    tty = sys.stdin.isatty() if is_tty is None else is_tty
+    if not tty:
+        return refuse("--attest is typed by Gilly at a terminal. An agent never attests.")
+    existing = {}
+    if os.path.exists(ATTEST_FILE):
+        existing = _launch_json_file(ATTEST_FILE, None)
+        if not isinstance(existing, dict):
+            return refuse("%s exists but is not a JSON object; fix it by hand, it is never overwritten."
+                          % os.path.basename(ATTEST_FILE))
+    if key in existing:
+        prev = existing[key]
+        when = prev.get("attested_at", "?") if isinstance(prev, dict) else "?"
+        return refuse("%s was already attested on %s. Edit %s by hand to change it."
+                      % (key, when, os.path.basename(ATTEST_FILE)))
+    try:
+        answer = input_fn("Type %s to confirm you did this yourself: " % key)
+    except EOFError:
+        answer = ""
+    if answer.strip() != key:
+        return refuse("confirmation did not match; nothing written.")
+    day = (today or datetime.date.today()).isoformat()
+    existing[key] = {"attested_at": day, "note": note or ""}
+    tmp = ATTEST_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(existing, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, ATTEST_FILE)
+    print("attested %s on %s" % (key, day))
+    return 0
+
+
+def launch_prod_digests():
+    """Image digests prod's machines run now (a set), or None when fly cannot say."""
+    try:
+        r = subprocess.run(["fly", "status", "--app", PROD_APP, "--json"],
+                           capture_output=True, text=True, timeout=45)
+        if r.returncode != 0:
+            return None
+        machines = json.loads(r.stdout).get("Machines") or []
+        return {m.get("image_ref", {}).get("digest") for m in machines} - {None}
+    except Exception:
+        return None
+
+
+def ledger_prod_entries():
+    """Real (not dry-run) prod entries of MH-8's append-only ledger, oldest first.
+    An absent ledger, or lines that are not JSON objects, give []."""
+    out = []
+    try:
+        with open(LEDGER_FILE) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if (isinstance(entry, dict) and entry.get("target") == "prod"
+                        and entry.get("dry_run") is not True):
+                    out.append(entry)
+    except OSError:
+        return []
+    return out
+
+
+def check_first_gated_promotion(digests_fn=None):
+    """(state, detail). OK when the image of the newest real prod promotion is
+    the one prod runs now. Reads MH-8's ledger when it has a prod entry; until
+    then reads .deploy-run.json (the dev candidate that deploy.sh TARGET=prod
+    promotes) and requires deployed_by_script, so a hand-made record never counts."""
+    digests_fn = digests_fn or launch_prod_digests
+    entries = ledger_prod_entries()
+    if entries:
+        newest = entries[-1]
+        want = str(newest.get("image", "")).split("@")[-1]
+        origin = "ledger: first prod entry %s %s, newest %s" % (
+            str(entries[0].get("time", "?"))[:10], str(entries[0].get("git_sha", "?"))[:8],
+            str(newest.get("git_sha", "?"))[:8])
+    else:
+        run = _launch_json_file(RUN_STATE, {})
+        if not isinstance(run, dict) or run.get("deployed_by_script") is not True:
+            return (LAUNCH_UNCHECKED, "no prod entry in the ledger and no script-made candidate; "
+                                      "promote through infra/scripts/deploy.sh TARGET=prod")
+        want = str(run.get("image", "")).split("@")[-1]
+        origin = "no ledger yet: candidate %s from .deploy-run.json" % str(run.get("git_sha", "?"))[:8]
+    if not want.startswith("sha256:"):
+        return (LAUNCH_UNCHECKED, "the recorded image carries no sha256 digest")
+    got = digests_fn()
+    if got is None:
+        return (LAUNCH_UNCHECKED, "fly status failed; cannot read the digest prod runs")
+    if want in got:
+        return (LAUNCH_OK, "prod runs %s (%s)" % (want[:19], origin))
+    return (LAUNCH_UNCHECKED, "prod runs %s, not the recorded %s (%s)"
+            % (", ".join(sorted(d[:19] for d in got)) or "nothing", want[:19], origin))
+
+
+# --- launch-gate: checks end ---
+# <<< launch-gate (MH-5) <<<
 
 
 def main():
