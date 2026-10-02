@@ -1686,6 +1686,10 @@ body {
 .prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-sun img { opacity: 1; }
 .prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-space { opacity: 1; }
 .prologue:is([data-phase="fly"], [data-phase="arrive"]) .pro-stars { transform: scale(2.6); }
+/* Before Begin nothing may glide: a viewport resize (a phone's address bar,
+   a window drag) changes 100vh, and a live transition would sweep the hidden
+   Sun down through the scene. */
+.prologue[data-phase="choose"] :is(.pro-world, .pro-sun, .pro-stars, .pro-caption) { transition: none; }
 /* Words */
 .pro-caption {
   position: absolute; left: 0; right: 0; top: 30%; margin: 0; padding: 0 1.5rem;
