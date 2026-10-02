@@ -17,6 +17,10 @@ check.sh. Run any one alone with the command in its row.
 | test_ladder.py | price ladder: never below cost, anchor, $1.00 steps, .99 endings | no | python3 api/scripts/test_ladder.py |
 | test_lazy_imports.py | importing api.main does not load the science stack | no | python3 api/scripts/test_lazy_imports.py |
 | test_print_compose.py | print compositor formulas against hand-computed values | no | python3 api/scripts/test_print_compose.py |
+| test_bundle_manifest.py | edge bundle code hash ignores tier-specific paths and the noindex meta, and changes with any code or font | no | python3 api/scripts/test_bundle_manifest.py |
+| test_dockerfile_git_sha.py | the Dockerfile bakes GIT_SHA after the pip layer; deploy.sh passes the build arg once | no | python3 api/scripts/test_dockerfile_git_sha.py |
+| test_deploy_receipt.py | deploy receipt: commit range, both capture columns, escaping, no external request | no | python3 api/scripts/test_deploy_receipt.py |
+| test_status_identity.py | the tracker's Build identity lines (OK, SKEW, UNKNOWN) and newest receipt, with stubbed requests | no | python3 api/scripts/test_status_identity.py |
 
 ## Tools (never run by check.sh)
 

@@ -35,7 +35,8 @@ Also gated, because each mutates real external state:
 
 - Creating the dev Fly app or volume (one-time setup).
 - Any `fly secrets set`.
-- Rolling production back.
+- Rolling a tier back (`TARGET=prod ./infra/scripts/rollback.sh`, or `TARGET=dev`): lists
+  the last five ledger entries, needs the SHA typed, and is a deploy in its own right.
 - Deploying the render service (`TARGET=render ./infra/scripts/deploy.sh`).
 
 **Never run `fly deploy` or `wrangler deploy` by hand, on any tier.** Every
@@ -70,6 +71,11 @@ keep.
 
 Render it after: preflight, dev deploy, evidence capture, panel adjudication,
 and promotion.
+
+Under the milestones the tracker prints a `Build identity` block: one line per
+tier, `<tier>: origin <sha8> edge <sha8> OK` or `SKEW` (origin and edge are on
+different commits) or `UNKNOWN`, and the newest receipt path. A `SKEW` line
+after a deploy means one half did not ship; say so plainly.
 
 ## Steps
 
@@ -125,6 +131,13 @@ and promotion.
 7. **Verify.** Re-render the tracker. `promoted` must be green — if it isn't,
    production is not running the reviewed image and you must say so plainly
    rather than calling the deploy done.
+
+8. **Receipt.** Every deploy appends to `.deploy-ledger.jsonl` and writes
+   `.deploy-artifacts/<sha>/receipt.html` (commit range, digest, Worker
+   version, edge hash, both capture columns). Open it before asking for the
+   next yes: `open .deploy-artifacts/$(git rev-parse HEAD)/receipt.html`. After
+   a prod promotion deploy.sh prints a `git tag mh-YYYY.MM.DD <sha>` line; it is
+   printed, never run, and pushing the tag needs Gilly's yes.
 
 ## Launch gate (before any ad spend)
 

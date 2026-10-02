@@ -221,6 +221,9 @@ dev candidate, the dev deploy that feeds a promotion must itself be from
 
     python3 .claude/skills/deploy-myheliograph/scripts/status.py
 
+The `Build identity` block under the milestones must read `OK` for the tier you
+just deployed (origin and edge on the same commit).
+
 The tracker compares prod's running image digest against the recorded
 candidate. If they differ, the promotion did not ship what was reviewed.
 
@@ -237,12 +240,59 @@ a dev deploy never drops that key.
 
 ---
 
+## Build identity, ledger and receipt
+
+One name for one build: the git SHA. deploy.sh passes `GIT_SHA` to the dev
+image build (the Dockerfile bakes it). The tracker prints a `Build identity`
+block, one line per tier: `OK` when the origin's `/api/build-info` `sha` and the
+edge's `/build.json` `sha` agree, `SKEW` when they do not and `UNKNOWN` when a
+half cannot be read. **Pending:** the two writers of those values, the
+`api_build_info` change in `api/main.py` and the `build.json` step in
+`infra/worker/build-public.sh`, are FREEZE files (BRANCHES.md) and have not
+landed, so every tier reads `UNKNOWN` until they do (MH-8 Tasks 2 and 3).
+
+Dev records the edge code hash (`infra/scripts/bundle_manifest.py`, the sha256
+of the shipped code and fonts, leaving out `asset/default/`, `build.json`,
+`robots.txt`, `sitemap.xml` and the injected noindex meta) as `edge_code_hash`
+in `.deploy-run.json`. Prod recomputes it before each wrangler call and
+refuses when it differs, naming the files; warmed mockup assets cannot cause a
+refusal.
+
+Every finished deploy appends one line to `.deploy-ledger.jsonl` (gitignored,
+never truncated) and writes `.deploy-artifacts/<sha>/receipt.html`: commit
+range, digest, Worker version, edge hash, the check.sh summary if recorded, and
+the dev and prod captures side by side. Open it before saying yes to the next
+step. After a prod promotion deploy.sh prints `git tag mh-YYYY.MM.DD <sha>`; it
+does not run it, and pushing the tag needs Gilly's yes. `CHANGELOG.md` is the
+human-readable history.
+
+---
+
 ## Rollback
 
-Fly keeps prior releases; the worker keeps prior versions.
+**GATED, per run.** Rolling back is a deploy: ask Gilly in chat and get an
+explicit yes each time, dry runs included.
+
+    DRY_RUN=1 TARGET=dev ./infra/scripts/rollback.sh     # lists the last five ledger entries, prints the plan
+    TARGET=dev ./infra/scripts/rollback.sh               # type the first 8 characters of the SHA to restore
+    TARGET=prod ./infra/scripts/rollback.sh
+
+It redeploys that entry's Fly image, rolls the Worker back to that entry's
+version, then polls the origin and the edge for three minutes until both
+report that SHA. It prints `PARTIAL` when they do not and then says which half
+is wrong; do not call a `PARTIAL` result rolled back. Dev rollbacks update
+`.deploy-run.json` so `dev_drift` stays green. Rollbacks are ledger lines too
+(`"action": "rollback"`).
+
+Rolling code back does **not** roll back files on the `/var/data` volume (the
+`_persist_default_manifest` incident): find or take a volume backup first if
+the bad deploy wrote there.
+
+Without a ledger (a fresh checkout) the script prints `fly releases` and the
+manual commands instead:
 
     fly releases --app myheliograph-api
-    fly deploy --config fly.toml --app myheliograph-api --image <previous digest>
+    fly deploy --config fly.toml --app myheliograph-api --image <previous digest> --ha=false
     ( cd infra/worker && npx wrangler rollback )
 
 Rolling back the origin does **not** roll back the edge. The frontend and the
