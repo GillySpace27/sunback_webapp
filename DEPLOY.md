@@ -250,6 +250,23 @@ API version independently, so decide which actually broke before rolling
 either — and remember `public/` ships whatever `web3d/dist` held at build
 time.
 
+## Probes, drift and backups
+
+| What | Command | Reads | When |
+|---|---|---|---|
+| Outside probes | `python3 infra/scripts/probe.py --tier prod` (and `--tier dev`); a scheduled `probe` workflow (every six hours) is written in MH-6 but not added yet: it waits for Gilly's yes to GitHub Actions for it | public URLs only | by hand until then |
+| Drift report | `./infra/scripts/drift.sh` | `fly machine list`, `fly volumes list`, `fly secrets list` (names only), `wrangler secret list`, `fly*.toml`, `wrangler.jsonc`, `infra/secrets.names` | before a release and after any console change; never in CI |
+| Volume backup | `./infra/scripts/backup_state.sh` | six files from prod's `/var/data` over `fly ssh` and two public manifests | weekly; Gilly's yes for each run; scheduling is his choice of mechanism |
+| Seed dev | `APP=myheliograph-api-dev FROM=<backup dir> GO=1 ./infra/scripts/seed_dev.sh` | writes the dev volume only | on demand; Gilly's yes for each run |
+
+`/api/health` does not report `disk_pct` below 85 percent until the one-line `api_health` edit in MH-6 lands (it waits on the `api/main.py` freeze in BRANCHES.md); until then `probe_health` passes with "disk_pct not reported". The probe thresholds are estimates to tune after a week of history: disk alert 80 percent, frontier older than 9 days, TLS under 14 days, first byte of `/` over 3 s. Probing four times a day wakes the scale-to-zero machine for a few minutes each time (estimated). GitHub disables scheduled workflows on a repository with no activity for 60 days (general GitHub behavior, not verified here); push or dispatch once to wake it. A failing scheduled run emails the account that last edited the schedule line (as understood, not verified here).
+
+**Backups hold PII.** `feedback.jsonl` has email addresses. Backups live in `~/Documents/NWRA/vault-backups/myheliograph/<UTC date>/` (mode 0700), are never committed and are never pruned. `./infra/scripts/backup_state.sh` writes `SHA256SUMS` only for a complete run; verify with `cd <folder> && shasum -a 256 -c SHA256SUMS` (macOS) or `sha256sum -c SHA256SUMS`. status.py's `backup_age` goes red 14 days after the newest complete backup.
+
+**Restore drill.** Seed dev from the latest backup, then compare dev with prod: the served manifests must be byte-identical (`for h in https://myheliograph-api.fly.dev https://myheliograph-api-dev.fly.dev; do curl -fsS $h/asset/default/default_mockups.json | shasum -a 256; done`) and the two landing captures (`node web3d/tools/capture-pages.mjs <base> .deploy-shots/<tier>`, warm both tiers first, never dismiss the cookie banner) show the same default tiles.
+
+- Fly volume snapshots (read 2026-10-02): not read: the listing needs a Fly login and no Fly call was allowed in this session (UNCHECKED); run fly volumes snapshots list <volume id> --app myheliograph-api, newest snapshot UNCHECKED
+
 ---
 
 ## Things that have actually gone wrong here
