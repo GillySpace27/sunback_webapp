@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -264,6 +265,59 @@ def run_out(cmd):
         return ""
 
 
+# Build identity (MH-8): which commit each tier's origin image and edge bundle
+# were built from. The origin says it at /api/build-info, the edge at
+# /build.json (written by build-public.sh). Dev falls back to the workers.dev
+# host because NWRA's network refuses dev.myheliograph.com.
+BUILD_TIERS = (
+    ("prod", "https://myheliograph-api.fly.dev",
+     ("https://myheliograph.com",)),
+    ("dev", "https://myheliograph-api-dev.fly.dev",
+     ("https://dev.myheliograph.com", "https://myheliograph-router-dev.gilly-22d.workers.dev")),
+)
+
+
+def _get_json(url, timeout=45):
+    """GET a JSON document; None on any failure (a cold Fly wake can take ~25 s)."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def build_identity():
+    """One dict per tier: tier, origin sha, edge sha, state (OK, SKEW or
+    UNKNOWN when either half cannot be read), and the printed line."""
+    rows = []
+    stamp = int(time.time())
+    for tier, origin_base, edge_bases in BUILD_TIERS:
+        o = _get_json(f"{origin_base}/api/build-info?cb={stamp}") or {}
+        osha = o.get("sha") if isinstance(o.get("sha"), str) else None
+        esha = None
+        for base in edge_bases:
+            e = _get_json(f"{base}/build.json?cb={stamp}") or {}
+            if isinstance(e.get("sha"), str) and e["sha"]:
+                esha = e["sha"]
+                break
+        state = "UNKNOWN" if not (osha and esha) else ("OK" if osha == esha else "SKEW")
+        short = lambda v: v[:8] if v else "none"
+        rows.append({"tier": tier, "origin": osha, "edge": esha, "state": state,
+                     "line": f"{tier}: origin {short(osha)} edge {short(esha)} {state}"})
+    return rows
+
+
+def build_identity_lines():
+    return [r["line"] for r in build_identity()]
+
+
+def newest_receipt():
+    """Path of the newest .deploy-artifacts/<sha>/receipt.html, or None."""
+    import glob
+    paths = glob.glob(os.path.join(REPO, ".deploy-artifacts", "*", "receipt.html"))
+    return max(paths, key=os.path.getmtime) if paths else None
+
+
 def evaluate(done_keys):
     state = {}
     for key, _label, check in MILESTONES:
@@ -302,6 +356,12 @@ def render(state):
             kind, how = HOW[key]
             for i, ln in enumerate(how.split("\n")):
                 lines.append(f"      {'[' + kind + '] ' if i == 0 else '      '}{ln}")
+
+    lines.append("")
+    lines.append("Build identity")
+    for ln in build_identity_lines():
+        lines.append("  " + ln)
+    lines.append("  Newest receipt: " + (newest_receipt() or "none yet"))
 
     if FOOTER_CMD:
         raw = run_out(FOOTER_CMD)
@@ -763,6 +823,7 @@ def main():
             "launch": launch_json(launch_rows),
             "ads_blocked": ads_blocked(launch_rows),
             "title": TITLE,
+            "build_identity": build_identity(),
             "complete": sum(1 for k, _, _ in MILESTONES if state.get(k)),
             "total": len(MILESTONES),
             "milestones": [
