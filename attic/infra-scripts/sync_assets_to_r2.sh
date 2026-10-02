@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ATTIC: moved from infra/scripts/sync_assets_to_r2.sh on 2026-10-02 (MH-4). Do not run:
+# the shipped Worker has no R2 binding. Register: attic/README.md.
 # Sync the pre-syncable /asset/default tree into the R2 bucket that the
 # Worker serves at myheliograph.com/asset/*.
 #

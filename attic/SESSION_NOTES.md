@@ -1,3 +1,6 @@
+> ATTIC: moved from SESSION_NOTES.md on 2026-10-02 (MH-4). Historical; not current.
+> Current docs: README.md, CLAUDE.md, DEPLOY.md. Register: attic/README.md.
+
 # Session continuity notes (post-compression breadcrumb)
 
 ## ▶ NEXT SESSION — EXECUTE THIS (plan locked 2026-05-22)
