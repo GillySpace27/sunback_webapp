@@ -90,7 +90,9 @@ _BASE64_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 # above api/) for local dev, preserving the previous behaviour.
 _DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent
 def _data_dir() -> Path:
-    raw = settings.env("FEEDBACK_DATA_DIR", "").strip()
+    # The shared implementation lives in api/settings.py (MH-10); same behaviour.
+    return settings.data_dir()
+    raw = settings.env("FEEDBACK_DATA_DIR", "").strip()  # previous body, kept below (unreachable)
     d = Path(raw) if raw else _DEFAULT_DATA_DIR
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -233,7 +235,7 @@ def _append_to_disk(record: dict) -> None:
 
 def _public_base_url() -> str:
     """Public URL the admin can click from Slack to approve. Falls back to localhost for dev."""
-    return settings.env("PUBLIC_BASE_URL", "").strip().rstrip("/") or "http://localhost:8000"
+    return settings.public_base_url() or "http://localhost:8000"
 
 
 def _slack_safe(s) -> str:
@@ -662,7 +664,7 @@ async def get_approved_catalog():
 # ───────────────────────────────────────────────────────────────
 # Admin approval flow — click-from-Slack friendly GET endpoints
 # ───────────────────────────────────────────────────────────────
-PRINTIFY_BASE = "https://api.printify.com/v1"
+PRINTIFY_BASE = settings.PRINTIFY_BASE  # alias; the value lives in api/settings.py (MH-10)
 
 
 def _fetch_blueprint_title(bp_id: int) -> Optional[str]:
