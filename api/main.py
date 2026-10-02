@@ -1,4 +1,5 @@
 import os
+from api import settings
 
 # Headless matplotlib, decided before ANY matplotlib import can happen.
 # This used to be `matplotlib.use("Agg")` next to a module-level import; now
@@ -202,7 +203,7 @@ import threading
 # instance (Pro 4GB → 2, etc.) without a code change. Sticky default of
 # 1 keeps the existing Standard-2GB behaviour.
 try:
-    _HEAVY_RENDER_CONCURRENCY = max(1, int(os.environ.get("SOLAR_ARCHIVE_HEAVY_CONCURRENCY", "1")))
+    _HEAVY_RENDER_CONCURRENCY = max(1, int(settings.env("SOLAR_ARCHIVE_HEAVY_CONCURRENCY", "1")))
 except (TypeError, ValueError):
     _HEAVY_RENDER_CONCURRENCY = 1
 print(f"[startup] Heavy-render semaphore size: {_HEAVY_RENDER_CONCURRENCY} "
@@ -461,7 +462,7 @@ os.environ["REQUESTS_CA_BUNDLE"] = NASA_CA_BUNDLE
 # default; the NASA bundle above already includes the JSOC + VSO chain.
 # Opt-out via env var SOLAR_ARCHIVE_INSECURE_SSL=1 for ops scripts that
 # still need to bypass (e.g., debugging a cert renewal).
-if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+if settings.env("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
     ssl._create_default_https_context = ssl._create_unverified_context
     print("[startup][warn] SSL verification DISABLED (SOLAR_ARCHIVE_INSECURE_SSL=1)", flush=True)
 else:
@@ -488,8 +489,8 @@ os.environ["VSO_URL"] = "http://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
 
 #
 # Set SOLAR_ARCHIVE_ASSET_BASE_URL based on environment, removing trailing slashes for consistency.
-if not os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL"):
-    if os.getenv("RENDER"):
+if not settings.env("SOLAR_ARCHIVE_ASSET_BASE_URL"):
+    if settings.env("RENDER"):
         url = "https://solar-archive.onrender.com/asset"
         url = url.rstrip("/")
         os.environ["SOLAR_ARCHIVE_ASSET_BASE_URL"] = url
@@ -512,7 +513,7 @@ print(f"[startup] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 APP_NAME = "Solar Archive Backend"
-OUTPUT_DIR = os.getenv("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
+OUTPUT_DIR = settings.env("SOLAR_ARCHIVE_OUTPUT_DIR", base_tmp)
 
 # Preview subdirectory for all preview-related output
 PREVIEW_DIR = os.path.join(OUTPUT_DIR, "preview")
@@ -527,7 +528,7 @@ os.makedirs(PREVIEW_DIR, exist_ok=True)
 # pipeline. Same env contract as the feedback persistence: FEEDBACK_DATA_DIR
 # points at /var/data on Render. We tuck the default cache under there.
 def _persistent_data_dir():
-    raw = os.getenv("FEEDBACK_DATA_DIR", "").strip()
+    raw = settings.env("FEEDBACK_DATA_DIR", "").strip()
     d = Path(raw) if raw else Path(__file__).resolve().parent.parent
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -665,7 +666,7 @@ DEFAULT_VIBE_MANIFEST = DEFAULT_CACHE_DIR / "vibe_manifest.json"
 # operator-set value and fed only dead code (local_path_and_url has no
 # callers) — removed during the Fly migration so the env var, if ever
 # used again, actually has authority.
-ASSET_BASE_URL = os.getenv("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
+ASSET_BASE_URL = settings.env("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
 print(f"{ASSET_BASE_URL = }")
 print(f"{OUTPUT_DIR = }")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -807,7 +808,7 @@ _DEFAULT_ALLOWED = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-_env_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+_env_origins = settings.env("ALLOWED_ORIGINS", "").strip()
 if _env_origins:
     allowed_origins = [o.strip().rstrip("/") for o in _env_origins.split(",") if o.strip()]
 else:
@@ -1272,8 +1273,8 @@ def fetch_first_fits(dt, wl):
     except Exception as e:
         print(f"[fetch_first_fits][warn] Could not re-ensure NASA certs: {e}", flush=True)
     import certifi
-    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
-    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
+    os.environ["SSL_CERT_FILE"] = settings.env("SSL_CERT_FILE", NASA_CA_BUNDLE)
+    os.environ["REQUESTS_CA_BUNDLE"] = settings.env("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
     os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
     print(f"[fetch_first_fits] Using SSL_CERT_FILE={os.environ['SSL_CERT_FILE']}", flush=True)
     print(f"[fetch_first_fits] Using VSO_URL={os.environ['VSO_URL']}", flush=True)
@@ -1463,12 +1464,12 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     from datetime import timedelta
 
     # Reassert SSL/NASA cert config inside thread (same as do_generate_sync + fido_fetch_map)
-    if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+    if settings.env("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
         _ssl._create_default_https_context = _ssl._create_unverified_context
     else:
         _ssl._create_default_https_context = lambda: _ssl.create_default_context(cafile=NASA_CA_BUNDLE)
-    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", NASA_CA_BUNDLE)
-    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
+    os.environ["SSL_CERT_FILE"] = settings.env("SSL_CERT_FILE", NASA_CA_BUNDLE)
+    os.environ["REQUESTS_CA_BUNDLE"] = settings.env("REQUESTS_CA_BUNDLE", NASA_CA_BUNDLE)
     # Force HTTPS for VSO (same as fido_fetch_map line 1125)
     os.environ["VSO_URL"] = "https://vso.stanford.edu/cgi-bin/VSO_GETDATA.cgi"
     log_to_queue(f"[generate_preview] VSO_URL={os.environ['VSO_URL']}")
@@ -1618,7 +1619,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                         continue
                     err = str(result.errors[0])[:100] if hasattr(result, 'errors') and result.errors else "unknown"
                     log_to_queue(f"[generate_preview] {label}: row {i} failed ({err[:80]}), trying next row...")
-                    if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+                    if settings.env("SOLAR_ARCHIVE_DEBUG"):
                         breakpoint()  # inspect result, result.errors, one_row, i, label, download_dir
                 log_to_queue(f"[generate_preview] {label}: all {max_rows} probed row(s) failed "
                              f"(of {len(qr)} found), skipping day.")
@@ -1662,7 +1663,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
             _try_jsoc_fallback("VSO found records but every download attempt failed")
 
         if not fits_path:
-            if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+            if settings.env("SOLAR_ARCHIVE_DEBUG"):
                 breakpoint()  # inspect before Helioviewer fallback: dt, wl, date_str, out_path_filtered
             # Fallback: NASA DRMS often times out; use Helioviewer PNG so user still gets a preview.
             log_to_queue("[generate_preview] VSO/DRMS failed; trying Helioviewer fallback...")
@@ -1703,7 +1704,7 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
                 return (url_path_filtered, url_path_filtered, url_path_jpg)
             except Exception as e:
                 log_to_queue(f"[generate_preview] Helioviewer fallback failed: {e}")
-                if os.environ.get("SOLAR_ARCHIVE_DEBUG"):
+                if settings.env("SOLAR_ARCHIVE_DEBUG"):
                     breakpoint()  # inspect e, out_path before raising 502
                 raise HTTPException(status_code=502, detail="VSO AIA fetch returned no files after all retries")
     from sunpy.map import Map
@@ -2149,7 +2150,7 @@ from collections import OrderedDict
 # evict oldest entries on insertion when over cap. Cap is 200 active
 # tasks → ~5 MB at most (small status strings per entry). Configurable
 # via TASKS_DICT_CAP env var.
-_TASKS_CAP = int(os.getenv("TASKS_DICT_CAP", "200"))
+_TASKS_CAP = int(settings.env("TASKS_DICT_CAP", "200"))
 
 class _LRUTasks(OrderedDict):
     """Plain OrderedDict with a setitem hook that evicts the oldest
@@ -2198,7 +2199,7 @@ def _hq_key(date: str, wavelength, mission: str, detector: str, integrate: bool,
 # app's auto_start_machines. The render box scales to zero, so over
 # .internal the very first order of the day would hit a stopped machine
 # and simply time out.
-_DIM_RENDER_URL = os.getenv(
+_DIM_RENDER_URL = settings.env(
     "DIMENSIONAL_RENDER_URL", "http://myheliograph-render.flycast:8090/render"
 )
 # The render service takes a channel INDEX; the store speaks Angstroms.
@@ -2486,9 +2487,9 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     """
     # Reassert SSL/NASA cert configuration inside thread
     import ssl, certifi
-    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", certifi.where())
-    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", certifi.where())
-    if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+    os.environ["SSL_CERT_FILE"] = settings.env("SSL_CERT_FILE", certifi.where())
+    os.environ["REQUESTS_CA_BUNDLE"] = settings.env("REQUESTS_CA_BUNDLE", certifi.where())
+    if settings.env("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
         ssl._create_default_https_context = ssl._create_unverified_context
     else:
         ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=NASA_CA_BUNDLE)
@@ -2626,7 +2627,7 @@ def _check_ram_headroom(min_free_mb: int = 400) -> None:
         return
     try:
         mem = _psutil.virtual_memory()
-        env_min = int(os.getenv("RAM_HEADROOM_MB", str(min_free_mb)))
+        env_min = int(settings.env("RAM_HEADROOM_MB", str(min_free_mb)))
         free_mb = mem.available / (1024 * 1024)
         if free_mb < env_min:
             raise HTTPException(
@@ -2735,7 +2736,7 @@ async def get_status(task_id: str):
 import hmac as _hmac
 
 def _check_warm_admin_key(provided: Optional[str]) -> None:
-    expected = os.getenv("FEEDBACK_ADMIN_KEY", "").strip()
+    expected = settings.env("FEEDBACK_ADMIN_KEY", "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="Admin access disabled — set FEEDBACK_ADMIN_KEY to enable.")
     if not provided or not _hmac.compare_digest(provided.strip(), expected):
@@ -3685,9 +3686,9 @@ def _render_vibe_pair(vibe: dict) -> dict:
     sub-entry. Raises on fatal failures so the orchestrator can mark the
     vibe failed without taking down siblings."""
     import ssl as _ssl, certifi as _certifi
-    os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE", _certifi.where())
-    os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("REQUESTS_CA_BUNDLE", _certifi.where())
-    if os.getenv("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
+    os.environ["SSL_CERT_FILE"] = settings.env("SSL_CERT_FILE", _certifi.where())
+    os.environ["REQUESTS_CA_BUNDLE"] = settings.env("REQUESTS_CA_BUNDLE", _certifi.where())
+    if settings.env("SOLAR_ARCHIVE_INSECURE_SSL") == "1":
         _ssl._create_default_https_context = _ssl._create_unverified_context
     else:
         _ssl._create_default_https_context = lambda: _ssl.create_default_context(cafile=NASA_CA_BUNDLE)
@@ -4239,7 +4240,7 @@ async def sitemap_xml():
     # (it advertises prod URLs), so a dev request falls through the Worker
     # to this route instead of hitting a static asset. Without this check it
     # served prod's sitemap unconditionally — found 2026-09-15.
-    if os.getenv("IS_DEV") == "1":
+    if settings.env("IS_DEV") == "1":
         return Response(status_code=404)
     return FileResponse(Path(__file__).parent / "sitemap.xml", media_type="application/xml")
 
@@ -4439,7 +4440,7 @@ def debug_env(x_admin_key: Optional[str] = Header(None)):
         "ssl_cert_file": os.environ.get("SSL_CERT_FILE"),
         "requests_ca_bundle": os.environ.get("REQUESTS_CA_BUNDLE"),
         "cwd": os.getcwd(),
-        "user": os.getenv("USER") or os.getenv("USERNAME"),
+        "user": settings.env("USER") or settings.env("USERNAME"),
     }
 # ──────────────────────────────────────────────────────────────────────────────
 # Models
@@ -4601,7 +4602,7 @@ def _fetch_aia_via_jsoc(dt_query: datetime, wl: int, work_dir) -> list:
     Returns the list of downloaded FITS paths, or [] if JSOC is also
     unreachable (e.g. no email configured, or JSOC itself is down).
     """
-    email = os.environ.get("SOLAR_ARCHIVE_JSOC_EMAIL", "").strip()
+    email = settings.env("SOLAR_ARCHIVE_JSOC_EMAIL", "").strip()
     if not email:
         log_to_queue("[fetch][AIA][jsoc] SOLAR_ARCHIVE_JSOC_EMAIL not set; "
                      "JSOC fallback disabled. Register an email at "
@@ -5175,7 +5176,7 @@ def default_filter(smap: Map) -> Map:
 
         # Choose downsample factor (env override: RHEF_BLOCK=1/2/4)
         try:
-            block_size = int(os.environ.get("RHEF_BLOCK", "2"))
+            block_size = int(settings.env("RHEF_BLOCK", "2"))
             if block_size not in (1, 2, 4, 8):
                 block_size = 2
         except Exception:

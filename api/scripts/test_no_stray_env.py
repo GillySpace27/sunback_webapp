@@ -12,7 +12,6 @@ Run: python3 api/scripts/test_no_stray_env.py
    convert the file, then delete its entry.
 
 PENDING holds the files that cannot be converted yet and why:
-  main.py            FREEZE row in BRANCHES.md (api/main.py is hand-reviewed only)
   printify_routes.py BRANCHES.md has no Decision for claude/catalog-gc-donations and
                      claude/myheliograph-conversion-review-c05d69, which also edit it
 """
@@ -24,7 +23,6 @@ API = pathlib.Path(__file__).resolve().parents[1]
 PLUMBING = {"SUNPY_CONFIGDIR", "SUNPY_DOWNLOADDIR", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "VSO_URL",
             "MPLBACKEND", "PYTHONUNBUFFERED"}
 PENDING = {
-    "main.py": "FREEZE row in BRANCHES.md",
     "printify_routes.py": "no Decision in BRANCHES.md for the two branches that also edit it",
 }
 
