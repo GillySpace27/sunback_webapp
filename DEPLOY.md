@@ -304,7 +304,7 @@ time.
 
 | What | Command | Reads | When |
 |---|---|---|---|
-| Outside probes | `python3 infra/scripts/probe.py --tier prod` (and `--tier dev`); a scheduled `probe` workflow (every six hours) is written in MH-6 but not added yet: it waits for Gilly's yes to GitHub Actions for it | public URLs only | by hand until then |
+| Outside probes | `python3 infra/scripts/probe.py --tier prod` (and `--tier dev`); a scheduled `probe` workflow was NOT approved by Gilly (2026-10-02) and must not be added | public URLs only | by hand until then |
 | Drift report | `./infra/scripts/drift.sh` | `fly machine list`, `fly volumes list`, `fly secrets list` (names only), `wrangler secret list`, `fly*.toml`, `wrangler.jsonc`, `infra/secrets.names` | before a release and after any console change; never in CI |
 | Volume backup | `./infra/scripts/backup_state.sh` | six files from prod's `/var/data` over `fly ssh` and two public manifests | weekly; Gilly's yes for each run; scheduling is his choice of mechanism |
 | Seed dev | `APP=myheliograph-api-dev FROM=<backup dir> GO=1 ./infra/scripts/seed_dev.sh` | writes the dev volume only | on demand; Gilly's yes for each run |

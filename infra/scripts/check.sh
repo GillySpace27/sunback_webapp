@@ -327,8 +327,8 @@ check_release_gates_copy() {
 # SU-10: no commit since the base adds a line with an em dash (U+2014); older lines are never
 # flagged. The base is $EM_DASH_BASE, else the integration line named in BRANCHES.md
 # ("Integration line: `<branch>`"), else origin/main. Committed changes only, like CI would see.
-# An unfetched base is a SKIP, never a pass. No GitHub Actions job exists for this repo
-# (not approved by Gilly), so this check is the only place the guard runs.
+# An unfetched base is a SKIP, never a pass. CI (.github/workflows/check.yml) runs this on
+# pull requests with fetch-depth 0, so the integration line is fetched there.
 check_no_em_dash() {
   local base="${EM_DASH_BASE:-}" line out rc
   if [ -z "$base" ] && [ -f BRANCHES.md ]; then
