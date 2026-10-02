@@ -288,6 +288,8 @@ class _HeavyRenderSlot:
 # .wait() blocks until enough time has elapsed since the last call to
 # satisfy the configured req-per-minute rate. Thread-safe (used from
 # inside threadpooled sync calls).
+# MH-10 note: this is the outbound NASA throttle (it spaces our calls to JSOC/VSO). It is not
+# the per-IP request limiter; that is enforce_rate_limit in api/security.py.
 class _RateLimiter:
     def __init__(self, max_per_minute: int, name: str = ""):
         self.interval = 60.0 / max(1, max_per_minute)
@@ -669,6 +671,7 @@ DEFAULT_VIBE_MANIFEST = DEFAULT_CACHE_DIR / "vibe_manifest.json"
 ASSET_BASE_URL = settings.env("SOLAR_ARCHIVE_ASSET_BASE_URL", "")  # e.g., CDN base; else empty for local
 print(f"{ASSET_BASE_URL = }")
 print(f"{OUTPUT_DIR = }")
+settings.log_startup()  # MH-10: configuration at startup, secrets as set/unset only
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(PREVIEW_DIR, exist_ok=True)
 
@@ -796,23 +799,27 @@ async def serve_index_direct():
 from fastapi.middleware.cors import CORSMiddleware
 
 # Origin + rate-limit helpers shared with the printify routes.
-from api.security import enforce_origin, enforce_rate_limit
+from api.security import enforce_origin, enforce_rate_limit, _allowed_origins
 
-_DEFAULT_ALLOWED = [
-    "https://myheliograph.com",
-    "https://www.myheliograph.com",
-    "https://solar-archive.myshopify.com",
-    "https://solar-archive.onrender.com",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-_env_origins = settings.env("ALLOWED_ORIGINS", "").strip()
-if _env_origins:
-    allowed_origins = [o.strip().rstrip("/") for o in _env_origins.split(",") if o.strip()]
-else:
-    allowed_origins = _DEFAULT_ALLOWED
+# The allowlist and its ALLOWED_ORIGINS parsing live in api/security.py (MH-10), so CORS
+# and the per-route Origin check read one list. Render-era entries stay in that list,
+# marked legacy. The previous literal copy is kept below as a comment.
+allowed_origins = list(_allowed_origins())
+# _DEFAULT_ALLOWED = [
+#     "https://myheliograph.com",
+#     "https://www.myheliograph.com",
+#     "https://solar-archive.myshopify.com",
+#     "https://solar-archive.onrender.com",
+#     "http://localhost:8000",
+#     "http://127.0.0.1:8000",
+#     "http://localhost:5173",
+#     "http://127.0.0.1:5173",
+# ]
+# _env_origins = settings.env("ALLOWED_ORIGINS", "").strip()
+# if _env_origins:
+#     allowed_origins = [o.strip().rstrip("/") for o in _env_origins.split(",") if o.strip()]
+# else:
+#     allowed_origins = _DEFAULT_ALLOWED
 
 # Remove any old middleware before re-adding
 # (avoids duplicate middleware layers if app reloads)
@@ -856,6 +863,9 @@ _CSP = (
     "form-action 'self';"
 )
 
+# HSTS note (MH-10): users reach this app through the Worker (infra/worker/src/index.js
+# secure() and infra/worker/_headers), which owns the HSTS policy they see and overrides
+# the value set below. This value is only seen on direct *.fly.dev requests.
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
@@ -899,6 +909,9 @@ async def api_health():
         body["disk_pct"] = round(used)
         body["warning"] = "disk nearly full"
         print(f"[disk][WARN] health check: {used:.0f}% used at {OUTPUT_DIR}", flush=True)
+    # MH-10: required configuration this tier is missing, by NAME only (never a value).
+    # A misconfigured deploy still answers; the probes read this within hours.
+    body["config"] = {"missing": settings.missing_required()}
     return JSONResponse(content=body, headers=CORS_HEADERS)
 
 
