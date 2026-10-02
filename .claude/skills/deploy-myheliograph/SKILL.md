@@ -126,6 +126,17 @@ and promotion.
    production is not running the reviewed image and you must say so plainly
    rather than calling the deploy done.
 
+## Launch gate (before any ad spend)
+
+`status.py` prints a second block, "Launch gate", under the deploy milestones and ends it with `ADS: BLOCKED (<n> UNCHECKED)` until every launch item is verified or attested, then `ADS: CLEAR`. Paste it verbatim like the rest. What each item is, how it is proven and what Gilly does are in [LAUNCH_REVIEW.md](../../../LAUNCH_REVIEW.md) section 6.
+
+Hard rules, no exceptions:
+
+- The assistant never clicks Buy, never enters payment details, and never accepts or dismisses the cookie banner, in any browser, capture or script.
+- The assistant never runs `--attest`. Only Gilly does, typing at a terminal; the script refuses otherwise.
+- `infra/scripts/hq_retest.py` wakes the dev machine and fetches NASA data: ask Gilly first, once, off hours, and run its `--dry-run` before it.
+- A launch item the tracker cannot verify stays UNCHECKED. Do not describe it as done, and do not describe it as failed.
+
 ## Hand-off
 
 Say what is live and what is not. A prod deploy is **not** finished until the
