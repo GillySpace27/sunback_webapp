@@ -18,7 +18,7 @@ CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smo
          store_syntax worker_syntax whitelist_parity web3d_typecheck
          fixtures_pii claude_md_paths
          playwright_pins
-         vendor_drift hsts_agree release_gates_copy )
+         vendor_drift hsts_agree release_gates_copy no_em_dash )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -322,6 +322,31 @@ check_release_gates_copy() {
     echo "infra/scripts/release-gates.sh differs from its vendored header; recopy from HelioFITS"
     return 1
   fi
+}
+
+# SU-10: no commit since the base adds a line with an em dash (U+2014); older lines are never
+# flagged. The base is $EM_DASH_BASE, else the integration line named in BRANCHES.md
+# ("Integration line: `<branch>`"), else origin/main. Committed changes only, like CI would see.
+# An unfetched base is a SKIP, never a pass. No GitHub Actions job exists for this repo
+# (not approved by Gilly), so this check is the only place the guard runs.
+check_no_em_dash() {
+  local base="${EM_DASH_BASE:-}" line out rc
+  if [ -z "$base" ] && [ -f BRANCHES.md ]; then
+    line="$(sed -n 's/^- Integration line: `\([^`]*\)`.*/\1/p' BRANCHES.md | head -n1)"
+    [ -z "$line" ] || base="origin/$line"
+  fi
+  base="${base:-origin/main}"
+  if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+    echo "base $base not fetched; run git fetch origin, or set EM_DASH_BASE"
+    return 77
+  fi
+  if out="$("$PYTHON" infra/scripts/no_em_dash.py --base "$base" 2>&1)"; then rc=0; else rc=$?; fi
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$out" >&2
+    echo "$(printf '%s\n' "$out" | tail -n 1) (base $base)"
+    return 1
+  fi
+  echo "no added line since $base contains U+2014"
 }
 
 SELECTED=( "${CHECKS[@]}" )
