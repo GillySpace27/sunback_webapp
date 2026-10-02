@@ -99,6 +99,11 @@ Only needed once per machine/account. Skip if `fly apps list` already shows
 A dirty tree is allowed on dev and **refused** on prod: a promoted image must
 map to a real commit or the whole audit trail is fiction.
 
+**Ignored scratch.** `solar_archive_output/` and `web3d/rainbow/` are
+gitignored (MH-4), so they no longer make the tree dirty for the prod
+refusal; any other untracked file still does. The full list of untracked
+folders left in place is in `attic/README.md`.
+
 **Branches first.** Read `BRANCHES.md` at the repo root before any deploy:
 it names the integration line, Gilly's landing order and the FREEZE list.
 A branch that is not on the integration line is never deployed.
