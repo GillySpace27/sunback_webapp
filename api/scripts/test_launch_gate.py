@@ -191,6 +191,131 @@ class PromotionTests(Sandbox):
         self.assertEqual(state, "OK")
 
 
+ENV = {"LAUNCH_SHOPIFY_READ_TOKEN": "shpat_FAKE_TOKEN_FOR_TESTS",
+       "LAUNCH_TEST_EMAIL": "tester@example.com"}
+
+
+def order(name="#1002", created="2026-10-05T18:00:00Z", status="PAID", cancelled=False,
+          titles=("Sun on 2014-10-24, mug",)):
+    return {"name": name, "created": created, "status": status,
+            "cancelled": cancelled, "titles": list(titles)}
+
+
+class Fetch:
+    """Stands in for the Shopify or Sentry read; records its calls."""
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def __call__(self, *args):
+        self.calls.append(args)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+class ShopifyTests(unittest.TestCase):
+    def check(self, orders=(), env=None, fetch=None):
+        fetch = fetch or Fetch(list(orders))
+        return st.check_test_purchase(env=dict(ENV if env is None else env), fetch=fetch), fetch
+
+    def test_no_token_is_unchecked_and_asks_nothing(self):
+        env = {k: v for k, v in ENV.items() if k != "LAUNCH_SHOPIFY_READ_TOKEN"}
+        (state, detail), fetch = self.check(env=env)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("LAUNCH_SHOPIFY_READ_TOKEN", detail)
+        self.assertEqual(fetch.calls, [])
+
+    def test_no_email_is_unchecked(self):
+        env = {k: v for k, v in ENV.items() if k != "LAUNCH_TEST_EMAIL"}
+        (state, detail), fetch = self.check(env=env)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("LAUNCH_TEST_EMAIL", detail)
+        self.assertEqual(fetch.calls, [])
+
+    def test_an_email_that_could_alter_the_search_is_refused(self):
+        env = dict(ENV, LAUNCH_TEST_EMAIL='a b@example.com OR status:any')
+        (state, _), fetch = self.check(env=env)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertEqual(fetch.calls, [])
+
+    def test_the_search_names_the_address_and_the_start_date(self):
+        (_, _), fetch = self.check([])
+        self.assertEqual(fetch.calls, [("shpat_FAKE_TOKEN_FOR_TESTS",
+                                        "email:tester@example.com created_at:>=2026-10-01")])
+        (_, _), fetch = self.check([], env=dict(ENV, LAUNCH_TEST_SINCE="2026-10-10"))
+        self.assertEqual(fetch.calls[0][1], "email:tester@example.com created_at:>=2026-10-10")
+
+    def test_no_orders_is_unchecked(self):
+        (state, detail), _ = self.check([])
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("no paid", detail)
+
+    def test_a_paid_order_is_ok_and_the_token_is_never_printed(self):
+        (state, detail), _ = self.check([order()])
+        self.assertEqual(state, "OK")
+        self.assertIn("#1002", detail)
+        self.assertIn("2026-10-05", detail)
+        self.assertNotIn(ENV["LAUNCH_SHOPIFY_READ_TOKEN"], detail)
+        self.assertNotIn("example.com", detail)
+
+    def test_a_refunded_order_still_proves_the_purchase(self):
+        (state, _), _ = self.check([order(status="REFUNDED")])
+        self.assertEqual(state, "OK")
+
+    def test_a_cancelled_order_does_not_count(self):
+        (state, _), _ = self.check([order(cancelled=True)])
+        self.assertEqual(state, "UNCHECKED")
+
+    def test_the_old_phase1_test_product_does_not_count(self):
+        (state, _), _ = self.check([order(titles=("[PHASE1-TEST] Sun mug",))])
+        self.assertEqual(state, "UNCHECKED")
+
+    def test_an_unpaid_order_does_not_count(self):
+        (state, _), _ = self.check([order(status="PENDING")])
+        self.assertEqual(state, "UNCHECKED")
+
+    def test_http_403_is_unchecked_with_the_code_only(self):
+        err = urllib.error.HTTPError("https://x.invalid", 403, "Forbidden", {}, None)
+        (state, detail), _ = self.check(fetch=Fetch(err))
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("403", detail)
+        self.assertNotIn(ENV["LAUNCH_SHOPIFY_READ_TOKEN"], detail)
+
+    def test_graphql_errors_are_unchecked(self):
+        (state, detail), _ = self.check(fetch=Fetch(RuntimeError("graphql errors")))
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("RuntimeError", detail)
+
+
+class SentryTests(unittest.TestCase):
+    TOKEN = {"LAUNCH_SENTRY_TOKEN": "sntrys_FAKE_TOKEN_FOR_TESTS"}
+
+    def test_no_token_is_unchecked(self):
+        fetch = Fetch([])
+        state, detail = st.check_sentry_event(env={}, fetch=fetch)
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("LAUNCH_SENTRY_TOKEN", detail)
+        self.assertEqual(fetch.calls, [])
+
+    def test_the_test_event_title_is_found(self):
+        state, detail = st.check_sentry_event(
+            env=self.TOKEN, fetch=Fetch(["Other", "Launch-verification test event from Claude"]))
+        self.assertEqual(state, "OK")
+        self.assertNotIn(self.TOKEN["LAUNCH_SENTRY_TOKEN"], detail)
+
+    def test_no_such_event_is_unchecked(self):
+        state, _ = st.check_sentry_event(env=self.TOKEN, fetch=Fetch(["Other", "Another"]))
+        self.assertEqual(state, "UNCHECKED")
+
+    def test_http_401_is_unchecked_with_the_code_only(self):
+        err = urllib.error.HTTPError("https://sentry.invalid", 401, "Unauthorized", {}, None)
+        state, detail = st.check_sentry_event(env=self.TOKEN, fetch=Fetch(err))
+        self.assertEqual(state, "UNCHECKED")
+        self.assertIn("401", detail)
+        self.assertNotIn(self.TOKEN["LAUNCH_SENTRY_TOKEN"], detail)
+
+
 # --- tests: insert new test classes above this line ---
 if __name__ == "__main__":
     unittest.main()

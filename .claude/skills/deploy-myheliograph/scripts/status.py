@@ -428,6 +428,122 @@ def check_first_gated_promotion(digests_fn=None):
             % (", ".join(sorted(d[:19] for d in got)) or "nothing", want[:19], origin))
 
 
+# Shopify: a read-only Admin GraphQL query for the order Gilly places himself.
+# The store domain and API version are the defaults in api/shopify_storefront.py
+# (L30, L175). The app's existing Admin scopes (L165-166) do not include
+# read_orders, so this needs a read-only token Gilly creates himself (Q21);
+# without LAUNCH_SHOPIFY_READ_TOKEN the item stays UNCHECKED and is attested.
+# The query text and field names are written from knowledge of the Admin
+# GraphQL API and were not run against the store.
+SHOPIFY_DOMAIN = "solar-archive.myshopify.com"
+SHOPIFY_API_VERSION = "2024-10"
+LAUNCH_ORDER_SINCE = "2026-10-01"
+OLD_TEST_TITLE = "[PHASE1-TEST]"
+PAID_STATES = {"PAID", "PARTIALLY_REFUNDED", "REFUNDED"}
+_EMAIL_RE = re.compile(r"[^\s\"'\\]+@[^\s\"'\\]+")
+_ORDERS_QUERY = """query LaunchTestOrder($q: String!) {
+  orders(first: 10, query: $q, sortKey: CREATED_AT, reverse: true) {
+    edges { node {
+      name createdAt cancelledAt displayFinancialStatus
+      lineItems(first: 10) { edges { node { title } } }
+    } }
+  }
+}"""
+
+
+def _shopify_orders(token, search):
+    """[{"name","created","cancelled","status","titles"}]; raises on transport or GraphQL errors."""
+    req = urllib.request.Request(
+        "https://%s/admin/api/%s/graphql.json" % (SHOPIFY_DOMAIN, SHOPIFY_API_VERSION),
+        data=json.dumps({"query": _ORDERS_QUERY, "variables": {"q": search}}).encode(),
+        headers={"Content-Type": "application/json", "X-Shopify-Access-Token": token},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        body = json.load(resp)
+    if body.get("errors"):
+        raise RuntimeError("graphql errors")
+    edges = ((body.get("data") or {}).get("orders") or {}).get("edges") or []
+    out = []
+    for edge in edges:
+        node = edge.get("node") or {}
+        items = (node.get("lineItems") or {}).get("edges") or []
+        out.append({"name": node.get("name") or "?",
+                    "created": node.get("createdAt") or "",
+                    "cancelled": bool(node.get("cancelledAt")),
+                    "status": node.get("displayFinancialStatus") or "",
+                    "titles": [(i.get("node") or {}).get("title") or "" for i in items]})
+    return out
+
+
+def check_test_purchase(env=None, fetch=None):
+    """(state, detail). OK only when a paid, uncancelled order from the address
+    in LAUNCH_TEST_EMAIL exists on or after LAUNCH_TEST_SINCE and none of its
+    items is the old [PHASE1-TEST] product (Q8). Never prints the token or the
+    address."""
+    env = os.environ if env is None else env
+    token = env.get("LAUNCH_SHOPIFY_READ_TOKEN", "").strip()
+    if not token:
+        return (LAUNCH_UNCHECKED, "no LAUNCH_SHOPIFY_READ_TOKEN (a read_orders token, Q21); "
+                                  "after the purchase run status.py --attest test_purchase")
+    email = env.get("LAUNCH_TEST_EMAIL", "").strip()
+    if not _EMAIL_RE.fullmatch(email):
+        return (LAUNCH_UNCHECKED, "set LAUNCH_TEST_EMAIL to the address you will use at checkout")
+    since = env.get("LAUNCH_TEST_SINCE", "").strip() or LAUNCH_ORDER_SINCE
+    if not _DATE_RE.fullmatch(since):
+        return (LAUNCH_UNCHECKED, "LAUNCH_TEST_SINCE must be YYYY-MM-DD")
+    search = "email:%s created_at:>=%s" % (email, since)
+    try:
+        orders = (fetch or _shopify_orders)(token, search)
+    except urllib.error.HTTPError as e:
+        return (LAUNCH_UNCHECKED, "Shopify answered HTTP %d (token or scope?)" % e.code)
+    except Exception as e:
+        return (LAUNCH_UNCHECKED, "Shopify query failed (%s); scope or token?" % type(e).__name__)
+    for o in orders:
+        if o["cancelled"] or o["status"] not in PAID_STATES:
+            continue
+        if any(OLD_TEST_TITLE.lower() in t.lower() for t in o["titles"]):
+            continue
+        return (LAUNCH_OK, "order %s created %s, %s" % (o["name"], o["created"][:10], o["status"]))
+    return (LAUNCH_UNCHECKED, "no paid, uncancelled order since %s from the test address" % since)
+
+
+# Sentry: the project and the test event are the ones named in LAUNCH_REVIEW.md
+# section 5 (org sunny-days, project my-heliograph, "Launch-verification test
+# event from Claude"). The API path is written from knowledge of Sentry's REST
+# API and was not run; a wrong path reads UNCHECKED, never OK.
+SENTRY_ORG = "sunny-days"
+SENTRY_PROJECT = "my-heliograph"
+SENTRY_MARKER = "Launch-verification test event"
+
+
+def _sentry_titles(token):
+    req = urllib.request.Request(
+        "https://sentry.io/api/0/projects/%s/%s/events/" % (SENTRY_ORG, SENTRY_PROJECT),
+        headers={"Authorization": "Bearer " + token})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.load(resp)
+    if not isinstance(data, list):
+        raise ValueError("unexpected response shape")
+    return [str(e.get("title") or e.get("message") or "") for e in data if isinstance(e, dict)]
+
+
+def check_sentry_event(env=None, fetch=None):
+    env = os.environ if env is None else env
+    token = env.get("LAUNCH_SENTRY_TOKEN", "").strip()
+    if not token:
+        return (LAUNCH_UNCHECKED, "no LAUNCH_SENTRY_TOKEN (a Sentry read token, Q21); look for %r in "
+                                  "the Issues feed, then status.py --attest sentry_event" % SENTRY_MARKER)
+    try:
+        titles = (fetch or _sentry_titles)(token)
+    except urllib.error.HTTPError as e:
+        return (LAUNCH_UNCHECKED, "Sentry answered HTTP %d" % e.code)
+    except Exception as e:
+        return (LAUNCH_UNCHECKED, "Sentry query failed (%s)" % type(e).__name__)
+    if any(SENTRY_MARKER.lower() in t.lower() for t in titles):
+        return (LAUNCH_OK, "found %r in project %s" % (SENTRY_MARKER, SENTRY_PROJECT))
+    return (LAUNCH_UNCHECKED, "no event titled like %r among the newest events" % SENTRY_MARKER)
+
+
 # --- launch-gate: checks end ---
 # <<< launch-gate (MH-5) <<<
 
