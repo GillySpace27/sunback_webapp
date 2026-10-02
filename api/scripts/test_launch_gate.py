@@ -389,6 +389,95 @@ class HqCheckTests(Sandbox):
         self.assertEqual(state, "OK")
 
 
+KEYS = ["first_gated_promotion", "test_purchase", "sentry_event", "phone_store",
+        "phone_film", "tablet", "hq_4gb"]
+ATTEST_ONLY = ("phone_store", "phone_film", "tablet")
+
+
+def milestones(verdicts):
+    """The seven real keys with fake checks: verdicts maps key to (state, detail)."""
+    out = []
+    for k in KEYS:
+        if k in ATTEST_ONLY:
+            out.append((k, k, None))
+        else:
+            v = verdicts.get(k, ("UNCHECKED", "nothing yet"))
+            out.append((k, k, lambda v=v: v))
+    return out
+
+
+class RenderTests(Sandbox):
+    def cli(self, *args):
+        return subprocess.run([sys.executable, str(STATUS), *args], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_the_seven_keys_are_declared_in_order(self):
+        self.assertEqual([k for k, _, _ in st.LAUNCH_MILESTONES], KEYS)
+        self.assertEqual(st.ATTESTABLE, set(KEYS) - {"first_gated_promotion"})
+
+    def test_everything_unchecked_is_blocked_by_seven(self):
+        rows = st.evaluate_launch(milestones({}))
+        self.assertTrue(all(r["state"] == "UNCHECKED" for r in rows))
+        self.assertEqual(st.ads_blocked(rows), 7)
+        self.assertEqual(st.ads_line(rows), "ADS: BLOCKED (7 UNCHECKED)")
+
+    def test_one_attestation_flips_one_row_with_its_date(self):
+        self.put(st.ATTEST_FILE, {"phone_store": {"attested_at": "2026-10-03", "note": "device"}})
+        rows = {r["key"]: r for r in st.evaluate_launch(milestones({}))}
+        self.assertEqual(rows["phone_store"]["state"], "OK")
+        self.assertEqual(rows["phone_store"]["source"], "attested")
+        self.assertTrue(rows["phone_store"]["detail"].startswith("attested 2026-10-03"))
+        self.assertEqual(st.ads_line(list(rows.values())), "ADS: BLOCKED (6 UNCHECKED)")
+
+    def test_all_ok_is_clear(self):
+        verdicts = {k: ("OK", "proved") for k in ("first_gated_promotion", "test_purchase",
+                                                  "sentry_event", "hq_4gb")}
+        self.put(st.ATTEST_FILE, {k: {"attested_at": "2026-10-03", "note": ""} for k in ATTEST_ONLY})
+        rows = st.evaluate_launch(milestones(verdicts))
+        self.assertEqual(st.ads_line(rows), "ADS: CLEAR")
+        self.assertEqual(st.render_launch(rows).splitlines()[-1], "ADS: CLEAR")
+
+    def test_a_verified_item_is_reported_as_verified_even_if_also_attested(self):
+        self.put(st.ATTEST_FILE, {"test_purchase": {"attested_at": "2026-10-03", "note": ""}})
+        rows = {r["key"]: r for r in st.evaluate_launch(milestones({"test_purchase": ("OK", "order #1002")}))}
+        self.assertEqual(rows["test_purchase"]["source"], "verified")
+
+    def test_first_gated_promotion_cannot_be_attested_into_green(self):
+        self.put(st.ATTEST_FILE, {"first_gated_promotion": {"attested_at": "2026-10-03", "note": "trust me"}})
+        rows = {r["key"]: r for r in st.evaluate_launch(milestones({}))}
+        self.assertEqual(rows["first_gated_promotion"]["state"], "UNCHECKED")
+
+    def test_a_check_that_raises_is_unchecked_and_does_not_leak_the_message(self):
+        def raising():
+            raise RuntimeError("secret-looking message")
+        rows = st.evaluate_launch([("test_purchase", "x", raising)])
+        self.assertEqual(rows[0]["state"], "UNCHECKED")
+        self.assertEqual(rows[0]["detail"], "check raised RuntimeError")
+
+    def test_json_rows_have_the_documented_keys(self):
+        rows = st.evaluate_launch(milestones({}))
+        self.assertEqual(set(st.launch_json(rows)[0]),
+                         {"key", "label", "state", "source", "detail", "attestable"})
+
+    def test_the_rendered_block_lists_every_key_and_ends_with_the_ads_line(self):
+        rows = st.evaluate_launch(milestones({}))
+        text = st.render_launch(rows)
+        self.assertIn("Launch gate (before any ad spend)", text)
+        for k in KEYS:
+            self.assertIn(k, text)
+        self.assertEqual(text.splitlines()[-1], "ADS: BLOCKED (7 UNCHECKED)")
+
+    def test_cli_refuses_an_unknown_key(self):
+        r = self.cli("--attest", "bogus")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("cannot be attested", r.stderr)
+
+    def test_cli_refuses_without_a_terminal(self):
+        r = self.cli("--attest", "phone_store")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("terminal", r.stderr)
+
+
 # --- tests: insert new test classes above this line ---
 if __name__ == "__main__":
     unittest.main()

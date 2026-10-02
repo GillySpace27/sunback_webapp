@@ -594,6 +594,101 @@ def check_hq_4gb(head_fn=None):
 
 
 # --- launch-gate: checks end ---
+LAUNCH_MILESTONES = [
+    ("first_gated_promotion", "Prod promoted through the gate once (digest confirmed running)",
+     check_first_gated_promotion),
+    ("test_purchase", "Real test purchase completed (Gilly's own card)", check_test_purchase),
+    ("sentry_event", "Sentry test event landed", check_sentry_event),
+    ("phone_store", "Store walked on a real phone", None),
+    ("phone_film", "Film (/experience/) walked on a real phone", None),
+    ("tablet", "Store and film walked on a tablet", None),
+    ("hq_4gb", "HQ render timed on the 4 GB origin", check_hq_4gb),
+]
+
+# HOW to advance each item: (kind, text), same idea as HOW above. Kinds: gate
+# (needs Gilly's yes for that action), gilly (only Gilly can do it).
+LAUNCH_HOW = {
+    "first_gated_promotion": ("gate",
+        "Promote once through deploy.sh, only with Gilly's yes for that deploy (a yes never carries over):\n"
+        "TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh\n"
+        "# the prod gate refuses until Gilly has said which line is main (Q2)"),
+    "test_purchase": ("gilly",
+        "Gilly alone: cheapest SKU, his own card, the address in LAUNCH_TEST_EMAIL (LAUNCH_REVIEW.md 6.1).\n"
+        "# verified here when LAUNCH_SHOPIFY_READ_TOKEN is set; otherwise he runs:\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest test_purchase --note \"order number\""),
+    "sentry_event": ("gilly",
+        "Gilly alone: find \"Launch-verification test event from Claude\" in the Sentry Issues feed (LAUNCH_REVIEW.md 6.3).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest sentry_event"),
+    "phone_store": ("gilly",
+        "Gilly alone, on a real phone, cookie banner left alone (LAUNCH_REVIEW.md 6.2).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest phone_store --note \"device and browser\""),
+    "phone_film": ("gilly",
+        "Gilly alone, on a real phone, /experience/ (LAUNCH_REVIEW.md 6.2).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest phone_film --note \"device and browser\""),
+    "tablet": ("gilly",
+        "Gilly alone, on a tablet, store and film (LAUNCH_REVIEW.md 6.2).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest tablet --note \"device and browser\""),
+    "hq_4gb": ("gate",
+        "Once, off hours, with Gilly's yes (it wakes dev and fetches NASA data; LAUNCH_REVIEW.md 6.4):\n"
+        "python3 infra/scripts/hq_retest.py --dry-run\n"
+        "python3 infra/scripts/hq_retest.py"),
+}
+
+
+def evaluate_launch(milestones=None):
+    """Rows for the launch block. A verified OK wins over an attestation; an
+    attestation lifts only the keys in ATTESTABLE; a check that raises is
+    UNCHECKED and its message is never shown."""
+    rows = []
+    for key, label, check in (LAUNCH_MILESTONES if milestones is None else milestones):
+        if check is None:
+            state, detail = LAUNCH_UNCHECKED, "attest only"
+        else:
+            try:
+                state, detail = check()
+            except Exception as e:
+                state, detail = LAUNCH_UNCHECKED, "check raised %s" % type(e).__name__
+        source = "verified" if state == LAUNCH_OK else "none"
+        if state != LAUNCH_OK and key in ATTESTABLE:
+            rec = attested(key)
+            if rec:
+                state, source = LAUNCH_OK, "attested"
+                note = str(rec.get("note") or "")
+                detail = "attested %s%s" % (rec["attested_at"], ": " + note if note else "")
+        rows.append({"key": key, "label": label, "state": state, "source": source,
+                     "detail": detail, "attestable": key in ATTESTABLE})
+    return rows
+
+
+def ads_blocked(rows):
+    return sum(1 for r in rows if r["state"] != LAUNCH_OK)
+
+
+def ads_line(rows):
+    n = ads_blocked(rows)
+    return "ADS: CLEAR" if n == 0 else "ADS: BLOCKED (%d UNCHECKED)" % n
+
+
+def launch_json(rows):
+    return [dict(r) for r in rows]
+
+
+def render_launch(rows):
+    lines = ["", "Launch gate (before any ad spend)"]
+    for r in rows:
+        lines.append("  %-9s %-22s %s" % (r["state"], r["key"], r["detail"]))
+    first = next((r for r in rows if r["state"] != LAUNCH_OK), None)
+    if first is not None and first["key"] in LAUNCH_HOW:
+        kind, how = LAUNCH_HOW[first["key"]]
+        lines.append("")
+        lines.append("  next: " + first["label"])
+        for i, ln in enumerate(how.split("\n")):
+            lines.append("      %s%s" % ("[" + kind + "] " if i == 0 else "      ", ln))
+    lines.append("")
+    lines.append(ads_line(rows))
+    return "\n".join(lines)
+
+
 # <<< launch-gate (MH-5) <<<
 
 
@@ -602,6 +697,10 @@ def main():
     p.add_argument("--done", default="",
                    help="comma-separated keys for session-only milestones")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--attest", metavar="KEY",
+                   help="Gilly only, typed at a terminal: record that he did a launch item himself "
+                        "(test_purchase, sentry_event, phone_store, phone_film, tablet, hq_4gb)")
+    p.add_argument("--note", default="", help="free text stored with --attest")
     p.add_argument("--emit", action="store_true",
                    help="also write a snapshot to ~/.claude/runbooks/state/ for the "
                         "Orrery dashboard. The snapshot is a CACHE, never truth: it "
@@ -610,6 +709,8 @@ def main():
                         "hour ago' is the exact failure this whole pattern exists to "
                         "prevent.")
     args = p.parse_args()
+    if args.attest:
+        sys.exit(attest(args.attest, args.note))
 
     done_keys = {k.strip() for k in args.done.split(",") if k.strip()}
     known = {k for k, _, c in MILESTONES if c is None}
@@ -619,9 +720,12 @@ def main():
               f"{', '.join(sorted(unknown))}", file=sys.stderr)
 
     state = evaluate(done_keys)
+    launch_rows = evaluate_launch()
 
     if args.json:
         print(json.dumps({
+            "launch": launch_json(launch_rows),
+            "ads_blocked": ads_blocked(launch_rows),
             "title": TITLE,
             "complete": sum(1 for k, _, _ in MILESTONES if state.get(k)),
             "total": len(MILESTONES),
@@ -633,6 +737,7 @@ def main():
         }, indent=2))
     else:
         print(render(state))
+        print(render_launch(launch_rows))
 
     if args.emit:
         # Title carries the CANDIDATE identity, not just the procedure name.
