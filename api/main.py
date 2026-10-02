@@ -1050,12 +1050,15 @@ async def api_build_info():
                     latest = m
             except OSError:
                 pass
-    if latest <= 0:
-        return JSONResponse(content={"built": None}, headers=CORS_HEADERS)
-    return JSONResponse(
-        content={"built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(latest))},
-        headers=CORS_HEADERS,
-    )
+    built = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(latest)) if latest > 0 else None
+    # Build identity (MH-8). "built" above is unchanged. "sha" is the commit
+    # baked into the image (Dockerfile ARG/ENV GIT_SHA, set by deploy.sh);
+    # anything that is not 40 lowercase hex (unset, "unknown", junk) is null.
+    # "tier" is dev only where fly.dev.toml sets IS_DEV=1.
+    sha = (settings.env("GIT_SHA") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        sha = None
+    return JSONResponse(content={"built": built, "sha": sha, "tier": settings.tier()}, headers=CORS_HEADERS)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
