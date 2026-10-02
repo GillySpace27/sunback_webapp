@@ -46,7 +46,7 @@ _DEFAULT_ALLOWED_ORIGINS = (
     "https://www.myheliograph.com",
     "https://solar-archive.myshopify.com",
     # Legacy host kept harmlessly during the Render→Fly soak.
-    "https://solar-archive.onrender.com",
+    "https://solar-archive.onrender.com",  # LEGACY (MH-10): retired Render host; to be commented out once ALLOWED_ORIGINS is shown set on both tiers
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:5173",
