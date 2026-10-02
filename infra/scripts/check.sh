@@ -16,7 +16,8 @@ cd "$(dirname "$0")/../.."           # repo root, same idiom as deploy.sh
 PYTHON="${PYTHON:-python3}"
 CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smoke
          store_syntax worker_syntax whitelist_parity web3d_typecheck
-         fixtures_pii claude_md_paths )
+         fixtures_pii claude_md_paths
+         playwright_pins )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -212,6 +213,36 @@ PY
   if [ -n "$missing" ]; then echo "$f names missing paths: $missing"; return 1; fi
   echo "every backticked path in $f exists"
   return 0
+}
+
+# The Playwright version is written in four places and they must be one number
+# (MH-7; projects/solar-archive.md render-service note): render-service's npm
+# "playwright", web3d's "playwright-core" spec (no caret), the version locked in
+# web3d/package-lock.json, and the tag in render-service/Dockerfile's FROM (a
+# trailing @sha256:... digest is allowed).
+check_playwright_pins() {
+  "$PYTHON" - <<'PY'
+import json
+import re
+import sys
+
+rs = json.load(open("render-service/package.json", encoding="utf-8"))
+spec = json.load(open("web3d/package.json", encoding="utf-8"))
+lock = json.load(open("web3d/package-lock.json", encoding="utf-8"))
+dockerfile = open("render-service/Dockerfile", encoding="utf-8").read()
+m = re.search(r"^FROM\s+mcr\.microsoft\.com/playwright:v([0-9][^-@\s]*)-\S+?(?:@sha256:[0-9a-f]{64})?\s*$",
+              dockerfile, re.M)
+vals = {
+    "render-service/package.json playwright": rs.get("dependencies", {}).get("playwright"),
+    "web3d/package.json playwright-core": spec.get("devDependencies", {}).get("playwright-core"),
+    "web3d/package-lock.json playwright-core": lock.get("packages", {}).get("node_modules/playwright-core", {}).get("version"),
+    "render-service/Dockerfile FROM tag": m.group(1) if m else None,
+}
+if None in vals.values() or len(set(vals.values())) != 1:
+    print("; ".join("%s=%s" % kv for kv in vals.items()))
+    sys.exit(1)
+print("all four agree on playwright %s" % rs["dependencies"]["playwright"])
+PY
 }
 
 SELECTED=( "${CHECKS[@]}" )
