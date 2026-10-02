@@ -94,6 +94,7 @@ Only needed once per machine/account. Skip if `fly apps list` already shows
     source ~/.claude/secrets/solar-archive.env      # FEEDBACK_ADMIN_KEY
     git status --porcelain                          # must be clean for prod
     ( cd web3d && npm run typecheck )
+    ./infra/scripts/check.sh                        # every row PASS or SKIP
 
 A dirty tree is allowed on dev and **refused** on prod: a promoted image must
 map to a real commit or the whole audit trail is fiction.
