@@ -4,8 +4,9 @@ Cinematic 3D counterpart to the My Heliograph shop. Concept: **"Eight Minutes"**
 light leaves the Sun on your chosen date, crosses the dark, is caught through a
 wavelength filter, and becomes an object you can hold.
 
-Standalone Vite + React + React Three Fiber app. It does **not** touch the live
-Worker site; deploy it separately (subdomain or path) when ready.
+Vite + React + React Three Fiber app. `infra/worker/build-public.sh` (repo
+root) copies its build into the Worker's static assets at `/` and
+`/experience/`, and `infra/scripts/deploy.sh` rebuilds it on every deploy.
 
 ## Run
 
@@ -20,14 +21,14 @@ Build: `npm run build` → `dist/` (static, host anywhere: Cloudflare Pages, Fly
 - **One Canvas, one scene** (`src/three/Scene.tsx`). Sections are state, never remounted.
 - **One `progress` value** (`src/store.ts`), fed by Lenis smooth-scroll (`hooks/useScrollProgress.ts`).
   The camera *scrubs* this; UI copy cross-fades off it.
-- **Camera** rides a Catmull-Rom spline through the seven spaces with damped,
+- **Camera** rides a Catmull-Rom spline through the nine spaces with damped,
   per-space cursor parallax (`three/CameraRig.tsx`).
 - **Sun** is the only heavy shader: procedural fbm plasma that recolors per
   wavelength by lerping two color uniforms (`three/Sun.tsx`).
 - **Heliograph** is the "sun-pizza" filter wheel: 10 clickable SDO-channel
   wedges that select the wavelength (`three/Heliograph.tsx`).
 - **Accessibility**: the 3D wedges are mirrored by a native radio-group picker
-  (`ui/WavelengthPicker.tsx`, arrow-key + screen-reader friendly), sharing state
+  (the radio group in `ui/Hud.tsx`, arrow-key + screen-reader friendly), sharing state
   through the store. Crawlable `<h1>`/copy live in the DOM; the story survives
   with WebGL removed.
 - **Performance**: DPR clamped to 2; drei `PerformanceMonitor` drops quality
@@ -39,7 +40,7 @@ Build: `npm run build` → `dist/` (static, host anywhere: Cloudflare Pages, Fly
 ## Identity, real Sun, and handoff
 
 This site owns only the **image identity** (date + wavelength). The buyer picks
-their date (`ui/WavelengthPicker.tsx` date field) and wavelength (filter wheel /
+their date (`ui/DateField.tsx`, rendered by `ui/Hud.tsx`) and wavelength (filter wheel /
 picker), and the real SDO/AIA full-disk JPG for that identity is textured onto
 the Sun and the framed print (`lib/handoff.ts` `thumbUrl` →
 `/api/helioviewer_thumb`, mapped orthographically in `three/Sun.tsx`, shown flat
@@ -48,7 +49,7 @@ in `three/Room.tsx`). A procedural plasma is the loading/fallback state.
 "Make one" (`ui/BuyLink.tsx`) deep-links to the original front end with the
 identity preloaded and warms the backend on buy-intent:
 
-    https://myheliograph.com/?d=YYYY-MM-DD&t=HH:MM&wl=<angstrom>
+    https://myheliograph.com/store?d=YYYY-MM-DD&t=HH:MM&wl=<angstrom>
 
 The original's existing hydration (`d`/`t`/`wl`) runs the same path a real date
 submit uses and auto-advances into **product + editor + checkout** — no changes
