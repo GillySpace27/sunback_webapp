@@ -24,6 +24,7 @@ Mount in main.py:
 import hmac
 import json
 import os
+from api import settings
 import sys
 import time
 from pathlib import Path
@@ -89,7 +90,7 @@ _BASE64_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 # above api/) for local dev, preserving the previous behaviour.
 _DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent
 def _data_dir() -> Path:
-    raw = os.getenv("FEEDBACK_DATA_DIR", "").strip()
+    raw = settings.env("FEEDBACK_DATA_DIR", "").strip()
     d = Path(raw) if raw else _DEFAULT_DATA_DIR
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -232,7 +233,7 @@ def _append_to_disk(record: dict) -> None:
 
 def _public_base_url() -> str:
     """Public URL the admin can click from Slack to approve. Falls back to localhost for dev."""
-    return os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/") or "http://localhost:8000"
+    return settings.env("PUBLIC_BASE_URL", "").strip().rstrip("/") or "http://localhost:8000"
 
 
 def _slack_safe(s) -> str:
@@ -279,7 +280,7 @@ def _format_slack_blocks(record: dict, idx: int) -> dict:
                 parts.append("Title: " + _slack_safe(pr["title"]))
             # One-click approve / reject links. Admin key is in the query string —
             # PUBLIC_BASE_URL should be an https endpoint in production.
-            admin_key = os.getenv(ADMIN_KEY_ENV, "").strip()
+            admin_key = settings.env(ADMIN_KEY_ENV, "").strip()
             if admin_key:
                 base = _public_base_url()
                 approve = f"{base}/api/feedback/admin/approve?idx={idx}&key={admin_key}"
@@ -308,7 +309,7 @@ def _format_slack_blocks(record: dict, idx: int) -> dict:
 
 
 def _fire_webhook(record: dict, idx: int) -> None:
-    url = os.getenv(WEBHOOK_ENV, "").strip()
+    url = settings.env(WEBHOOK_ENV, "").strip()
     if not url:
         return
     try:
@@ -473,8 +474,8 @@ def _format_email_html(record: dict, idx: int) -> tuple[str, str]:
 
 
 def _fire_email_notification(record: dict, idx: int) -> None:
-    api_key = os.getenv(RESEND_API_KEY_ENV, "").strip()
-    to_raw = os.getenv(FEEDBACK_EMAIL_ENV, "").strip()
+    api_key = settings.env(RESEND_API_KEY_ENV, "").strip()
+    to_raw = settings.env(FEEDBACK_EMAIL_ENV, "").strip()
     if not api_key or not to_raw:
         return
     to_list = [a.strip() for a in to_raw.split(",") if a.strip()]
@@ -484,7 +485,7 @@ def _fire_email_notification(record: dict, idx: int) -> None:
     # domain verification. If the operator has set up their own verified
     # domain they can override via RESEND_FROM (e.g. "Solar Archive
     # <noreply@solar-archive.com>").
-    from_addr = os.getenv(RESEND_FROM_ENV, "").strip() or "Solar Archive <onboarding@resend.dev>"
+    from_addr = settings.env(RESEND_FROM_ENV, "").strip() or "Solar Archive <onboarding@resend.dev>"
     try:
         subject, html = _format_email_html(record, idx)
         resp = requests.post(
@@ -573,7 +574,7 @@ async def submit_feedback(entry: FeedbackSubmission, request: Request):
 
 
 def _check_admin_key(header_key: Optional[str], query_key: Optional[str]) -> None:
-    expected = os.getenv(ADMIN_KEY_ENV, "").strip()
+    expected = settings.env(ADMIN_KEY_ENV, "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail=f"Admin access disabled — set {ADMIN_KEY_ENV} to enable.")
     provided = (header_key or "").strip() or (query_key or "").strip()
@@ -666,7 +667,7 @@ PRINTIFY_BASE = "https://api.printify.com/v1"
 
 def _fetch_blueprint_title(bp_id: int) -> Optional[str]:
     """Best-effort title lookup so approved-catalog names aren't just 'Blueprint NNN'."""
-    token = os.getenv("PRINTIFY_API_TOKEN") or os.getenv("PRINTIFY_API_KEY") or ""
+    token = settings.env("PRINTIFY_API_TOKEN") or settings.env("PRINTIFY_API_KEY") or ""
     if not token:
         return None
     try:
@@ -685,7 +686,7 @@ def _fetch_blueprint_title(bp_id: int) -> Optional[str]:
 
 def _fetch_first_variant_aspect(bp_id: int, provider_id: int) -> tuple:
     """Return (aspect_ratio_dict_or_None, requested_variant_info_or_None)."""
-    token = os.getenv("PRINTIFY_API_TOKEN") or os.getenv("PRINTIFY_API_KEY") or ""
+    token = settings.env("PRINTIFY_API_TOKEN") or settings.env("PRINTIFY_API_KEY") or ""
     if not token or not provider_id:
         return (None, None)
     try:
