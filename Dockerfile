@@ -29,6 +29,10 @@ WORKDIR /app
 COPY requirements.txt ./
 COPY vendor/ vendor/
 RUN pip install -r requirements.txt
+# RH-9: fail the build before any image exists if the vendored RHEF wheel
+# is not the recorded one or rhef does not run on a small Map.
+COPY scripts/smoke_rhef.py scripts/
+RUN python scripts/smoke_rhef.py
 
 # Build identity (MH-8): the commit this image was built from, passed by
 # deploy.sh as --build-arg GIT_SHA=<sha>. After the pip layer so a new commit
