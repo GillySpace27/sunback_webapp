@@ -17,8 +17,12 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 
 # ─────────────────────────── CONFIG ───────────────────────────
 
@@ -92,6 +96,31 @@ sys.exit(0 if got == {{want}} else 1)
 EOF
 """
 
+_DRIFT_CHECK = f"cd {REPO} && ./infra/scripts/drift.sh >/dev/null 2>&1"
+
+# The newest backup folder under BACKUP_ROOT must have a SHA256SUMS (backup_state.sh writes it
+# only for a complete backup) and be under 14 days old (estimated). Folder names start with
+# the UTC date; a second same-day run has a suffix.
+_BACKUP_AGE_CHECK = """python3 - <<'EOF'
+import datetime, os, re, sys
+root = os.environ.get("BACKUP_ROOT") or os.path.expanduser("~/Documents/NWRA/vault-backups/myheliograph")
+newest = None
+try:
+    names = os.listdir(root)
+except OSError:
+    sys.exit(1)
+for n in names:
+    m = re.match(r"^(\\d{4}-\\d{2}-\\d{2})", n)
+    if m and os.path.isfile(os.path.join(root, n, "SHA256SUMS")):
+        d = datetime.date.fromisoformat(m.group(1))
+        if newest is None or d > newest:
+            newest = d
+if newest is None:
+    sys.exit(1)
+today = datetime.datetime.now(datetime.timezone.utc).date()
+sys.exit(0 if (today - newest).days < 14 else 1)
+EOF"""
+
 # (key, label, check)
 MILESTONES = [
     ("preflight", "Preflight: tree clean, typecheck passes",
@@ -136,6 +165,9 @@ MILESTONES = [
      f"({_PROMOTED_CHECK.strip()}) "
      "&& curl -fsS --max-time 25 https://myheliograph.com/api/health >/dev/null "
      "&& curl -fsS --max-time 25 -o /dev/null https://myheliograph.com/"),
+    ("drift", "Fly and Cloudflare match the repo (drift.sh, read-only)", _DRIFT_CHECK),
+
+    ("backup_age", "Newest volume backup is under 14 days old", _BACKUP_AGE_CHECK),
 ]
 
 # HOW to advance each step: (kind, text). Taken verbatim from DEPLOY.md rather
@@ -193,6 +225,14 @@ HOW = {
 }
 
 GATED = {"promoted"}
+HOW["drift"] = ("shell",
+    "./infra/scripts/drift.sh\n"
+    "# read-only: fly machine/volumes/secrets lists and wrangler secret list against fly*.toml,\n"
+    "# wrangler.jsonc and infra/secrets.names (names only). Never run it in CI.")
+HOW["backup_age"] = ("shell",
+    "DRY_RUN=1 ./infra/scripts/backup_state.sh   # plan only\n"
+    "./infra/scripts/backup_state.sh             # needs Gilly's yes: reads prod's volume over fly ssh;\n"
+    "# the copy holds PII (feedback.jsonl) and stays on this machine")
 
 FOOTER_CMD = (
     "fly status --app myheliograph-api --json 2>/dev/null | python3 -c "
@@ -223,6 +263,59 @@ def run_out(cmd):
         return r.stdout.strip()
     except Exception:
         return ""
+
+
+# Build identity (MH-8): which commit each tier's origin image and edge bundle
+# were built from. The origin says it at /api/build-info, the edge at
+# /build.json (written by build-public.sh). Dev falls back to the workers.dev
+# host because NWRA's network refuses dev.myheliograph.com.
+BUILD_TIERS = (
+    ("prod", "https://myheliograph-api.fly.dev",
+     ("https://myheliograph.com",)),
+    ("dev", "https://myheliograph-api-dev.fly.dev",
+     ("https://dev.myheliograph.com", "https://myheliograph-router-dev.gilly-22d.workers.dev")),
+)
+
+
+def _get_json(url, timeout=45):
+    """GET a JSON document; None on any failure (a cold Fly wake can take ~25 s)."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def build_identity():
+    """One dict per tier: tier, origin sha, edge sha, state (OK, SKEW or
+    UNKNOWN when either half cannot be read), and the printed line."""
+    rows = []
+    stamp = int(time.time())
+    for tier, origin_base, edge_bases in BUILD_TIERS:
+        o = _get_json(f"{origin_base}/api/build-info?cb={stamp}") or {}
+        osha = o.get("sha") if isinstance(o.get("sha"), str) else None
+        esha = None
+        for base in edge_bases:
+            e = _get_json(f"{base}/build.json?cb={stamp}") or {}
+            if isinstance(e.get("sha"), str) and e["sha"]:
+                esha = e["sha"]
+                break
+        state = "UNKNOWN" if not (osha and esha) else ("OK" if osha == esha else "SKEW")
+        short = lambda v: v[:8] if v else "none"
+        rows.append({"tier": tier, "origin": osha, "edge": esha, "state": state,
+                     "line": f"{tier}: origin {short(osha)} edge {short(esha)} {state}"})
+    return rows
+
+
+def build_identity_lines():
+    return [r["line"] for r in build_identity()]
+
+
+def newest_receipt():
+    """Path of the newest .deploy-artifacts/<sha>/receipt.html, or None."""
+    import glob
+    paths = glob.glob(os.path.join(REPO, ".deploy-artifacts", "*", "receipt.html"))
+    return max(paths, key=os.path.getmtime) if paths else None
 
 
 def evaluate(done_keys):
@@ -264,6 +357,12 @@ def render(state):
             for i, ln in enumerate(how.split("\n")):
                 lines.append(f"      {'[' + kind + '] ' if i == 0 else '      '}{ln}")
 
+    lines.append("")
+    lines.append("Build identity")
+    for ln in build_identity_lines():
+        lines.append("  " + ln)
+    lines.append("  Newest receipt: " + (newest_receipt() or "none yet"))
+
     if FOOTER_CMD:
         raw = run_out(FOOTER_CMD)
         if raw:
@@ -273,11 +372,431 @@ def render(state):
     return "\n".join(lines)
 
 
+# >>> launch-gate (MH-5) >>>
+# LAUNCH GATE: what must be true before any ad spend.
+#
+# MILESTONES above track ONE deploy. These track the one-time launch. Each
+# item is OK (verified from real external state, or attested by Gilly with a
+# date) or UNCHECKED (nothing proves it yet). There is no "failed" state on
+# purpose: an unverifiable step is UNCHECKED, neither done nor failed, and
+# nothing here reports a step done on its own say-so. An agent never makes the
+# test purchase, never enters payment details, never accepts the cookie banner
+# and never runs --attest (LAUNCH_REVIEW.md section 6).
+
+ATTEST_FILE = os.path.join(REPO, ".launch-attest.json")
+HQ_FILE = os.path.join(REPO, ".launch-hq.json")
+LEDGER_FILE = os.path.join(REPO, ".deploy-ledger.jsonl")
+ATTESTABLE = {"test_purchase", "sentry_event", "phone_store", "phone_film",
+              "tablet", "hq_4gb"}
+PROD_APP = "myheliograph-api"
+LAUNCH_OK = "OK"
+LAUNCH_UNCHECKED = "UNCHECKED"
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _launch_json_file(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def load_attest():
+    data = _launch_json_file(ATTEST_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def attested(key):
+    """The attest record for key when it carries a real YYYY-MM-DD date, else None."""
+    rec = load_attest().get(key)
+    if isinstance(rec, dict) and _DATE_RE.fullmatch(str(rec.get("attested_at", ""))):
+        return rec
+    return None
+
+
+def attest(key, note="", today=None, input_fn=input, is_tty=None):
+    """Write one dated attestation. Returns an exit code: 0 written, 2 refused.
+
+    Refuses without a terminal (an agent has none), asks Gilly to type the key,
+    never overwrites an existing key and never overwrites a file it cannot read
+    as a JSON object. Delete nothing: changing an attestation is done by hand.
+    """
+    def refuse(why):
+        print("refusing: " + why, file=sys.stderr)
+        return 2
+
+    if key not in ATTESTABLE:
+        return refuse("%r cannot be attested. Attestable: %s. first_gated_promotion is "
+                      "verified from the digest prod runs, or not at all."
+                      % (key, ", ".join(sorted(ATTESTABLE))))
+    tty = sys.stdin.isatty() if is_tty is None else is_tty
+    if not tty:
+        return refuse("--attest is typed by Gilly at a terminal. An agent never attests.")
+    existing = {}
+    if os.path.exists(ATTEST_FILE):
+        existing = _launch_json_file(ATTEST_FILE, None)
+        if not isinstance(existing, dict):
+            return refuse("%s exists but is not a JSON object; fix it by hand, it is never overwritten."
+                          % os.path.basename(ATTEST_FILE))
+    if key in existing:
+        prev = existing[key]
+        when = prev.get("attested_at", "?") if isinstance(prev, dict) else "?"
+        return refuse("%s was already attested on %s. Edit %s by hand to change it."
+                      % (key, when, os.path.basename(ATTEST_FILE)))
+    try:
+        answer = input_fn("Type %s to confirm you did this yourself: " % key)
+    except EOFError:
+        answer = ""
+    if answer.strip() != key:
+        return refuse("confirmation did not match; nothing written.")
+    day = (today or datetime.date.today()).isoformat()
+    existing[key] = {"attested_at": day, "note": note or ""}
+    tmp = ATTEST_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(existing, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, ATTEST_FILE)
+    print("attested %s on %s" % (key, day))
+    return 0
+
+
+def launch_prod_digests():
+    """Image digests prod's machines run now (a set), or None when fly cannot say."""
+    try:
+        r = subprocess.run(["fly", "status", "--app", PROD_APP, "--json"],
+                           capture_output=True, text=True, timeout=45)
+        if r.returncode != 0:
+            return None
+        machines = json.loads(r.stdout).get("Machines") or []
+        return {m.get("image_ref", {}).get("digest") for m in machines} - {None}
+    except Exception:
+        return None
+
+
+def ledger_prod_entries():
+    """Real (not dry-run) prod entries of MH-8's append-only ledger, oldest first.
+    An absent ledger, or lines that are not JSON objects, give []."""
+    out = []
+    try:
+        with open(LEDGER_FILE) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if (isinstance(entry, dict) and entry.get("target") == "prod"
+                        and entry.get("dry_run") is not True):
+                    out.append(entry)
+    except OSError:
+        return []
+    return out
+
+
+def check_first_gated_promotion(digests_fn=None):
+    """(state, detail). OK when the image of the newest real prod promotion is
+    the one prod runs now. Reads MH-8's ledger when it has a prod entry; until
+    then reads .deploy-run.json (the dev candidate that deploy.sh TARGET=prod
+    promotes) and requires deployed_by_script, so a hand-made record never counts."""
+    digests_fn = digests_fn or launch_prod_digests
+    entries = ledger_prod_entries()
+    if entries:
+        newest = entries[-1]
+        want = str(newest.get("image", "")).split("@")[-1]
+        origin = "ledger: first prod entry %s %s, newest %s" % (
+            str(entries[0].get("time", "?"))[:10], str(entries[0].get("git_sha", "?"))[:8],
+            str(newest.get("git_sha", "?"))[:8])
+    else:
+        run = _launch_json_file(RUN_STATE, {})
+        if not isinstance(run, dict) or run.get("deployed_by_script") is not True:
+            return (LAUNCH_UNCHECKED, "no prod entry in the ledger and no script-made candidate; "
+                                      "promote through infra/scripts/deploy.sh TARGET=prod")
+        want = str(run.get("image", "")).split("@")[-1]
+        origin = "no ledger yet: candidate %s from .deploy-run.json" % str(run.get("git_sha", "?"))[:8]
+    if not want.startswith("sha256:"):
+        return (LAUNCH_UNCHECKED, "the recorded image carries no sha256 digest")
+    got = digests_fn()
+    if got is None:
+        return (LAUNCH_UNCHECKED, "fly status failed; cannot read the digest prod runs")
+    if want in got:
+        return (LAUNCH_OK, "prod runs %s (%s)" % (want[:19], origin))
+    return (LAUNCH_UNCHECKED, "prod runs %s, not the recorded %s (%s)"
+            % (", ".join(sorted(d[:19] for d in got)) or "nothing", want[:19], origin))
+
+
+# Shopify: a read-only Admin GraphQL query for the order Gilly places himself.
+# The store domain and API version are the defaults in api/shopify_storefront.py
+# (L30, L175). The app's existing Admin scopes (L165-166) do not include
+# read_orders, so this needs a read-only token Gilly creates himself (Q21);
+# without LAUNCH_SHOPIFY_READ_TOKEN the item stays UNCHECKED and is attested.
+# The query text and field names are written from knowledge of the Admin
+# GraphQL API and were not run against the store.
+SHOPIFY_DOMAIN = "solar-archive.myshopify.com"
+SHOPIFY_API_VERSION = "2024-10"
+LAUNCH_ORDER_SINCE = "2026-10-01"
+OLD_TEST_TITLE = "[PHASE1-TEST]"
+PAID_STATES = {"PAID", "PARTIALLY_REFUNDED", "REFUNDED"}
+_EMAIL_RE = re.compile(r"[^\s\"'\\]+@[^\s\"'\\]+")
+_ORDERS_QUERY = """query LaunchTestOrder($q: String!) {
+  orders(first: 10, query: $q, sortKey: CREATED_AT, reverse: true) {
+    edges { node {
+      name createdAt cancelledAt displayFinancialStatus
+      lineItems(first: 10) { edges { node { title } } }
+    } }
+  }
+}"""
+
+
+def _shopify_orders(token, search):
+    """[{"name","created","cancelled","status","titles"}]; raises on transport or GraphQL errors."""
+    req = urllib.request.Request(
+        "https://%s/admin/api/%s/graphql.json" % (SHOPIFY_DOMAIN, SHOPIFY_API_VERSION),
+        data=json.dumps({"query": _ORDERS_QUERY, "variables": {"q": search}}).encode(),
+        headers={"Content-Type": "application/json", "X-Shopify-Access-Token": token},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        body = json.load(resp)
+    if body.get("errors"):
+        raise RuntimeError("graphql errors")
+    edges = ((body.get("data") or {}).get("orders") or {}).get("edges") or []
+    out = []
+    for edge in edges:
+        node = edge.get("node") or {}
+        items = (node.get("lineItems") or {}).get("edges") or []
+        out.append({"name": node.get("name") or "?",
+                    "created": node.get("createdAt") or "",
+                    "cancelled": bool(node.get("cancelledAt")),
+                    "status": node.get("displayFinancialStatus") or "",
+                    "titles": [(i.get("node") or {}).get("title") or "" for i in items]})
+    return out
+
+
+def check_test_purchase(env=None, fetch=None):
+    """(state, detail). OK only when a paid, uncancelled order from the address
+    in LAUNCH_TEST_EMAIL exists on or after LAUNCH_TEST_SINCE and none of its
+    items is the old [PHASE1-TEST] product (Q8). Never prints the token or the
+    address."""
+    env = os.environ if env is None else env
+    token = env.get("LAUNCH_SHOPIFY_READ_TOKEN", "").strip()
+    if not token:
+        return (LAUNCH_UNCHECKED, "no LAUNCH_SHOPIFY_READ_TOKEN (a read_orders token, Q21); "
+                                  "after the purchase run status.py --attest test_purchase")
+    email = env.get("LAUNCH_TEST_EMAIL", "").strip()
+    if not _EMAIL_RE.fullmatch(email):
+        return (LAUNCH_UNCHECKED, "set LAUNCH_TEST_EMAIL to the address you will use at checkout")
+    since = env.get("LAUNCH_TEST_SINCE", "").strip() or LAUNCH_ORDER_SINCE
+    if not _DATE_RE.fullmatch(since):
+        return (LAUNCH_UNCHECKED, "LAUNCH_TEST_SINCE must be YYYY-MM-DD")
+    search = "email:%s created_at:>=%s" % (email, since)
+    try:
+        orders = (fetch or _shopify_orders)(token, search)
+    except urllib.error.HTTPError as e:
+        return (LAUNCH_UNCHECKED, "Shopify answered HTTP %d (token or scope?)" % e.code)
+    except Exception as e:
+        return (LAUNCH_UNCHECKED, "Shopify query failed (%s); scope or token?" % type(e).__name__)
+    for o in orders:
+        if o["cancelled"] or o["status"] not in PAID_STATES:
+            continue
+        if any(OLD_TEST_TITLE.lower() in t.lower() for t in o["titles"]):
+            continue
+        return (LAUNCH_OK, "order %s created %s, %s" % (o["name"], o["created"][:10], o["status"]))
+    return (LAUNCH_UNCHECKED, "no paid, uncancelled order since %s from the test address" % since)
+
+
+# Sentry: the project and the test event are the ones named in LAUNCH_REVIEW.md
+# section 5 (org sunny-days, project my-heliograph, "Launch-verification test
+# event from Claude"). The API path is written from knowledge of Sentry's REST
+# API and was not run; a wrong path reads UNCHECKED, never OK.
+SENTRY_ORG = "sunny-days"
+SENTRY_PROJECT = "my-heliograph"
+SENTRY_MARKER = "Launch-verification test event"
+
+
+def _sentry_titles(token):
+    req = urllib.request.Request(
+        "https://sentry.io/api/0/projects/%s/%s/events/" % (SENTRY_ORG, SENTRY_PROJECT),
+        headers={"Authorization": "Bearer " + token})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.load(resp)
+    if not isinstance(data, list):
+        raise ValueError("unexpected response shape")
+    return [str(e.get("title") or e.get("message") or "") for e in data if isinstance(e, dict)]
+
+
+def check_sentry_event(env=None, fetch=None):
+    env = os.environ if env is None else env
+    token = env.get("LAUNCH_SENTRY_TOKEN", "").strip()
+    if not token:
+        return (LAUNCH_UNCHECKED, "no LAUNCH_SENTRY_TOKEN (a Sentry read token, Q21); look for %r in "
+                                  "the Issues feed, then status.py --attest sentry_event" % SENTRY_MARKER)
+    try:
+        titles = (fetch or _sentry_titles)(token)
+    except urllib.error.HTTPError as e:
+        return (LAUNCH_UNCHECKED, "Sentry answered HTTP %d" % e.code)
+    except Exception as e:
+        return (LAUNCH_UNCHECKED, "Sentry query failed (%s)" % type(e).__name__)
+    if any(SENTRY_MARKER.lower() in t.lower() for t in titles):
+        return (LAUNCH_OK, "found %r in project %s" % (SENTRY_MARKER, SENTRY_PROJECT))
+    return (LAUNCH_UNCHECKED, "no event titled like %r among the newest events" % SENTRY_MARKER)
+
+
+# HQ re-test on the 4 GB origin. infra/scripts/hq_retest.py renders once on dev
+# and appends a run to .launch-hq.json; this check only reads that record and
+# re-verifies, from real state, that dev still serves the recorded master at
+# the recorded size. A cache hit, a failure or a vanished file is UNCHECKED.
+DEV_BASES = ("https://dev.myheliograph.com",
+             "https://myheliograph-router-dev.gilly-22d.workers.dev")
+_ASSET_RE = re.compile(r"/asset/[A-Za-z0-9_.-]+\.png")
+
+
+def _launch_content_length(base, path):
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + path, timeout=30) as resp:
+            value = resp.headers.get("Content-Length")
+        return int(value) if value else None
+    except Exception:
+        return None
+
+
+def check_hq_4gb(head_fn=None):
+    head_fn = head_fn or _launch_content_length
+    rec = _launch_json_file(HQ_FILE, {})
+    runs = rec.get("runs") if isinstance(rec, dict) else None
+    good = [r for r in (runs or []) if isinstance(r, dict) and r.get("ok") is True
+            and r.get("cached") is not True and isinstance(r.get("bytes"), int)]
+    if not good:
+        return (LAUNCH_UNCHECKED, "no timed render recorded in .launch-hq.json; run "
+                                  "infra/scripts/hq_retest.py (dev, once, with Gilly's yes)")
+    run = good[-1]
+    base = str(run.get("base", "")).rstrip("/")
+    url = str(run.get("image_url", ""))
+    if base not in DEV_BASES or ".." in url or not _ASSET_RE.fullmatch(url):
+        return (LAUNCH_UNCHECKED, "the latest recorded run names a host or file this check will not fetch")
+    size = None
+    for b in [base] + [x for x in DEV_BASES if x != base]:
+        size = head_fn(b, url)
+        if size is not None:
+            break
+    if size is None:
+        return (LAUNCH_UNCHECKED, "the master %s is not reachable on dev now" % url)
+    if size != run["bytes"]:
+        return (LAUNCH_UNCHECKED, "the master on dev is %d bytes, the run recorded %d" % (size, run["bytes"]))
+    peak = run.get("peak_mb")
+    mem = ("peak memory %g MB (read by Gilly)" % peak if isinstance(peak, (int, float))
+           else "peak memory UNCHECKED")
+    kind = "integrated" if run.get("integrate") else "editor HQ"
+    return (LAUNCH_OK, "%s render of %s %s UTC took %.0f s, master %d bytes; %s"
+            % (kind, run.get("date", "?"), run.get("time", "?"), float(run.get("elapsed_s") or 0), size, mem))
+
+
+# --- launch-gate: checks end ---
+LAUNCH_MILESTONES = [
+    ("first_gated_promotion", "Prod promoted through the gate once (digest confirmed running)",
+     check_first_gated_promotion),
+    ("test_purchase", "Real test purchase completed (Gilly's own card)", check_test_purchase),
+    ("sentry_event", "Sentry test event landed", check_sentry_event),
+    ("phone_store", "Store walked on a real phone", None),
+    ("phone_film", "Film (/experience/) walked on a real phone", None),
+    ("tablet", "Store and film walked on a tablet", None),
+    ("hq_4gb", "HQ render timed on the 4 GB origin", check_hq_4gb),
+]
+
+# HOW to advance each item: (kind, text), same idea as HOW above. Kinds: gate
+# (needs Gilly's yes for that action), gilly (only Gilly can do it).
+LAUNCH_HOW = {
+    "first_gated_promotion": ("gate",
+        "Promote once through deploy.sh, only with Gilly's yes for that deploy (a yes never carries over):\n"
+        "TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh\n"
+        "# the prod gate refuses until Gilly has said which line is main (Q2)"),
+    "test_purchase": ("gilly",
+        "Gilly alone: cheapest SKU, his own card, the address in LAUNCH_TEST_EMAIL (LAUNCH_REVIEW.md 6.1).\n"
+        "# verified here when LAUNCH_SHOPIFY_READ_TOKEN is set; otherwise he runs:\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest test_purchase --note \"order number\""),
+    "sentry_event": ("gilly",
+        "Gilly alone: find \"Launch-verification test event from Claude\" in the Sentry Issues feed (LAUNCH_REVIEW.md 6.3).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest sentry_event"),
+    "phone_store": ("gilly",
+        "Gilly alone, on a real phone, cookie banner left alone (LAUNCH_REVIEW.md 6.2).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest phone_store --note \"device and browser\""),
+    "phone_film": ("gilly",
+        "Gilly alone, on a real phone, /experience/ (LAUNCH_REVIEW.md 6.2).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest phone_film --note \"device and browser\""),
+    "tablet": ("gilly",
+        "Gilly alone, on a tablet, store and film (LAUNCH_REVIEW.md 6.2).\n"
+        "python3 .claude/skills/deploy-myheliograph/scripts/status.py --attest tablet --note \"device and browser\""),
+    "hq_4gb": ("gate",
+        "Once, off hours, with Gilly's yes (it wakes dev and fetches NASA data; LAUNCH_REVIEW.md 6.4):\n"
+        "python3 infra/scripts/hq_retest.py --dry-run\n"
+        "python3 infra/scripts/hq_retest.py"),
+}
+
+
+def evaluate_launch(milestones=None):
+    """Rows for the launch block. A verified OK wins over an attestation; an
+    attestation lifts only the keys in ATTESTABLE; a check that raises is
+    UNCHECKED and its message is never shown."""
+    rows = []
+    for key, label, check in (LAUNCH_MILESTONES if milestones is None else milestones):
+        if check is None:
+            state, detail = LAUNCH_UNCHECKED, "attest only"
+        else:
+            try:
+                state, detail = check()
+            except Exception as e:
+                state, detail = LAUNCH_UNCHECKED, "check raised %s" % type(e).__name__
+        source = "verified" if state == LAUNCH_OK else "none"
+        if state != LAUNCH_OK and key in ATTESTABLE:
+            rec = attested(key)
+            if rec:
+                state, source = LAUNCH_OK, "attested"
+                note = str(rec.get("note") or "")
+                detail = "attested %s%s" % (rec["attested_at"], ": " + note if note else "")
+        rows.append({"key": key, "label": label, "state": state, "source": source,
+                     "detail": detail, "attestable": key in ATTESTABLE})
+    return rows
+
+
+def ads_blocked(rows):
+    return sum(1 for r in rows if r["state"] != LAUNCH_OK)
+
+
+def ads_line(rows):
+    n = ads_blocked(rows)
+    return "ADS: CLEAR" if n == 0 else "ADS: BLOCKED (%d UNCHECKED)" % n
+
+
+def launch_json(rows):
+    return [dict(r) for r in rows]
+
+
+def render_launch(rows):
+    lines = ["", "Launch gate (before any ad spend)"]
+    for r in rows:
+        lines.append("  %-9s %-22s %s" % (r["state"], r["key"], r["detail"]))
+    first = next((r for r in rows if r["state"] != LAUNCH_OK), None)
+    if first is not None and first["key"] in LAUNCH_HOW:
+        kind, how = LAUNCH_HOW[first["key"]]
+        lines.append("")
+        lines.append("  next: " + first["label"])
+        for i, ln in enumerate(how.split("\n")):
+            lines.append("      %s%s" % ("[" + kind + "] " if i == 0 else "      ", ln))
+    lines.append("")
+    lines.append(ads_line(rows))
+    return "\n".join(lines)
+
+
+# <<< launch-gate (MH-5) <<<
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--done", default="",
                    help="comma-separated keys for session-only milestones")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--attest", metavar="KEY",
+                   help="Gilly only, typed at a terminal: record that he did a launch item himself "
+                        "(test_purchase, sentry_event, phone_store, phone_film, tablet, hq_4gb)")
+    p.add_argument("--note", default="", help="free text stored with --attest")
     p.add_argument("--emit", action="store_true",
                    help="also write a snapshot to ~/.claude/runbooks/state/ for the "
                         "Orrery dashboard. The snapshot is a CACHE, never truth: it "
@@ -286,6 +805,8 @@ def main():
                         "hour ago' is the exact failure this whole pattern exists to "
                         "prevent.")
     args = p.parse_args()
+    if args.attest:
+        sys.exit(attest(args.attest, args.note))
 
     done_keys = {k.strip() for k in args.done.split(",") if k.strip()}
     known = {k for k, _, c in MILESTONES if c is None}
@@ -295,10 +816,14 @@ def main():
               f"{', '.join(sorted(unknown))}", file=sys.stderr)
 
     state = evaluate(done_keys)
+    launch_rows = evaluate_launch()
 
     if args.json:
         print(json.dumps({
+            "launch": launch_json(launch_rows),
+            "ads_blocked": ads_blocked(launch_rows),
             "title": TITLE,
+            "build_identity": build_identity(),
             "complete": sum(1 for k, _, _ in MILESTONES if state.get(k)),
             "total": len(MILESTONES),
             "milestones": [
@@ -309,6 +834,7 @@ def main():
         }, indent=2))
     else:
         print(render(state))
+        print(render_launch(launch_rows))
 
     if args.emit:
         # Title carries the CANDIDATE identity, not just the procedure name.

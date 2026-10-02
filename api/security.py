@@ -26,6 +26,7 @@ and other server-initiated entry points, callers can opt out per route.
 """
 
 import os
+from api import settings
 import time
 import threading
 from typing import Iterable, Optional
@@ -45,7 +46,7 @@ _DEFAULT_ALLOWED_ORIGINS = (
     "https://www.myheliograph.com",
     "https://solar-archive.myshopify.com",
     # Legacy host kept harmlessly during the Render→Fly soak.
-    "https://solar-archive.onrender.com",
+    "https://solar-archive.onrender.com",  # LEGACY (MH-10): retired Render host; to be commented out once ALLOWED_ORIGINS is shown set on both tiers
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:5173",
@@ -54,7 +55,7 @@ _DEFAULT_ALLOWED_ORIGINS = (
 
 
 def _allowed_origins() -> tuple[str, ...]:
-    raw = os.getenv("ALLOWED_ORIGINS", "").strip()
+    raw = settings.env("ALLOWED_ORIGINS", "").strip()
     if not raw:
         return _DEFAULT_ALLOWED_ORIGINS
     parts = tuple(o.strip().rstrip("/") for o in raw.split(",") if o.strip())
@@ -91,7 +92,7 @@ def enforce_origin(request: Request, allow_missing: bool = False) -> None:
     confirm image, and the 3D hero Sun for that whole population (2026-08-15).
     Cross-site embeds still get blocked: hotlinking browsers do send Referer.
     """
-    internal_token = os.getenv("INTERNAL_AUTH_TOKEN", "").strip()
+    internal_token = settings.env("INTERNAL_AUTH_TOKEN", "").strip()
     if internal_token and request.headers.get("x-internal-auth", "").strip() == internal_token:
         return
 
@@ -188,7 +189,7 @@ def enforce_rate_limit(
 # ────────────────────────────────────────────────
 
 def _is_beta_mode() -> bool:
-    raw = os.getenv("BETA_MODE", "").strip().lower()
+    raw = settings.env("BETA_MODE", "").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

@@ -221,6 +221,9 @@ dev candidate, the dev deploy that feeds a promotion must itself be from
 
     python3 .claude/skills/deploy-myheliograph/scripts/status.py
 
+The `Build identity` block under the milestones must read `OK` for the tier you
+just deployed (origin and edge on the same commit).
+
 The tracker compares prod's running image digest against the recorded
 candidate. If they differ, the promotion did not ship what was reviewed.
 
@@ -237,18 +240,104 @@ a dev deploy never drops that key.
 
 ---
 
+## Build identity, ledger and receipt
+
+One name for one build: the git SHA. deploy.sh passes `GIT_SHA` to the dev
+image build (the Dockerfile bakes it). The tracker prints a `Build identity`
+block, one line per tier: `OK` when the origin's `/api/build-info` `sha` and the
+edge's `/build.json` `sha` agree, `SKEW` when they do not and `UNKNOWN` when a
+half cannot be read. **Pending:** the two writers of those values, the
+`api_build_info` change in `api/main.py` and the `build.json` step in
+`infra/worker/build-public.sh`, are FREEZE files (BRANCHES.md) and have not
+landed, so every tier reads `UNKNOWN` until they do (MH-8 Tasks 2 and 3).
+
+Dev records the edge code hash (`infra/scripts/bundle_manifest.py`, the sha256
+of the shipped code and fonts, leaving out `asset/default/`, `build.json`,
+`robots.txt`, `sitemap.xml` and the injected noindex meta) as `edge_code_hash`
+in `.deploy-run.json`. Prod recomputes it before each wrangler call and
+refuses when it differs, naming the files; warmed mockup assets cannot cause a
+refusal.
+
+Every finished deploy appends one line to `.deploy-ledger.jsonl` (gitignored,
+never truncated) and writes `.deploy-artifacts/<sha>/receipt.html`: commit
+range, digest, Worker version, edge hash, the check.sh summary if recorded, and
+the dev and prod captures side by side. Open it before saying yes to the next
+step. After a prod promotion deploy.sh prints `git tag mh-YYYY.MM.DD <sha>`; it
+does not run it, and pushing the tag needs Gilly's yes. `CHANGELOG.md` is the
+human-readable history.
+
+---
+
 ## Rollback
 
-Fly keeps prior releases; the worker keeps prior versions.
+**GATED, per run.** Rolling back is a deploy: ask Gilly in chat and get an
+explicit yes each time, dry runs included.
+
+    DRY_RUN=1 TARGET=dev ./infra/scripts/rollback.sh     # lists the last five ledger entries, prints the plan
+    TARGET=dev ./infra/scripts/rollback.sh               # type the first 8 characters of the SHA to restore
+    TARGET=prod ./infra/scripts/rollback.sh
+
+It redeploys that entry's Fly image, rolls the Worker back to that entry's
+version, then polls the origin and the edge for three minutes until both
+report that SHA. It prints `PARTIAL` when they do not and then says which half
+is wrong; do not call a `PARTIAL` result rolled back. Dev rollbacks update
+`.deploy-run.json` so `dev_drift` stays green. Rollbacks are ledger lines too
+(`"action": "rollback"`).
+
+Rolling code back does **not** roll back files on the `/var/data` volume (the
+`_persist_default_manifest` incident): find or take a volume backup first if
+the bad deploy wrote there.
+
+Without a ledger (a fresh checkout) the script prints `fly releases` and the
+manual commands instead:
 
     fly releases --app myheliograph-api
-    fly deploy --config fly.toml --app myheliograph-api --image <previous digest>
+    fly deploy --config fly.toml --app myheliograph-api --image <previous digest> --ha=false
     ( cd infra/worker && npx wrangler rollback )
 
 Rolling back the origin does **not** roll back the edge. The frontend and the
 API version independently, so decide which actually broke before rolling
 either — and remember `public/` ships whatever `web3d/dist` held at build
 time.
+
+## Probes, drift and backups
+
+| What | Command | Reads | When |
+|---|---|---|---|
+| Outside probes | `python3 infra/scripts/probe.py --tier prod` (and `--tier dev`); a scheduled `probe` workflow was NOT approved by Gilly (2026-10-02) and must not be added | public URLs only | by hand until then |
+| Drift report | `./infra/scripts/drift.sh` | `fly machine list`, `fly volumes list`, `fly secrets list` (names only), `wrangler secret list`, `fly*.toml`, `wrangler.jsonc`, `infra/secrets.names` | before a release and after any console change; never in CI |
+| Volume backup | `./infra/scripts/backup_state.sh` | six files from prod's `/var/data` over `fly ssh` and two public manifests | weekly; Gilly's yes for each run; scheduling is his choice of mechanism |
+| Seed dev | `APP=myheliograph-api-dev FROM=<backup dir> GO=1 ./infra/scripts/seed_dev.sh` | writes the dev volume only | on demand; Gilly's yes for each run |
+
+`/api/health` does not report `disk_pct` below 85 percent until the one-line `api_health` edit in MH-6 lands (it waits on the `api/main.py` freeze in BRANCHES.md); until then `probe_health` passes with "disk_pct not reported". The probe thresholds are estimates to tune after a week of history: disk alert 80 percent, frontier older than 9 days, TLS under 14 days, first byte of `/` over 3 s. Probing four times a day wakes the scale-to-zero machine for a few minutes each time (estimated). GitHub disables scheduled workflows on a repository with no activity for 60 days (general GitHub behavior, not verified here); push or dispatch once to wake it. A failing scheduled run emails the account that last edited the schedule line (as understood, not verified here).
+
+**Backups hold PII.** `feedback.jsonl` has email addresses. Backups live in `~/Documents/NWRA/vault-backups/myheliograph/<UTC date>/` (mode 0700), are never committed and are never pruned. `./infra/scripts/backup_state.sh` writes `SHA256SUMS` only for a complete run; verify with `cd <folder> && shasum -a 256 -c SHA256SUMS` (macOS) or `sha256sum -c SHA256SUMS`. status.py's `backup_age` goes red 14 days after the newest complete backup.
+
+**Restore drill.** Seed dev from the latest backup, then compare dev with prod: the served manifests must be byte-identical (`for h in https://myheliograph-api.fly.dev https://myheliograph-api-dev.fly.dev; do curl -fsS $h/asset/default/default_mockups.json | shasum -a 256; done`) and the two landing captures (`node web3d/tools/capture-pages.mjs <base> .deploy-shots/<tier>`, warm both tiers first, never dismiss the cookie banner) show the same default tiles.
+
+- Fly volume snapshots (read 2026-10-02): not read: the listing needs a Fly login and no Fly call was allowed in this session (UNCHECKED); run fly volumes snapshots list <volume id> --app myheliograph-api, newest snapshot UNCHECKED
+
+## Pinned build inputs
+
+Two builds of one commit must be the same build. Status as of MH-7 (2026-10-02): the rows marked **not yet** are written in the task file but waiting on Gilly (the prod `pip freeze`, MH-3's libraqm0 layer, the `api/main.py` and `build-public.sh` freezes, GitHub Actions); the others are in place.
+
+| Input | Where | Changed by |
+|---|---|---|
+| Python packages (**not yet**) | `constraints.txt` (a `pip freeze` of the running prod image; `Dockerfile` installs with `-c constraints.txt`; `requirements.txt` stays the readable list and the vendored sunkit-image wheel is not listed) | monthly refresh |
+| Base images (**not yet**) | `Dockerfile` `FROM python:3.12-slim@sha256:...` and `render-service/Dockerfile` `FROM mcr.microsoft.com/playwright:v<x.y.z>-noble@sha256:...`, each with a dated comment line | monthly refresh |
+| wrangler, ruff | `infra/scripts/pins.env`, sourced by `deploy.sh` (the `check` workflow does not exist yet) | monthly refresh |
+| Playwright | `render-service/package.json` `playwright`, `web3d/package.json` `playwright-core` (no caret), the version locked in `web3d/package-lock.json` and the render Dockerfile tag, all one number; `./infra/scripts/check.sh --only playwright_pins` | with the base image |
+| GSAP, Lenis, two fonts | committed under `infra/worker/vendor/` (`SOURCES.txt`, `VERSIONS.txt`, `SHA256SUMS`; `./infra/scripts/check.sh --only vendor_drift`); `build-public.sh` still copies from `web3d/node_modules` (**not yet** switched to the committed files) | `REFRESH=1 ./infra/scripts/refresh_vendor.sh`, on purpose |
+
+**Monthly pin refresh.** One commit, nothing else in it, and a dev deploy before it can be promoted; never mixed with a feature.
+
+1. Read the new digests (Docker Hub for `python:3.12-slim`, MCR for the Playwright tag) and edit the two `FROM` lines and their dated comments.
+2. With Gilly's yes for the `fly ssh`, take a fresh `pip freeze` from the running prod image and rebuild `constraints.txt` from it (keep the header; drop sunkit-image).
+3. Update `WRANGLER_VERSION` and `RUFF_VERSION` in `infra/scripts/pins.env`.
+4. `./infra/scripts/check.sh` must be green.
+5. Dev deploy (`TARGET=dev`), then compare `pip freeze` on dev with `constraints.txt`.
+
+The Playwright pin never moves alone: the base image tag, `render-service/package.json` and web3d's `playwright-core` change together, and a render deploy follows (`TARGET=render`), because a different Playwright can change plate output.
 
 ---
 

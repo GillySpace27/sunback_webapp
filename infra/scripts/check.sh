@@ -16,7 +16,9 @@ cd "$(dirname "$0")/../.."           # repo root, same idiom as deploy.sh
 PYTHON="${PYTHON:-python3}"
 CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smoke
          store_syntax worker_syntax whitelist_parity web3d_typecheck
-         fixtures_pii claude_md_paths )
+         fixtures_pii claude_md_paths
+         playwright_pins
+         vendor_drift hsts_agree release_gates_copy no_em_dash )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -212,6 +214,139 @@ PY
   if [ -n "$missing" ]; then echo "$f names missing paths: $missing"; return 1; fi
   echo "every backticked path in $f exists"
   return 0
+}
+
+# The Playwright version is written in four places and they must be one number
+# (MH-7; projects/solar-archive.md render-service note): render-service's npm
+# "playwright", web3d's "playwright-core" spec (no caret), the version locked in
+# web3d/package-lock.json, and the tag in render-service/Dockerfile's FROM (a
+# trailing @sha256:... digest is allowed).
+check_playwright_pins() {
+  "$PYTHON" - <<'PY'
+import json
+import re
+import sys
+
+rs = json.load(open("render-service/package.json", encoding="utf-8"))
+spec = json.load(open("web3d/package.json", encoding="utf-8"))
+lock = json.load(open("web3d/package-lock.json", encoding="utf-8"))
+dockerfile = open("render-service/Dockerfile", encoding="utf-8").read()
+m = re.search(r"^FROM\s+mcr\.microsoft\.com/playwright:v([0-9][^-@\s]*)-\S+?(?:@sha256:[0-9a-f]{64})?\s*$",
+              dockerfile, re.M)
+vals = {
+    "render-service/package.json playwright": rs.get("dependencies", {}).get("playwright"),
+    "web3d/package.json playwright-core": spec.get("devDependencies", {}).get("playwright-core"),
+    "web3d/package-lock.json playwright-core": lock.get("packages", {}).get("node_modules/playwright-core", {}).get("version"),
+    "render-service/Dockerfile FROM tag": m.group(1) if m else None,
+}
+if None in vals.values() or len(set(vals.values())) != 1:
+    print("; ".join("%s=%s" % kv for kv in vals.items()))
+    sys.exit(1)
+print("all four agree on playwright %s" % rs["dependencies"]["playwright"])
+PY
+}
+
+# The committed store vendor files against their SHA256SUMS and, when web3d/node_modules is
+# installed, against the node_modules copies (MH-7). Never FAILs: a difference is a WARN in
+# the reason, because refresh_vendor.sh is the deliberate way to change them.
+check_vendor_drift() {
+  if [ ! -d web3d/node_modules ]; then
+    echo "web3d/node_modules absent (cd web3d && npm ci)"
+    return 77
+  fi
+  "$PYTHON" - <<'PY'
+import hashlib
+import pathlib
+
+v = pathlib.Path("infra/worker/vendor")
+nm = pathlib.Path("web3d/node_modules")
+
+
+def sha(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+src = v / "SOURCES.txt"
+if not src.is_file():
+    print("WARN: infra/worker/vendor/SOURCES.txt is missing")
+    raise SystemExit(0)
+pairs = [ln.split() for ln in src.read_text().splitlines()
+         if ln.strip() and not ln.lstrip().startswith("#")]
+sums = {}
+sf = v / "SHA256SUMS"
+if sf.is_file():
+    for ln in sf.read_text().splitlines():
+        h, _, r = ln.partition("  ")
+        if r:
+            sums[r.strip()] = h.strip()
+notes = []
+for rel, node in pairs:
+    p, q = v / rel, nm / node
+    if not p.is_file():
+        notes.append("%s is missing from vendor/" % rel)
+        continue
+    if sums.get(rel) != sha(p):
+        notes.append("%s differs from SHA256SUMS" % rel)
+    if q.is_file() and sha(p) != sha(q):
+        notes.append("%s differs from node_modules (refresh_vendor.sh on purpose, or node_modules is older)" % rel)
+if notes:
+    print("WARN: " + "; ".join(notes))
+else:
+    print("%d vendored files match SHA256SUMS and web3d/node_modules" % len(pairs))
+PY
+}
+
+# One HSTS owner (MH-10): the Worker. secure() in index.js covers the film and every
+# proxied response; _headers covers the Static Assets pages. They must say the same.
+# HSTS_INDEX_JS and HSTS_HEADERS_FILE override the paths (used to prove this can fail).
+check_hsts_agree() {
+  local js="${HSTS_INDEX_JS:-infra/worker/src/index.js}" hf="${HSTS_HEADERS_FILE:-infra/worker/_headers}" a b
+  a="$(sed -n 's/.*headers\.set("Strict-Transport-Security", *"\([^"]*\)").*/\1/p' "$js" | head -n1)"
+  b="$(sed -n 's/^[[:space:]]*Strict-Transport-Security:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$hf" | head -n1)"
+  if [ -z "$a" ] || [ -z "$b" ]; then
+    echo "could not read the Strict-Transport-Security value from $js (${a:-none}) or $hf (${b:-none})"
+    return 1
+  fi
+  if [ "$a" != "$b" ]; then
+    echo "HSTS differs: secure() says '$a', _headers says '$b'"
+    return 1
+  fi
+  echo "secure() and _headers agree: $a"
+}
+
+# SU-3: the vendored release-gates.sh still matches its sha256 header (canonical copy: HelioFITS).
+check_release_gates_copy() {
+  if ./infra/scripts/release-gates.sh --verify-copy >/dev/null 2>&1; then
+    echo "vendored copy matches its sha256 header"
+  else
+    echo "infra/scripts/release-gates.sh differs from its vendored header; recopy from HelioFITS"
+    return 1
+  fi
+}
+
+# SU-10: no commit since the base adds a line with an em dash (U+2014); older lines are never
+# flagged. The base is $EM_DASH_BASE, else the integration line named in BRANCHES.md
+# ("Integration line: `<branch>`"), else origin/main. Committed changes only, like CI would see.
+# An unfetched base is a SKIP, never a pass. CI (.github/workflows/check.yml) runs this on
+# pull requests with fetch-depth 0, so the integration line is fetched there.
+check_no_em_dash() {
+  local base="${EM_DASH_BASE:-}" line out rc
+  if [ -z "$base" ] && [ -f BRANCHES.md ]; then
+    line="$(sed -n 's/^- Integration line: `\([^`]*\)`.*/\1/p' BRANCHES.md | head -n1)"
+    [ -z "$line" ] || base="origin/$line"
+  fi
+  base="${base:-origin/main}"
+  if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+    echo "base $base not fetched; run git fetch origin, or set EM_DASH_BASE"
+    return 77
+  fi
+  if out="$("$PYTHON" infra/scripts/no_em_dash.py --base "$base" 2>&1)"; then rc=0; else rc=$?; fi
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$out" >&2
+    echo "$(printf '%s\n' "$out" | tail -n 1) (base $base)"
+    return 1
+  fi
+  echo "no added line since $base contains U+2014"
 }
 
 SELECTED=( "${CHECKS[@]}" )

@@ -10,13 +10,27 @@ check.sh. Run any one alone with the command in its row.
 | File | Covers | Network | Run alone |
 |---|---|---|---|
 | test_coregistration.mjs | the solar disk fills the same fraction of the frame on every image tier | no | node api/scripts/test_coregistration.mjs |
-| test_design_hash.mjs | design-identity hash ignores overlay text (personal data) and follows wavelength and crop; hand copy of the store helpers | no | node api/scripts/test_design_hash.mjs |
+| test_design_hash.mjs | design-identity hash ignores overlay text (personal data) and follows wavelength and crop; imports the helpers from api/identity.js | no | node api/scripts/test_design_hash.mjs |
 | test_disk_guard.py | disk-full vs no-data failure classification, failure TTL, temp-cache pruning | no | python3 api/scripts/test_disk_guard.py |
 | test_full_res_guard.py | full-resolution AIA guard: no 1024 px synoptic frame reaches a 4K print | only with GUARD_TEST_NETWORK=1 (JSOC) | python3 api/scripts/test_full_res_guard.py |
 | test_grid_mockups.py | mockup grid cache keys, crop geometry, coverage, manifest round trip | no | python3 api/scripts/test_grid_mockups.py |
 | test_ladder.py | price ladder: never below cost, anchor, $1.00 steps, .99 endings | no | python3 api/scripts/test_ladder.py |
 | test_lazy_imports.py | importing api.main does not load the science stack | no | python3 api/scripts/test_lazy_imports.py |
 | test_print_compose.py | print compositor formulas against hand-computed values | no | python3 api/scripts/test_print_compose.py |
+| test_bundle_manifest.py | edge bundle code hash ignores tier-specific paths and the noindex meta, and changes with any code or font | no | python3 api/scripts/test_bundle_manifest.py |
+| test_dockerfile_git_sha.py | the Dockerfile bakes GIT_SHA after the pip layer; deploy.sh passes the build arg once | no | python3 api/scripts/test_dockerfile_git_sha.py |
+| test_deploy_receipt.py | deploy receipt: commit range, both capture columns, escaping, no external request | no | python3 api/scripts/test_deploy_receipt.py |
+| test_status_identity.py | the tracker's Build identity lines (OK, SKEW, UNKNOWN) and newest receipt, with stubbed requests | no | python3 api/scripts/test_status_identity.py |
+| test_settings.py | api/settings.py: env() matches getenv, REQUIRED_ENV has no Shopify name for dev and is covered by secrets.names or the Fly [env], startup lines never show a secret | no | python3 api/scripts/test_settings.py |
+| test_no_stray_env.py | api/*.py reads configuration only through settings.env; lists the file still pending (printify_routes.py) | no | python3 api/scripts/test_no_stray_env.py |
+| test_config_aliases.py | feedback_routes PRINTIFY_BASE, _public_base_url and _data_dir delegate to settings.py | no | python3 api/scripts/test_config_aliases.py |
+| test_config_health.py | /api/health lists missing configuration by name only, CORS and the Origin check share one allowlist, the [config] startup lines are wired | no | python3 api/scripts/test_config_health.py |
+| test_build_info.py | /api/build-info keeps built and reports sha (40 hex or null) and tier | no | python3 api/scripts/test_build_info.py |
+| test_health_disk_pct.py | /api/health reports disk_pct at every level; the warning stays gated at 85 | no | python3 api/scripts/test_health_disk_pct.py |
+| test_check_headers.py | infra/scripts/check_headers.py: PASS, FAIL and SKIP rows, and the HSTS values in its table equal the files that set them | no | python3 api/scripts/test_check_headers.py |
+| test_ladder.mjs | api/pricing.js against the shared ladder vectors (the file test_ladder.py also reads), and the store's inline copy against it | no | node api/scripts/test_ladder.mjs |
+| test_catalog_drift.py | catalog ids and Printify ids agree between api/main.py and api/products.js (backpack is the one known drift) | no | python3 api/scripts/test_catalog_drift.py |
+| test_wavelength_drift.py | wavelength tiles in api/index.html and the film channels are consistent with the store wavelength list in api/main.py | no | python3 api/scripts/test_wavelength_drift.py |
 
 ## Tools (never run by check.sh)
 

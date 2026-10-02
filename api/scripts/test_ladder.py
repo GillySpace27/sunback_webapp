@@ -45,4 +45,19 @@ lad0 = _ladder_prices(bucket, 0)
 assert all(lad0[c] >= c for c in lad0), lad0
 assert lad0[142] == 199, lad0
 
+# Shared vectors (MH-9): the same file drives api/scripts/test_ladder.mjs, so this
+# rule and its JS twin (api/pricing.js) are tested against identical numbers.
+# LADDER_VECTORS overrides the path (used to prove the test fails).
+import json
+import os
+
+_vec_path = Path(os.environ.get("LADDER_VECTORS") or Path(__file__).resolve().parent / "fixtures" / "ladder_vectors.json")
+_vectors = json.loads(_vec_path.read_text())
+assert len(_vectors) >= 3, _vectors
+for _v in _vectors:
+    _bucket = {i: {"cost": c} for i, c in enumerate(_v["costs"])}
+    _got = {str(k): val for k, val in _ladder_prices(_bucket, _v["anchor"]).items()}
+    assert _got == _v["expected"], f"vector {_v['name']}: got {_got}, want {_v['expected']}"
+print(f"ladder vectors OK: {len(_vectors)}")
+
 print("ladder self-check OK")

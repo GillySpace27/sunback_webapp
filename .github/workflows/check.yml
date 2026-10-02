@@ -1,0 +1,45 @@
+# Runs ./infra/scripts/check.sh on pull requests. Approved by Gilly on 2026-10-02
+# (BRANCHES.md). No secrets, no deploy step and no call to production: this
+# repository is public, so nothing in this job may print a credential. A
+# scheduled or live-probing workflow (probe.yml) is NOT approved and must not
+# be added here.
+name: check
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0               # the no_em_dash check diffs against the integration line
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"       # Dockerfile: python:3.12-slim
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: web3d/package-lock.json
+      - name: Install Python dependencies
+        # fastapi is pinned to the version the route snapshot was taken with
+        run: pip install -r requirements.txt "fastapi==0.142.2"
+      - name: Install web3d dependencies
+        working-directory: web3d
+        run: npm ci --no-audit --no-fund
+      - name: Lint (pyflakes rules, pinned ruff)
+        run: |
+          . infra/scripts/pins.env
+          pip install "ruff==${RUFF_VERSION}"
+          ruff check --select F --ignore F401,F541,F841 api/
+      - name: check.sh
+        run: ./infra/scripts/check.sh

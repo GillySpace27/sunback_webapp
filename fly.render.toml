@@ -1,6 +1,8 @@
 # Private render service for the Dimensional SKU's print master.
 # Same Fly org as myheliograph-api. NOT exposed publicly — the API reaches it
-# over Fly's private network at myheliograph-render.internal:8090.
+# over Fly's private network at myheliograph-render.flycast:8090 (api/main.py
+# _DIM_RENDER_URL). .flycast goes through Fly's proxy, which starts this
+# scaled-to-zero machine; .internal would time out on a stopped one.
 #
 # Lives at the repo root (not render-service/) deliberately: Fly resolves
 # [build].dockerfile AND the build context relative to the directory holding

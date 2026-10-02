@@ -33,6 +33,7 @@ Endpoints (mounted under /api):
 import hmac
 import json
 import os
+from api import settings
 import re
 import threading
 import time
@@ -50,7 +51,7 @@ router = APIRouter(prefix="/stats", tags=["Stats"])
 def _excluded_ips() -> set:
     """IPs whose events are accepted (200) but NOT counted — the operator's
     own networks + automated testing. Comma-separated env var."""
-    raw = os.getenv("STATS_EXCLUDE_IPS", "").strip()
+    raw = settings.env("STATS_EXCLUDE_IPS", "").strip()
     if not raw:
         return set()
     return {ip.strip() for ip in raw.split(",") if ip.strip()}
@@ -157,7 +158,7 @@ def _increment(product_id: str, kind: str) -> dict:
 def _is_admin(header_key: Optional[str]) -> bool:
     """Non-raising cousin of _check_admin_key, for a route that stays 200
     for everyone and only ADDS data for an authorized caller."""
-    expected = os.getenv(ADMIN_KEY_ENV, "").strip()
+    expected = settings.env(ADMIN_KEY_ENV, "").strip()
     provided = (header_key or "").strip()
     return bool(expected) and bool(provided) and hmac.compare_digest(provided, expected)
 
