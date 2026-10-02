@@ -25,8 +25,8 @@ PRINTIFY_BASE = "https://api.printify.com/v1"
 
 def env(name: str, default: Optional[str] = None) -> Optional[str]:
     """The current value of an environment variable, read on every call. Same
-    result as os.getenv(name, default); this is the only os.getenv-style read
-    in api/*.py, so one grep finds every configuration input."""
+    result as the standard-library getenv with a default; this is the only
+    configuration read in api/*.py, so one grep finds every input."""
     return os.environ.get(name, default)
 
 
