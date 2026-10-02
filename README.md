@@ -41,7 +41,7 @@ run_server sources .env when present. Never print or commit .env.
     ./infra/scripts/check.sh --list       # the names of the checks
 
 The self-checks live in api/scripts/ (see api/scripts/README.md).
-Recorded, scrubbed responses for offline work live in api/scripts/fixtures/.
+Recorded, scrubbed responses for offline work are planned for api/scripts/fixtures/ (not recorded yet).
 
 ## Deploy
 
