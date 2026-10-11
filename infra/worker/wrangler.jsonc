@@ -41,7 +41,14 @@
   },
   "routes": [
     { "pattern": "myheliograph.com", "custom_domain": true },
-    { "pattern": "www.myheliograph.com", "custom_domain": true }
+    { "pattern": "www.myheliograph.com", "custom_domain": true },
+    // myheliogram.com (Gilly, 2026-10-11): the new store address. Deploying
+    // with these two lines needs the zone active in this Cloudflare account
+    // first (Hover nameservers pointed at Cloudflare), or the deploy fails.
+    // CANONICAL stays myheliograph.com until the cutover; the old address
+    // then becomes a permanent redirect.
+    { "pattern": "myheliogram.com", "custom_domain": true },
+    { "pattern": "www.myheliogram.com", "custom_domain": true }
   ],
   // ── DEV tier (dev.myheliograph.com) ───────────────────────────────────
   //   npx wrangler deploy --env dev
