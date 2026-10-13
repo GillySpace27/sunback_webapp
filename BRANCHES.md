@@ -11,21 +11,30 @@ is deleted: parked branches stay, and their tips should carry local
 `archive/2026-10/<branch>` tags that are never pushed (not yet created; see
 Implementation notes in MH-3).
 
+Refreshed 2026-10-12 (MH-3 Task 1) from read-only git commands in a full
+clone of `origin`: integration line, ledger, FREEZE rows and landing order.
+Counts below are against `origin/main` (`4ece09a`).
+
 ## Integration line
 
-- Integration line: `codex/store-production-value` (tip `f2396ef`).
+- Integration line: `main` (tip `4ece09a` on 2026-10-12).
   Decision B10 (Gilly, 2026-10-02): tag the old `main` as `archive/main-<date>`
   first, then `codex/store-production-value` becomes `main`; nothing is deleted.
-  Done 2026-10-02 (see Landing order row 1).
-- `origin/main`: `a7edb0a`, 66 commits behind `codex/store-production-value`.
+  Done 2026-10-02 (see Landing order row 1). `codex/store-production-value`
+  (tip `5fbabbf`) and `claude/prologue` (tip `0325e40`) are both ancestors of
+  `main` now; they stay as history.
+- Old `main` (`a7edb0a`) is an ancestor of `main`; its tag
+  `archive/main-2026-10-02` is local on Gilly's Mac and not on origin.
 - Live on prod (Q1): unknown until Gilly records the commit and the Worker version here.
 
 ## Ledger
 
 | Branch | Worktree | Ahead/behind main | Last commit | api/ diffstat | Decision (Gilly) | Landed as |
 |---|---|---|---|---|---|---|
-| `claude/prologue` | none visible from this clone | 67 / 0; 1 not in `codex/store-production-value` | 0325e40 2026-09-29 | 11 files changed, 2222 insertions(+), 209 deletions(-); god files: api/main.py api/solar-archive.js infra/worker/build-public.sh |  |  |
-| `codex/store-production-value` | none visible from this clone | 66 / 0 | f2396ef 2026-09-15 | 11 files changed, 2222 insertions(+), 209 deletions(-); god files: api/main.py api/solar-archive.js infra/worker/build-public.sh | land (Gilly, 2026-10-02, decision sheet B10) |  |
+| `claude/prologue` | none visible from this clone | 0 / 21 (contained in `main`) | 0325e40 2026-09-29 | landed | land (carried by `main` since 2026-10-02) | `main` (fast-forward, 2026-10-02) |
+| `codex/store-production-value` | none visible from this clone | 0 / 5 (contained in `main`) | 5fbabbf 2026-10-01 | landed | land (Gilly, 2026-10-02, decision sheet B10) | `main` (fast-forward, 2026-10-02) |
+| `claude/wave1-myheliograph` | none visible from this clone | 53 / 0 | e8c2c24 2026-10-13 | 33 files changed, 3393 insertions(+), 117 deletions(-); god files: api/main.py |  | not yet: PR #55 (draft; base retargeted to `main` 2026-10-12, `main` merged into it) |
+| `claude/project-thread-o18i7n` | none visible from this clone | 2 / 0 | 669807a 2026-10-11 | 10 files changed, 35 insertions(+), 35 deletions(-); god files: api/main.py api/solar-archive.js |  | not yet: PR #56 (draft, base `main`) |
 
 Contained in `origin/main` (0 ahead, kept as history, no decision needed): `claude/cold-start`, `claude/disk-guard`, `claude/heliograph-ship-readiness-242a1f`, `claude/hq-lazy-swapout-wip`, `claude/launch-merge`, `claude/molten-record-2d-motion`, `claude/patricia-p2-provenance-jsonld`, `claude/premium-3d-solar-site-dfed89`, `claude/qa-fixes-2026-08-10`, `claude/race-fix-on-main`, `claude/rhef-pane-image-display-e71f85`, `claude/website-launch-readiness-d8fca6`, `pii-hygiene-reusable-catalog`, `worktree-agent-a0ca78663b70f0627`, `worktree-agent-a2dcd2d0b1c042337`.
 
@@ -45,9 +54,9 @@ the row reads `open YYYY-MM-DD`. Additive edits wait until every branch in
 
 | File | Status | Waiting on rows |
 |---|---|---|
-| api/main.py | open 2026-10-02 (small targeted edits only; see Decision below) | claude/prologue, codex/store-production-value |
-| api/solar-archive.js | frozen | claude/prologue, codex/store-production-value |
-| infra/worker/build-public.sh | frozen | claude/prologue, codex/store-production-value |
+| api/main.py | open 2026-10-02 (small targeted edits only; see Decision below) | none (both branches are in `main`) |
+| api/solar-archive.js | open 2026-10-12 (additive edits; structural moves need Gilly's yes) | none (both branches are in `main`) |
+| infra/worker/build-public.sh | open 2026-10-12 (additive edits; structural moves need Gilly's yes) | none (both branches are in `main`) |
 
 Decision (Gilly, 2026-10-02): `api/main.py` is unfrozen for small targeted
 edits only (the RH-9 fallback fixes, MH-10 configuration, MH-8 `/api/build-info`,
@@ -61,6 +70,13 @@ task that needs them stays skipped (footer build stamp, `build.json`, the
 on pull requests, no secrets, no production calls); `probe.yml` is NOT approved
 and no scheduled or live-probing workflow may be added.
 
+Decision (Gilly, 2026-10-12, Wave 0/1 finish sheet question A2): the
+`api/solar-archive.js` and `infra/worker/build-public.sh` rows are open for
+additive edits, since both branches they waited on are in `main`. Structural
+moves (file splits, module carve-outs) in any of the three files still need
+his yes for that move. The "stay FROZEN" sentence above is superseded for
+additive edits.
+
 ## Landing order
 
 Gilly's order (decision B10 only; the rest is empty until he answers Q2 and Q3):
@@ -68,6 +84,7 @@ Gilly's order (decision B10 only; the rest is empty until he answers Q2 and Q3):
 | # | Branch | Method | Gilly's yes (date) | Result |
 |---|---|---|---|---|
 | 1 | codex/store-production-value | tag old main as archive/main-<date>, then it becomes main | 2026-10-02 (decision sheet B10); tag and move: Gilly's yes in chat, 2026-10-02 | done 2026-10-02: old main tagged `archive/main-2026-10-02` (`a7edb0a`, local, not pushed); `origin/main` fast-forwarded to `31bb5c0`, which also carries `claude/prologue` |
+| 2 | claude/wave1-myheliograph (PR #55) | merge commit into main, no rebase | retarget to `main`: decision sheet D, 2026-10-12; the merge itself waits for Gilly's yes | 2026-10-12: base retargeted to `main`; `main` (`4ece09a`) merged into the branch (merge commit `2ed53cb`); full `check.sh` 16 passed, 0 failed, 0 skipped in a cloud clone; not merged |
 
 ## Pre-purge bundle
 
