@@ -205,6 +205,20 @@ fi
 
 echo "### deploying to $TARGET ($SITE) from ${GIT_SHA:0:8}${GIT_DIRTY:+ (WORKING TREE DIRTY)}"
 
+# Build stamp (SU-15): YYYY.MM.DD-<sha7>. A prod promotion reuses the stamp
+# recorded for the candidate image, because prod ships that exact image; every
+# other target computes it now.
+if [ "$TARGET" = "prod" ]; then
+  BUILD_STAMP="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("build_stamp") or "")' "$RUN_STATE" 2>/dev/null || true)"
+  if [ -z "$BUILD_STAMP" ]; then
+    BUILD_STAMP="$(./infra/scripts/build_stamp.sh)"
+    echo "  (no build_stamp recorded for the candidate; computed $BUILD_STAMP now)"
+  fi
+else
+  BUILD_STAMP="$(./infra/scripts/build_stamp.sh)"
+fi
+echo "### build stamp $BUILD_STAMP"
+
 # A dirty tree on prod means the promoted image cannot be reconstructed from
 # any commit, which breaks the one guarantee this tiering exists to provide.
 if [ "$TARGET" != "dev" ] && [ -n "$GIT_DIRTY" ]; then
@@ -235,14 +249,16 @@ if [ "$TARGET" = "render" ]; then
 fi
 
 # Shared release gates (SU-3), prod only: pushed, ancestor of origin/main, the
-# recorded dev candidate is this commit, no em dash in CHANGELOG.md, not Friday
+# dev tier reports the same build stamp (SU-15; the candidate gate below still
+# checks the recorded git_sha), no em dash in CHANGELOG.md, not Friday
 # afternoon. Runs before DRY_RUN's exit so a dry run shows the gates too. Each
 # refusal names its override; set one only on Gilly's yes for that deploy.
 if [ "$TARGET" = "prod" ]; then
-  GATE_ARGS=(--product myheliograph --version "$GIT_SHA")
-  if [ -f "$RUN_STATE" ]; then
-    GATE_ARGS+=(--version-check "deploy-run=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("git_sha",""))' "$RUN_STATE")")
-  fi
+  GATE_ARGS=(--product myheliograph --version "$BUILD_STAMP")
+  # Read-only GET of the dev tier's /api/build-info. Unreachable reads as empty,
+  # and the versions gate then refuses (override named in its message).
+  DEV_STAMP="$(curl -fsS --max-time 20 https://dev.myheliograph.com/api/build-info 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("build_stamp") or "")' 2>/dev/null || true)"
+  GATE_ARGS+=(--version-check "dev-tier=$DEV_STAMP")
   if [ -f CHANGELOG.md ]; then GATE_ARGS+=(--notes CHANGELOG.md); fi
   ./infra/scripts/release-gates.sh "${GATE_ARGS[@]}"
 fi
@@ -253,7 +269,7 @@ if [ "$DRY_RUN" = "1" ]; then
   case "$TARGET" in
     dev)
       echo "  would run: fly deploy --config $FLY_CONFIG --app $FLY_APP --ha=false --remote-only"
-      echo "  would record in $RUN_STATE: git_sha, image, dev_deployed_at, branch, deployed_by_script, worker_version_id, edge_code_hash"
+      echo "  would record in $RUN_STATE: git_sha, image, dev_deployed_at, branch, deployed_by_script, worker_version_id, edge_code_hash, build_stamp"
       echo "  would run: web3d build, pull_fly_assets.sh, build-public.sh, edge hash record, $WRANGLER deploy $WRANGLER_ARGS" ;;
     prod)
       CAND_SHA="$(python3 -c 'import json;print(json.load(open(".deploy-run.json"))["git_sha"])' 2>/dev/null || true)"
@@ -291,7 +307,7 @@ CHECK_ONLY=1 ./infra/scripts/sweep_mockups.sh || true   # report-only; never blo
 if [ "${SKIP_FLY:-0}" != "1" ]; then
   if [ "$TARGET" = "dev" ]; then
     echo "### 2/6  fly deploy → $FLY_APP (builds the candidate image)"
-    fly deploy --config "$FLY_CONFIG" --app "$FLY_APP" --ha=false --remote-only --build-arg GIT_SHA="$GIT_SHA"
+    fly deploy --config "$FLY_CONFIG" --app "$FLY_APP" --ha=false --remote-only --build-arg GIT_SHA="$GIT_SHA" --env "BUILD_STAMP=$BUILD_STAMP"
     # Pin by DIGEST, not tag. A tag is a mutable pointer; a digest is the
     # bytes that were reviewed, and it is what the tracker later compares
     # prod against to prove the promotion shipped the reviewed artifact.
@@ -301,7 +317,7 @@ if [ "${SKIP_FLY:-0}" != "1" ]; then
     IMAGE="$(fly status --app "$FLY_APP" --json \
       | python3 -c 'import json,sys; r=json.load(sys.stdin)["Machines"][0]["image_ref"]; print(r["registry"] + "/" + r["repository"] + "@" + r["digest"])')"
     merge_run_state git_sha "$GIT_SHA" image "$IMAGE" dev_deployed_at @now \
-      branch "$GIT_BRANCH" deployed_by_script true worker_version_id ""
+      branch "$GIT_BRANCH" deployed_by_script true worker_version_id "" build_stamp "$BUILD_STAMP"
     echo "recorded candidate: $IMAGE"
   else
     echo "### 2/6  fly deploy → $FLY_APP (promoting the reviewed image)"
@@ -314,7 +330,7 @@ if [ "${SKIP_FLY:-0}" != "1" ]; then
       exit 1
     fi
     echo "  promoting $IMAGE"
-    fly deploy --config "$FLY_CONFIG" --app "$FLY_APP" --image "$IMAGE" --ha=false
+    fly deploy --config "$FLY_CONFIG" --app "$FLY_APP" --image "$IMAGE" --ha=false --env "BUILD_STAMP=$BUILD_STAMP"
   fi
 else
   echo "### 2/6  fly deploy skipped (SKIP_FLY=1)"

@@ -1073,7 +1073,10 @@ async def api_build_info():
     sha = (settings.env("GIT_SHA") or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         sha = None
-    return JSONResponse(content={"built": built, "sha": sha, "tier": settings.tier()}, headers=CORS_HEADERS)
+    # "build_stamp" (SU-15): YYYY.MM.DD-<sha7>, set by deploy.sh on both API
+    # apps (fly deploy --env BUILD_STAMP=...); null when unset.
+    return JSONResponse(content={"build_stamp": settings.env("BUILD_STAMP") or None, "built": built,
+                                 "sha": sha, "tier": settings.tier()}, headers=CORS_HEADERS)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
