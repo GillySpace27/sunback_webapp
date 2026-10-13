@@ -29,6 +29,11 @@ sse_starlette
 # then point the wheel line below at the new file and update WHEEL,
 # WHEEL_SHA256 and SUNKIT_VERSION in scripts/smoke_rhef.py. The Docker build
 # runs that smoke check right after this install.
+# Canonical RHEF build for the suite (SU-13): commit 41e89767fc8dbd0c3799d2e3aaaf87419c67fdfd,
+# version 0.1.dev308+g41e89767f. sunback asserts it in sunback/__tests__/test_rhef_build.py
+# (EXPECTED_SUNKIT_VERSION, EXPECTED_WHEEL_SHA256); change the wheel line, scripts/smoke_rhef.py
+# and that test together. No tag and no release pin the commit (option c, Wave 0/1 finish
+# sheet B8, 2026-10-12): the version string and the wheel sha256 are the pin.
 # TODO: flip back to `sunkit-image==<ver>` once #324/#325 land upstream.
 # Rollback (RH-9, 2026-10-02): the earlier hand-built wheel, same .py files,
 # still in vendor/; swap the two path lines to return to it.
