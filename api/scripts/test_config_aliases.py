@@ -5,10 +5,10 @@ Run: python3 api/scripts/test_config_aliases.py
 
 PRINTIFY_BASE, _public_base_url and the data-directory helper had separate
 copies. They now delegate to settings.py; the old names stay (other modules
-import them). Only api/feedback_routes.py is converted so far. PENDING lists
-the other copies and why they wait (the same reasons as test_no_stray_env.py:
-api/main.py is a FREEZE file; api/printify_routes.py waits for BRANCHES.md
-Decisions on the two branches that also edit it). Each pending copy is checked
+import them). api/feedback_routes.py and the api/main.py data-directory helper
+are converted. The pending copies are in api/printify_routes.py, which waits
+for BRANCHES.md Decisions on the two branches that also edit it (the same
+reason as test_no_stray_env.py). Each pending copy is checked
 to still be the old one, so converting it forces a test update.
 """
 import contextlib
@@ -70,12 +70,16 @@ def test_feedback_data_dir_delegates():
     assert "settings.data_dir()" in src("feedback_routes.py")
 
 
+def test_main_data_dir_delegates():
+    from api import main
+    assert main._persistent_data_dir() == settings.data_dir()
+    assert "settings.data_dir()" in src("main.py"), "api/main.py _persistent_data_dir must return settings.data_dir()"
+
+
 def test_pending_copies_are_still_the_old_ones():
     # Remove an entry here, and add its checks above, when the file is converted.
     assert '"https://api.printify.com/v1"' in src("printify_routes.py"), \
         "printify_routes.py changed: convert its PRINTIFY_BASE and _public_base_url and update this test"
-    assert "def _persistent_data_dir" in src("main.py") and "settings.data_dir()" not in src("main.py"), \
-        "main.py changed: update this test"
 
 
 def run():
