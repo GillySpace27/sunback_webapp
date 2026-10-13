@@ -21,6 +21,7 @@ check.sh. Run any one alone with the command in its row.
 | test_dockerfile_git_sha.py | the Dockerfile bakes GIT_SHA after the pip layer; deploy.sh passes the build arg once | no | python3 api/scripts/test_dockerfile_git_sha.py |
 | test_deploy_receipt.py | deploy receipt: commit range, both capture columns, escaping, no external request | no | python3 api/scripts/test_deploy_receipt.py |
 | test_status_identity.py | the tracker's Build identity lines (OK, SKEW, UNKNOWN) and newest receipt, with stubbed requests | no | python3 api/scripts/test_status_identity.py |
+| test_status_ci.py | the tracker's `ci` milestone reads the check workflow conclusion for HEAD (stub `gh`, scratch repo) and DEPLOY.md names the same command | no | python3 api/scripts/test_status_ci.py |
 | test_settings.py | api/settings.py: env() matches getenv, REQUIRED_ENV has no Shopify name for dev and is covered by secrets.names or the Fly [env], startup lines never show a secret | no | python3 api/scripts/test_settings.py |
 | test_no_stray_env.py | api/*.py reads configuration only through settings.env; lists the file still pending (printify_routes.py) | no | python3 api/scripts/test_no_stray_env.py |
 | test_config_aliases.py | feedback_routes PRINTIFY_BASE, _public_base_url and _data_dir delegate to settings.py | no | python3 api/scripts/test_config_aliases.py |
