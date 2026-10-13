@@ -60,6 +60,14 @@ const WHEEL_DEADZONE = 26;
 // that means someone has actually stopped.
 const WHEEL_IDLE_MS = 450;
 const DAYS_PER_PX = 1 / 9;
+// Fine and coarse in one gesture (Gilly, 2026-09-29): a slow drag keeps the
+// rate above, a day per 9px and the sky turning with it; a fast one multiplies
+// the step by the square of its speed, up to 40x, so a flick crosses years.
+// ponytail: speed from consecutive events, no smoothing; add a short average
+// if fast drags feel jumpy on a 120Hz pointer.
+const FINE_SPEED = 0.35; // px/ms below which every step counts once
+const MAX_GAIN = 40;
+const gain = (pxPerMs: number) => Math.min(MAX_GAIN, Math.max(1, (pxPerMs / FINE_SPEED) ** 2));
 // Drag RIGHT = date forward. Measured, not guessed: rendering the same sky on
 // 2017-09-06 and 2017-10-06 puts Jupiter — which drifts only ~2.5°/month
 // against the stars, so it stands in for them — at x≈20 and then x≈290 in a
@@ -81,6 +89,9 @@ export function useDateDrag() {
     let armed = false;     // pointer is down somewhere draggable
     let engaged = false;   // deadzone cleared; we own this gesture
     let pointerId = -1;
+    let lastX = 0;
+    let lastT = 0;
+    let dragDays = 0;
 
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0 && e.pointerType === "mouse") return;
@@ -110,9 +121,17 @@ export function useDateDrag() {
         if (Math.abs(dx) < DEADZONE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
         engaged = true;
         useStore.setState({ dateDragging: true });
+        lastX = e.clientX;
+        lastT = e.timeStamp;
+        dragDays = 0;
+        return;
       }
+      const step = e.clientX - lastX;
+      dragDays += step * DAYS_PER_PX * gain(Math.abs(step) / Math.max(1, e.timeStamp - lastT));
+      lastX = e.clientX;
+      lastT = e.timeStamp;
       const st = useStore.getState();
-      const days = Math.round(dx * DAYS_PER_PX) * SIGN;
+      const days = Math.round(dragDays) * SIGN;
       // Clamp OURSELVES rather than letting setDate reject: setDate answers an
       // out-of-range date with an error message, which is right for a typed
       // field and wrong for a drag — pulling past the frontier should simply
@@ -140,6 +159,8 @@ export function useDateDrag() {
     let wheelBase = 0;
     let wheelActive = false;
     let wheelTimer = 0;
+    let wheelDays = 0;
+    let wheelT = 0;
 
     const endWheel = () => {
       wheelActive = false;
@@ -161,16 +182,20 @@ export function useDateDrag() {
       if (!wheelActive) {
         wheelActive = true;
         wheelAccum = 0;
+        wheelDays = 0;
+        wheelT = e.timeStamp;
         const d = new Date(st.date + "T00:00:00Z").getTime();
         wheelBase = Number.isNaN(d) ? Date.now() : d;
       }
       wheelAccum += e.deltaX;
+      wheelDays += e.deltaX * DAYS_PER_WHEEL_PX * gain(Math.abs(e.deltaX) / Math.max(1, e.timeStamp - wheelT) / 3);
+      wheelT = e.timeStamp;
       clearTimeout(wheelTimer);
       wheelTimer = window.setTimeout(endWheel, WHEEL_IDLE_MS);
       if (Math.abs(wheelAccum) < WHEEL_DEADZONE) return;
       if (!st.dateDragging) useStore.setState({ dateDragging: true });
 
-      const days = Math.round(wheelAccum * DAYS_PER_WHEEL_PX) * SIGN;
+      const days = Math.round(wheelDays) * SIGN;
       const wanted = toISO(wheelBase + days * DAY_MS);
       const clamped = wanted < st.minDate ? st.minDate : wanted > st.maxDate ? st.maxDate : wanted;
       if (clamped !== st.date) st.setDate(clamped);

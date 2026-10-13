@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useScrollProgress } from "./hooks/useScrollProgress";
 import { useDateDrag } from "./hooks/useDateDrag";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
@@ -29,6 +29,7 @@ import StartOver from "./ui/StartOver";
 import Arrows from "./ui/Arrows";
 import BeatRail from "./ui/BeatRail";
 import Hud from "./ui/Hud";
+import Prologue, { PROLOGUE_ENABLED } from "./ui/Prologue";
 import { CHANNELS } from "./data/wavelengths";
 
 // The heavy Three.js bundle is code-split and streamed behind the loader.
@@ -150,6 +151,7 @@ export default function App() {
   useRhefTextureLoader(); // and the FITS-derived enhanced frame, when asked for
   useTimelapseLoader(); // opt-in: the day as a sequence of real frames
   useRainbowLoader(); // opt-in: 171/193/211 RHEF composited to RGB
+  const [intro, setIntro] = useState(PROLOGUE_ENABLED);
 
   // Warm the scale-to-zero backend at idle so its ~20s wake overlaps the heavy
   // chunk download instead of running after it (cuts time-to-real-Sun).
@@ -245,6 +247,9 @@ export default function App() {
 
       {/* Scroll track: gives the film its length. The stage above is fixed. */}
       <div className="scroll-space" aria-hidden="true" />
+
+      {/* Earth, the day, the Sun, the flight; ends on the frame above. */}
+      {intro && <Prologue onDone={() => setIntro(false)} />}
     </>
   );
 }
