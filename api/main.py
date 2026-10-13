@@ -577,6 +577,16 @@ except OSError:
     pass
 DEFAULT_MOCKUPS_MANIFEST = DEFAULT_CACHE_DIR / "default_mockups.json"
 
+# Keys that may still sit in the volume's default_mockups.json but are no longer
+# sold, so the store must not use them (MH-9). "phone_case" was split into
+# phone_case_apple / phone_case_samsung / phone_case_pixel (api/products.js).
+# The volume file is NOT edited: _persist_default_manifest only ever ADDS keys
+# and a re-warm cannot drop this one. The store skips it in memory
+# (api/solar-archive.js _RETIRED_MANIFEST_KEYS; test_catalog_drift.py keeps the
+# two lists equal). Nothing in this file looks the key up, so there is nothing
+# to skip on the origin side.
+_RETIRED_MANIFEST_KEYS = frozenset({"phone_case"})
+
 # Server-side mirror of the visible product catalog (frontend PRODUCTS in
 # solar-archive.js). We only need the fields the create-product call uses:
 # id (our key), blueprintId, printProviderId, variantId (one representative
@@ -2226,7 +2236,13 @@ _DIM_RENDER_URL = settings.env(
 )
 # The render service takes a channel INDEX; the store speaks Angstroms.
 # Same order as web3d/src/data/wavelengths.ts — keep the two in step.
-_DIM_CHANNELS = [94, 131, 171, 193, 211, 304, 335, 1600]
+# AIA_WAVELENGTHS is the one list of store wavelengths (MH-9). The .wl-card tiles
+# in api/index.html and the CHANNELS in web3d/src/data/wavelengths.ts must stay
+# subsets of it, in this order for the film; api/scripts/test_wavelength_drift.py
+# checks that (main.py is read by ast there, not imported). 1700 is not here: it
+# was dropped from the store on 2026-08-18 (see SYNOPTIC_MISSING_WAVELENGTHS).
+AIA_WAVELENGTHS = (94, 131, 171, 193, 211, 304, 335, 1600)
+_DIM_CHANNELS = list(AIA_WAVELENGTHS)
 _DIM_LAYER_KEYS = ("stars", "con", "art", "labels", "planets", "grid")
 
 
