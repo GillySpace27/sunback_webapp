@@ -530,7 +530,9 @@ os.makedirs(PREVIEW_DIR, exist_ok=True)
 # pipeline. Same env contract as the feedback persistence: FEEDBACK_DATA_DIR
 # points at /var/data on Render. We tuck the default cache under there.
 def _persistent_data_dir():
-    raw = settings.env("FEEDBACK_DATA_DIR", "").strip()
+    # The shared implementation lives in api/settings.py (MH-10); same behaviour.
+    return settings.data_dir()
+    raw = settings.env("FEEDBACK_DATA_DIR", "").strip()  # previous body, kept below (unreachable)
     d = Path(raw) if raw else Path(__file__).resolve().parent.parent
     try:
         d.mkdir(parents=True, exist_ok=True)
