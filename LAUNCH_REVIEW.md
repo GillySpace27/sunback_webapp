@@ -118,3 +118,53 @@ Only when every 🟢 box is checked do you open the spend.
 *Report basis: static source + live-HTTP review of 7 red-team passes. A real-device browser visual pass and a completed test purchase remain outstanding and are gated above.*
 
 🕐 05:11 MDT, Sat 2026-07-11
+
+---
+
+## 6. Launch milestones (added 2026-10-01, tracked by status.py)
+
+`python3 .claude/skills/deploy-myheliograph/scripts/status.py` prints a "Launch gate" block under the deploy milestones. Each item is OK (verified from real external state, or attested by Gilly with a date) or UNCHECKED (nothing proves it yet; neither done nor failed). The block ends with `ADS: BLOCKED (<n> UNCHECKED)` until every item is OK, then `ADS: CLEAR`. Section 5 above is the narrative gate; this section is the tracked one.
+
+Rules for any agent working in this repository:
+
+- An agent never clicks Buy, never enters payment details, and never accepts or dismisses the cookie banner, in the browser pane, in a capture or in a script.
+- An agent never runs `status.py --attest`. It refuses without a terminal and makes Gilly type the key.
+- The tooling creates and removes no order, product or page. The test purchase creates a real Shopify product and a real Printify order that stay until Gilly archives them.
+
+### 6.1 Test purchase (Gilly alone)
+
+1. Pick the cheapest SKU in the store. Pay with your own card.
+2. Edit `~/.claude/secrets/solar-archive.env` yourself (the file that holds `FEEDBACK_ADMIN_KEY`; never paste either value into chat) and add `LAUNCH_TEST_EMAIL=<the address you will type at checkout>`. Add `LAUNCH_SHOPIFY_READ_TOKEN=<token>` only if you have created a read-only Shopify token with the `read_orders` scope. That is an account change and yours to make; the app's current Admin scopes (`api/shopify_storefront.py`, comment above `SHOPIFY_ADMIN_CLIENT_ID`) do not include `read_orders`.
+3. Walk checkout on https://myheliograph.com to the end. Write down the order number, confirm the Shopify email arrived, and confirm a Printify order exists in the Printify dashboard.
+4. Run `source ~/.claude/secrets/solar-archive.env` and then `status.py`. With the token set, `test_purchase` turns OK only when a paid, uncancelled order from that address exists after 2026-10-01 and none of its items is the old `[PHASE1-TEST]` product. Without the token, run `status.py --attest test_purchase --note "order number"` yourself.
+5. The order, the Shopify product and the Printify order stay until you archive them in their dashboards. Nothing in this repository does it for you.
+
+### 6.2 Phone and tablet walks (Gilly alone)
+
+Use a real phone (not the browser pane), then a tablet. Leave the cookie banner as it is; never accept it to tidy a view.
+
+Store (`phone_store`, and again on the tablet):
+
+- NASA/SDO attribution is visible without scrolling sideways, on the landing page and in the editor.
+- The date picker offers nothing later than the print frontier (`/api/data_frontier`).
+- The cookie banner is not covering the Buy button or the main call to action (the 741-1099 px overlap fixed on 2026-07-15 is the precedent).
+- A Sun appears, and the waking state shows if the machine was asleep.
+
+Film (`phone_film`, and again on the tablet): open https://myheliograph.com/experience/ and scroll the whole film. Motion plays and NASA/SDO attribution is visible. The browser pane cannot validate motion; only the device can.
+
+Attest each from a terminal, one key per command: `status.py --attest phone_store --note "device and browser"`, then `phone_film`, then `tablet`.
+
+### 6.3 Sentry event
+
+Open the Sentry Issues feed (organisation `sunny-days`, project `my-heliograph`, as in section 5) and look for "Launch-verification test event from Claude". If it is there, run `status.py --attest sentry_event`. With a Sentry read token in `LAUNCH_SENTRY_TOKEN`, status.py looks for the title itself (the API path is unverified; a miss reads UNCHECKED, never failed).
+
+### 6.4 HQ re-test on the 4 GB origin
+
+`fly.toml` and `fly.dev.toml` both set `memory = "4gb"`. The re-test renders once on dev, off hours, on Gilly's yes:
+
+    python3 infra/scripts/hq_retest.py --dry-run     # prints the request, sends nothing
+    python3 infra/scripts/hq_retest.py               # the real run
+
+It requests the default date and channel (2014-10-24, 193 A) at 12:04 UTC, because the exact 12:00 default is restored from the persistent cache and would prove nothing. The run is appended to `.launch-hq.json`; `hq_4gb` turns OK only while dev still serves the recorded master at the recorded size. `/api/health` reports no memory. Read the memory graph for `myheliograph-api-dev` in the Fly dashboard during the run and pass `--peak-mb`, or leave it out and the line says peak memory UNCHECKED. A 503 "Server is busy (N MB free; need >=400 MB)" is recorded as a failure with that text.
+
+Lazy-HQ swapout: not built. Gilly records the decision here, with the date, after the re-test.

@@ -1,31 +1,25 @@
-// Self-check for the design-identity hash used to dedupe catalog products.
-// Mirrors _stableStringify / _cyrb53 / _designHash in api/solar-archive.js
-// (that copy lives in a browser IIFE and can't be imported). If you change
-// the hash there, change it here. The point of this test is the CONTRACT:
-// the free-text overlay (PII) must NOT affect identity, while image-affecting
-// inputs (wavelength, crop) MUST. Run: node api/scripts/test_design_hash.mjs
+// Self-check for the design-identity hash (api/identity.js).
+// The store does not currently send design_hash at checkout (git grep for
+// _cyrb53 under api/ finds it only in this test; printify_routes.py defaults
+// design_hash to ""), so product reuse by tag:design-<hash> is dormant. This
+// test pins the CONTRACT for when it returns: the free-text overlay (PII) must
+// NOT affect identity, while image-affecting inputs (wavelength, crop) MUST.
+// Run: node api/scripts/test_design_hash.mjs
 import assert from "node:assert";
+import { copyFileSync, mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-function _stableStringify(v) {
-  if (v === null || typeof v !== "object") return JSON.stringify(v);
-  if (Array.isArray(v)) return "[" + v.map(_stableStringify).join(",") + "]";
-  return "{" + Object.keys(v).sort().map(function (k) {
-    return JSON.stringify(k) + ":" + _stableStringify(v[k]);
-  }).join(",") + "}";
-}
-function _cyrb53(str) {
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
-  for (let i = 0, ch; i < str.length; i++) {
-    ch = str.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
-  return n.toString(16);
-}
-const _designHash = (o) => _cyrb53(_stableStringify(o));
+// api/ has no package.json, so Node reads a bare .js as CommonJS. Import a
+// temporary .mjs copy instead; that works on every Node version.
+// IDENTITY_JS points the test at another copy (used to prove the test fails).
+const here = path.dirname(fileURLToPath(import.meta.url));
+const srcPath = process.env.IDENTITY_JS || path.join(here, "..", "identity.js");
+const tmpPath = path.join(mkdtempSync(path.join(os.tmpdir(), "identity-")), "identity.mjs");
+copyFileSync(srcPath, tmpPath);
+const { stableStringify, cyrb53, designHash, designIdentity } = await import(pathToFileURL(tmpPath).href);
+const _designHash = designHash;
 
 // A representative design identity, as doCheckout builds it (PII already
 // stripped: params.textOverlay is null).
@@ -58,5 +52,25 @@ const reordered = { position: "front", date: "2020-03-15", wavelength: 171, filt
 reordered.variant_ids = reordered.variant_ids.slice().sort();
 base.variant_ids = base.variant_ids.slice().sort();
 assert.strictEqual(_designHash(base), _designHash(reordered), "key/variant order must not affect identity");
+
+// 5. The PII strip lives in designIdentity (MH-9). Negative control first: the
+// raw hash DOES react to overlay text, so the equality below proves the strip.
+// Built from `base` (whose variant_ids were sorted in place above), so only the overlay differs.
+const personal = Object.assign({}, base, { params: Object.assign({}, base.params, { textOverlay: "Jane Example" }) });
+assert.notStrictEqual(designHash(personal), designHash(base), "control: the raw hash must react to overlay text");
+assert.strictEqual(designHash(designIdentity(personal)), designHash(designIdentity(base)),
+  "overlay text leaked into the identity: designIdentity must force params.textOverlay to null");
+assert.strictEqual(designIdentity(personal).params.textOverlay, null, "designIdentity must null params.textOverlay");
+assert.strictEqual(personal.params.textOverlay, "Jane Example", "designIdentity must not mutate its input");
+
+// 6. Known answers pin the hash function itself, so a refactor cannot change
+// the identity of every design silently.
+assert.strictEqual(stableStringify({ b: 1, a: [2, { d: 1, c: null }] }), '{"a":[2,{"c":null,"d":1}],"b":1}');
+assert.strictEqual(cyrb53(""), "bdcb81aee8d83");
+assert.strictEqual(designHash({
+  wavelength: 171, date: "2020-03-15", filter: "hq", vibe: null,
+  blueprint_id: 1234, print_provider_id: 5, variant_ids: [42, 88], position: "front",
+  params: { cropZoom: 100, panX: 10, panY: 20, rotation: 0, textOverlay: null },
+}), "b3470a0eaa0a0");
 
 console.log("design-hash self-check passed");

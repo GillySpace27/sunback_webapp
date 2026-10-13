@@ -1413,3 +1413,22 @@ overflow at 390px on either page. Store images all carry `alt`.
   it (hidden H1, H2, Share, "Original vs Filtered", date label, input, time
   label) has to lose height, or the CTA has to move up beside the date input.
   Layout call; not attempted without being able to see the page.
+
+### MH-10 security notes (2026-10-02), for Gilly to decide; nothing was changed
+
+- [ ] **Admin key as a URL query parameter.** `_check_admin_key` in
+  `api/feedback_routes.py` still accepts the key as `?key=`, because the Slack
+  approve and reject links (`_format_slack_blocks`, the `approve = f"...&key={admin_key}"` and
+  `reject = ...` lines) are plain GET links. That puts the key in Slack message
+  history and in access logs. The key is compared in constant time and the
+  header form (`X-Admin-Key`) already works. Options: keep it (accepted risk),
+  move the one-click links to a short-lived signed token, or make approve and
+  reject POST-only. Not changed here.
+- [x] **`reply_to` is already validated.** `_valid_email` (`api/feedback_routes.py`)
+  filters the address before it reaches the outbound email header
+  (`"reply_to": _valid_email(record.get("email"))`). The older note listing
+  `reply_to` validation as outstanding is out of date on this item.
+- [ ] **Printify upload prefix list.** `api/printify_routes.py` keeps its own list of
+  allowed asset URL prefixes (a different list from the Origin allowlist).
+  The retired Render host is still in it; it is commented out only when MH-10
+  Task 5 runs.
