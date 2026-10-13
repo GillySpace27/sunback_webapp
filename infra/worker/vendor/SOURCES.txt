@@ -1,0 +1,14 @@
+# Vendored store assets (MH-7). One line per file:
+#   <path under infra/worker/vendor/> <path under web3d/node_modules/>
+# build-public.sh serves js/X at /asset/vendor/X and fonts/X at /asset/fonts/X.
+# The GSAP files are the ESM at the package root, NOT gsap/dist (UMD, no exports).
+js/gsap-core.js gsap/gsap-core.js
+js/CSSPlugin.js gsap/CSSPlugin.js
+js/index.js gsap/index.js
+js/Observer.js gsap/Observer.js
+js/ScrollTrigger.js gsap/ScrollTrigger.js
+js/CustomEase.js gsap/CustomEase.js
+js/utils/paths.js gsap/utils/paths.js
+js/lenis.mjs lenis/dist/lenis.mjs
+fonts/inter.woff2 @fontsource-variable/inter/files/inter-latin-standard-normal.woff2
+fonts/fraunces.woff2 @fontsource-variable/fraunces/files/fraunces-latin-opsz-normal.woff2
