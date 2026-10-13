@@ -4,8 +4,7 @@ with the one in api/main.py (MH-9).
 
 Run: python3 api/scripts/test_wavelength_drift.py
 
-AIA_WAVELENGTHS (api/main.py, once it lands; until then _DIM_CHANNELS, the same
-eight values) is the list of store wavelengths. The data-wl
+AIA_WAVELENGTHS (api/main.py) is the list of store wavelengths. The data-wl
 values of the .wl-card tiles in api/index.html and the angstrom values of
 CHANNELS in web3d/src/data/wavelengths.ts must be subsets of it, the
 render-service channel list _DIM_CHANNELS must equal it in order (the render
@@ -33,19 +32,8 @@ def main_value(name):
     raise AssertionError(f"api/main.py has no module-level {name}")
 
 
-def has_aia_constant():
-    tree = ast.parse((ROOT / "api" / "main.py").read_text(encoding="utf-8"))
-    return any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "AIA_WAVELENGTHS" for t in n.targets)
-               for n in tree.body)
-
-
 def aia():
-    """The store wavelength list. AIA_WAVELENGTHS is not in api/main.py yet (the
-    edit is FREEZE-held), so until then the literal _DIM_CHANNELS list, which
-    holds the same eight values, is the source."""
-    if has_aia_constant():
-        return tuple(ast.literal_eval(main_value("AIA_WAVELENGTHS")))
-    return tuple(ast.literal_eval(main_value("_DIM_CHANNELS")))
+    return tuple(ast.literal_eval(main_value("AIA_WAVELENGTHS")))
 
 
 def tiles():
@@ -79,9 +67,6 @@ def test_film_channels_are_a_subset_and_in_render_order():
 
 
 def test_dim_channels_is_built_from_the_one_list():
-    if not has_aia_constant():
-        print("     (SKIP: AIA_WAVELENGTHS is not in api/main.py yet; FREEZE row)")
-        return
     node = main_value("_DIM_CHANNELS")
     ok = (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "list"
           and len(node.args) == 1 and getattr(node.args[0], "id", "") == "AIA_WAVELENGTHS")

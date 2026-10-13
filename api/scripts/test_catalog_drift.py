@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
-"""Self-check: catalog ids agree across api/main.py and api/products.js (MH-9).
-
-The retired-manifest-keys comparison of the task file (test_retired_manifest_keys_agree)
-is NOT here: it needs _RETIRED_MANIFEST_KEYS in api/main.py and api/solar-archive.js,
-both FREEZE files. Add it with those edits.
+"""Self-check: catalog ids agree across api/main.py and api/products.js, and the
+retired manifest keys agree between the origin and the store (MH-9).
 
 Run: python3 api/scripts/test_catalog_drift.py
 
@@ -114,6 +111,19 @@ def test_regex_fallback_matches_node():
     for pid, n in via_node.items():
         r = via_re[pid]
         assert (r["b"], r["p"], r["v"]) == (n["b"], n["p"], n["v"]), pid
+
+
+def test_retired_manifest_keys_agree():
+    node = main_assign("_RETIRED_MANIFEST_KEYS")
+    assert isinstance(node, ast.Call) and getattr(node.func, "id", "") == "frozenset", \
+        "api/main.py _RETIRED_MANIFEST_KEYS must be frozenset({...})"
+    py = set(ast.literal_eval(node.args[0]))
+    js_text = (ROOT / "api" / "solar-archive.js").read_text(encoding="utf-8")
+    m = re.search(r"var _RETIRED_MANIFEST_KEYS = (\[[^\]]*\]);", js_text)
+    assert m, "var _RETIRED_MANIFEST_KEYS not found in api/solar-archive.js"
+    js = set(json.loads(m.group(1)))
+    assert py == js, f"main.py {sorted(py)} != solar-archive.js {sorted(js)}"
+    assert not (py & {x["id"] for x in server_products()}), "a retired key is still a warmed product id"
 
 
 def run():

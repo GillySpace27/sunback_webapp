@@ -29,8 +29,9 @@ check.sh. Run any one alone with the command in its row.
 | test_health_disk_pct.py | /api/health reports disk_pct at every level; the warning stays gated at 85 | no | python3 api/scripts/test_health_disk_pct.py |
 | test_check_headers.py | infra/scripts/check_headers.py: PASS, FAIL and SKIP rows, and the HSTS values in its table equal the files that set them | no | python3 api/scripts/test_check_headers.py |
 | test_ladder.mjs | api/pricing.js against the shared ladder vectors (the file test_ladder.py also reads), and the store's inline copy against it | no | node api/scripts/test_ladder.mjs |
-| test_catalog_drift.py | catalog ids and Printify ids agree between api/main.py and api/products.js (backpack is the one known drift) | no | python3 api/scripts/test_catalog_drift.py |
-| test_wavelength_drift.py | wavelength tiles in api/index.html and the film channels are consistent with the store wavelength list in api/main.py | no | python3 api/scripts/test_wavelength_drift.py |
+| test_catalog_drift.py | catalog ids and Printify ids agree between api/main.py and api/products.js (backpack is the one known drift), and `_RETIRED_MANIFEST_KEYS` is the same in api/main.py and api/solar-archive.js | no | python3 api/scripts/test_catalog_drift.py |
+| test_wavelength_drift.py | wavelength tiles in api/index.html and the film channels are consistent with the store wavelength list in api/main.py (`AIA_WAVELENGTHS`; `_DIM_CHANNELS` is built from it) | no | python3 api/scripts/test_wavelength_drift.py |
+| test_manifest_retired.mjs | the store drops `_RETIRED_MANIFEST_KEYS` from the parsed default mockup manifest before the grid sees it (the volume file is untouched) | no | node api/scripts/test_manifest_retired.mjs |
 
 ## Tools (never run by check.sh)
 

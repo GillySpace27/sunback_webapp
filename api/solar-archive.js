@@ -6919,6 +6919,10 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // <input type="date"> values across a soft reload, so on F5 the whole
     // block was skipped, the manifest was never fetched, and every card fell
     // to the canvas approximation.
+    // Keys the store no longer sells. They stay in the volume's manifest file
+    // (it only ever gains keys); the parsed copy loses them here (MH-9). Keep in
+    // step with _RETIRED_MANIFEST_KEYS in api/main.py (test_catalog_drift.py).
+    var _RETIRED_MANIFEST_KEYS = ["phone_case"];
     (function _fetchDefaultMockupManifest() {
       fetch("/asset/default/default_mockups.json", { cache: "no-store" })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -6926,6 +6930,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (!json || typeof json !== "object") return;
           // setter — `defaultMockupManifest` is a `let` binding in state.js
           // and module imports are read-only from outside the declaring module.
+          for (var _rk = 0; _rk < _RETIRED_MANIFEST_KEYS.length; _rk++) delete json[_RETIRED_MANIFEST_KEYS[_rk]];
           setDefaultMockupManifest(json);
           // Unconditional repaint: a manifest that resolves after the user has
           // already picked a Sun still needs to reveal itself.
