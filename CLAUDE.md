@@ -1,4 +1,4 @@
-# CLAUDE.md: My Heliograph webapp
+# CLAUDE.md: My Heliogram webapp
 
 Operating notes for an agent in this repository. `README.md` says what the
 system is. `DEPLOY.md` is the deploy procedure and wins over anything here.

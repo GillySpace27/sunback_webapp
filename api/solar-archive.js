@@ -6689,7 +6689,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       _syncUrlParams();
       var url = location.href;
       var dateTxt = (dateInput && dateInput.value) || "";
-      var title = "My Heliograph" + (dateTxt ? " — the Sun on " + dateTxt : "");
+      var title = "My Heliogram" + (dateTxt ? " — the Sun on " + dateTxt : "");
       if (navigator.share) {
         // Fire-and-forget: a user-cancelled share is not an error worth
         // surfacing, and most browsers reject the promise on cancel.
@@ -13189,7 +13189,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         }
         var thanksTitleEl = document.getElementById("betaThanksTitle");
         if (thanksTitleEl && !thanksTitleEl.textContent.trim()) {
-          thanksTitleEl.textContent = "Thanks for testing My Heliograph!";
+          thanksTitleEl.textContent = "Thanks for testing My Heliogram!";
         }
         var thanksBodyEl = document.getElementById("betaThanksBody");
         if (thanksBodyEl && !thanksBodyEl.textContent.trim()) {
@@ -14096,7 +14096,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
             image_url: printUrl || undefined,
             file_name: fname,
             title: title,
-            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
+            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliogram.",
             blueprint_id: product.blueprintId,
             print_provider_id: product.printProviderId,
             variant_ids: ckVariantIds,

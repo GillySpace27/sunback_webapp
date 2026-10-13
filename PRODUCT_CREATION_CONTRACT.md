@@ -1,4 +1,4 @@
-# My Heliograph: product-creation contract for a reimplemented front end
+# My Heliogram: product-creation contract for a reimplemented front end
 
 Hand-off for the 3D landing page. The landing can look like anything, but to
 turn "a pretty date picker" into "a real, seamless sale" it must pull every
