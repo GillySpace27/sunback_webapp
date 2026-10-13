@@ -198,6 +198,11 @@ claude_md_missing() {
   CLAUDE_MD_FILE="$1" "$PYTHON" - <<'PY'
 import os, re
 text = open(os.environ["CLAUDE_MD_FILE"], encoding="utf-8").read()
+# The shared HelioSoftware preamble (a byte copy of the canonical block) names
+# paths in the other repositories of the suite; only this repository's own
+# text is checked.
+text = re.sub(r"(?ms)^## HelioSoftware suite rules$.*?^Run it before every commit\. Rules for this repository follow this block\.$",
+              "", text)
 ext = re.compile(r"\.(md|py|js|mjs|ts|tsx|sh|json|jsonc|toml|txt|css|html|yml)$")
 bad = set()
 for tok in re.findall(r"`([^`\s]+)`", text):
