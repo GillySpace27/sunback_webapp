@@ -96,6 +96,13 @@ Only needed once per machine/account. Skip if `fly apps list` already shows
     ( cd web3d && npm run typecheck )
     ./infra/scripts/check.sh                        # every row PASS or SKIP
 
+CI must be green for HEAD before a dev deploy that may be promoted. The
+`check` workflow (`.github/workflows/check.yml`) runs `./infra/scripts/check.sh`
+on every pull request (and by hand with workflow_dispatch); the tracker's `ci`
+milestone reads its conclusion:
+
+    gh run list --workflow check.yml --commit "$(git rev-parse HEAD)" --limit 1
+
 A dirty tree is allowed on dev and **refused** on prod: a promoted image must
 map to a real commit or the whole audit trail is fiction.
 

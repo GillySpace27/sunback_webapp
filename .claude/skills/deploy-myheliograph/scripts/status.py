@@ -121,8 +121,17 @@ today = datetime.datetime.now(datetime.timezone.utc).date()
 sys.exit(0 if (today - newest).days < 14 else 1)
 EOF"""
 
+# CI is the check workflow (.github/workflows/check.yml) running
+# ./infra/scripts/check.sh. Green only when the newest run for HEAD concluded
+# "success"; no run, a failed run, or no gh on PATH all read red (MH-2).
+_CI_CHECK = (
+    f"cd {REPO} && test \"$(gh run list --workflow check.yml --commit \"$(git rev-parse HEAD)\" "
+    "--limit 1 --json conclusion --jq '.[0].conclusion' 2>/dev/null)\" = success"
+)
+
 # (key, label, check)
 MILESTONES = [
+    ("ci", "CI green: check workflow passed for HEAD", _CI_CHECK),
     ("preflight", "Preflight: tree clean, typecheck passes",
      f"cd {REPO} && test -z \"$(git status --porcelain)\" && (cd web3d && npm run typecheck >/dev/null 2>&1)"),
 
@@ -179,6 +188,9 @@ MILESTONES = [
 #   panel  a judgement, not a command — the codex-loop review
 #   gate   shown so you can SEE what would happen; never given a run affordance
 HOW = {
+    "ci": ("shell",
+        "./infra/scripts/check.sh                       # the same checks, locally\n"
+        "gh run list --workflow check.yml --limit 3     # CI runs on pull requests; pushing is Gilly's call"),
     "preflight": ("shell",
         "source ~/.claude/secrets/solar-archive.env   # FEEDBACK_ADMIN_KEY\n"
         "git status --porcelain      # must be clean for prod; dirty is allowed on dev\n"
