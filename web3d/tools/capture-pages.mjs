@@ -33,6 +33,11 @@ if (!BASE || !OUT) {
 const PAGES = [
   ["landing", "/"],
   ["editor", "/?d=2017-09-06&t=12%3A00&wl=171#editor"],
+  // MH-11: the editor's drag comparison in each mode. The third element is
+  // the controls clicked, in order, after the settle delay; the shot is
+  // taken after a second settle (the newest-day frame is fetched on click).
+  ["editor-compare", "/?d=2017-09-06&t=12%3A00&wl=171#editor", ["#editTab_adjust", "#editorCompareBtn"]],
+  ["editor-compare-newest", "/?d=2017-09-06&t=12%3A00&wl=171#editor", ["#editTab_adjust", "#editorCompareNewestBtn"]],
   ["experience", "/experience/"],
   ["privacy", "/privacy"],
 ];
@@ -65,12 +70,16 @@ for (const [vpName, width, height] of VIEWPORTS) {
     if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`);
   });
 
-  for (const [name, route] of PAGES) {
+  for (const [name, route, clicks] of PAGES) {
     const url = BASE.replace(/\/+$/, "") + route;
     errors.length = 0;
     try {
       await page.goto(url, { waitUntil: "load", timeout: 60_000 });
       await page.waitForTimeout(SETTLE_MS);
+      if (clicks) {
+        for (const sel of clicks) await page.click(sel, { timeout: 10_000 });
+        await page.waitForTimeout(SETTLE_MS);
+      }
       const file = path.join(OUT, `${name}_${vpName}.png`);
       await page.screenshot({ path: file, fullPage: false });
       const note = errors.length ? `  [${errors.length} page errors]` : "";

@@ -585,6 +585,38 @@ html:not(.dark) .wl-submit-btn { background: var(--accent-sun); }
 .compare-label-left  { left: 10px; }
 .compare-label-right { right: 10px; }
 
+/* MH-11: the same widget laid exactly over the editor canvas. The stage
+   hugs the canvas and both halves are rendered at the canvas's own size,
+   so contain keeps them pixel-aligned with what was on screen. No filter
+   on either half: the Original half is the pixels that print. */
+.compare-slider.editor-compare {
+  position: absolute;
+  inset: 0;
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+  background: #000;
+}
+.compare-slider.editor-compare.hidden { display: none; }
+.compare-slider.editor-compare img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.editor-compare-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.editor-compare-note {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+.editor-compare-note:empty { display: none; }
+
 /* Handoff bridge's own compare instance: "still developing" state (right
    half is showing the placeholder frame on both sides until the real RHEF
    render lands) and the pick-without-closing-first buttons. */

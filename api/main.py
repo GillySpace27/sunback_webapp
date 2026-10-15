@@ -5665,6 +5665,7 @@ _FRONTEND_MODULES = {
     "motion.js",
     "waking.js",
     "messages.js",
+    "editor_compare.js",
 }
 
 @app.get("/{module_name}")
