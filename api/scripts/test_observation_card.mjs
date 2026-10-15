@@ -31,5 +31,5 @@ assert.ok(!("Wavelength" in bare) && !("Requested" in bare), "unknown facts are 
 
 assert.strictEqual(canvasLabel({ wavelength: 304, date: "2026-10-01", look: "raw" }),
   "Solar image, from 2026-10-01, 304 Angstrom, chromosphere and prominences, Original");
-for (const s of [...Object.values(WAVELENGTH_GLOSSES), canvasLabel({ date: "x" })]) assert.ok(!s.includes("—"));
+for (const s of [...Object.values(WAVELENGTH_GLOSSES), canvasLabel({ date: "x" })]) assert.ok(!s.includes(String.fromCharCode(0x2014)));
 console.log("test_observation_card: ok");
