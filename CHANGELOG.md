@@ -30,6 +30,10 @@ needs Gilly's yes.
   `product.name` and the checkout link are escaped where they enter HTML.
   The beta thank-you title "Thanks for testing My Heliograph!" became
   "Your design is saved" (DRAFT, Gilly's call).
+- Editor drag comparison (MH-11): the Color tab opens the shared wipe over
+  the canvas, Original against Enhanced at the design's own crop and edits,
+  or the buyer's day against the newest printable day from
+  `/api/data_frontier` (`api/editor_compare.js`). No CSS filter on either half.
 - Replace this heading with the deploy date when the first prod promotion
   carries these changes.
 

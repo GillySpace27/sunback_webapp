@@ -1019,6 +1019,26 @@
         <img id="solarImg" alt="Solar image" crossorigin="anonymous">
         <canvas id="solarCanvas"></canvas>
         <div class="crop-overlay hidden" id="cropOverlay"></div>
+        <!-- MH-11: the shared drag comparison (same markup and widget as
+             #compareSlider), laid over the editor canvas. Both halves are
+             rendered by renderCanvas at this design's crop and edits, and no
+             CSS filter touches either one: Original is what prints.
+             compare-over = left half, compare-under = right half. -->
+        <div class="compare-slider editor-compare hidden" id="editorCompareSlider" style="--split:50%">
+          <img class="compare-under" id="editorCompareUnder" alt="" decoding="async" />
+          <img class="compare-over" id="editorCompareOver" alt="" aria-hidden="true" decoding="async" />
+          <div class="compare-handle" role="slider" tabindex="0"
+               aria-label="Drag to compare the two versions of your design"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+               aria-valuetext="50% original, 50% enhanced">
+            <span class="compare-grip" aria-hidden="true"><i class="fas fa-arrows-left-right"></i></span>
+          </div>
+          <span class="compare-label compare-label-left" aria-hidden="true">Original</span>
+          <span class="compare-label compare-label-right" aria-hidden="true">Enhanced</span>
+          <button type="button" class="compare-close-btn" id="editorCompareCloseBtn"
+                  aria-label="Close the drag comparison"
+                  title="Back to the editor">&#x2715;</button>
+        </div>
       </div>
 
       <div class="editor-main">
@@ -1215,6 +1235,13 @@
 
       <!-- Adjust tab -->
       <div class="edit-tab-panel hidden" id="tabPanel_adjust" role="tabpanel" aria-labelledby="editTab_adjust" tabindex="0">
+        <!-- MH-11: open the drag comparison over the canvas. -->
+        <div class="editor-compare-row">
+          <button type="button" class="edit-btn" id="editorCompareBtn" title="Drag a divider across your design: Original on the left, Enhanced on the right"><i class="fas fa-arrows-left-right" aria-hidden="true"></i> Compare Original / Enhanced</button>
+          <button type="button" class="edit-btn" id="editorCompareNewestBtn" title="Drag a divider between your day and the newest day we can print, both in the Original look"><i class="fas fa-calendar-day" aria-hidden="true"></i> Your Sun vs newest printable day</button>
+          <span class="editor-compare-note" id="editorCompareNote" role="status" aria-live="polite"></span>
+        </div>
+        <div class="edit-toolbar-break"></div>
         <button type="button" class="edit-btn" data-tool="invert" title="Invert colors"><i class="fas fa-adjust" aria-hidden="true"></i> Invert</button>
         <div class="edit-toolbar-break"></div>
         <div class="slider-row">

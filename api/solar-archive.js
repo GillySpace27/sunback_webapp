@@ -26,6 +26,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 // MH-16: buyer text for the error codes in api/errors.py.
 import { buyerMessage } from "./messages.js";
+import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -7042,6 +7043,9 @@ import { buyerMessage } from "./messages.js";
       var activator = opts.activator || diptych;
       var closeBtn = opts.closeBtn || null;
       var fallbackSrc = opts.fallbackSrc || "/asset/default/quality_strip.webp";
+      // MH-11: the spoken value names the two halves ("original" and
+      // "filtered" by default); the editor instance changes them per mode.
+      var leftWord = "original", rightWord = "filtered";
       if (!el) return null;
       var over = el.querySelector(".compare-over");
       var under = el.querySelector(".compare-under");
@@ -7110,7 +7114,7 @@ import { buyerMessage } from "./messages.js";
         el.style.setProperty("--split", pct + "%");
         var r = Math.round(pct);
         handle.setAttribute("aria-valuenow", String(r));
-        handle.setAttribute("aria-valuetext", r + "% original, " + (100 - r) + "% filtered");
+        handle.setAttribute("aria-valuetext", r + "% " + leftWord + ", " + (100 - r) + "% " + rightWord);
       }
 
       var dragging = false;
@@ -7156,7 +7160,8 @@ import { buyerMessage } from "./messages.js";
         el.classList.remove("hidden");
         try { handle.focus({ preventScroll: true }); } catch (_e) {}
         var reduced = (typeof _prefersReducedMotion === "function") && _prefersReducedMotion();
-        if (reduced || teased) return;
+        // opts.tease === false: no motion at all (the editor instance).
+        if (reduced || teased || opts.tease === false) return;
         teased = true;
         var t0 = null, DUR = 1200;
         function frame(ts) {
@@ -7204,7 +7209,9 @@ import { buyerMessage } from "./messages.js";
           _deactivateSlider();
         }
       });
-      if (activator) activator.addEventListener("click", _activateSlider);
+      // opts.autoActivate === false: the caller prepares the images first
+      // and calls activate() itself (the editor instance, MH-11).
+      if (activator && opts.autoActivate !== false) activator.addEventListener("click", _activateSlider);
       return {
         activate: _activateSlider,
         deactivate: _deactivateSlider,
@@ -7213,6 +7220,15 @@ import { buyerMessage } from "./messages.js";
           over.src = overSrc;
           under.src = underSrc;
         },
+        // MH-11: which control gets focus back on close, and the words the
+        // slider speaks for its two halves.
+        setActivator: function (btn) { activator = btn || activator; },
+        setWords: function (left, right) {
+          leftWord = left || leftWord;
+          rightWord = right || rightWord;
+          _set(_split());
+        },
+        isOpen: function () { return !el.classList.contains("hidden"); },
       };
     }
     // Set below, wired at load; used later by _showHandoffConfirm each time
@@ -7233,6 +7249,110 @@ import { buyerMessage } from "./messages.js";
         // Never let a failed comparison image delete the choice cards.
         allowFallback: false,
       });
+    })();
+
+    // ── Editor drag comparison (MH-11) ──────────────────────────
+    // The same widget over the editor canvas. Both halves are composed once,
+    // when the buyer opens it (never per frame), by renderCanvas itself with
+    // the print-file flag set, so they carry this design's crop, colour
+    // edits, vignette and text, and no CSS filter touches either one.
+    // "Compare Original / Enhanced" wipes between the two looks; "Your Sun
+    // vs newest printable day" wipes between the buyer's day and the
+    // /api/data_frontier day, both in the Original look, fetched once per
+    // wavelength per page load. No tease animation here, so there is no
+    // motion to switch off; arrow keys move the divider in 5 percent steps.
+    (function initEditorCompare() {
+      var el = document.getElementById("editorCompareSlider");
+      var lookBtn = document.getElementById("editorCompareBtn");
+      var newestBtn = document.getElementById("editorCompareNewestBtn");
+      var note = document.getElementById("editorCompareNote");
+      var slider = _wireCompareSliderEl(el, {
+        activator: lookBtn,
+        closeBtn: document.getElementById("editorCompareCloseBtn"),
+        allowFallback: false,
+        autoActivate: false,
+        tease: false,
+      });
+      if (!slider || !lookBtn || !newestBtn) return;
+      var newestByWl = {};
+      function say(t) { if (note) note.textContent = t || ""; }
+
+      // One render of the current design with the given tier, drawn the way
+      // the print file is (no orange frame or guides), then the editor is
+      // put back exactly as it was.
+      function shot(filter, jpgStandIn) {
+        var saved = { f: state.editorFilter, burn: state._burningCanvas, jpg: state.jpgImage };
+        var url = null;
+        state.editorFilter = filter;
+        state._burningCanvas = true;
+        if (jpgStandIn) state.jpgImage = jpgStandIn;
+        try {
+          renderCanvas();
+          url = solarCanvas.toDataURL("image/png");
+        } catch (_e) {
+          url = null;   // a canvas tainted by a cross-origin image cannot be read back
+        } finally {
+          state.editorFilter = saved.f;
+          state._burningCanvas = saved.burn;
+          state.jpgImage = saved.jpg;
+          renderCanvas();
+        }
+        return url;
+      }
+
+      function show(mode, leftUrl, rightUrl) {
+        if (!leftUrl || !rightUrl) { say("This comparison is not available for this image."); return; }
+        var labels = compareLabels(mode, dateInput && dateInput.value, _dataFrontier);
+        slider.setImages(leftUrl, rightUrl);
+        el.querySelector(".compare-label-left").textContent = labels.left;
+        el.querySelector(".compare-label-right").textContent = labels.right;
+        slider.setWords(labels.leftWord, labels.rightWord);
+        slider.setActivator(mode === "newest" ? newestBtn : lookBtn);
+        say("");
+        slider.activate();
+      }
+
+      function open(mode) {
+        if (!state.originalImage) { say("Your design is still loading."); return; }
+        var f = lookFilters(_filterIsReady);
+        if (mode === "look") {
+          if (!f.enhanced) { say("Enhanced is still developing; try again when it is ready."); return; }
+          show(mode, shot(f.original), shot(f.enhanced));
+          return;
+        }
+        var url = newestDayThumbUrl(API_BASE, _dataFrontier, state.wavelength);
+        if (!url) {
+          say("The newest printable day is not known yet; try again in a moment.");
+          _applyDataFrontier();
+          return;
+        }
+        var wl = String(state.wavelength);
+        if (!newestByWl[wl]) newestByWl[wl] = loadImage(url);
+        say("Fetching the newest printable day\u2026");
+        newestByWl[wl].then(function (img) {
+          if (String(state.wavelength) !== wl) { say(""); return; }
+          show(mode, shot(f.original), shot("jpg", img));
+        }, function () {
+          delete newestByWl[wl];
+          say("Could not fetch the newest printable day; try again in a moment.");
+        });
+      }
+
+      lookBtn.addEventListener("click", function () { open("look"); });
+      newestBtn.addEventListener("click", function () { open("newest"); });
+      // The halves are a snapshot of the design when the comparison opened,
+      // so any other edit closes it rather than leave a stale picture over
+      // the canvas.
+      var toolbar = document.querySelector("#editSection .edit-toolbar");
+      if (toolbar) {
+        var closeOnEdit = function (e) {
+          if (!slider.isOpen()) return;
+          if (e.target && e.target.closest && e.target.closest("#editorCompareBtn, #editorCompareNewestBtn")) return;
+          slider.deactivate();
+        };
+        toolbar.addEventListener("input", closeOnEdit);
+        toolbar.addEventListener("click", closeOnEdit);
+      }
     })();
 
     // ── Quality strip: collapse after first view ─────────────────
