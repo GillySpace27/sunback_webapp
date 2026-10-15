@@ -8375,3 +8375,5 @@ body:has(#imageStage.loading) .field-cell {
     transform: translateX(-50%);
   }
 }
+a.confirm-modal-btn { display: inline-block; text-align: center; text-decoration: none; }
+a.confirm-modal-btn.hidden { display: none; }

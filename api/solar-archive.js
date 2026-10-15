@@ -15342,6 +15342,19 @@ import { eventTicks } from "./day_scrub.js";
         addBtn.classList.toggle("hidden", !_canBuyNow);
         addBtn.textContent = "Add to cart";
       }
+      // MH-18: "See it on your wall": the film at the room, this Sun, this product.
+      var wallBtn = document.getElementById("confirmSelectWall");
+      if (wallBtn) {
+        var _wl = state.wavelength, _d = (dateInput && dateInput.value) || "";
+        var _canWall = !!(_wl && /^\d{4}-\d{2}-\d{2}$/.test(_d) && product && product.id);
+        wallBtn.classList.toggle("hidden", !_canWall);
+        if (_canWall) {
+          var _wq = new URLSearchParams({ d: _d, t: _solarTimeValue() || "12:00", wl: String(_wl),
+                                          space: "room", p: product.id });
+          if (state.editorFilter === "rhef" || state.editorFilter === "hq_rhef") _wq.set("look", "rhef");
+          wallBtn.setAttribute("href", "/?" + _wq.toString());
+        }
+      }
       if (continueBtn) {
         if (_step === "editor") continueBtn.textContent = "Apply variant";
         // Image-first funnel (2026-08-09 reorder): the Sun is usually

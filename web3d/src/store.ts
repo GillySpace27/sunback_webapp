@@ -66,6 +66,12 @@ type State = {
   progress: number;
   setProgress: (p: number) => void;
 
+  // MH-18: store product id the visitor arrived with (?p=), so "Back to my
+  // order" can return to it. Shape-checked by validProductId; the store
+  // validates it against its catalogue.
+  productId: string | null;
+  setProductId: (id: string | null) => void;
+
   // selected wavelength (index into CHANNELS)
   channel: number;
   setChannel: (i: number) => void;
@@ -220,6 +226,8 @@ type State = {
 export const useStore = create<State>((set, get) => ({
   progress: 0,
   setProgress: (p) => set({ progress: p }),
+  productId: null,
+  setProductId: (id) => set({ productId: id }),
 
   channel: DEFAULT_CHANNEL,
   setChannel: (i) => set({ channel: i, channelChosen: true }),
@@ -432,6 +440,13 @@ export const SPACES = [
 ] as const;
 
 export type SpaceKey = (typeof SPACES)[number]["key"];
+
+// Scroll progress that lands inside a space (MH-18: ?space=room), or null for
+// an unknown key. A little past the start so the space's own beat is showing.
+export function spaceProgress(key: string | null): number | null {
+  const s = SPACES.find((x) => x.key === key);
+  return s ? s.start + 0.01 : null;
+}
 
 export function spaceAt(progress: number): SpaceKey {
   let key: SpaceKey = SPACES[0].key;
