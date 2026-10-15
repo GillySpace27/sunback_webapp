@@ -27,6 +27,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 // MH-16: buyer text for the error codes in api/errors.py.
 import { buyerMessage } from "./messages.js";
 import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.js";
+import { eventTicks, eventRings } from "./day_scrub.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -4078,11 +4079,19 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
              '<div class="hek-time-scrub">' +
                '<label for="hekTimeScrub" class="hek-time-exact-label">Or scan the day:</label>' +
                '<div class="hek-time-scrub-row">' +
-                 '<input type="range" id="hekTimeScrub" class="hek-time-scrub-input"' +
-                   ' min="0" max="23" step="1" value="' + escapeHtml(display.slice(0, 2)) + '"' +
-                   ' aria-label="Scan hours of the day, 0 to 23 UTC">' +
+                 // MH-17: the track and, under it, the day's ranked events
+                 // as ticks (aria-hidden: the event tiles are the list).
+                 '<div class="hek-time-scrub-track">' +
+                   '<input type="range" id="hekTimeScrub" class="hek-time-scrub-input"' +
+                     ' min="0" max="23" step="1" value="' + escapeHtml(display.slice(0, 2)) + '"' +
+                     ' aria-label="Scan hours of the day, 0 to 23 UTC">' +
+                   '<div class="hek-time-scrub-ticks" id="hekTimeScrubTicks" aria-hidden="true"></div>' +
+                 '</div>' +
                  '<div class="hek-time-scrub-well" id="hekTimeScrubWell" aria-hidden="true"></div>' +
                '</div>' +
+               // MH-17 (optional, off by default): rings where the ranked
+               // events happened, over the preview frame only.
+               '<label class="hek-show-events"><input type="checkbox" id="hekShowEvents"> Show where on the Sun <span class="hek-event-chip">preview only, not printed</span></label>' +
              '</div>' +
              '<span class="hek-tile-meta">UTC</span>' +
              '</div>';
@@ -4491,6 +4500,21 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         "&wavelength=" + encodeURIComponent(state.wavelength || 171) +
         "&image_scale=12&size=256";
     }
+    // MH-17 overlay: rings are DOM spans over the well, never drawn on the
+    // print canvas; the toggle label says they are not printed.
+    function _paintEventRings(well) {
+      var box = document.getElementById("hekShowEvents");
+      if (!well || !box || !box.checked) return;
+      var rings = eventRings(_hekCurrentEvents);
+      rings.forEach(function (r) {
+        var ring = document.createElement("span");
+        ring.className = "hek-event-ring";
+        ring.style.left = r.left + "%";
+        ring.style.top = r.top + "%";
+        ring.title = r.title;
+        well.appendChild(ring);
+      });
+    }
     function _scrubShowHour(hour) {
       var well = document.getElementById("hekTimeScrubWell");
       var url = _scrubThumbUrl(hour);
@@ -4500,6 +4524,7 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         well.classList.remove("is-loading");
         well.innerHTML = "";
         well.appendChild(cached.cloneNode(false));
+        _paintEventRings(well);
         return;
       }
       well.classList.add("is-loading");
@@ -4510,6 +4535,7 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         well.classList.remove("is-loading");
         well.innerHTML = "";
         well.appendChild(img);
+        _paintEventRings(well);
       };
       img.onerror = function () {
         well.classList.remove("is-loading");
@@ -4547,9 +4573,35 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         img.src = URL.createObjectURL(blob);
       }).catch(function () { _scrubPrefetchInFlight = Math.max(0, _scrubPrefetchInFlight - 1); });
     }
+    // MH-17: the day's ranked events (the tiles above) as ticks along the
+    // scrubber. A tick click snaps the scrubber to that hour and picks that
+    // event's tile, so the time set is the event's own minute.
+    function _renderScrubTicks(scrub) {
+      var strip = document.getElementById("hekTimeScrubTicks");
+      if (!strip) return;
+      strip.innerHTML = "";
+      eventTicks(_hekCurrentEvents).forEach(function (t) {
+        var tick = document.createElement("span");
+        tick.className = "hek-time-scrub-tick" + (t.rank === 1 ? " is-top" : "");
+        tick.style.left = t.pct + "%";
+        tick.title = t.title;
+        tick.addEventListener("click", function () {
+          scrub.value = String(t.hour);
+          _scrubShowHour(t.hour);
+          var tile = hekTileGrid && hekTileGrid.querySelector('.hek-tile[data-hek-rank="' + t.rank + '"]');
+          if (tile) _pickEventTile(tile);
+        });
+        strip.appendChild(tick);
+      });
+    }
     function _wireTimeScrubber() {
       var scrub = document.getElementById("hekTimeScrub");
       if (!scrub) return;
+      _renderScrubTicks(scrub);
+      var evBox = document.getElementById("hekShowEvents");
+      if (evBox) evBox.addEventListener("change", function () {
+        _scrubShowHour(parseInt(scrub.value, 10));
+      });
       scrub.addEventListener("input", function () {
         var hour = parseInt(scrub.value, 10);
         clearTimeout(_scrubDebounceTimer);

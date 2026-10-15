@@ -3528,6 +3528,38 @@ body.step-editor .vibe-reveal-btn {
   flex: 1;
   accent-color: var(--accent-corona);
 }
+/* MH-17: the track holds the range input and the event ticks under it. */
+.hek-time-scrub-track {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hek-time-scrub-track .hek-time-scrub-input { width: 100%; }
+.hek-time-scrub-ticks {
+  position: relative;
+  height: 12px;
+  /* inset by half a range thumb so 0 and 23 line up with the thumb centre */
+  margin: 0 8px;
+}
+.hek-time-scrub-ticks:empty { display: none; }
+.hek-time-scrub-tick {
+  position: absolute;
+  top: 0;
+  width: 3px;
+  height: 10px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--accent-corona, #f3d385);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.hek-time-scrub-tick.is-top { opacity: 1; height: 12px; }
+.hek-time-scrub-tick::before {
+  content: "";
+  position: absolute;
+  inset: -6px -8px;
+}
 .hek-time-scrub-well {
   width: 40px;
   height: 40px;
@@ -8343,6 +8375,20 @@ body:has(#imageStage.loading) .field-cell {
     transform: translateX(-50%);
   }
 }
+
+/* MH-17 overlay: off by default; rings sit over the 40px preview well only. */
+.hek-time-scrub-well { position: relative; }
+.hek-event-ring {
+  position: absolute;
+  width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid #ffd24a;
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.hek-show-events { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--text-dim); }
+.hek-event-chip { margin-left: 4px; padding: 1px 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 0.7rem; }
 
 /* MH-13: a vibe card's Sun drawn on the product chosen first. */
 .vibe-thumb canvas.vibe-product-canvas { display: none; width: 100%; height: 100%; }
