@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<
       });
       return (
         <div className="fallback" role="alert">
-          <h1>My Heliograph</h1>
+          <h1>My Heliogram</h1>
           <p>Your day, written in sunlight.</p>
           <p className="muted">This device could not start the 3D experience.</p>
           <a className="cta" href={href}>

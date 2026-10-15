@@ -46,6 +46,8 @@ _DEFAULT_ALLOWED_ORIGINS = (
     # env var can't 403 real traffic and break mockups/checkout).
     "https://myheliograph.com",
     "https://www.myheliograph.com",
+    "https://myheliogram.com",
+    "https://www.myheliogram.com",
     "https://solar-archive.myshopify.com",
     # Legacy host kept harmlessly during the Render→Fly soak.
     "https://solar-archive.onrender.com",  # LEGACY (MH-10): retired Render host; to be commented out once ALLOWED_ORIGINS is shown set on both tiers

@@ -4776,6 +4776,37 @@ import { eventTicks, eventRings } from "./day_scrub.js";
     // need touching. Re-enable a MEDIUM-res (not full) upgrade here if the
     // thumbnails ever look too soft.
     function _upgradeCardToFull(_card, _tier) { /* no-op — see note above */ }
+    // MH-13: with a product chosen first (hero "Pick a product") and no Sun
+    // installed yet, each famous-moment card shows ITS Sun on that product.
+    // drawProductMockup takes the card's image through opts.fallbackSrc, which
+    // it consults only while state.originalImage is empty. The plain thumb stays
+    // in the well (hidden), so the tier wipes keep working on it.
+    function _vibeOnProduct(card) {
+      try {
+        var pid = state.selectedProduct;
+        if (!pid || state.originalImage) return;
+        var well = card.querySelector(".vibe-thumb");
+        var img = well && well.querySelector("img:not(.vibe-thumb-overlay)");
+        if (!img) return;
+        var old = well.querySelector("canvas.vibe-product-canvas");
+        if (old) old.parentNode.removeChild(old);
+        var cv = document.createElement("canvas");
+        cv.className = "vibe-product-canvas";
+        cv.width = 160; cv.height = 160;
+        cv.setAttribute("role", "img");
+        cv.setAttribute("aria-label", (card.getAttribute("data-vibe-slug") || "Sun") + " on your chosen product");
+        var paint = function () {
+          try {
+            drawProductMockup(cv.getContext("2d"), pid, 160, 160,
+              getSelectedVariantForProduct(pid), { fallbackSrc: img });
+            well.classList.add("on-product");
+          } catch (_ePaint) { well.classList.remove("on-product"); }
+        };
+        well.appendChild(cv);
+        if (img.complete && img.naturalWidth) paint();
+        else img.addEventListener("load", paint, { once: true });
+      } catch (_eVop) {}
+    }
     function _setVibeThumb(card, url, tier) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;
@@ -4791,6 +4822,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
         _applyTierClass(c, tier);
         thumbWell.appendChild(c);
         _upgradeCardToFull(card, tier);
+        _vibeOnProduct(card);
         return;
       }
       thumbWell.classList.add("is-loading");
@@ -4803,6 +4835,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
         thumbWell.appendChild(img);
         _thumbCacheSet(url, img);
         _upgradeCardToFull(card, tier);
+        _vibeOnProduct(card);
       };
       img.onerror = function () { thumbWell.classList.remove("is-loading"); };
       img.src = url;
@@ -6836,7 +6869,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
       _syncUrlParams();
       var url = location.href;
       var dateTxt = (dateInput && dateInput.value) || "";
-      var title = "My Heliograph" + (dateTxt ? " — the Sun on " + dateTxt : "");
+      var title = "My Heliogram" + (dateTxt ? ": the Sun on " + dateTxt : "");
       if (navigator.share) {
         // Fire-and-forget: a user-cancelled share is not an error worth
         // surfacing, and most browsers reject the promise on cancel.
@@ -14471,7 +14504,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
             image_url: printUrl || undefined,
             file_name: fname,
             title: title,
-            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
+            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliogram.",
             blueprint_id: product.blueprintId,
             print_provider_id: product.printProviderId,
             variant_ids: ckVariantIds,
