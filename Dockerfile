@@ -1,4 +1,4 @@
-# Container image for the My Heliograph FastAPI origin (Fly.io target).
+# Container image for the My Heliogram FastAPI origin (Fly.io target).
 #
 # Mirrors the Render native-Python runtime this app grew up on:
 #   - python:3.12 (repo's committed bytecode is cpython-312; the vendored

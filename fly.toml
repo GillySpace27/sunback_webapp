@@ -1,4 +1,4 @@
-# Fly.io config for the My Heliograph FastAPI origin.
+# Fly.io config for the My Heliogram FastAPI origin.
 #
 # Topology is deliberately EXACTLY ONE machine × one uvicorn worker — the
 # app's in-memory task registry (HQ status polling), heavy-render semaphore
