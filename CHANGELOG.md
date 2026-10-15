@@ -19,6 +19,9 @@ needs Gilly's yes.
   deploy (`.deploy-artifacts/<sha>/receipt.html`) and
   `infra/scripts/rollback.sh` (origin image and Worker version together,
   typed SHA, gated).
+- Waking panel (MH-12): while a render request waits on a sleeping origin,
+  a small non-blocking card says so; a preview that met the sleeping origin
+  is retried once after `/api/health` answers (`api/waking.js`).
 - Replace this heading with the deploy date when the first prod promotion
   carries these changes.
 
