@@ -620,6 +620,37 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
       window.SolarArchive.popStep = popStep;
     } catch (_e) {}
 
+    // ── Hero front doors (MH-13) ────────────────────────────────
+    // Plain links in the hero (zero-JS: anchors to #yourDay and
+    // #productSection). With JS each door switches the step machine to its
+    // step; the date door then focuses the date field, which is never
+    // filled or submitted on the visitor's behalf. A GA4 event names the
+    // door, only after cookie consent (gtag exists only after accept).
+    (function initHeroDoors() {
+      document.querySelectorAll(".hero-door[data-door]").forEach(function (door) {
+        door.addEventListener("click", function (e) {
+          var which = door.getAttribute("data-door");
+          if (window.gtag && _cookieConsentState() === "accept") {
+            try { window.gtag("event", "hero_door_chosen", { door: which }); } catch (_e) {}
+          }
+          if (which === "product") {
+            e.preventDefault();
+            if (state.currentStep !== "product") setStep("product");
+            else _scrollToEl(document.getElementById("productSection"), "start");
+          } else if (which === "date") {
+            e.preventDefault();
+            if (state.currentStep !== "image") setStep("image");
+            setTimeout(function () {
+              var card = document.getElementById("yourDay");
+              _scrollToEl(card, "center");
+              var input = document.getElementById("vibeBirthdayInput");
+              try { if (input) input.focus({ preventScroll: true }); } catch (_e) {}
+            }, 60);
+          }
+        });
+      });
+    })();
+
     // ── Workflow breadcrumb renderer ────────────────────────────
     // Populates #workflowBreadcrumb with back-pills based on the
     // current step + what's been locked in (state.selectedProduct,

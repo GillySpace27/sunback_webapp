@@ -729,6 +729,47 @@ html:not(.dark) .wl-submit-btn { background: var(--accent-sun); }
   .hero .hero-anchor { font-size: 0.78rem; margin-top: 8px; }
 }
 
+/* MH-13: the two front doors. Side by side down to 340 px so both stay in
+   the first screen of a 375 or 390 px phone; they stack only below that. */
+.hero-doors {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  max-width: 520px;
+  margin: 14px auto 6px;
+}
+.hero-door {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.18));
+  background: var(--bg-card, rgba(255,255,255,0.06));
+  color: var(--text-primary, inherit);
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.hero-door--date {
+  background: linear-gradient(135deg, var(--accent-sun), var(--accent-flare));
+  border-color: transparent;
+  color: #1a1206;
+}
+.hero-door:hover { filter: brightness(1.06); }
+.hero-door:focus-visible {
+  outline: 2px solid var(--accent-sun);
+  outline-offset: 2px;
+}
+.hero-door-label { font-size: 1rem; font-weight: 600; }
+.hero-door-hint { font-size: 0.72rem; opacity: 0.85; }
+@media (max-width: 340px) {
+  .hero-doors { flex-direction: column; }
+}
+
 /* Beta-mode banner under the hero. Hidden by default; the
    .beta-mode-active class on <body> (set by JS once /store-config
    returns beta_mode:true) reveals it. Warm-orange so it reads as a

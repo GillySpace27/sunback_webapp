@@ -118,6 +118,22 @@
     <div class="hero-icon"></div>
     <h1 id="appTitle">My Heliograph</h1>
     <p class="hero-tagline">Your day, written in sunlight</p>
+    <!-- MH-13: two front doors, high in the hero so both start above the
+         fold on a phone. Plain links: without JavaScript "Pick a day" jumps
+         to the date field and "Pick a product" to the product grid. With
+         it, each door also switches the step machine to that step (and the
+         date door focuses the date field). Choosing a product first carries
+         it into the date step through the existing commitProductChoice path. -->
+    <nav class="hero-doors" aria-label="Start shopping">
+      <a href="#yourDay" class="hero-door hero-door--date" data-door="date">
+        <span class="hero-door-label"><i class="fas fa-calendar-day" aria-hidden="true"></i> Pick a day</span>
+        <span class="hero-door-hint">Any date since May 2010</span>
+      </a>
+      <a href="#productSection" class="hero-door hero-door--product" data-door="product">
+        <span class="hero-door-label"><i class="fas fa-shapes" aria-hidden="true"></i> Pick a product</span>
+        <span class="hero-door-hint">Posters, canvas, mugs, clocks</span>
+      </a>
+    </nav>
     <p>Pick any date since May 2010: real NASA/SDO observations of the Sun from that day, enhanced with a published algorithm to reveal coronal structure the raw data hides. Yours as a print, poster, or canvas.</p>
     <!-- Concrete anchor for a visitor deciding in the first few seconds.
          The persona panel's impatient run (2026-08-18) left before ever
@@ -612,7 +628,7 @@
            fire on the date input's change event: users reported the background
            render auto-triggered before they could finish filling the fields.
            The submit button (and Enter in either field) is the ONLY trigger. -->
-      <div class="vibe-card vibe-card-birthday" data-vibe-slug="birthday">
+      <div class="vibe-card vibe-card-birthday" data-vibe-slug="birthday" id="yourDay">
         <div class="vibe-birthday-inner">
           <div class="vibe-birthday-icon" aria-hidden="true">
             <i class="fas fa-gift"></i>

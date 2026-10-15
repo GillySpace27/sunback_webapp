@@ -34,6 +34,10 @@ needs Gilly's yes.
   the canvas, Original against Enhanced at the design's own crop and edits,
   or the buyer's day against the newest printable day from
   `/api/data_frontier` (`api/editor_compare.js`). No CSS filter on either half.
+- Two front doors (MH-13): the store hero gains "Pick a day" and "Pick a
+  product", plain links that also switch the step machine; a GA4
+  `hero_door_chosen` event only after cookie consent. Screenshots wait on
+  Gilly's review.
 - Replace this heading with the deploy date when the first prod promotion
   carries these changes.
 
