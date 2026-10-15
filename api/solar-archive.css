@@ -8343,3 +8343,8 @@ body:has(#imageStage.loading) .field-cell {
     transform: translateX(-50%);
   }
 }
+
+/* MH-13: a vibe card's Sun drawn on the product chosen first. */
+.vibe-thumb canvas.vibe-product-canvas { display: none; width: 100%; height: 100%; }
+.vibe-thumb.on-product canvas.vibe-product-canvas { display: block; }
+.vibe-thumb.on-product > img { display: none; }
