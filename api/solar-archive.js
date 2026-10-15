@@ -22,6 +22,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 // broken vendor directory leaves the store on its phase-1 CSS experience
 // rather than taking the page down.
 import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions } from "./motion.js";
+// MH-12: which failures earn the one automatic retry after a cold start.
+import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -271,6 +273,17 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     var HEALTH_TIMEOUT_MS = 12000;    // 12s to allow cold start
     var FETCH_TIMEOUT_MS  = 90000;    // 90s for preview gen (NASA fetch can be slow)
     var WAKE_RETRY_DELAY  = 5000;     // 5s between retries when waking
+    // MH-12 waking panel. A render request that has waited this long while
+    // /api/health is still unanswered shows the panel; a warm origin answers
+    // first and the panel never appears. Declared up here because the
+    // handoff can start a render before the health section below has run.
+    var WAKING_PANEL_DELAY_MS = 1000;
+    var WAKING_STILL_MS = 20000;      // after this the copy says "still working"
+    var _wakingWaits = 0;             // render requests in flight
+    var _wakingRetrying = 0;          // requests waiting for their one retry
+    var _onlineWaiters = [];          // resolved by the next health verdict
+    var _healthChainActive = false;   // a checkBackendHealth chain is running
+    var _wakingStillTimer = null;
     var HQ_POLL_DEADLINE_MS = 5 * 60000; // hard cap on any render poll loop
     // Poll backoff. Both render loops used a flat 1.5 s, so a 90 s wait cost
     // ~170 requests (a tester counted them) — and generate_preview is a POST
@@ -3051,7 +3064,26 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       if (typeof updateRhefLoadingUI === "function") updateRhefLoadingUI();
     }
 
+    // MH-12: one automatic retry when the first try met a sleeping origin
+    // (network error, or a gateway 502/503/504 that is not the app's JSON;
+    // see api/waking.js). The retry goes back through the same kickoff and
+    // poll path once /api/health answers; the server dedupes the render
+    // (_preview_in_progress in main.py), so it cannot double-submit.
     function fetchBackendRHEPreview(dateStr, wavelength, onProgress) {
+      var retried = false;
+      function done() { if (retried) _wakingRetryEnd(); _wakingEnd(); }
+      _wakingBegin();
+      return retryOnceAfterWake(function () {
+        return _fetchBackendRHEPreviewOnce(dateStr, wavelength, onProgress);
+      }, _afterBackendAwake, function () {
+        retried = true;
+        _wakingRetryBegin();
+        if (onProgress) onProgress(10, "The server was asleep; trying once more\u2026");
+      }).then(function (v) { done(); return v; },
+              function (e) { done(); throw e; });
+    }
+
+    function _fetchBackendRHEPreviewOnce(dateStr, wavelength, onProgress) {
       dateStr = (dateStr || "").trim();
       if (!dateStr || !wavelength) return Promise.reject(new Error("Missing date or wavelength"));
       if (onProgress) onProgress(10, "Requesting the sharper version…");
@@ -3063,7 +3095,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" })
-      }, 30000).then(function(res) { return res.json().then(function(data) { return { status: res.status, data: data }; }); })
+      }, 30000).then(function(res) {
+          var gw = gatewayError(res.status, res.headers.get("content-type"));
+          if (gw) throw gw;
+          return res.json().then(function(data) { return { status: res.status, data: data }; });
+        })
         .then(function(result) {
           _recordQueueDepth(result.data);
           if (result.data.preview_url) {
@@ -3117,7 +3153,12 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ date: dateStr, time: timeStr, wavelength: wavelength, mission: "SDO" }),
                   signal: abortCtrl.signal
-                }).then(function(r) { clearTimeout(perReqTimer); return r.json().then(function(d) { return { status: r.status, data: d }; }); })
+                }).then(function(r) {
+                    clearTimeout(perReqTimer);
+                    var gw = gatewayError(r.status, r.headers.get("content-type"));
+                    if (gw) throw gw;
+                    return r.json().then(function(d) { return { status: r.status, data: d }; });
+                  })
                   .then(function(pollResult) {
                     var d = pollResult.data;
                     _recordQueueDepth(d);
@@ -5774,7 +5815,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
     // that about a second.
     function _warmBothPreviews(dateStr, timeStr, wlNum, onTier, onGiveUp) {
       var tries = 0;
-      function giveUp() { if (typeof onGiveUp === "function") onGiveUp(); }
+      var wakeRetried = false;   // MH-12: one automatic retry after a cold start
+      var settled = false;
+      function settle() { if (!settled) { settled = true; _wakingEnd(); } }
+      function giveUp() { settle(); if (typeof onGiveUp === "function") onGiveUp(); }
+      _wakingBegin();
       function ask() {
         tries++;
         fetchWithTimeout(API_BASE + "/api/generate_preview", {
@@ -5782,6 +5827,8 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ date: dateStr, time: timeStr || "12:00", wavelength: wlNum }),
         }, 90000).then(function (r) {
+          var gw = gatewayError(r.status, r.headers.get("content-type"));
+          if (gw) throw gw;
           return r.ok ? r.json() : null;
         }).then(function (j) {
           if (!j) { giveUp(); return; }
@@ -5797,8 +5844,20 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           if (!j.preview_url) {
             if (tries < 20) setTimeout(ask, 2000);
             else giveUp();
+          } else {
+            settle();
           }
-        }).catch(function () { /* Original stays pickable; that is a complete answer */ giveUp(); });
+        }).catch(function (err) {
+          // MH-12: a sleeping origin gets one retry once /api/health answers.
+          if (!wakeRetried && !settled && isWakeFailure(err)) {
+            wakeRetried = true;
+            _wakingRetryBegin();
+            _afterBackendAwake().then(function () { _wakingRetryEnd(); ask(); },
+                                      function () { _wakingRetryEnd(); giveUp(); });
+            return;
+          }
+          /* Original stays pickable; that is a complete answer */ giveUp();
+        });
       }
       ask();
     }
@@ -7676,7 +7735,85 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
       if (ed && !ed.classList.contains("hidden")) _warmBackend();
     });
 
+    // ── MH-12: the waking panel and the one retry ────────────────
+    // The banner above is hidden by CSS (#backendBanner), so the panel is
+    // the visible face of the waking state. It shows only while a render
+    // request waits on a sleeping origin, never on the zero-backend landing
+    // alone, and it never takes input (pointer-events: none).
+    // "About 7 seconds": the production wake measured 7.0 s and 7.5 s on
+    // 2026-07-24 (read: vault projects/solar-archive.md, "Cold start: 29.9 s
+    // to 7.0 s"). Typical, not promised; no countdown.
+    var _WAKING_COPY = {
+      waking: "Waking the image server. It sleeps between visits; waking usually takes about 7 seconds.",
+      retrying: "The image server was asleep and missed the first request. It is waking now, and your preview will try once more on its own.",
+      still: "Still working. The image server is taking longer than usual to wake."
+    };
+    function _setWakingPanel(sunState, text) {
+      var panel = document.getElementById("wakingPanel");
+      if (!panel) return;
+      var status = document.getElementById("wakingStatus");
+      if (status && text) status.textContent = text;
+      panel.setAttribute("data-sun-state", sunState);
+      panel.setAttribute("aria-hidden", sunState === "hidden" ? "true" : "false");
+    }
+    function _showWakingPanel() {
+      if (!API_BASE) return;
+      var panel = document.getElementById("wakingPanel");
+      if (!panel) return;
+      var img = panel.querySelector("img[data-src]");
+      if (img && !img.getAttribute("src")) {
+        img.onerror = function () { img.style.display = "none"; };
+        img.src = img.getAttribute("data-src");
+      }
+      var retrying = _wakingRetrying > 0;
+      _setWakingPanel(retrying ? "retrying" : "waking", retrying ? _WAKING_COPY.retrying : _WAKING_COPY.waking);
+      if (!_wakingStillTimer) {
+        _wakingStillTimer = setTimeout(function () {
+          _wakingStillTimer = null;
+          var st = panel.getAttribute("data-sun-state");
+          if (st && st !== "hidden") _setWakingPanel(st, _WAKING_COPY.still);
+        }, WAKING_STILL_MS);
+      }
+    }
+    function _hideWakingPanel() {
+      if (_wakingStillTimer) { clearTimeout(_wakingStillTimer); _wakingStillTimer = null; }
+      _setWakingPanel("hidden");
+    }
+    function _wakingBegin() {
+      _wakingWaits++;
+      setTimeout(function () {
+        if (_wakingWaits > 0 && _healthChainActive && !state.backendOnline) _showWakingPanel();
+      }, WAKING_PANEL_DELAY_MS);
+    }
+    function _wakingEnd() {
+      _wakingWaits = Math.max(0, _wakingWaits - 1);
+      if (_wakingWaits === 0 || (state.backendOnline && _wakingRetrying === 0)) _hideWakingPanel();
+    }
+    function _wakingRetryBegin() { _wakingRetrying++; _showWakingPanel(); }
+    function _wakingRetryEnd() { _wakingRetrying = Math.max(0, _wakingRetrying - 1); }
+    // Resolves on the next onBackendOnline, rejects on offline or CORS.
+    // Starts a health chain unless one is already running.
+    function _afterBackendAwake() {
+      return new Promise(function (resolve, reject) {
+        _onlineWaiters.push({ ok: resolve, fail: reject });
+        state.backendOnline = false;
+        if (!_healthChainActive) { healthRetries = 0; checkBackendHealth(); }
+      });
+    }
+    function _healthVerdict(online) {
+      _healthChainActive = false;
+      var waiters = _onlineWaiters;
+      _onlineWaiters = [];
+      waiters.forEach(function (w) {
+        if (online) w.ok(); else w.fail(new Error("The server did not wake."));
+      });
+      // Online: the editor's own loading UI takes over (the panel fades
+      // out). A retry still in flight keeps the panel until it settles.
+      if (!online || _wakingRetrying === 0) _hideWakingPanel();
+    }
+
     function checkBackendHealth() {
+      _healthChainActive = true;
       setBannerState("checking", "Waking the telescope archive…", "", false);
 
       // Phase 1: lightweight health endpoint (no heavy app init)
@@ -7835,6 +7972,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
     function onBackendOnline() {
       state.backendOnline = true;
+      _healthVerdict(true);
       fetchBuildTime();
       // No user-visible "connected" banner: a visitor who never saw a
       // problem doesn't need to be told everything is fine. Collapse
@@ -7849,6 +7987,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
     function onBackendCORSBlocked() {
       state.backendOnline = false;
+      _healthVerdict(false);
       cspNotice.classList.remove("hidden");
       console.warn("[backend] CORS blocked: origin not in ALLOWED_ORIGINS.");
       setBannerState("offline",
@@ -7860,6 +7999,7 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
 
     function onBackendOffline() {
       state.backendOnline = false;
+      _healthVerdict(false);
       console.warn("[backend] " + API_BASE + " is not accepting connections.");
       setBannerState("offline",
         "We can't reach the archive right now.",
@@ -7988,9 +8128,11 @@ import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions
           // operator detail goes to the console only.
           if (err.message === "Failed to fetch" || err.message === "NetworkError when attempting to fetch resource.") {
             console.warn("[fetchWithTimeout] network error reaching " + API_BASE, err);
-            throw new Error(
+            var netErr = new Error(
               "We can't reach the archive right now. It usually wakes within a minute; try again shortly."
             );
+            netErr.wakeNetwork = true;   // MH-12: earns the one retry (api/waking.js)
+            throw netErr;
           }
           throw err;
         });

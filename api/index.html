@@ -373,6 +373,15 @@
     </div>
   </div>
 
+  <!-- MH-12 waking panel. Shown only while a render request waits on a
+       sleeping origin (solar-archive.js, _showWakingPanel); hidden by
+       data-sun-state="hidden" otherwise. It never takes input. The image is
+       an edge-served real Sun, loaded on first show only. -->
+  <div class="waking-panel" id="wakingPanel" data-sun-state="hidden" role="status" aria-live="polite" aria-hidden="true">
+    <img class="waking-sun" data-src="/asset/default/compare_rhef.webp" alt="" width="48" height="48" decoding="async">
+    <p class="waking-status" id="wakingStatus"></p>
+  </div>
+
   <!-- Workflow breadcrumb (commit 2 of the product-first refactor).
        Sticky-top container that hosts the back-pills + the master tier
        toggle. Empty/hidden by default; populated by JS as the step

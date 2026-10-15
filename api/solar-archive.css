@@ -8216,3 +8216,57 @@ body:has(#imageStage.loading) .field-cell {
      cell's own aria-label already says "Preview only". */
   .handoff-quad-rowhead .handoff-choice-badge { display: none; }
 }
+
+/* MH-12 waking panel: a small card shown while a render request waits on a
+   sleeping origin. It never takes input (pointer-events: none) and moves
+   only by opacity and scale; nothing animates a gradient
+   (vault projects/solar-archive.md:446-454). Sits at the top so it clears
+   the bottom toast and the sticky editor action bar. */
+.waking-panel {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 16px 10px 10px;
+  background: var(--bg-card);
+  border: 1px solid rgba(247,168,37,0.3);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) scale(0.96);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out, visibility 0s linear 0.6s;
+}
+.waking-panel[data-sun-state="waking"],
+.waking-panel[data-sun-state="retrying"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) scale(1);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out, visibility 0s;
+}
+.waking-panel .waking-sun {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.waking-panel .waking-status { margin: 0; }
+/* Reduced motion: a static image and text, no scale, no fade. */
+@media (prefers-reduced-motion: reduce) {
+  .waking-panel,
+  .waking-panel[data-sun-state="waking"],
+  .waking-panel[data-sun-state="retrying"] {
+    transition: none;
+    transform: translateX(-50%);
+  }
+}
