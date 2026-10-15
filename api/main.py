@@ -714,6 +714,12 @@ import sys
 import threading
 
 app = FastAPI(title=APP_NAME)
+# MH-16: buyer-visible routes raise through one envelope, {"code", "detail"}.
+from api.errors import (  # noqa: E402
+    ApiError, api_error, api_error_handler,
+    E_BAD_REQUEST, E_PREVIEW_FAILED, E_SERVER_BUSY,
+)
+app.add_exception_handler(ApiError, api_error_handler)
 
 
 # ── Render-cache janitor ─────────────────────────────────────────────
@@ -2085,7 +2091,7 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
         if _reason:
             return JSONResponse(
                 status_code=200,
-                content={"preview_url": None, "error": _reason},
+                content={"preview_url": None, "error": _reason, "code": E_PREVIEW_FAILED},
                 headers=CORS_HEADERS,
             )
         # If already generating, return partial results so UI can show JPG while RHEF runs
@@ -2159,7 +2165,7 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
             headers=CORS_HEADERS,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        api_error(400, E_BAD_REQUEST, str(e))
 
 
 
@@ -2676,9 +2682,9 @@ def _check_ram_headroom(min_free_mb: int = 400) -> None:
         env_min = int(settings.env("RAM_HEADROOM_MB", str(min_free_mb)))
         free_mb = mem.available / (1024 * 1024)
         if free_mb < env_min:
-            raise HTTPException(
-                status_code=503,
-                detail=(
+            api_error(
+                503, E_SERVER_BUSY,
+                (
                     f"Server is busy ({free_mb:.0f} MB free; need ≥{env_min} MB). "
                     f"Try one of the pre-rendered famous moments above, or try again in a minute."
                 ),
@@ -2726,10 +2732,10 @@ async def start_generate(request: Request, background_tasks: BackgroundTasks, pa
         if isinstance(_sky, dict) else {}
     variant = _dim_variant(look, layers) if format_type == "dimensional" else ""
     if format_type == "dimensional" and int(wavelength) not in _DIM_CHANNELS:
-        raise HTTPException(status_code=400,
-                            detail=f"{wavelength} A is not available as a dimensional print")
+        api_error(400, E_BAD_REQUEST,
+                  f"{wavelength} A is not available as a dimensional print")
     if not date or not wavelength:
-        raise HTTPException(status_code=400, detail="Missing date or wavelength")
+        api_error(400, E_BAD_REQUEST, "Missing date or wavelength")
     # Fold time into the date string the worker receives so we don't
     # have to plumb a new arg through `run_generation_task` and its
     # downstream callers. fido_fetch_map already handles ISO datetimes.
@@ -5658,6 +5664,7 @@ _FRONTEND_MODULES = {
     "bundler.js",
     "motion.js",
     "waking.js",
+    "messages.js",
 }
 
 @app.get("/{module_name}")
