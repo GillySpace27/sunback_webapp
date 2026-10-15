@@ -3,8 +3,8 @@
 
    Provenance you can see: what the visitor's preview actually is, stated
    from facts the page already holds. Honest by construction:
-     - the time is the time REQUESTED; the FITS observation time is not
-       carried to the client yet, so the card says so rather than guess;
+     - the time is the FITS DATE-OBS when the preview endpoint reported it
+       (obs_time_utc), otherwise the time REQUESTED, labelled as such;
      - Enhanced is RHEF output, a visualization, not a calibrated radiance.
 
    Pure functions, no DOM: tested by api/scripts/test_observation_card.mjs.
@@ -42,7 +42,10 @@ export function observationRows(f) {
     var gloss = WAVELENGTH_GLOSSES[wl];
     rows.push(["Wavelength", wl + " Å" + (gloss ? ": " + gloss : "")]);
   }
-  if (f.date) {
+  if (f.observed && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(f.observed)) {
+    // The FITS DATE-OBS of the frame the archive returned.
+    rows.push(["Observed", f.observed.replace("T", " ").replace("Z", " UT")]);
+  } else if (f.date) {
     rows.push(["Requested", f.date + (f.time ? " " + f.time + " UT" : "") +
       " (nearest available frame)"]);
   }
@@ -61,6 +64,18 @@ export function canvasLabel(f) {
   return parts.join(", ");
 }
 
+// Link to the 1200x1600 certificate for this observation, or "" when the
+// date or wavelength is unknown.
+export function certificateHref(f) {
+  f = f || {};
+  var wl = parseInt(f.wavelength, 10);
+  if (!wl || !/^\d{4}-\d{2}-\d{2}$/.test(f.date || "")) return "";
+  var q = "d=" + encodeURIComponent(f.date) + "&wl=" + wl;
+  if (/^\d{2}:\d{2}$/.test(f.time || "")) q += "&t=" + encodeURIComponent(f.time);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(f.observed || "")) q += "&obs=" + encodeURIComponent(f.observed);
+  return "/api/certificate?" + q;
+}
+
 // Fills `el` (a container) with a definition list using textContent only.
 export function renderObservationCard(el, f) {
   if (!el) return;
@@ -76,5 +91,45 @@ export function renderObservationCard(el, f) {
     dl.appendChild(dt); dl.appendChild(dd);
   });
   el.appendChild(h); el.appendChild(dl);
+  var href = certificateHref(f);
+  if (href) {
+    var a = doc.createElement("a");
+    a.className = "observation-card-cert";
+    a.href = href;
+    a.setAttribute("download", "");
+    a.textContent = "Download certificate (PNG)";
+    el.appendChild(a);
+  }
   el.hidden = false;
+}
+
+// SU-18: the HelioSoftware provenance object (spec/provenance.md, version 1,
+// gilly.space PR #43). Flat string-or-null fields about the picture, never
+// about the person. `rhef` is the RHEF stamp line byte for byte and is only
+// set when the caller has it (the store does not compute it client-side), so
+// an RHEF-tier export without a stamp says null rather than inventing one.
+// `citation` stays null until Gilly sets the wording in attribution.json.
+export var SPEC_CREDIT = "Imagery courtesy of NASA/SDO and the AIA science team.";
+export var SPEC_DISCLAIMER = "RHEF output is a visualization, not a calibrated radiance.";
+
+export function helioProvenance(o) {
+  o = o || {};
+  var wl = parseInt(o.wavelength, 10);
+  var observed = null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(o.dateStr || "")) {
+    var t = /^\d{2}:\d{2}$/.test(o.timeStr || "") ? o.timeStr : "00:00";
+    observed = o.dateStr + "T" + t + ":00Z";
+  }
+  var rhefTier = o.editorFilter === "rhef" || o.editorFilter === "hq_rhef";
+  var p = {
+    product: "my-heliogram",
+    version: o.version || "unknown",
+    instrument: wl ? "SDO/AIA " + wl : "unknown",
+    observed: observed,
+    credit: SPEC_CREDIT,
+    rhef: o.rhefStamp || null,
+    citation: null
+  };
+  if (rhefTier) p.disclaimer = SPEC_DISCLAIMER;
+  return p;
 }

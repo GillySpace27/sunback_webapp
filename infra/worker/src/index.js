@@ -109,6 +109,23 @@ export function shareIdentity(search) {
   return { d, t, wl };
 }
 
+// MH-19: schema.org Product for a shared day. No price or offer: the store
+// owns those and none is invented here. "<" is escaped so the JSON can never
+// close the script element.
+export function productJsonLd(id, origin) {
+  const card = `${origin}/api/og_card?d=${id.d}&t=${encodeURIComponent(id.t)}&wl=${id.wl}`;
+  const ld = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: `My Heliograph: the Sun on ${id.d}`,
+    description: `The real image of the Sun on ${id.d}, AIA ${id.wl} A, from NASA/SDO, printed as art.`,
+    image: card,
+    brand: { "@type": "Brand", name: "My Heliograph" },
+    url: `${origin}/store/?d=${id.d}&t=${encodeURIComponent(id.t)}&wl=${id.wl}`,
+  };
+  return JSON.stringify(ld).replace(/</g, "\\u003c");
+}
+
 // Rewrites og:image, twitter:image and og:title on the HTML the Static Assets
 // binding returns. Anything unexpected returns the page untouched.
 function withShareMeta(resp, url) {
@@ -122,6 +139,9 @@ function withShareMeta(resp, url) {
     .on('meta[property="og:image"]', set(card))
     .on('meta[name="twitter:image"]', set(card))
     .on('meta[property="og:title"]', set(title))
+    .on("head", { element(e) {
+      e.append(`<script type="application/ld+json" id="productJsonLd">${productJsonLd(id, url.origin)}</script>`, { html: true });
+    } })
     .transform(resp);
 }
 

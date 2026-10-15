@@ -8390,3 +8390,4 @@ body:has(#imageStage.loading) .field-cell {
 .observation-card dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
 .observation-card dt { opacity: 0.8; }
 .observation-card dd { margin: 0; }
+.observation-card-cert { display: inline-block; margin-top: 8px; font-size: 0.8rem; }

@@ -2599,10 +2599,15 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     // The time is the one the visitor requested (_solarTimeValue), not the
     // FITS DATE-OBS, which the client does not have; the card says so.
     var _obsFacts = null;
+    var _obsUtc = null;
+    // The FITS DATE-OBS the preview endpoint reports (null when unknown).
+    function _noteObsUtc(data) {
+      _obsUtc = (data && typeof data.obs_time_utc === "string") ? data.obs_time_utc : null;
+    }
     function _syncObservationCard() {
       if (!_obsFacts) return;
       var f = { wavelength: _obsFacts.wavelength, date: _obsFacts.date,
-                time: _solarTimeValue(), look: state.editorFilter };
+                time: _solarTimeValue(), look: state.editorFilter, observed: _obsUtc };
       try {
         renderObservationCard(document.getElementById("observationCard"), f);
         if (solarCanvas) solarCanvas.setAttribute("aria-label", canvasLabel(f));
@@ -3153,6 +3158,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         })
         .then(function(result) {
           _recordQueueDepth(result.data);
+          if (result.data.preview_url) _noteObsUtc(result.data);
           if (result.data.preview_url) {
             if (onProgress) onProgress(85, "Loading preview images…");
             var rawUrl = result.data.preview_raw_url ? API_BASE + result.data.preview_raw_url : null;
@@ -3213,6 +3219,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
                   .then(function(pollResult) {
                     var d = pollResult.data;
                     _recordQueueDepth(d);
+                    if (d.preview_url) _noteObsUtc(d);
                     if (d.preview_url) {
                       if (onProgress) onProgress(85, "Loading preview images…");
                       var rawU = d.preview_raw_url ? API_BASE + d.preview_raw_url : null;
