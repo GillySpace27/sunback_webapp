@@ -26,7 +26,7 @@ export default function Loader() {
         fetchPriority="high"
       />
       <span className="loader-spark" aria-hidden="true" />
-      <span className="visually-hidden">Loading My Heliograph</span>
+      <span className="visually-hidden">Loading My Heliogram</span>
     </div>
   );
 }

@@ -1,6 +1,6 @@
-# My Heliograph — web3d
+# My Heliogram — web3d
 
-Cinematic 3D counterpart to the My Heliograph shop. Concept: **"Eight Minutes"** —
+Cinematic 3D counterpart to the My Heliogram shop. Concept: **"Eight Minutes"** —
 light leaves the Sun on your chosen date, crosses the dark, is caught through a
 wavelength filter, and becomes an object you can hold.
 

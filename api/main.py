@@ -4246,7 +4246,7 @@ async def root():
 _404_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Page not found — My Heliograph</title>
+<title>Page not found — My Heliogram</title>
 <style>
   html,body{height:100%;margin:0;background:#141210;color:#e8e2d0;
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;}
@@ -4263,7 +4263,7 @@ _404_HTML = """<!doctype html>
   <div class="sun"></div>
   <h1>This page has set.</h1>
   <p>We couldn't find what you were looking for.</p>
-  <a href="/">Back to My Heliograph &rarr;</a>
+  <a href="/">Back to My Heliogram &rarr;</a>
 </div></body></html>"""
 
 
