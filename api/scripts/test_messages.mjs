@@ -25,7 +25,7 @@ assert.strictEqual(buyerMessage("no_such_code"), GENERIC_BUYER_MESSAGE);
 
 for (const [code, text] of Object.entries(BUYER_MESSAGES)) {
   assert.ok(text && text.length < 200, `${code}: one short sentence or two`);
-  assert.ok(!/—/.test(text), `${code}: no em dash`);
+  assert.ok(!text.includes(String.fromCharCode(0x2014)), `${code}: no em dash`);
   assert.ok(!/https?:|\.com|\.dev|fly\.|localhost|[A-Z]{3,}_[A-Z]/.test(text), `${code}: no host or env var name`);
   assert.ok(!/attempt \d|\(\d+\/\d+\)/i.test(text), `${code}: no attempt counter`);
   assert.ok(!/\b(HQ|RHEF|MQ|Filtered)\b/.test(text), `${code}: buyer words are Original and Enhanced only`);
