@@ -18,7 +18,8 @@ CHECKS=( no_tracked_env py_selfchecks node_selfchecks routes_snapshot import_smo
          store_syntax worker_syntax whitelist_parity web3d_typecheck
          fixtures_pii claude_md_paths
          playwright_pins
-         vendor_drift hsts_agree release_gates_copy no_em_dash )
+         vendor_drift hsts_agree release_gates_copy no_em_dash
+         error_codes )
 
 # Importing api.main starts the render-cache janitor (deletes files older than
 # two days under SOLAR_ARCHIVE_OUTPUT_DIR) and creates default_cache/ under
@@ -163,6 +164,30 @@ if py != sh:
           % (sorted(py - sh) or "none", sorted(sh - py) or "none"))
     sys.exit(1)
 print("%d modules listed identically in main.py and build-public.sh" % len(py))
+PY
+}
+
+# MH-16: every error code a Python module defines (E_NAME = "code") has buyer
+# text in api/messages.js. MESSAGES_JS overrides the path (used to prove the
+# check fails).
+check_error_codes() {
+  MESSAGES_JS="${MESSAGES_JS:-api/messages.js}" "$PYTHON" - <<'PY'
+import glob, os, re, sys
+codes = {}
+for path in sorted(glob.glob("api/*.py")):
+    for name, code in re.findall(r'^(E_[A-Z0-9_]+)\s*=\s*"([a-z0-9_]+)"', open(path, encoding="utf-8").read(), re.M):
+        codes[code] = "%s %s" % (path, name)
+js = open(os.environ["MESSAGES_JS"], encoding="utf-8").read()
+block = re.search(r"BUYER_MESSAGES\s*=\s*\{(.*?)\};", js, re.S)
+if not codes or block is None:
+    print("found no E_* codes in api/*.py or no BUYER_MESSAGES in %s" % os.environ["MESSAGES_JS"])
+    sys.exit(1)
+keys = set(re.findall(r"^\s*([a-z0-9_]+)\s*:", block.group(1), re.M))
+missing = sorted(c for c in codes if c not in keys)
+if missing:
+    print("no buyer message for: %s" % ", ".join("%s (%s)" % (c, codes[c]) for c in missing))
+    sys.exit(1)
+print("%d error codes, each with buyer text in api/messages.js" % len(codes))
 PY
 }
 

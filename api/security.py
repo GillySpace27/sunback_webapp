@@ -32,7 +32,9 @@ import threading
 from typing import Iterable, Optional
 from urllib.parse import urlparse
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request  # noqa: F401  (HTTPException kept for importers)
+
+from api.errors import E_BETA_MODE_BLOCKED, E_ORIGIN_FORBIDDEN, E_RATE_LIMITED, api_error
 
 
 # ────────────────────────────────────────────────
@@ -107,9 +109,9 @@ def enforce_origin(request: Request, allow_missing: bool = False) -> None:
     if referer_origin and referer_origin in allowed:
         return
 
-    raise HTTPException(
-        status_code=403,
-        detail="Origin not allowed. This endpoint only accepts requests from the Solar Archive frontend.",
+    api_error(
+        403, E_ORIGIN_FORBIDDEN,
+        "Origin not allowed. This endpoint only accepts requests from the Solar Archive frontend.",
     )
 
 
@@ -168,9 +170,9 @@ def enforce_rate_limit(
             del bucket[:i]
         if len(bucket) >= max_calls:
             retry_after = max(1, int(bucket[0] + window_seconds - now))
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded. Try again in {retry_after}s.",
+            api_error(
+                429, E_RATE_LIMITED,
+                f"Rate limit exceeded. Try again in {retry_after}s.",
                 headers={"Retry-After": str(retry_after)},
             )
         bucket.append(now)
@@ -207,7 +209,7 @@ def enforce_beta_mode_block(reason: str = "BETA_MODE is active") -> None:
     remain blocked.
     """
     if _is_beta_mode():
-        raise HTTPException(
-            status_code=403,
-            detail=f"This endpoint is disabled during beta. {reason}",
+        api_error(
+            403, E_BETA_MODE_BLOCKED,
+            f"This endpoint is disabled during beta. {reason}",
         )

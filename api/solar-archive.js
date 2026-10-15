@@ -24,6 +24,8 @@ import { saveDesignLocally, initBundler } from "./bundler.js";
 import { initMotion, scrollToTarget, refreshTriggers, sunSurge, initInteractions } from "./motion.js";
 // MH-12: which failures earn the one automatic retry after a cold start.
 import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
+// MH-16: buyer text for the error codes in api/errors.py.
+import { buyerMessage } from "./messages.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -3177,7 +3179,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
                         else setTimeout(poll, _pollDelay(attempts));
                         return;
                       }
-                      reject(new Error(d.error || "No VSO data for this date"));
+                      reject(new Error(d.code ? buyerMessage(d.code, d.error) : (d.error || "No VSO data for this date")));
                       return;
                     }
                     attempts++;
@@ -3210,7 +3212,9 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
               setTimeout(poll, 2500);
             });
           }
-          return Promise.reject(new Error(result.data.error || result.data.detail || "No preview_url"));
+          return Promise.reject(new Error(result.data.code
+            ? buyerMessage(result.data.code, result.data.error || result.data.detail)
+            : (result.data.error || result.data.detail || "No preview_url")));
         })
         .then(function(urls) {
           return new Promise(function(resolve, reject) {
@@ -8147,11 +8151,21 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         if (!resp.ok) {
           return resp.text().then(function(t) {
             var detail = t;
+            var code = null;
             try {
               var parsed = JSON.parse(t);
               detail = parsed.detail || parsed.message || t;
+              code = typeof parsed.code === "string" ? parsed.code : null;
             } catch (_e) { /* use raw text */ }
-            throw new Error("HTTP " + resp.status + ": " + detail);
+            if (!code) throw new Error("HTTP " + resp.status + ": " + detail);
+            // MH-16 envelope: buyer text in the message, operator detail
+            // on the error and in the console only.
+            console.warn("[api] " + resp.status + " " + code + ": " + detail);
+            var err = new Error(buyerMessage(code));
+            err.code = code;
+            err.httpStatus = resp.status;
+            err.detail = detail;
+            throw err;
           });
         }
         return resp.json();
@@ -8177,8 +8191,12 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         var _pollTick = 0;   // drives the backoff below
         (function tick() {
           if (Date.now() - started >= deadlineMs) {
-            reject(new Error("Rendering timed out after " +
-              Math.round(deadlineMs / 60000) + " min — the backend may be overloaded. Try again."));
+            // MH-16: HQ timeouts carry their own code and buyer message;
+            // the operator text goes to the console.
+            console.warn("[pollStatus] rendering timed out after " + Math.round(deadlineMs / 60000) + " min");
+            var hqErr = new Error(buyerMessage("hq_timeout"));
+            hqErr.code = "hq_timeout";
+            reject(hqErr);
             return;
           }
           fetchWithTimeout(url, { method: "GET" }, 15000)
@@ -8323,7 +8341,9 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         if (_selStale(tok)) return null;
         var msg = (err && err.message) || String(err);
         var isTransient =
-          /Failed to fetch|NetworkError|timeout|timed out|5\d\d|bad gateway|service unavailable/i.test(msg);
+          /Failed to fetch|NetworkError|timeout|timed out|5\d\d|bad gateway|service unavailable/i.test(msg) ||
+          // MH-16: coded errors carry buyer text, so classify them by status and code.
+          !!(err && (err.httpStatus >= 500 || err.code === "hq_timeout"));
         if (_attempt < 2 && isTransient) {
           // Silent one-shot retry: keep state.hqFetching true so the UI
           // continues showing the generating state; schedule a retry after a
@@ -8346,7 +8366,9 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         if (typeof updateFilterTimelineUI === "function") updateFilterTimelineUI();
         hideProgress();
         updateFilterStatusLine("HQ generation failed: " + msg, "error");
-        showToast("HQ failed: " + msg + " — tap \u201cEnhanced\u201d to retry.", "error");
+        showToast(err && err.code
+          ? msg + " Tap \u201cEnhanced\u201d to try again."
+          : "HQ failed: " + msg + ". Tap \u201cEnhanced\u201d to retry.", "error");
         // Resolve rather than reject: HQ is a background upgrade, and an
         // unhandled rejection here used to look like a hung app.
         return null;
@@ -12316,7 +12338,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         card.innerHTML =
           '<div class="product-preview"><span class="product-icon"><i class="fas ' + p.icon + '"></i></span></div>' +
           '<div class="product-info">' +
-            '<div class="product-name">' + statusDot + p.name + "</div>" +
+            '<div class="product-name">' + statusDot + escapeHtml(p.name) + "</div>" +
             '<div class="product-desc">' + p.desc + "</div>" +
             '<div class="product-price" data-product-id="' + p.id + '">' + productPriceGridHtml(p) + "</div>" +
             '<button class="product-buy-btn product-select-btn" data-product-id="' + p.id + '" aria-expanded="false"' +
@@ -13336,7 +13358,10 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         }
         var thanksTitleEl = document.getElementById("betaThanksTitle");
         if (thanksTitleEl && !thanksTitleEl.textContent.trim()) {
-          thanksTitleEl.textContent = "Thanks for testing My Heliograph!";
+          // DRAFT copy (MH-16 Step 4.5): tone is Gilly's call. Was
+          // "Thanks for testing My Heliograph!", which read as "not a
+          // real shop yet" to a buyer (vault projects/solar-archive.md:806).
+          thanksTitleEl.textContent = "Your design is saved";
         }
         var thanksBodyEl = document.getElementById("betaThanksBody");
         if (thanksBodyEl && !thanksBodyEl.textContent.trim()) {
@@ -14116,8 +14141,8 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         : "";
 
       showModal(
-        "Set up your " + product.name,
-        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + product.name + "</strong> and hand you a secure Shopify checkout link with your size and color already locked in — you pay there, not here. " +
+        "Set up your " + escapeHtml(product.name),
+        "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + escapeHtml(product.name) + "</strong> and hand you a secure Shopify checkout link with your size and color already locked in; you pay there, not here. " +
           "The checkout page's web address will show our Shopify store name rather than myheliograph.com; that's expected, it's Shopify's own secure checkout, not a different site.<br><br>" +
           hqNote + mockNote +
           // Delivery window = production 2–7 + US transit 3–6 business
@@ -14174,7 +14199,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
       // Step IDs + mechanics unchanged.
       checkoutProgress.innerHTML =
         '<div style="font-weight:600;margin-bottom:12px;font-size:1rem;">' +
-          '<i class="fas fa-shopping-cart"></i> Preparing your ' + product.name + '…' +
+          '<i class="fas fa-shopping-cart"></i> Preparing your ' + escapeHtml(product.name) + '…' +
         '</div>' +
         '<div class="checkout-step active" id="ckStep1">' +
           '<i class="fas fa-spinner fa-spin"></i> <span>Preparing your print file…</span>' +
@@ -14294,7 +14319,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
               '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px;" id="ckReassurance">' +
                 reassurance +
               '</p>' +
-              '<a href="' + shopifyUrl + '" target="_blank" rel="noopener" class="btn-shopify-checkout" id="ckShopifyCta">' +
+              '<a href="' + escapeHtml(shopifyUrl) + '" target="_blank" rel="noopener" class="btn-shopify-checkout" id="ckShopifyCta">' +
                 '<i class="fab fa-shopify"></i>' + (timedOut ? ' Browse the store' : ' Complete Purchase on Shopify') +
               '</a>' +
               '<div style="margin-top:10px;">' +
@@ -14332,7 +14357,9 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
         // `msg` itself stays the real detail for the Sentry/GA beacons
         // below, truncated there same as always.
         var displayMsg;
-        if (lower.includes("rate limit") || lower.includes("429")) {
+        if (err && err.code) {
+          displayMsg = buyerMessage(err.code);   // MH-16 envelope
+        } else if (lower.includes("rate limit") || lower.includes("429")) {
           displayMsg = "Rate limit exceeded. Please wait a few minutes and try again.";
         } else if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
           displayMsg = "Network error. Please check your internet connection and try again.";

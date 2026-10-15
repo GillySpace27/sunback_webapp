@@ -22,6 +22,14 @@ needs Gilly's yes.
 - Waking panel (MH-12): while a render request waits on a sleeping origin,
   a small non-blocking card says so; a preview that met the sleeping origin
   is retried once after `/api/health` answers (`api/waking.js`).
+- One error envelope (MH-16): buyer-visible refusals (origin, rate limit,
+  beta block, server busy, bad request, preview failure) return
+  `{"code", "detail"}` with unchanged status codes (`api/errors.py`), and the
+  store shows buyer text for each code from `api/messages.js` (DRAFT copy,
+  tone waiting on Gilly). Full-resolution render timeouts get their own code.
+  `product.name` and the checkout link are escaped where they enter HTML.
+  The beta thank-you title "Thanks for testing My Heliograph!" became
+  "Your design is saved" (DRAFT, Gilly's call).
 - Replace this heading with the deploy date when the first prod promotion
   carries these changes.
 
