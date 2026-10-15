@@ -6752,7 +6752,7 @@ import { buyerMessage } from "./messages.js";
       _syncUrlParams();
       var url = location.href;
       var dateTxt = (dateInput && dateInput.value) || "";
-      var title = "My Heliogram" + (dateTxt ? " — the Sun on " + dateTxt : "");
+      var title = "My Heliogram" + (dateTxt ? ": the Sun on " + dateTxt : "");
       if (navigator.share) {
         // Fire-and-forget: a user-cancelled share is not an error worth
         // surfacing, and most browsers reject the promise on cancel.
