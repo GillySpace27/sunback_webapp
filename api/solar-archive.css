@@ -8375,3 +8375,17 @@ body:has(#imageStage.loading) .field-cell {
     transform: translateX(-50%);
   }
 }
+
+/* MH-17 overlay: off by default; rings sit over the 40px preview well only. */
+.hek-time-scrub-well { position: relative; }
+.hek-event-ring {
+  position: absolute;
+  width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid #ffd24a;
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.hek-show-events { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--text-dim); }
+.hek-event-chip { margin-left: 4px; padding: 1px 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 0.7rem; }

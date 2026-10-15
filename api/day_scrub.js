@@ -48,3 +48,29 @@ export function eventTicks(events) {
     };
   });
 }
+
+// ── Optional overlay: where the ranked events happened on the Sun ─────────
+// The scrubber's frame is a Helioviewer screenshot centred on the Sun with a
+// field of view of exactly 3000 arcsec across (helioviewer_thumb, image_scale
+// 12). Events carry helioprojective hpc_x, hpc_y in arcsec (west and north
+// positive), so a ring sits at 50 + x/3000 along the width and 50 - y/3000
+// down the height. Events without a position, or outside the frame, get no
+// ring. The overlay is DOM laid over the preview well, never over the print
+// canvas, and is off by default.
+export var FRAME_FOV_ARCSEC = 3000;
+
+export function eventRings(events) {
+  var half = FRAME_FOV_ARCSEC / 2;
+  return (events || []).filter(function (ev) {
+    return ev && !ev.fallback && typeof ev.hpc_x === "number" && typeof ev.hpc_y === "number" &&
+      isFinite(ev.hpc_x) && isFinite(ev.hpc_y) &&
+      Math.abs(ev.hpc_x) <= half && Math.abs(ev.hpc_y) <= half;
+  }).map(function (ev) {
+    return {
+      rank: ev.rank,
+      left: Math.round((50 + ev.hpc_x / FRAME_FOV_ARCSEC * 100) * 10) / 10,
+      top: Math.round((50 - ev.hpc_y / FRAME_FOV_ARCSEC * 100) * 10) / 10,
+      title: tickTitle(ev),
+    };
+  });
+}
