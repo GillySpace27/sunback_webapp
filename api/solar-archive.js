@@ -27,6 +27,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 // MH-16: buyer text for the error codes in api/errors.py.
 import { buyerMessage } from "./messages.js";
 import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.js";
+import { eventTicks } from "./day_scrub.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -4078,9 +4079,14 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
              '<div class="hek-time-scrub">' +
                '<label for="hekTimeScrub" class="hek-time-exact-label">Or scan the day:</label>' +
                '<div class="hek-time-scrub-row">' +
-                 '<input type="range" id="hekTimeScrub" class="hek-time-scrub-input"' +
-                   ' min="0" max="23" step="1" value="' + escapeHtml(display.slice(0, 2)) + '"' +
-                   ' aria-label="Scan hours of the day, 0 to 23 UTC">' +
+                 // MH-17: the track and, under it, the day's ranked events
+                 // as ticks (aria-hidden: the event tiles are the list).
+                 '<div class="hek-time-scrub-track">' +
+                   '<input type="range" id="hekTimeScrub" class="hek-time-scrub-input"' +
+                     ' min="0" max="23" step="1" value="' + escapeHtml(display.slice(0, 2)) + '"' +
+                     ' aria-label="Scan hours of the day, 0 to 23 UTC">' +
+                   '<div class="hek-time-scrub-ticks" id="hekTimeScrubTicks" aria-hidden="true"></div>' +
+                 '</div>' +
                  '<div class="hek-time-scrub-well" id="hekTimeScrubWell" aria-hidden="true"></div>' +
                '</div>' +
              '</div>' +
@@ -4547,9 +4553,31 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         img.src = URL.createObjectURL(blob);
       }).catch(function () { _scrubPrefetchInFlight = Math.max(0, _scrubPrefetchInFlight - 1); });
     }
+    // MH-17: the day's ranked events (the tiles above) as ticks along the
+    // scrubber. A tick click snaps the scrubber to that hour and picks that
+    // event's tile, so the time set is the event's own minute.
+    function _renderScrubTicks(scrub) {
+      var strip = document.getElementById("hekTimeScrubTicks");
+      if (!strip) return;
+      strip.innerHTML = "";
+      eventTicks(_hekCurrentEvents).forEach(function (t) {
+        var tick = document.createElement("span");
+        tick.className = "hek-time-scrub-tick" + (t.rank === 1 ? " is-top" : "");
+        tick.style.left = t.pct + "%";
+        tick.title = t.title;
+        tick.addEventListener("click", function () {
+          scrub.value = String(t.hour);
+          _scrubShowHour(t.hour);
+          var tile = hekTileGrid && hekTileGrid.querySelector('.hek-tile[data-hek-rank="' + t.rank + '"]');
+          if (tile) _pickEventTile(tile);
+        });
+        strip.appendChild(tick);
+      });
+    }
     function _wireTimeScrubber() {
       var scrub = document.getElementById("hekTimeScrub");
       if (!scrub) return;
+      _renderScrubTicks(scrub);
       scrub.addEventListener("input", function () {
         var hour = parseInt(scrub.value, 10);
         clearTimeout(_scrubDebounceTimer);

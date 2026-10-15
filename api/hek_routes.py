@@ -95,6 +95,25 @@ def _float_or(value, default: float = 0.0) -> float:
         return default
 
 
+def _coord_or_none(value) -> Optional[float]:
+    """A helioprojective coordinate in arcsec, or None when HEK has none.
+
+    Not _float_or: its "missing" sentinels (anything <= -1) are real
+    coordinates here, since half the disk has negative hpc_x or hpc_y.
+    """
+    try:
+        if value is None or getattr(value, "mask", False) is True:
+            return None
+        if hasattr(value, "value"):
+            value = value.value
+        if hasattr(value, "item") and not isinstance(value, (int, float)):
+            value = value.item()
+        f = float(value)
+        return None if f != f else f
+    except (TypeError, ValueError):
+        return None
+
+
 def _row_time(row, key: str) -> Optional[str]:
     """Pull an HEK time column and return ISO-8601 'YYYY-MM-DDTHH:MM:SS' UTC."""
     try:
@@ -224,6 +243,10 @@ def _query_hek(date_str: str) -> Dict[str, Any]:
                 # candidates whose chosen time actually falls on date_str.
                 if not cand["time_iso"].startswith(date_str):
                     continue
+                # MH-17: where on the disk HEK places the event (arcsec), or
+                # None when the row does not say. Additive response keys.
+                cand.setdefault("hpc_x", _coord_or_none(_safe_get(row, "hpc_x")))
+                cand.setdefault("hpc_y", _coord_or_none(_safe_get(row, "hpc_y")))
                 candidates.append(cand)
         except Exception as e:
             errors.append(f"{code}:{type(e).__name__}:{e}")
@@ -527,6 +550,9 @@ def _candidate_to_event(cand: Dict[str, Any], rank_index: int, total_picks: int)
         "intensity": cand.get("intensity"),
         "intensity_label": cand.get("intensity_label"),
         "on_disk": cand.get("on_disk"),  # FE only: drives 193 (disk) vs 304 (limb)
+        # MH-17: helioprojective position in arcsec, None when unknown.
+        "hpc_x": cand.get("hpc_x"),
+        "hpc_y": cand.get("hpc_y"),
         "frm_name": cand.get("frm_name"),
         "fallback": False,
     }

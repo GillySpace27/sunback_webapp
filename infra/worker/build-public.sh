@@ -20,7 +20,7 @@ mkdir -p "$OUT"
 # whitelist mirrors api/main.py so .py source is never served.
 for f in solar-archive.js solar-archive.css \
          state.js products.js colors.js mockups.js feedback.js stats.js bundler.js \
-         motion.js waking.js messages.js editor_compare.js \
+         motion.js waking.js messages.js editor_compare.js day_scrub.js \
          favicon.svg favicon.ico favicon-16.png favicon-32.png apple-touch-icon.png \
          robots.txt sitemap.xml; do
   cp "$API_DIR/$f" "$OUT/$f"

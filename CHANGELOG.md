@@ -38,6 +38,10 @@ needs Gilly's yes.
   product", plain links that also switch the step machine; a GA4
   `hero_door_chosen` event only after cookie consent. Screenshots wait on
   Gilly's review.
+- Scrub your day (MH-17): the existing "Or scan the day" scrubber shows the
+  day's ranked HEK events as ticks (`api/day_scrub.js`); a tick picks that
+  event. `/api/hek/best_time` events gain `hpc_x` and `hpc_y` (arcsec, or
+  null when HEK gives no position), additive keys for the later overlay.
 - Replace this heading with the deploy date when the first prod promotion
   carries these changes.
 
