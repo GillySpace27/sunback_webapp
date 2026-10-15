@@ -620,6 +620,37 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
       window.SolarArchive.popStep = popStep;
     } catch (_e) {}
 
+    // ── Hero front doors (MH-13) ────────────────────────────────
+    // Plain links in the hero (zero-JS: anchors to #yourDay and
+    // #productSection). With JS each door switches the step machine to its
+    // step; the date door then focuses the date field, which is never
+    // filled or submitted on the visitor's behalf. A GA4 event names the
+    // door, only after cookie consent (gtag exists only after accept).
+    (function initHeroDoors() {
+      document.querySelectorAll(".hero-door[data-door]").forEach(function (door) {
+        door.addEventListener("click", function (e) {
+          var which = door.getAttribute("data-door");
+          if (window.gtag && _cookieConsentState() === "accept") {
+            try { window.gtag("event", "hero_door_chosen", { door: which }); } catch (_e) {}
+          }
+          if (which === "product") {
+            e.preventDefault();
+            if (state.currentStep !== "product") setStep("product");
+            else _scrollToEl(document.getElementById("productSection"), "start");
+          } else if (which === "date") {
+            e.preventDefault();
+            if (state.currentStep !== "image") setStep("image");
+            setTimeout(function () {
+              var card = document.getElementById("yourDay");
+              _scrollToEl(card, "center");
+              var input = document.getElementById("vibeBirthdayInput");
+              try { if (input) input.focus({ preventScroll: true }); } catch (_e) {}
+            }, 60);
+          }
+        });
+      });
+    })();
+
     // ── Workflow breadcrumb renderer ────────────────────────────
     // Populates #workflowBreadcrumb with back-pills based on the
     // current step + what's been locked in (state.selectedProduct,
@@ -4693,6 +4724,37 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
     // need touching. Re-enable a MEDIUM-res (not full) upgrade here if the
     // thumbnails ever look too soft.
     function _upgradeCardToFull(_card, _tier) { /* no-op — see note above */ }
+    // MH-13: with a product chosen first (hero "Pick a product") and no Sun
+    // installed yet, each famous-moment card shows ITS Sun on that product.
+    // drawProductMockup takes the card's image through opts.fallbackSrc, which
+    // it consults only while state.originalImage is empty. The plain thumb stays
+    // in the well (hidden), so the tier wipes keep working on it.
+    function _vibeOnProduct(card) {
+      try {
+        var pid = state.selectedProduct;
+        if (!pid || state.originalImage) return;
+        var well = card.querySelector(".vibe-thumb");
+        var img = well && well.querySelector("img:not(.vibe-thumb-overlay)");
+        if (!img) return;
+        var old = well.querySelector("canvas.vibe-product-canvas");
+        if (old) old.parentNode.removeChild(old);
+        var cv = document.createElement("canvas");
+        cv.className = "vibe-product-canvas";
+        cv.width = 160; cv.height = 160;
+        cv.setAttribute("role", "img");
+        cv.setAttribute("aria-label", (card.getAttribute("data-vibe-slug") || "Sun") + " on your chosen product");
+        var paint = function () {
+          try {
+            drawProductMockup(cv.getContext("2d"), pid, 160, 160,
+              getSelectedVariantForProduct(pid), { fallbackSrc: img });
+            well.classList.add("on-product");
+          } catch (_ePaint) { well.classList.remove("on-product"); }
+        };
+        well.appendChild(cv);
+        if (img.complete && img.naturalWidth) paint();
+        else img.addEventListener("load", paint, { once: true });
+      } catch (_eVop) {}
+    }
     function _setVibeThumb(card, url, tier) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;
@@ -4708,6 +4770,7 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         _applyTierClass(c, tier);
         thumbWell.appendChild(c);
         _upgradeCardToFull(card, tier);
+        _vibeOnProduct(card);
         return;
       }
       thumbWell.classList.add("is-loading");
@@ -4720,6 +4783,7 @@ import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.
         thumbWell.appendChild(img);
         _thumbCacheSet(url, img);
         _upgradeCardToFull(card, tier);
+        _vibeOnProduct(card);
       };
       img.onerror = function () { thumbWell.classList.remove("is-loading"); };
       img.src = url;

@@ -42,10 +42,18 @@ const PAGES = [
   ["privacy", "/privacy"],
 ];
 
-const VIEWPORTS = [
+const DEFAULT_VIEWPORTS = [
   ["desktop", 1440, 900],
   ["mobile", 390, 844],
 ];
+// CAPTURE_VIEWPORTS=375x812,390x844 replaces the default pair for a one-off
+// review (MH-13's fold check), without changing the regression baseline.
+const VIEWPORTS = process.env.CAPTURE_VIEWPORTS
+  ? process.env.CAPTURE_VIEWPORTS.split(",").map((v) => {
+      const [w, h] = v.split("x").map(Number);
+      return [`${w}x${h}`, w, h];
+    })
+  : DEFAULT_VIEWPORTS;
 
 // The store paints its hero from network thumbs and the experience compiles
 // shaders; both finish well after `load`. This is a settle delay, not a
