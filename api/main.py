@@ -1295,6 +1295,45 @@ async def helioviewer_thumb(
         )
 
 
+@app.get("/api/og_card")
+async def og_card(
+    request: Request,
+    d: str = Query("", description="Observation date YYYY-MM-DD"),
+    t: str = Query("12:00", description="UT time HH:MM"),
+    wl: int = Query(193, description="AIA wavelength in Å"),
+):
+    """MH-18: 1200x630 share card for one day's Sun (iMessage, Slack, social).
+
+    Every failure path (bad or future date, unknown wavelength, Helioviewer down)
+    answers 302 to the static og_card.jpg, so a link preview is never broken and
+    the Worker never caches the failure (it stores 2xx only).
+    """
+    from api import og_card as _og
+    # Same reasoning as helioviewer_thumb: crawlers and <img> GETs send no Origin.
+    enforce_origin(request, allow_missing=True)
+    enforce_rate_limit(request, "og_card", 30, 60.0)
+    fallback = RedirectResponse("/asset/default/og_card.jpg", status_code=302)
+    ident = _og.parse_identity(d, t, wl)
+    if ident is None:
+        return fallback
+    date_iso, hhmm, wave = ident
+    url = (
+        f"{HELIOVIEWER_BASE}/?"
+        f"date={requests.utils.quote(date_iso + 'T' + hhmm + ':00Z')}"
+        f"&imageScale={3000.0 / 630}"
+        f"&layers=[SDO,AIA,AIA,{wave},1,100]"
+        f"&x0=0&y0=0&width=630&height=630&display=true&watermark=false"
+    )
+    try:
+        content, _mt = await asyncio.to_thread(_fetch_helioviewer_screenshot, url, 60)
+        jpg = await asyncio.to_thread(_og.compose_card, content, date_iso, hhmm, wave)
+    except Exception as e:  # any failure degrades to the static card
+        print(f"[og_card] {date_iso} {wave}: {type(e).__name__}", flush=True)
+        return fallback
+    return Response(content=jpg, media_type="image/jpeg",
+                    headers={**CORS_HEADERS, "Cache-Control": "public, max-age=2592000, immutable"})
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/generate_preview — fast preview: single FITS, log10, color, no filtering
 # ──────────────────────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@
     // client-side bounce would have already downloaded the film it exists to
     // skip. Everything else stays asset-first.
     "binding": "ASSETS",
-    "run_worker_first": ["/"]
+    "run_worker_first": ["/", "/store/", "/experience/"]
   },
   "vars": {
     "ORIGIN": "https://myheliograph-api.fly.dev",
@@ -66,7 +66,7 @@
         "html_handling": "auto-trailing-slash",
         "not_found_handling": "none",
         "binding": "ASSETS",
-        "run_worker_first": ["/"]
+        "run_worker_first": ["/", "/store/", "/experience/"]
       },
       "vars": {
         "ORIGIN": "https://myheliograph-api-dev.fly.dev",

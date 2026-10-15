@@ -6816,7 +6816,29 @@ import { eventTicks } from "./day_scrub.js";
       if (navigator.share) {
         // Fire-and-forget: a user-cancelled share is not an error worth
         // surfacing, and most browsers reject the promise on cancel.
-        navigator.share({ title: title, url: url }).catch(function () {});
+        var plainShare = function () {
+          navigator.share({ title: title, url: url }).catch(function () {});
+        };
+        // MH-18: where files can be shared, send the day's card with the link.
+        // Any failure (no date, card fetch, canShare says no) is plain share.
+        var q = new URLSearchParams(location.search);
+        if (navigator.canShare && q.get("d") && window.fetch && window.File) {
+          var cardQs = "d=" + encodeURIComponent(q.get("d")) +
+            (q.get("t") ? "&t=" + encodeURIComponent(q.get("t")) : "") +
+            (q.get("wl") ? "&wl=" + encodeURIComponent(q.get("wl")) : "");
+          fetch("/api/og_card?" + cardQs).then(function (r) {
+            var ct = r.headers.get("Content-Type") || "";
+            if (!r.ok || ct.indexOf("image/jpeg") !== 0) throw new Error("no card");
+            return r.blob();
+          }).then(function (blob) {
+            var file = new File([blob], "sun-" + q.get("d") + ".jpg", { type: "image/jpeg" });
+            var data = { title: title, url: url, files: [file] };
+            if (!navigator.canShare(data)) throw new Error("files not shareable");
+            return navigator.share(data).catch(function () {});
+          }).catch(plainShare);
+          return;
+        }
+        plainShare();
         return;
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {

@@ -24,6 +24,7 @@
   ["/api/hek/best_time", ["GET"]],
   ["/api/helioviewer_thumb", ["GET"]],
   ["/api/index.html", ["GET"]],
+  ["/api/og_card", ["GET"]],
   ["/api/print_file", ["POST"]],
   ["/api/printify/admin/audit_personalized", ["POST"]],
   ["/api/printify/admin/sweep_mockup_drafts", ["POST"]],
