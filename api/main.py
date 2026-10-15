@@ -5706,6 +5706,7 @@ _FRONTEND_MODULES = {
     "messages.js",
     "editor_compare.js",
     "day_scrub.js",
+    "observation_card.js",
 }
 
 @app.get("/{module_name}")

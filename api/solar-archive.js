@@ -28,6 +28,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 import { buyerMessage } from "./messages.js";
 import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.js";
 import { eventTicks } from "./day_scrub.js";
+import { canvasLabel, renderObservationCard } from "./observation_card.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -2594,6 +2595,19 @@ import { eventTicks } from "./day_scrub.js";
      * and reveal the edit / product sections. Called both from Helioviewer click
      * and (legacy path) from the NASA preview flow.
      */
+    // MH-19: facts for the observation card and the canvas's accessible name.
+    // The time is the one the visitor requested (_solarTimeValue), not the
+    // FITS DATE-OBS, which the client does not have; the card says so.
+    var _obsFacts = null;
+    function _syncObservationCard() {
+      if (!_obsFacts) return;
+      var f = { wavelength: _obsFacts.wavelength, date: _obsFacts.date,
+                time: _solarTimeValue(), look: state.editorFilter };
+      try {
+        renderObservationCard(document.getElementById("observationCard"), f);
+        if (solarCanvas) solarCanvas.setAttribute("aria-label", canvasLabel(f));
+      } catch (_eObs) {}
+    }
     function _installPreviewImage(img, wl, dateVal, tok) {
       if (tok == null) tok = _selToken;
       state.originalImage = img;
@@ -2613,6 +2627,7 @@ import { eventTicks } from "./day_scrub.js";
       var altText = "Solar image from " + dateVal + ", " + wl + " Angstrom wavelength";
       if (solarImg) solarImg.alt = altText;
       if (solarCanvas) solarCanvas.setAttribute("aria-label", altText);
+      _obsFacts = { wavelength: wl, date: dateVal };
       // Image is in — drop the "loading" spinner overlay.
       var _stage = document.getElementById("imageStage");
       if (_stage) _stage.classList.remove("loading");
@@ -2627,6 +2642,7 @@ import { eventTicks } from "./day_scrub.js";
       // Original (paints from the fast jpg fallback, sharpens to FITS) unless
       // the visitor already chose a look on the handoff bridge.
       state.editorFilter = state.handoffLook || "raw";
+      _syncObservationCard();
       // Vibe-card entry detection. The vibe's Raw/RHEF/HQ files are
       // pre-warmed on disk and already loading (or cached) via
       // _preloadVibeTiersIntoState in _activateVibe — for that flow we
@@ -3430,6 +3446,7 @@ import { eventTicks } from "./day_scrub.js";
     // state.editorFilter directly.
     function _syncFilterToggleUI(_filterValue) {
       updateFilterTimelineUI();
+      _syncObservationCard();
     }
     /**
      * Auto-advance to the highest-quality ready filter when a new tier lands,
