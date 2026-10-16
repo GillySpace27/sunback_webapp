@@ -1334,6 +1334,42 @@ async def og_card(
                     headers={**CORS_HEADERS, "Cache-Control": "public, max-age=2592000, immutable"})
 
 
+@app.get("/api/certificate")
+async def observation_certificate(
+    request: Request,
+    d: str = Query("", description="Observation date YYYY-MM-DD"),
+    t: str = Query("12:00", description="UT time HH:MM"),
+    wl: int = Query(193, description="AIA wavelength in Å"),
+    obs: str = Query("", description="FITS DATE-OBS YYYY-MM-DDTHH:MM:SSZ when known"),
+):
+    """MH-19: downloadable 1200x1600 observation certificate (PNG). Bad input is a 400."""
+    from api import og_card as _og
+    from api import obs_sidecar as _obs_sc
+    enforce_origin(request, allow_missing=True)
+    enforce_rate_limit(request, "certificate", 20, 60.0)
+    ident = _og.parse_identity(d, t, wl)
+    if ident is None:
+        api_error(400, E_BAD_REQUEST, "Pick a date from 2010-05-15 to today and an AIA wavelength.")
+    date_iso, hhmm, wave = ident
+    url = (
+        f"{HELIOVIEWER_BASE}/?"
+        f"date={requests.utils.quote(date_iso + 'T' + hhmm + ':00Z')}"
+        f"&imageScale={3000.0 / 1080}"
+        f"&layers=[SDO,AIA,AIA,{wave},1,100]"
+        f"&x0=0&y0=0&width=1080&height=1080&display=true&watermark=false"
+    )
+    try:
+        content, _mt = await asyncio.to_thread(_fetch_helioviewer_screenshot, url, 60)
+        png = await asyncio.to_thread(
+            _og.compose_certificate, content, date_iso, hhmm, wave, "", _obs_sc.to_iso_z(obs))
+    except Exception as e:
+        print(f"[certificate] {date_iso} {wave}: {type(e).__name__}", flush=True)
+        api_error(502, E_PREVIEW_FAILED, "The certificate is temporarily unavailable. Please try again.")
+    return Response(content=png, media_type="image/png",
+                    headers={**CORS_HEADERS,
+                             "Content-Disposition": f'attachment; filename="sun-{date_iso}-{wave}.png"'})
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # /api/generate_preview — fast preview: single FITS, log10, color, no filtering
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1790,6 +1826,12 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
     import matplotlib.pyplot as plt
     from skimage.measure import block_reduce
     smap = Map(fits_path)
+    # MH-19: remember the FITS DATE-OBS beside the cached PNGs (best effort).
+    try:
+        from api import obs_sidecar as _obs_sc
+        _obs_sc.write_obs(out_path_filtered, getattr(smap, "date", None).to_datetime())
+    except Exception as _obs_err:
+        print(f"[generate_preview] obs sidecar skipped: {type(_obs_err).__name__}", flush=True)
 
     # Stash this frame at the shared path so a later HQ render reuses it
     # instead of re-downloading the same FITS from VSO. Copy (not move) so
@@ -2124,8 +2166,10 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
             raw_url = url_path_raw if os.path.exists(out_path_raw) else None
             jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
             gray_url = url_path_gray if os.path.exists(out_path_gray) else None
+            from api import obs_sidecar as _obs_sc
             return {"preview_url": url_path_filtered, "preview_raw_url": raw_url,
-                    "preview_jpg_url": jpg_url, "preview_gray_url": gray_url}
+                    "preview_jpg_url": jpg_url, "preview_gray_url": gray_url,
+                    **_obs_sc.read_obs(out_path_filtered)}
         _reason = _preview_fail_reason(key)
         if _reason:
             return JSONResponse(
@@ -2139,8 +2183,10 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
                 raw_url = url_path_raw if os.path.exists(out_path_raw) else None
                 jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
                 gray_url = url_path_gray if os.path.exists(out_path_gray) else None
+                from api import obs_sidecar as _obs_sc
                 return {"preview_url": url_path_filtered, "preview_raw_url": raw_url,
-                        "preview_jpg_url": jpg_url, "preview_gray_url": gray_url}
+                        "preview_jpg_url": jpg_url, "preview_gray_url": gray_url,
+                        **_obs_sc.read_obs(out_path_filtered)}
             if os.path.exists(out_path_jpg):
                 return JSONResponse(
                     status_code=200,
@@ -5706,6 +5752,7 @@ _FRONTEND_MODULES = {
     "messages.js",
     "editor_compare.js",
     "day_scrub.js",
+    "observation_card.js",
 }
 
 @app.get("/{module_name}")

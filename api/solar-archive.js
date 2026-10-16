@@ -28,6 +28,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 import { buyerMessage } from "./messages.js";
 import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.js";
 import { eventTicks, eventRings } from "./day_scrub.js";
+import { canvasLabel, renderObservationCard } from "./observation_card.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
     // LAUNCH-READINESS fix (workflow wx5fi2brl, no-error-reporting +
@@ -2594,6 +2595,24 @@ import { eventTicks, eventRings } from "./day_scrub.js";
      * and reveal the edit / product sections. Called both from Helioviewer click
      * and (legacy path) from the NASA preview flow.
      */
+    // MH-19: facts for the observation card and the canvas's accessible name.
+    // The time is the one the visitor requested (_solarTimeValue), not the
+    // FITS DATE-OBS, which the client does not have; the card says so.
+    var _obsFacts = null;
+    var _obsUtc = null;
+    // The FITS DATE-OBS the preview endpoint reports (null when unknown).
+    function _noteObsUtc(data) {
+      _obsUtc = (data && typeof data.obs_time_utc === "string") ? data.obs_time_utc : null;
+    }
+    function _syncObservationCard() {
+      if (!_obsFacts) return;
+      var f = { wavelength: _obsFacts.wavelength, date: _obsFacts.date,
+                time: _solarTimeValue(), look: state.editorFilter, observed: _obsUtc };
+      try {
+        renderObservationCard(document.getElementById("observationCard"), f);
+        if (solarCanvas) solarCanvas.setAttribute("aria-label", canvasLabel(f));
+      } catch (_eObs) {}
+    }
     function _installPreviewImage(img, wl, dateVal, tok) {
       if (tok == null) tok = _selToken;
       state.originalImage = img;
@@ -2613,6 +2632,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
       var altText = "Solar image from " + dateVal + ", " + wl + " Angstrom wavelength";
       if (solarImg) solarImg.alt = altText;
       if (solarCanvas) solarCanvas.setAttribute("aria-label", altText);
+      _obsFacts = { wavelength: wl, date: dateVal };
       // Image is in — drop the "loading" spinner overlay.
       var _stage = document.getElementById("imageStage");
       if (_stage) _stage.classList.remove("loading");
@@ -2627,6 +2647,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
       // Original (paints from the fast jpg fallback, sharpens to FITS) unless
       // the visitor already chose a look on the handoff bridge.
       state.editorFilter = state.handoffLook || "raw";
+      _syncObservationCard();
       // Vibe-card entry detection. The vibe's Raw/RHEF/HQ files are
       // pre-warmed on disk and already loading (or cached) via
       // _preloadVibeTiersIntoState in _activateVibe — for that flow we
@@ -3137,6 +3158,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
         })
         .then(function(result) {
           _recordQueueDepth(result.data);
+          if (result.data.preview_url) _noteObsUtc(result.data);
           if (result.data.preview_url) {
             if (onProgress) onProgress(85, "Loading preview images…");
             var rawUrl = result.data.preview_raw_url ? API_BASE + result.data.preview_raw_url : null;
@@ -3197,6 +3219,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
                   .then(function(pollResult) {
                     var d = pollResult.data;
                     _recordQueueDepth(d);
+                    if (d.preview_url) _noteObsUtc(d);
                     if (d.preview_url) {
                       if (onProgress) onProgress(85, "Loading preview images…");
                       var rawU = d.preview_raw_url ? API_BASE + d.preview_raw_url : null;
@@ -3430,6 +3453,7 @@ import { eventTicks, eventRings } from "./day_scrub.js";
     // state.editorFilter directly.
     function _syncFilterToggleUI(_filterValue) {
       updateFilterTimelineUI();
+      _syncObservationCard();
     }
     /**
      * Auto-advance to the highest-quality ready filter when a new tier lands,

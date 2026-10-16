@@ -8375,6 +8375,23 @@ body:has(#imageStage.loading) .field-cell {
     transform: translateX(-50%);
   }
 }
+
+/* MH-19: observation card (provenance under the preview). Tokens only. */
+.observation-card {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+  border-radius: 10px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.observation-card[hidden] { display: none; }
+.observation-card-title { margin: 0 0 6px; font-size: 0.85rem; color: var(--text, inherit); }
+.observation-card dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.observation-card dt { opacity: 0.8; }
+.observation-card dd { margin: 0; }
+.observation-card-cert { display: inline-block; margin-top: 8px; font-size: 0.8rem; }
+
 a.confirm-modal-btn { display: inline-block; text-align: center; text-decoration: none; }
 a.confirm-modal-btn.hidden { display: none; }
 

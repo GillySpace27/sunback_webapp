@@ -35,6 +35,7 @@ import { recordStatEvent } from "./stats.js";
 // so the beta-save operator email here can include the same
 // editor-state snapshot the feedback modal sends).
 import { captureContext } from "./feedback.js";
+import { helioProvenance } from "./observation_card.js";
 
 const _deps = {
   solarCanvas: null,
@@ -267,6 +268,14 @@ export function initBundler(deps) {
           productId: pid,
           productName: product ? product.name : ""
         });
+        // SU-18: the HelioSoftware provenance fields (spec/provenance.md v1)
+        // ride beside the JSON-LD keys, additive: nothing above is renamed.
+        Object.assign(provenanceObj, helioProvenance({
+          wavelength: state.wavelength,
+          dateStr: dateStr,
+          timeStr: timeStr,
+          editorFilter: state.editorFilter
+        }));
         provenanceJsonStr = _serializeProvenance(provenanceObj);
       } catch (e) {
         console.warn("[saveDesign] provenance build failed; skipping sidecar", e);

@@ -13,6 +13,9 @@
   <title>My Heliogram: The Sun on Any Date, as Wall Art</title>
   <meta name="description" content="Pick any date since May 2010 and get the real image of the Sun that day, printed as a poster, print, or canvas. A meaningful birthday or anniversary gift.">
   <link rel="canonical" href="https://myheliogram.com/store">
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Organization","name":"My Heliogram","url":"https://myheliogram.com/","logo":"https://myheliogram.com/favicon.svg"}
+  </script>
   <!-- Open Graph + Twitter Card for share previews. -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="My Heliogram: Your day, written in sunlight.">
@@ -1058,6 +1061,8 @@
       </div>
 
       <div class="editor-main">
+        <!-- MH-19: provenance card, filled by solar-archive.js (textContent only). -->
+        <section class="observation-card" id="observationCard" hidden></section>
     <!-- Edit Tools -->
     <div class="edit-toolbar">
       <!-- Row 1: Filter toggle + Change Wavelength -->

@@ -9,6 +9,7 @@
   ["/api/admin/warm_vibe_grid", ["POST"]],
   ["/api/build-info", ["GET"]],
   ["/api/catalog/approved", ["GET"]],
+  ["/api/certificate", ["GET"]],
   ["/api/clear_cache", ["POST"]],
   ["/api/clear_preview_failed", ["POST"]],
   ["/api/data_frontier", ["GET"]],

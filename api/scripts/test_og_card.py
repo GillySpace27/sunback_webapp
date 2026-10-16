@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from api.og_card import CARD_H, CARD_W, compose_card, parse_identity  # noqa: E402
+from api.og_card import CARD_H, CARD_W, compose_card, compose_certificate, parse_identity  # noqa: E402
 
 TODAY = date(2026, 10, 15)
 ok = lambda *a: parse_identity(*a, today=TODAY)  # noqa: E731
@@ -33,4 +33,8 @@ im = Image.open(io.BytesIO(jpg))
 assert im.format == "JPEG" and im.size == (CARD_W, CARD_H) == (1200, 630), im.size
 r, g, b = im.getpixel((300, 300))
 assert r > 150 and b < 90, "the Sun image sits on the left"
+cert = Image.open(io.BytesIO(compose_certificate(src.getvalue(), "2026-10-01", "12:00", 193, "Corona and coronal holes")))
+assert cert.format == "PNG" and cert.size == (1200, 1600), cert.size
+r, g, b = cert.getpixel((600, 600))
+assert r > 150 and b < 90, "the Sun sits in the upper block"
 print("test_og_card: ok")

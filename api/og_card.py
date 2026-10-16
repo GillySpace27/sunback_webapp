@@ -67,3 +67,34 @@ def compose_card(sun_bytes, date_iso, time_hhmm, wavelength):
     out = io.BytesIO()
     card.save(out, "JPEG", quality=85)
     return out.getvalue()
+
+
+CERT_W, CERT_H = 1200, 1600
+
+
+def compose_certificate(sun_bytes, date_iso, time_hhmm, wavelength, gloss="", observed=None):
+    """MH-19: a 1200x1600 PNG that states what the picture is. Returns PNG bytes.
+
+    Only facts the caller passes in; `observed` (the FITS DATE-OBS) is shown
+    when known, otherwise the requested time is labelled as requested.
+    """
+    sun = Image.open(io.BytesIO(sun_bytes)).convert("RGB").resize((1080, 1080), Image.LANCZOS)
+    page = Image.new("RGB", (CERT_W, CERT_H), (12, 12, 16))
+    page.paste(sun, (60, 150))
+    d = ImageDraw.Draw(page)
+    d.text((60, 50), "My Heliograph", fill=(255, 190, 90), font=_font(56))
+    d.text((60, 1260), f"The Sun on {date_iso}", fill=(255, 255, 255), font=_font(54))
+    lines = [f"SDO / AIA {wavelength} A" + (f": {gloss}" if gloss else "")]
+    if observed:
+        lines.append("Observed " + observed.replace("T", " ").replace("Z", " UT"))
+    else:
+        lines.append(f"Requested {date_iso} {time_hhmm} UT (nearest available frame)")
+    lines += ["Image: NASA/SDO, AIA science team.",
+              "Shown as a visualization, not a calibrated radiance."]
+    y = 1350
+    for ln in lines:
+        d.text((60, y), ln, fill=(200, 200, 205), font=_font(30))
+        y += 50
+    out = io.BytesIO()
+    page.save(out, "PNG")
+    return out.getvalue()
