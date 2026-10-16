@@ -28,6 +28,7 @@ check.sh. Run any one alone with the command in its row.
 | test_config_health.py | /api/health lists missing configuration by name only, CORS and the Origin check share one allowlist, the [config] startup lines are wired | no | python3 api/scripts/test_config_health.py |
 | test_build_info.py | /api/build-info keeps built and reports sha (40 hex or null) and tier | no | python3 api/scripts/test_build_info.py |
 | test_build_stamp.py | the store build stamp YYYY.MM.DD-<sha7>: build_stamp.sh output, deploy.sh records it and passes it to both API fly deploy calls and to the prod release gate, /api/build-info returns it (SU-15) | no | python3 api/scripts/test_build_stamp.py |
+| test_rhef_stamp.py | the RHEF stamp line (section 5 grammar), its sidecar read and write, and that main.py adds it to the preview answers and the rhef grid manifest entry as new fields (SU-18) | no | python3 api/scripts/test_rhef_stamp.py |
 | test_health_disk_pct.py | /api/health reports disk_pct at every level; the warning stays gated at 85 | no | python3 api/scripts/test_health_disk_pct.py |
 | test_errors.py | the MH-16 envelope: a foreign Origin gets 403 with {code, detail}, ApiError is still an HTTPException and keeps its headers, main.py registers the handler | no | python3 api/scripts/test_errors.py |
 | test_check_headers.py | infra/scripts/check_headers.py: PASS, FAIL and SKIP rows, and the HSTS values in its table equal the files that set them | no | python3 api/scripts/test_check_headers.py |

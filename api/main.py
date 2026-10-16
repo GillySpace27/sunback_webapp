@@ -1960,6 +1960,11 @@ def _generate_preview_sync(dt, wl, date_str, out_path_raw, out_path_filtered, ou
         plt.tight_layout(pad=0)
         _atomic_image_write(out_path_filtered, lambda _p: plt.savefig(_p, bbox_inches="tight", pad_inches=0))
         plt.close('all')
+        try:  # SU-18: the stamp for the RHEF image just written (best effort)
+            from api import rhef_stamp as _rhef_stamp
+            _rhef_stamp.write_stamp(out_path_filtered)
+        except Exception as _st_err:
+            print(f"[generate_preview] rhef stamp skipped: {type(_st_err).__name__}", flush=True)
 
         # The SAME RHEF result, un-colour-mapped.
         #
@@ -2166,10 +2171,11 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
             raw_url = url_path_raw if os.path.exists(out_path_raw) else None
             jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
             gray_url = url_path_gray if os.path.exists(out_path_gray) else None
-            from api import obs_sidecar as _obs_sc
+            from api import obs_sidecar as _obs_sc, rhef_stamp as _rhef_stamp
             return {"preview_url": url_path_filtered, "preview_raw_url": raw_url,
                     "preview_jpg_url": jpg_url, "preview_gray_url": gray_url,
-                    **_obs_sc.read_obs(out_path_filtered)}
+                    **_obs_sc.read_obs(out_path_filtered),
+                    **_rhef_stamp.read_stamp(out_path_filtered)}
         _reason = _preview_fail_reason(key)
         if _reason:
             return JSONResponse(
@@ -2183,10 +2189,11 @@ async def generate_preview(request: Request, req: PreviewRequest = Body(...)):
                 raw_url = url_path_raw if os.path.exists(out_path_raw) else None
                 jpg_url = url_path_jpg if os.path.exists(out_path_jpg) else None
                 gray_url = url_path_gray if os.path.exists(out_path_gray) else None
-                from api import obs_sidecar as _obs_sc
+                from api import obs_sidecar as _obs_sc, rhef_stamp as _rhef_stamp
                 return {"preview_url": url_path_filtered, "preview_raw_url": raw_url,
                         "preview_jpg_url": jpg_url, "preview_gray_url": gray_url,
-                        **_obs_sc.read_obs(out_path_filtered)}
+                        **_obs_sc.read_obs(out_path_filtered),
+                        **_rhef_stamp.read_stamp(out_path_filtered)}
             if os.path.exists(out_path_jpg):
                 return JSONResponse(
                     status_code=200,
@@ -3401,6 +3408,9 @@ def _phase_b_warm(image_id_cache, force=False, wavelengths=None, filters=None, m
                             "wavelength": wl,
                             "filter": filt,
                         }
+                        if filt == "rhef":  # SU-18: new field, nothing renamed
+                            from api import rhef_stamp as _rhef_stamp
+                            entry["rhef_stamp"] = _rhef_stamp.build_stamp()
                         entry_slot[pid] = entry
                         try:
                             _ensure_grid_thumb(wl, filt, pid, entry)
