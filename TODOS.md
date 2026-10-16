@@ -112,7 +112,7 @@ Project" stamp on the printed product, not just behind the modal.
 
 - `SDO_ACK` — NASA SDO rules-of-the-road acknowledgement.
 - `AIA_PAPER` — *Lemen, J. R., et al. 2012, Sol. Phys., 275, 17.*
-- `RHEF_PAPER` — *Gilly & Cranmer 2025, Sol. Phys. 300, 174.*
+- `RHEF_PAPER`: *Gilly & Cranmer 2025, Sol. Phys. 300, 174.*
   ADS bibcode `2025SoPh..300..174G`.
   <https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G/abstract>
 - `HELIOVIEWER_ACK` — Required only when Helioviewer service was used.
