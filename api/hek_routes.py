@@ -342,9 +342,10 @@ def _row_to_candidate(row, code: str, family: str) -> Optional[Dict[str, Any]]:
         # He II). Use helioprojective-cartesian radius in arcsec; ~960" is
         # the solar limb, 900" is a safe on-disk cutoff that avoids
         # near-limb cases the foot-points dominate.
-        hpc_x = _float_or(_safe_get(row, "hpc_x"))
-        hpc_y = _float_or(_safe_get(row, "hpc_y"))
-        radius = (hpc_x ** 2 + hpc_y ** 2) ** 0.5 if (hpc_x or hpc_y) else 0.0
+        # _coord_or_none, not _float_or: negative coordinates are real positions.
+        hpc_x = _coord_or_none(_safe_get(row, "hpc_x"))
+        hpc_y = _coord_or_none(_safe_get(row, "hpc_y"))
+        radius = ((hpc_x or 0.0) ** 2 + (hpc_y or 0.0) ** 2) ** 0.5 if (hpc_x or hpc_y) else 0.0
         on_disk = (0.0 < radius < 900.0) if radius else None  # None = unknown
         return {
             "event_code": "FE",
