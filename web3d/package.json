@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "My Heliograph — cinematic 3D counterpart. \"Eight Minutes\": light becomes an object.",
+  "description": "My Heliogram: cinematic 3D counterpart. \"Eight Minutes\": light becomes an object.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -6,7 +6,7 @@ import { useSunTextureLoader } from "./hooks/useSunTextureLoader";
 import { useRhefTextureLoader } from "./hooks/useRhefTextureLoader";
 import { useTimelapseLoader } from "./hooks/useTimelapseLoader";
 import { useRainbowLoader } from "./hooks/useRainbowLoader";
-import { warmBackend } from "./lib/handoff";
+import { warmBackend, validProductId } from "./lib/handoff";
 // The archive's real frontier. JSOC's ingest lag drifts (8 days on
 // 2026-08-15), so a hardcoded ceiling silently offers dates that cannot be
 // rendered or printed — the store learned this from a beta tester and added
@@ -16,7 +16,7 @@ import { warmBackend } from "./lib/handoff";
 // even ask for it. Failure is silent: the conservative static bound already
 // in the store stands, and frontierReady still flips so gated readers unblock.
 import "./lib/frontier";
-import { useStore } from "./store";
+import { useStore, spaceProgress } from "./store";
 import ErrorBoundary from "./ui/ErrorBoundary";
 import Loader from "./ui/Loader";
 import Overlay from "./ui/Overlay";
@@ -26,6 +26,7 @@ import Masthead from "./ui/Masthead";
 import DataCredit from "./ui/DataCredit";
 import SkipToStore from "./ui/SkipToStore";
 import StartOver from "./ui/StartOver";
+import BackToOrder from "./ui/BackToOrder";
 import Arrows from "./ui/Arrows";
 import BeatRail from "./ui/BeatRail";
 import Hud from "./ui/Hud";
@@ -82,6 +83,19 @@ if (typeof window !== "undefined") {
     if (Number.isInteger(i) && i >= 0 && i < CHANNELS.length) useStore.getState().setChannel(i);
   }
   if (q.get("look") === "rhef") useStore.getState().setLook("rhef");
+  // MH-18: p = a store product id to carry back; space = open the film inside
+  // that space (e.g. room, the wall), once the scroller has registered.
+  const pid = validProductId(q.get("p"));
+  if (pid) useStore.getState().setProductId(pid);
+  const startAt = spaceProgress(q.get("space"));
+  const initialScrollTo = useStore.getState().scrollToProgress;
+  if (startAt !== null) {
+    const unsub = useStore.subscribe((s) => {
+      if (s.scrollToProgress === initialScrollTo) return;
+      unsub();
+      s.scrollToProgress(startAt);
+    });
+  }
   if (q.get("sky") === "1")
     useStore.setState({ showConstellations: true, showPlanets: true, skyGuideTouched: true });
   // Per-layer overrides, so a caller can specify the sky EXACTLY rather than
@@ -225,6 +239,7 @@ export default function App() {
         <Overlay />
         <AtmosphereFlash />
         <StartOver />
+        <BackToOrder />
         <SkipToStore />
         <HeroDate />
         <Arrows />

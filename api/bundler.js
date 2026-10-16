@@ -166,7 +166,7 @@ export function initBundler(deps) {
         pipeline = "Helioviewer JPEG2000 tile composite";
       }
 
-      var nameBits = ["My Heliograph"];
+      var nameBits = ["My Heliogram"];
       if (wl) nameBits.push(wl + " Å");
       if (dateStr) nameBits.push(dateStr);
       var displayName = nameBits.join(" — ");
@@ -183,7 +183,7 @@ export function initBundler(deps) {
         "@type": "ImageObject",
         "name": displayName,
         "dateCreated": isoDate,
-        "creator": { "@type": "Organization", "name": "My Heliograph" },
+        "creator": { "@type": "Organization", "name": "My Heliogram" },
         "contentLocation": "NASA/SDO/AIA",
         "encodingFormat": "image/png",
         "license": "https://sdo.gsfc.nasa.gov/data/rules.php",

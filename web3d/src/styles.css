@@ -1737,3 +1737,26 @@ body {
   .pro-world, .pro-sun, .pro-stars, .pro-caption { transition-duration: 0.01s !important; }
   .pro-flame, .pro-balloon, .pro-cap { animation: none; }
 }
+
+/* MH-18: left of "Start over", same quiet control family. */
+.back-to-order {
+  position: fixed;
+  top: max(1.6vh, 12px);
+  right: calc(max(1.6vw, 12px) + 190px + 130px);
+  z-index: 6;
+  padding: 0.5rem 0.95rem;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  background: rgba(10, 9, 8, 0.64);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.back-to-order:hover, .back-to-order:focus-visible { color: inherit; }
+@media (max-width: 720px) { .back-to-order { right: auto; left: 12px; } }

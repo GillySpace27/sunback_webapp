@@ -8391,3 +8391,25 @@ body:has(#imageStage.loading) .field-cell {
 .observation-card dt { opacity: 0.8; }
 .observation-card dd { margin: 0; }
 .observation-card-cert { display: inline-block; margin-top: 8px; font-size: 0.8rem; }
+
+a.confirm-modal-btn { display: inline-block; text-align: center; text-decoration: none; }
+a.confirm-modal-btn.hidden { display: none; }
+
+/* MH-17 overlay: off by default; rings sit over the 40px preview well only. */
+.hek-time-scrub-well { position: relative; }
+.hek-event-ring {
+  position: absolute;
+  width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid #ffd24a;
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.hek-show-events { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--text-dim); }
+.hek-event-chip { margin-left: 4px; padding: 1px 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 0.7rem; }
+
+/* MH-13: a vibe card's Sun drawn on the product chosen first. */
+.vibe-thumb canvas.vibe-product-canvas { display: none; width: 100%; height: 100%; }
+.vibe-thumb.on-product canvas.vibe-product-canvas { display: block; }
+.vibe-thumb.on-product > img { display: none; }

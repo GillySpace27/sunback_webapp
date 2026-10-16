@@ -27,7 +27,7 @@ import { gatewayError, isWakeFailure, retryOnceAfterWake } from "./waking.js";
 // MH-16: buyer text for the error codes in api/errors.py.
 import { buyerMessage } from "./messages.js";
 import { lookFilters, newestDayThumbUrl, compareLabels } from "./editor_compare.js";
-import { eventTicks } from "./day_scrub.js";
+import { eventTicks, eventRings } from "./day_scrub.js";
 import { canvasLabel, renderObservationCard } from "./observation_card.js";
 
     // ── Telemetry: Sentry + Google Analytics 4 ───────────────────
@@ -4113,6 +4113,9 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
                  '</div>' +
                  '<div class="hek-time-scrub-well" id="hekTimeScrubWell" aria-hidden="true"></div>' +
                '</div>' +
+               // MH-17 (optional, off by default): rings where the ranked
+               // events happened, over the preview frame only.
+               '<label class="hek-show-events"><input type="checkbox" id="hekShowEvents"> Show where on the Sun <span class="hek-event-chip">preview only, not printed</span></label>' +
              '</div>' +
              '<span class="hek-tile-meta">UTC</span>' +
              '</div>';
@@ -4521,6 +4524,21 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         "&wavelength=" + encodeURIComponent(state.wavelength || 171) +
         "&image_scale=12&size=256";
     }
+    // MH-17 overlay: rings are DOM spans over the well, never drawn on the
+    // print canvas; the toggle label says they are not printed.
+    function _paintEventRings(well) {
+      var box = document.getElementById("hekShowEvents");
+      if (!well || !box || !box.checked) return;
+      var rings = eventRings(_hekCurrentEvents);
+      rings.forEach(function (r) {
+        var ring = document.createElement("span");
+        ring.className = "hek-event-ring";
+        ring.style.left = r.left + "%";
+        ring.style.top = r.top + "%";
+        ring.title = r.title;
+        well.appendChild(ring);
+      });
+    }
     function _scrubShowHour(hour) {
       var well = document.getElementById("hekTimeScrubWell");
       var url = _scrubThumbUrl(hour);
@@ -4530,6 +4548,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         well.classList.remove("is-loading");
         well.innerHTML = "";
         well.appendChild(cached.cloneNode(false));
+        _paintEventRings(well);
         return;
       }
       well.classList.add("is-loading");
@@ -4540,6 +4559,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         well.classList.remove("is-loading");
         well.innerHTML = "";
         well.appendChild(img);
+        _paintEventRings(well);
       };
       img.onerror = function () {
         well.classList.remove("is-loading");
@@ -4602,6 +4622,10 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       var scrub = document.getElementById("hekTimeScrub");
       if (!scrub) return;
       _renderScrubTicks(scrub);
+      var evBox = document.getElementById("hekShowEvents");
+      if (evBox) evBox.addEventListener("change", function () {
+        _scrubShowHour(parseInt(scrub.value, 10));
+      });
       scrub.addEventListener("input", function () {
         var hour = parseInt(scrub.value, 10);
         clearTimeout(_scrubDebounceTimer);
@@ -4776,6 +4800,37 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     // need touching. Re-enable a MEDIUM-res (not full) upgrade here if the
     // thumbnails ever look too soft.
     function _upgradeCardToFull(_card, _tier) { /* no-op — see note above */ }
+    // MH-13: with a product chosen first (hero "Pick a product") and no Sun
+    // installed yet, each famous-moment card shows ITS Sun on that product.
+    // drawProductMockup takes the card's image through opts.fallbackSrc, which
+    // it consults only while state.originalImage is empty. The plain thumb stays
+    // in the well (hidden), so the tier wipes keep working on it.
+    function _vibeOnProduct(card) {
+      try {
+        var pid = state.selectedProduct;
+        if (!pid || state.originalImage) return;
+        var well = card.querySelector(".vibe-thumb");
+        var img = well && well.querySelector("img:not(.vibe-thumb-overlay)");
+        if (!img) return;
+        var old = well.querySelector("canvas.vibe-product-canvas");
+        if (old) old.parentNode.removeChild(old);
+        var cv = document.createElement("canvas");
+        cv.className = "vibe-product-canvas";
+        cv.width = 160; cv.height = 160;
+        cv.setAttribute("role", "img");
+        cv.setAttribute("aria-label", (card.getAttribute("data-vibe-slug") || "Sun") + " on your chosen product");
+        var paint = function () {
+          try {
+            drawProductMockup(cv.getContext("2d"), pid, 160, 160,
+              getSelectedVariantForProduct(pid), { fallbackSrc: img });
+            well.classList.add("on-product");
+          } catch (_ePaint) { well.classList.remove("on-product"); }
+        };
+        well.appendChild(cv);
+        if (img.complete && img.naturalWidth) paint();
+        else img.addEventListener("load", paint, { once: true });
+      } catch (_eVop) {}
+    }
     function _setVibeThumb(card, url, tier) {
       var thumbWell = card.querySelector(".vibe-thumb");
       if (!thumbWell || !url) return;
@@ -4791,6 +4846,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         _applyTierClass(c, tier);
         thumbWell.appendChild(c);
         _upgradeCardToFull(card, tier);
+        _vibeOnProduct(card);
         return;
       }
       thumbWell.classList.add("is-loading");
@@ -4803,6 +4859,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         thumbWell.appendChild(img);
         _thumbCacheSet(url, img);
         _upgradeCardToFull(card, tier);
+        _vibeOnProduct(card);
       };
       img.onerror = function () { thumbWell.classList.remove("is-loading"); };
       img.src = url;
@@ -6836,7 +6893,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       _syncUrlParams();
       var url = location.href;
       var dateTxt = (dateInput && dateInput.value) || "";
-      var title = "My Heliograph" + (dateTxt ? " — the Sun on " + dateTxt : "");
+      var title = "My Heliogram" + (dateTxt ? ": the Sun on " + dateTxt : "");
       if (navigator.share) {
         // Fire-and-forget: a user-cancelled share is not an error worth
         // surfacing, and most browsers reject the promise on cancel.
@@ -14493,7 +14550,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
             image_url: printUrl || undefined,
             file_name: fname,
             title: title,
-            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliograph.",
+            description: "Custom " + wlStr + " solar image from " + dateStr + ", printed on " + product.name + ". Created with My Heliogram.",
             blueprint_id: product.blueprintId,
             print_provider_id: product.printProviderId,
             variant_ids: ckVariantIds,
@@ -15365,6 +15422,19 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       if (addBtn) {
         addBtn.classList.toggle("hidden", !_canBuyNow);
         addBtn.textContent = "Add to cart";
+      }
+      // MH-18: "See it on your wall": the film at the room, this Sun, this product.
+      var wallBtn = document.getElementById("confirmSelectWall");
+      if (wallBtn) {
+        var _wl = state.wavelength, _d = (dateInput && dateInput.value) || "";
+        var _canWall = !!(_wl && /^\d{4}-\d{2}-\d{2}$/.test(_d) && product && product.id);
+        wallBtn.classList.toggle("hidden", !_canWall);
+        if (_canWall) {
+          var _wq = new URLSearchParams({ d: _d, t: _solarTimeValue() || "12:00", wl: String(_wl),
+                                          space: "room", p: product.id });
+          if (state.editorFilter === "rhef" || state.editorFilter === "hq_rhef") _wq.set("look", "rhef");
+          wallBtn.setAttribute("href", "/?" + _wq.toString());
+        }
       }
       if (continueBtn) {
         if (_step === "editor") continueBtn.textContent = "Apply variant";

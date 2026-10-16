@@ -10,24 +10,24 @@
        and desktop frame defaulted to white while the page rendered dark. -->
   <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f0eff5" media="(prefers-color-scheme: light)">
-  <title>My Heliograph — The Sun on Any Date, as Wall Art</title>
+  <title>My Heliogram: The Sun on Any Date, as Wall Art</title>
   <meta name="description" content="Pick any date since May 2010 and get the real image of the Sun that day, printed as a poster, print, or canvas. A meaningful birthday or anniversary gift.">
-  <link rel="canonical" href="https://myheliograph.com/store">
+  <link rel="canonical" href="https://myheliogram.com/store">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"Organization","name":"My Heliograph","url":"https://myheliograph.com/","logo":"https://myheliograph.com/favicon.svg"}
+  {"@context":"https://schema.org","@type":"Organization","name":"My Heliogram","url":"https://myheliogram.com/","logo":"https://myheliogram.com/favicon.svg"}
   </script>
   <!-- Open Graph + Twitter Card for share previews. -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="My Heliograph — Your day, written in sunlight.">
+  <meta property="og:title" content="My Heliogram: Your day, written in sunlight.">
   <meta property="og:description" content="Real NASA/SDO images of the Sun, as it shone on any date since May 2010 — printed as art for the day that mattered.">
-  <meta property="og:url" content="https://myheliograph.com/store">
-  <meta property="og:image" content="https://myheliograph.com/asset/default/og_card.jpg">
+  <meta property="og:url" content="https://myheliogram.com/store">
+  <meta property="og:image" content="https://myheliogram.com/asset/default/og_card.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="My Heliograph — Your day, written in sunlight.">
+  <meta name="twitter:title" content="My Heliogram: Your day, written in sunlight.">
   <meta name="twitter:description" content="Real NASA/SDO images of the Sun, as it shone on any date since May 2010 — printed as art for the day that mattered.">
-  <meta name="twitter:image" content="https://myheliograph.com/asset/default/og_card.jpg">
+  <meta name="twitter:image" content="https://myheliogram.com/asset/default/og_card.jpg">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
@@ -45,7 +45,7 @@
        (saves ~250ms on the first /store-config + /api/health round
        trips on 4G mobile). Priya Iyer (round-2 perf audit). -->
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-  <link rel="preconnect" href="https://myheliograph.com" crossorigin>
+  <link rel="preconnect" href="https://myheliogram.com" crossorigin>
   <!-- Hero before/after pair: preload at high priority. On a cold edge
        cache the Filtered panel painted seconds after the Original,
        leaving the value-prop demo as a blank box (UX pass 2026-08-08). -->
@@ -119,7 +119,7 @@
   <!-- Hero -->
   <header class="hero" role="banner">
     <div class="hero-icon"></div>
-    <h1 id="appTitle">My Heliograph</h1>
+    <h1 id="appTitle">My Heliogram</h1>
     <p class="hero-tagline">Your day, written in sunlight</p>
     <!-- MH-13: two front doors, high in the hero so both start above the
          fold on a phone. Plain links: without JavaScript "Pick a day" jumps
@@ -379,7 +379,7 @@
     <span class="banner-icon"><i class="fas fa-shield-alt" aria-hidden="true"></i></span>
     <div class="banner-text">
       <strong>One more permission needed</strong>
-      <small>If your browser asks to allow external resources, click <strong>Allow All</strong> so My Heliograph can load NASA imagery.</small>
+      <small>If your browser asks to allow external resources, click <strong>Allow All</strong> so My Heliogram can load NASA imagery.</small>
     </div>
   </div>
 
@@ -1673,6 +1673,8 @@
     <div class="confirm-modal-actions">
       <button class="confirm-modal-btn confirm-modal-btn-primary" id="confirmSelectContinue" type="button">Continue to image</button>
       <button class="confirm-modal-btn confirm-modal-btn-primary hidden" id="confirmSelectAddToCart" type="button">Add to cart</button>
+      <!-- MH-18: opens the film at the room with this product id; hidden until a Sun is chosen. -->
+      <a class="confirm-modal-btn confirm-modal-btn-secondary hidden" id="confirmSelectWall" href="/">See it on your wall</a>
     </div>
   </div>
 </div>

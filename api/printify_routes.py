@@ -245,6 +245,8 @@ async def upload_image(request: Request):
                 f"{_public_base_url()}/asset/",
                 "https://myheliograph.com/asset/",
                 "https://www.myheliograph.com/asset/",
+                "https://myheliogram.com/asset/",
+                "https://www.myheliogram.com/asset/",
                 "https://solar-archive.onrender.com/asset/",
                 "http://127.0.0.1:8000/asset/",
                 "http://127.0.0.1:8001/asset/",

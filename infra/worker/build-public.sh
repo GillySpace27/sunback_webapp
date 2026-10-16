@@ -65,7 +65,7 @@ if [ -d "$WEB3D" ]; then
 import re, sys
 src, dst = sys.argv[1], sys.argv[2]
 h = open(src, encoding="utf-8").read()
-h = h.replace("https://myheliograph.com/experience/", "https://myheliograph.com/")
+h = h.replace("https://myheliogram.com/experience/", "https://myheliogram.com/")
 
 # Legacy store deep links kept working.
 #
