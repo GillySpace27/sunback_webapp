@@ -11,6 +11,7 @@
 //       which forced every request to origin) the edge cache works here.
 //       Immutable images cache 30d; only 2xx is cached, so a 404 for a
 //       not-yet-rendered hq_*.png is never frozen in front of the real file.
+//   /api/og_card?…  → per-date share card, edge-cached like the thumb below.
 //   /api/helioviewer_thumb?…  → proxied to Fly and edge-cached. The
 //       wavelength-tile + gallery thumbnails are a fixed set of
 //       (date, wavelength, scale, size) tuples shared by every visitor, so
@@ -95,6 +96,35 @@ async function cacheThumb(request, env, ctx) {
   return resp;
 }
 
+// MH-18: a shared link that carries a day (?d=YYYY-MM-DD, optional &t= and
+// &wl=) previews as THAT day's Sun. Validation here only has to make the
+// values safe to echo into a URL; the origin (/api/og_card) owns the real
+// rules and falls back to the static card for anything it rejects.
+export function shareIdentity(search) {
+  const q = new URLSearchParams(search);
+  const d = q.get("d") || "";
+  const t = q.get("t") || "12:00";
+  const wl = q.get("wl") || "193";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}$/.test(t) || !/^\d{2,4}$/.test(wl)) return null;
+  return { d, t, wl };
+}
+
+// Rewrites og:image, twitter:image and og:title on the HTML the Static Assets
+// binding returns. Anything unexpected returns the page untouched.
+function withShareMeta(resp, url) {
+  const id = shareIdentity(url.search);
+  const type = resp.headers.get("Content-Type") || "";
+  if (!id || resp.status !== 200 || !type.includes("text/html")) return resp;
+  const card = `${url.origin}/api/og_card?d=${id.d}&t=${encodeURIComponent(id.t)}&wl=${id.wl}`;
+  const title = `My Heliograph: the Sun on ${id.d}`;
+  const set = (value) => ({ element(e) { e.setAttribute("content", value); } });
+  return new HTMLRewriter()
+    .on('meta[property="og:image"]', set(card))
+    .on('meta[name="twitter:image"]', set(card))
+    .on('meta[property="og:title"]', set(title))
+    .transform(resp);
+}
+
 // The dev tier lives on a real subdomain (dev.myheliograph.com), so it is
 // exactly as crawlable as production unless told otherwise. This covers
 // everything the worker proxies; the STATIC half is covered by the
@@ -174,7 +204,12 @@ async function handle(request, env, ctx) {
       to.searchParams.delete("flat");
       return Response.redirect(to.toString(), 302);
     }
-    return env.ASSETS.fetch(request);
+    return withShareMeta(await env.ASSETS.fetch(request), url);
+  }
+  // /store/ and /experience/ are opted into run_worker_first (wrangler.jsonc)
+  // only so shared links can carry a per-date preview card (MH-18).
+  if (pathname === "/store/" || pathname === "/experience/") {
+    return withShareMeta(await env.ASSETS.fetch(request), url);
   }
   // The 3D experience lives at /experience/ (a directory index). Static Assets
   // only serves the trailing-slash form, so the bare /experience falls through
@@ -191,7 +226,7 @@ async function handle(request, env, ctx) {
   // Accept-Encoding as uncacheable. The image is identical regardless of
   // Origin, so we cache explicitly with Vary stripped. The origin's Origin
   // gate still runs on every MISS (we only reach it then).
-  if (pathname === "/api/helioviewer_thumb" && request.method === "GET") {
+  if ((pathname === "/api/helioviewer_thumb" || pathname === "/api/og_card") && request.method === "GET") {
     return cacheThumb(request, env, ctx);
   }
   return toOrigin(request, env);

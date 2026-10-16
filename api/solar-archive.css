@@ -8375,6 +8375,8 @@ body:has(#imageStage.loading) .field-cell {
     transform: translateX(-50%);
   }
 }
+a.confirm-modal-btn { display: inline-block; text-align: center; text-decoration: none; }
+a.confirm-modal-btn.hidden { display: none; }
 
 /* MH-17 overlay: off by default; rings sit over the 40px preview well only. */
 .hek-time-scrub-well { position: relative; }

@@ -42,11 +42,14 @@ export function skySettings(s: { showStars: boolean; showConstellations: boolean
     art: s.showArt, labels: s.showLabels, grid: s.showGrid };
 }
 
+import { validProductId } from "./productId";
+export { validProductId };
+
 export function buyUrl(
   date: string,
   time: string,
   angstrom: number,
-  opts?: { cat?: string; tune?: boolean; look?: "raw" | "rhef"; form?: "flat" | "dimensional"; sky?: ReturnType<typeof skySettings> }
+  opts?: { cat?: string; tune?: boolean; look?: "raw" | "rhef"; form?: "flat" | "dimensional"; sky?: ReturnType<typeof skySettings>; p?: string }
 ) {
   // date arrives "" when the visitor has cleared the date field (see
   // store.ts's setDate) : SkipToStore leans on this to hand off a bare store
@@ -56,6 +59,8 @@ export function buyUrl(
     ? new URLSearchParams({ d: date, t: time || "12:00", wl: String(angstrom) })
     : new URLSearchParams({ wl: String(angstrom) });
   if (opts?.cat) q.set("cat", opts.cat);
+  // The store ignores p when cat is present, so never send both.
+  else if (validProductId(opts?.p)) q.set("p", opts!.p!);
   // `tune` lands the visitor on the store's fine-tune panel with that day's HEK
   // events listed. The experience has already settled the date and wavelength,
   // so the one genuinely open question is WHICH MOMENT of the day — and that is

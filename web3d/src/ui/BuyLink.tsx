@@ -33,13 +33,14 @@ export default function BuyLink({
   const labels = useStore((s) => s.showLabels);
   const grid = useStore((s) => s.showGrid);
   const valid = useStore(dateValid);
+  const productId = useStore((s) => s.productId);
   const [preparing, setPreparing] = useState(false);
   // No committed date to sell (cleared field, or the frontier clamp just
   // invalidated the last pick): this CTA has no honest destination, so it
   // renders inert rather than promising a Sun it can't deliver. SkipToStore
   // stays live either way; it's the deliberate escape hatch (see its comment).
   const href = valid
-    ? buyUrl(date, time, CHANNELS[channel].angstrom, { look, form, sky: { stars, con, planets, art, labels, grid }, ...(cat ? { cat } : {}) })
+    ? buyUrl(date, time, CHANNELS[channel].angstrom, { look, form, sky: { stars, con, planets, art, labels, grid }, ...(cat ? { cat } : {}), ...(productId ? { p: productId } : {}) })
     : undefined;
 
   const go = (e: MouseEvent) => {
@@ -72,6 +73,7 @@ export default function BuyLink({
         form: s.form,
         sky: skySettings(s),
         ...(cat ? { cat } : {}),
+        ...(s.productId ? { p: s.productId } : {}),
       });
     });
   };
