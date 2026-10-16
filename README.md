@@ -1,4 +1,4 @@
-# My Heliograph (webapp)
+# My Heliogram (webapp)
 
 The store at myheliograph.com: pick a date, see the Sun as NASA's Solar
 Dynamics Observatory recorded it, and order it printed on a product.

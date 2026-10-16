@@ -31,6 +31,10 @@
   },
   "vars": {
     "ORIGIN": "https://myheliograph-api.fly.dev",
+    // Stays on the old domain until the Fly ALLOWED_ORIGINS secret lists
+    // https://myheliogram.com: until then the rewrite in toOrigin() presents
+    // myheliogram.com traffic to the API as myheliograph.com, which it
+    // already allows (domain cutover, DEPLOY.md, 2026-10-15).
     "CANONICAL": "https://myheliograph.com"
   },
   "triggers": {
@@ -41,7 +45,12 @@
   },
   "routes": [
     { "pattern": "myheliograph.com", "custom_domain": true },
-    { "pattern": "www.myheliograph.com", "custom_domain": true }
+    { "pattern": "www.myheliograph.com", "custom_domain": true },
+    // 2026-10-15: the store's new address (Gilly). The old two stay: they
+    // become a redirect rule in the dashboard, never a removed route, while
+    // Printify product images and shared links still name them.
+    { "pattern": "myheliogram.com", "custom_domain": true },
+    { "pattern": "www.myheliogram.com", "custom_domain": true }
   ],
   // ── DEV tier (dev.myheliograph.com) ───────────────────────────────────
   //   npx wrangler deploy --env dev

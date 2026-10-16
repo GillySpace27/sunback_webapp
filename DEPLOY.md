@@ -247,6 +247,46 @@ a dev deploy never drops that key.
 
 ---
 
+## Domain cutover to myheliogram.com (Gilly, 2026-10-15)
+
+The store moves to myheliogram.com; myheliograph.com becomes a permanent
+redirect. Every step below is Gilly's to run or approve, one at a time.
+
+1. **Clear the new zone.** In the Cloudflare dashboard for myheliogram.com,
+   delete the DNS records for `myheliogram.com` and `www` (they point at an
+   origin that never answers, which is the 522 seen on 2026-10-15). A Worker
+   custom domain cannot attach while a record holds the name. Rollback:
+   re-create them. UNCHECKED from the agent side: which records exist, and
+   that the zone is in the same account as `myheliograph-router`.
+2. **Deploy the Worker** through the normal road (sections 1 to 4). The new
+   routes in `infra/worker/wrangler.jsonc` attach both names as custom
+   domains. `CANONICAL` stays `https://myheliograph.com`, so the Worker shows
+   myheliogram.com traffic to the API under the old origin, which
+   `ALLOWED_ORIGINS` already allows: no Fly change is needed for this step.
+3. **Verify** `https://myheliogram.com/`, `/store`, a mockup and a checkout
+   hand-off, on a phone too. The old domain keeps working unchanged.
+4. **Fly secret.** `fly secrets set ALLOWED_ORIGINS=...` with
+   `https://myheliogram.com,https://www.myheliogram.com` added to the current
+   list (never removed from it). Then, in one follow-up PR and deploy, set
+   `CANONICAL` (Worker) and `PUBLIC_BASE_URL` (`fly.toml`) to
+   `https://myheliogram.com`, and point `infra/scripts/probe.py`,
+   `check_headers.py` and the deploy skill's status script at it.
+5. **Redirect the old domain.** In the myheliograph.com zone, add a Redirect
+   Rule: hostname is `myheliograph.com` or `www.myheliograph.com`, and the
+   path does NOT start with `/api/`, `/asset/`, `/shopify/` or `/logs/`;
+   target `concat("https://myheliogram.com", http.request.uri.path)` with
+   query string kept, status 301. The four exempt prefixes carry webhooks,
+   Printify product images and API calls that must not be redirected.
+   Start with 302 for a day, then switch to 301. UNCHECKED: that a zone
+   Redirect Rule runs before a Worker custom domain on that hostname; test
+   with `curl -sI https://myheliograph.com/store` (expect 302 to the new host)
+   and `curl -sI https://myheliograph.com/asset/default/og_card.jpg`
+   (expect 200).
+6. **Outside the repository:** Shopify store and checkout links that name
+   the old domain, Google Search Console (add the new property, file a
+   change of address), GA4 data stream URL. The support mailbox
+   `support@myheliograph.com` stays until mail is set up on the new domain.
+
 ## Build identity, ledger and receipt
 
 One name for one build: the git SHA. deploy.sh passes `GIT_SHA` to the dev

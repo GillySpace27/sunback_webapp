@@ -41,7 +41,7 @@ export default function Masthead() {
 
   return (
     <header className="masthead" ref={ref} style={{ pointerEvents: "none" }}>
-      <h1 className="masthead-title">My Heliograph</h1>
+      <h1 className="masthead-title">My Heliogram</h1>
       <p className="masthead-tagline">Your day, written in sunlight</p>
       {/* The RHEF explanation ("enhanced with a published algorithm to reveal
           coronal structure the raw data hides") lives on the store page only.
