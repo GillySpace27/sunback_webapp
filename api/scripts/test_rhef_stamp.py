@@ -26,7 +26,7 @@ assert "unknown" in r.build_stamp(version=None), "unreadable version is written 
 assert PATTERN.match(r.build_stamp(version=None))
 assert r.build_stamp(version="1", upsilon=(0.2, 0.5)).count("upsilon=0.2,0.5") == 1
 assert "upsilon=none" in r.build_stamp(version="1", upsilon=None)
-assert "—" not in line
+assert "\u2014" not in line
 
 tmp = os.path.join(tempfile.mkdtemp(), "p_filtered.png")
 assert r.read_stamp(tmp) == {}, "no sidecar: nothing, never a guess"
