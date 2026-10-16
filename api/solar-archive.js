@@ -328,7 +328,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       // .hero-credit line (both currently use this full form).
       SDO_ACK: "Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.",
       AIA_PAPER: "Lemen, J. R., et al. 2012, Sol. Phys., 275, 17.",
-      RHEF_PAPER: "Gilly, C., et al. 2025, Sol. Phys., 300, 174 (https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G).",
+      RHEF_PAPER: "Gilly & Cranmer 2025, Sol. Phys. 300, 174 (https://ui.adsabs.harvard.edu/abs/2025SoPh..300..174G).",
       HELIOVIEWER_ACK: "This work has made use of the Helioviewer Project, an open-source project for visualisation of solar and heliospheric data."
     };
 
