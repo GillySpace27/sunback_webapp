@@ -252,7 +252,7 @@ export default function App() {
             promised. The store's <main> in the same role did NOT take focus
             (measured 2026-09-09), which is what a skip link failing looks
             like. -1 keeps it out of the tab order. */}
-        <nav id="buy" tabIndex={-1} aria-label="Customize your Heliograph">
+        <nav id="buy" tabIndex={-1} aria-label="Customize your Heliogram">
           {/* The HUD carries the film's settings, and — from the climax beat
               onward only — the one real, announced, focusable "Make one". The
               overlay's copy of it is a decorative aria-hidden twin. */}

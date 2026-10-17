@@ -117,10 +117,10 @@ export function productJsonLd(id, origin) {
   const ld = {
     "@context": "https://schema.org",
     "@type": "Product",
-    name: `My Heliograph: the Sun on ${id.d}`,
+    name: `My Heliogram: the Sun on ${id.d}`,
     description: `The real image of the Sun on ${id.d}, AIA ${id.wl} A, from NASA/SDO, printed as art.`,
     image: card,
-    brand: { "@type": "Brand", name: "My Heliograph" },
+    brand: { "@type": "Brand", name: "My Heliogram" },
     url: `${origin}/store/?d=${id.d}&t=${encodeURIComponent(id.t)}&wl=${id.wl}`,
   };
   return JSON.stringify(ld).replace(/</g, "\\u003c");
@@ -133,7 +133,7 @@ function withShareMeta(resp, url) {
   const type = resp.headers.get("Content-Type") || "";
   if (!id || resp.status !== 200 || !type.includes("text/html")) return resp;
   const card = `${url.origin}/api/og_card?d=${id.d}&t=${encodeURIComponent(id.t)}&wl=${id.wl}`;
-  const title = `My Heliograph: the Sun on ${id.d}`;
+  const title = `My Heliogram: the Sun on ${id.d}`;
   const set = (value) => ({ element(e) { e.setAttribute("content", value); } });
   return new HTMLRewriter()
     .on('meta[property="og:image"]', set(card))

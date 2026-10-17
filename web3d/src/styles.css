@@ -1114,7 +1114,7 @@ body {
 }
 /* Below ~560px the centered masthead grows wide enough to run under the
    top-right "skip to the store" pill, which drew straight over the wordmark:
-   "My Heliograph" rendered as "My Heli▓▓▓▓▓▓" on a 375px phone. Drop the
+   "My Heliogram" rendered as "My Heli▓▓▓▓▓▓" on a 375px phone. Drop the
    masthead clear of the pill rather than shrinking either — the opening beat
    has a large empty band beneath the intro copy to give back. */
 @media (max-width: 560px) {
