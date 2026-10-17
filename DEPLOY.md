@@ -260,9 +260,9 @@ redirect. Every step below is Gilly's to run or approve, one at a time.
    that the zone is in the same account as `myheliograph-router`.
 2. **Deploy the Worker** through the normal road (sections 1 to 4). The new
    routes in `infra/worker/wrangler.jsonc` attach both names as custom
-   domains. `CANONICAL` stays `https://myheliograph.com`, so the Worker shows
-   myheliogram.com traffic to the API under the old origin, which
-   `ALLOWED_ORIGINS` already allows: no Fly change is needed for this step.
+   domains. `CANONICAL` is now `https://myheliogram.com` (PR #79), so the Worker
+   presents myheliogram.com traffic to the API under the new origin, which
+   `ALLOWED_ORIGINS` must allow before this step (see step 4).
 3. **Verify** `https://myheliogram.com/`, `/store`, a mockup and a checkout
    hand-off, on a phone too. The old domain keeps working unchanged.
 4. **Fly secret.** Read the current list with

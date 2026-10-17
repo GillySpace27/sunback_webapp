@@ -59,7 +59,7 @@ def compose_card(sun_bytes, date_iso, time_hhmm, wavelength):
     card.paste(sun, (0, 0))
     draw = ImageDraw.Draw(card)
     x = side + 48
-    draw.text((x, 150), "My Heliograph", fill=(255, 190, 90), font=_font(54))
+    draw.text((x, 150), "My Heliogram", fill=(255, 190, 90), font=_font(54))
     draw.text((x, 240), "The Sun on", fill=(220, 220, 225), font=_font(34))
     draw.text((x, 284), date_iso, fill=(255, 255, 255), font=_font(58))
     draw.text((x, 370), f"{time_hhmm} UT, AIA {wavelength} A", fill=(200, 200, 205), font=_font(30))
@@ -82,7 +82,7 @@ def compose_certificate(sun_bytes, date_iso, time_hhmm, wavelength, gloss="", ob
     page = Image.new("RGB", (CERT_W, CERT_H), (12, 12, 16))
     page.paste(sun, (60, 150))
     d = ImageDraw.Draw(page)
-    d.text((60, 50), "My Heliograph", fill=(255, 190, 90), font=_font(56))
+    d.text((60, 50), "My Heliogram", fill=(255, 190, 90), font=_font(56))
     d.text((60, 1260), f"The Sun on {date_iso}", fill=(255, 255, 255), font=_font(54))
     lines = [f"SDO / AIA {wavelength} A" + (f": {gloss}" if gloss else "")]
     if observed:

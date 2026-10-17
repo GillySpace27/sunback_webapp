@@ -11,7 +11,7 @@ into every repository.
 The family: HelioFITS (Quick Look plugin), HelioFITS Studio (a fork of
 JHelioviewer), Heliogram (macOS app, formerly Heliograph), RHEF and oRHEF (the
 filter: sunkit-image, fastRHEF, IDL_RHEF), sunback (imagery pipeline),
-gilly.space (the site) and My Heliogram (the store, formerly My Heliogram).
+gilly.space (the site) and My Heliogram (the store, formerly My Heliograph).
 
 ### Owner and approvals
 
@@ -72,7 +72,7 @@ gilly.space (the site) and My Heliogram (the store, formerly My Heliogram).
   `space.gilly.heliograph` and `https://gilly.space/heliograph/appcast.xml`, so
   every file under `/heliograph/` stays. `SUPublicEDKey` is frozen;
   `version.json` keeps its shape.
-- My Heliogram, formerly My Heliogram (Gilly, 2026-10-11): the store's public
+- My Heliogram, formerly My Heliograph (Gilly, 2026-10-11): the store's public
   brand. The address stays myheliograph.com until myheliogram.com is registered
   and served. Internal names stay `solar-archive`, `myheliograph-api`,
   `imagery.myheliograph.com` and `dev.myheliograph.com`. Buyers see Original

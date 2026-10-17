@@ -1,6 +1,6 @@
 {
   "name": "My Heliogram",
-  "short_name": "Heliograph",
+  "short_name": "Heliogram",
   "description": "The Sun on your date, written in sunlight.",
   "start_url": "/",
   "display": "standalone",
