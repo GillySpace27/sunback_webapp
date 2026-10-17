@@ -214,7 +214,7 @@ them, and route findings to `TODOS.md` — never to this gate.
 ⚠️ **Never run this without asking Gilly in chat and getting an explicit yes,
 every single time.** A yes for one deploy never carries to the next. State
 plainly what is about to happen: *"this will make commit `abc1234` live on
-myheliogram.com for real customers"* — never a vague "shall I continue?".
+myheliogram.com for real customers"*; never a vague "shall I continue?".
 
     TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh
 
