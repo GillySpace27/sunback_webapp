@@ -172,8 +172,8 @@ MILESTONES = [
     # and the app still crash-loop or the edge still serve the old frontend.
     ("live", "Prod healthy AND serving the promoted build",
      f"({_PROMOTED_CHECK.strip()}) "
-     "&& curl -fsS --max-time 25 https://myheliograph.com/api/health >/dev/null "
-     "&& curl -fsS --max-time 25 -o /dev/null https://myheliograph.com/"),
+     "&& curl -fsS --max-time 25 https://myheliogram.com/api/health >/dev/null "
+     "&& curl -fsS --max-time 25 -o /dev/null https://myheliogram.com/"),
     ("drift", "Fly and Cloudflare match the repo (drift.sh, read-only)", _DRIFT_CHECK),
 
     ("backup_age", "Newest volume backup is under 14 days old", _BACKUP_AGE_CHECK),
@@ -212,7 +212,7 @@ HOW = {
 
     "captured": ("shell",
         "# warm both tiers first — a cold Fly machine on one side reads as a regression\n"
-        "node web3d/tools/capture-pages.mjs https://myheliograph.com     .deploy-shots/prod\n"
+        "node web3d/tools/capture-pages.mjs https://myheliogram.com      .deploy-shots/prod\n"
         "node web3d/tools/capture-pages.mjs https://dev.myheliograph.com .deploy-shots/dev\n"
         "# CAPTURE_SETTLE_MS=12000 if the two disagree in the thumbnail region"),
 
@@ -225,7 +225,7 @@ HOW = {
     "promoted": ("gate",
         "Promote to production. Never without asking Gilly in chat, this deploy — a yes for "
         "one never carries to the next. Say plainly what goes live: 'this will make commit "
-        "<sha> live on myheliograph.com for real customers.'\n"
+        "<sha> live on myheliogram.com for real customers.'\n"
         "TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh"),
 
     "live": ("shell",
@@ -283,7 +283,7 @@ def run_out(cmd):
 # host because NWRA's network refuses dev.myheliograph.com.
 BUILD_TIERS = (
     ("prod", "https://myheliograph-api.fly.dev",
-     ("https://myheliograph.com",)),
+     ("https://myheliogram.com",)),
     ("dev", "https://myheliograph-api-dev.fly.dev",
      ("https://dev.myheliograph.com", "https://myheliograph-router-dev.gilly-22d.workers.dev")),
 )
