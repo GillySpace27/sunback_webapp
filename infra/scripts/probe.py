@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-PROD = "https://myheliograph.com"
+PROD = "https://myheliogram.com"
 DEV = "https://dev.myheliograph.com"
 PROD_ORIGIN = "https://myheliograph-api.fly.dev"
 DEV_ORIGIN = "https://myheliograph-api-dev.fly.dev"

@@ -35,7 +35,7 @@ def fake(table):
 def test_ok_skew_and_unknown_lines():
     status._get_json = fake({
         "myheliograph-api.fly.dev/api/build-info": {"sha": A, "tier": "prod"},
-        "https://myheliograph.com/build.json": {"sha": A},
+        "https://myheliogram.com/build.json": {"sha": A},
         "myheliograph-api-dev.fly.dev/api/build-info": {"sha": A, "tier": "dev"},
         "dev.myheliograph.com/build.json": {"sha": B},
     })
@@ -45,7 +45,7 @@ def test_ok_skew_and_unknown_lines():
     ], status.build_identity_lines()
     status._get_json = fake({
         "myheliograph-api.fly.dev/api/build-info": {"built": "2026-09-01T00:00:00Z"},
-        "https://myheliograph.com/build.json": {"sha": A},
+        "https://myheliogram.com/build.json": {"sha": A},
     })
     lines = status.build_identity_lines()
     assert lines[0] == f"prod: origin none edge {A[:8]} UNKNOWN", lines[0]

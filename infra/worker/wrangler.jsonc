@@ -31,11 +31,11 @@
   },
   "vars": {
     "ORIGIN": "https://myheliograph-api.fly.dev",
-    // Stays on the old domain until the Fly ALLOWED_ORIGINS secret lists
-    // https://myheliogram.com: until then the rewrite in toOrigin() presents
-    // myheliogram.com traffic to the API as myheliograph.com, which it
-    // already allows (domain cutover, DEPLOY.md, 2026-10-15).
-    "CANONICAL": "https://myheliograph.com"
+    // The store's address since the domain cutover (DEPLOY.md step 4,
+    // 2026-10-17). Deploy only once the Fly ALLOWED_ORIGINS secret lists
+    // https://myheliogram.com, or toOrigin() presents every request under an
+    // origin the API refuses.
+    "CANONICAL": "https://myheliogram.com"
   },
   "triggers": {
     // Stale-[MOCKUP]-draft sweep: the in-app trigger is a post-response

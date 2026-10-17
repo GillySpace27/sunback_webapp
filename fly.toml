@@ -14,8 +14,9 @@
 # against `fly secrets list` on 2026-08-22 — it had drifted, naming four
 # secrets that were never set (INTERNAL_AUTH_TOKEN, FEEDBACK_WEBHOOK_URL,
 # RESEND_API_KEY, FEEDBACK_NOTIFY_EMAIL) and omitting two that are:
-#   FEEDBACK_ADMIN_KEY, ALLOWED_ORIGINS (must include https://myheliograph.com
-#   and https://www.myheliograph.com and https://solar-archive.myshopify.com),
+#   FEEDBACK_ADMIN_KEY, ALLOWED_ORIGINS (must include https://myheliogram.com,
+#   https://www.myheliogram.com, https://myheliograph.com,
+#   https://www.myheliograph.com and https://solar-archive.myshopify.com),
 #   PRINTIFY_API_KEY, PRINTIFY_SHOP_ID, SOLAR_ARCHIVE_JSOC_EMAIL,
 #   SHOPIFY_STORE_DOMAIN, SHOPIFY_STOREFRONT_ACCESS_TOKEN,
 #   SHOPIFY_ADMIN_CLIENT_ID, SHOPIFY_ADMIN_CLIENT_SECRET
@@ -38,7 +39,7 @@ kill_timeout = "60s"
   # Render; the code default is now verify-always, this is belt+braces.
   PRINTIFY_SSL_VERIFY = "1"
   # Public origin for Printify-facing asset URLs + admin approve links.
-  PUBLIC_BASE_URL = "https://myheliograph.com"
+  PUBLIC_BASE_URL = "https://myheliogram.com"
   # 2 since 2026-08-25. The comment at the semaphore has always said "Pro 4GB
   # -> 2"; the box has been 4GB/2-cpu since 2026-08-22 and this was still
   # pinned at the 2GB-era default, so the second core sat idle while renders

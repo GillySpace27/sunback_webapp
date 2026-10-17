@@ -17,7 +17,7 @@ second place for bugs to live, not a safeguard.
 
 | | dev | prod |
 |---|---|---|
-| site | `dev.myheliograph.com` | `myheliograph.com`, `www.` |
+| site | `dev.myheliograph.com` | `myheliogram.com`, `www.` (old `myheliograph.com` redirects) |
 | Fly app | `myheliograph-api-dev` | `myheliograph-api` |
 | Fly config | `fly.dev.toml` | `fly.toml` |
 | Worker | `myheliograph-router-dev` | `myheliograph-router` |
@@ -149,7 +149,7 @@ digest. The one exception is a rollback Gilly has said yes to (see Rollback).
 Both tiers, same pages, same viewports. Identical viewports are what make the
 diff mean anything.
 
-    node web3d/tools/capture-pages.mjs https://myheliograph.com     .deploy-shots/prod
+    node web3d/tools/capture-pages.mjs https://myheliogram.com      .deploy-shots/prod
     node web3d/tools/capture-pages.mjs https://dev.myheliograph.com .deploy-shots/dev
 
 It lives in `web3d/tools/` rather than `infra/scripts/` for a boring reason:
@@ -214,7 +214,7 @@ them, and route findings to `TODOS.md` — never to this gate.
 ⚠️ **Never run this without asking Gilly in chat and getting an explicit yes,
 every single time.** A yes for one deploy never carries to the next. State
 plainly what is about to happen: *"this will make commit `abc1234` live on
-myheliograph.com for real customers"* — never a vague "shall I continue?".
+myheliogram.com for real customers"* — never a vague "shall I continue?".
 
     TARGET=prod ADMIN_KEY=$FEEDBACK_ADMIN_KEY ./infra/scripts/deploy.sh
 
@@ -265,9 +265,12 @@ redirect. Every step below is Gilly's to run or approve, one at a time.
    `ALLOWED_ORIGINS` already allows: no Fly change is needed for this step.
 3. **Verify** `https://myheliogram.com/`, `/store`, a mockup and a checkout
    hand-off, on a phone too. The old domain keeps working unchanged.
-4. **Fly secret.** `fly secrets set ALLOWED_ORIGINS=...` with
-   `https://myheliogram.com,https://www.myheliogram.com` added to the current
-   list (never removed from it). Then, in one follow-up PR and deploy, set
+4. **Fly secret.** Read the current list with
+   `fly ssh console -a myheliograph-api -C 'printenv ALLOWED_ORIGINS'`, then
+   `fly secrets set --stage -a myheliograph-api ALLOWED_ORIGINS=...` with
+   `https://myheliogram.com,https://www.myheliogram.com` added to it (never
+   removed from it). `--stage` applies it with the next deploy instead of a
+   restart now. Then, in one follow-up PR and deploy, set
    `CANONICAL` (Worker) and `PUBLIC_BASE_URL` (`fly.toml`) to
    `https://myheliogram.com`, and point `infra/scripts/probe.py`,
    `check_headers.py` and the deploy skill's status script at it.

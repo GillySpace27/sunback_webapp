@@ -34,7 +34,7 @@ GOOD_EDGE = {
 
 
 def test_hosts_and_table_shape():
-    assert ch.PROD == "https://myheliograph.com" and ch.DEV == "https://dev.myheliograph.com"
+    assert ch.PROD == "https://myheliogram.com" and ch.DEV == "https://dev.myheliograph.com"
     assert ch.PROD_ORIGIN == "https://myheliograph-api.fly.dev" and ch.DEV_ORIGIN == "https://myheliograph-api-dev.fly.dev"
     assert set(ch.EXPECTED) == {ch.PROD, ch.DEV, ch.PROD_ORIGIN, ch.DEV_ORIGIN}
     for host, exp in ch.EXPECTED.items():
