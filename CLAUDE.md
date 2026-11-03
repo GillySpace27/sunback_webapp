@@ -8,8 +8,10 @@ served at https://gilly.space/heliosoftware/spec/agent-preamble.md. This block
 is a byte copy: do not edit it here. Change the canonical file, then recopy it
 into every repository.
 
-The family: HelioFITS (Quick Look plugin), HelioFITS Studio (a fork of
-JHelioviewer), Heliogram (macOS app, formerly Heliograph), RHEF and oRHEF (the
+The family: HelioFITS Peek (the Finder and Quick Look app), HelioFITS Studio
+(a fork of JHelioviewer), pyHelioFITS (the Python package `heliofits`:
+HelioFITS Core, the HelioFITS Cache Manager and the MCP server; formerly
+heliad), Heliogram (macOS app, formerly Heliograph), RHEF and oRHEF (the
 filter: sunkit-image, fastRHEF, IDL_RHEF), sunback (imagery pipeline),
 gilly.space (the site) and My Heliogram (the store, formerly My Heliograph).
 
@@ -57,7 +59,14 @@ gilly.space (the site) and My Heliogram (the store, formerly My Heliograph).
 
 ### Settled names (do not reopen)
 
-- HelioFITS: the Mac App Store is its one official channel; bundle id
+- Never a bare "HelioFITS". Every use names the product (HelioFITS Peek,
+  HelioFITS Studio, HelioFITS Core, HelioFITS Cache Manager, the HelioFITS
+  Suite) or the repository (pyHelioFITS). The one exception is the Python
+  package and import name `heliofits`. Frozen identifiers keep their spelling
+  (bundle ids, `HelioFITS.app`, Xcode targets and schemes, the
+  `HelioFITS-notary` profile, file paths). Gilly, 2026-11-03.
+- HelioFITS Peek: the Mac App Store is its main channel, with a notarized
+  direct download beside it as the fallback; bundle id
   `com.gillyspace27.HelioFITS`; app group `UB45PPC2JS.com.gillyspace27.fits`;
   no Apple trademarks in the name or subtitle; it keeps the AIA 171 icon.
 - HelioFITS Studio: the display name. `HFStudio` stays the technical name (jar,
@@ -109,13 +118,14 @@ gilly.space (the site) and My Heliogram (the store, formerly My Heliograph).
 
 | Repository | Check command |
 |---|---|
-| HelioFITS | `scripts/check.sh` |
+| HelioFITS-Peek | `scripts/check.sh` |
 | HelioFITS-Studio | `ant check-all` |
 | heliogram | `./check.sh` |
 | sunback | `devtools/check.sh` |
 | sunback_webapp (My Heliogram) | `infra/scripts/check.sh` |
 | GillySpace27.github.io (gilly.space) | `python3 tools/check_site.py` |
 | fastRHEF | `make check` |
+| pyHelioFITS | `python -m pytest -q` |
 
 Run it before every commit. Rules for this repository follow this block.
 Operating notes for an agent in this repository. `README.md` says what the

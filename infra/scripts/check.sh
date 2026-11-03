@@ -348,12 +348,12 @@ check_hsts_agree() {
   echo "secure() and _headers agree: $a"
 }
 
-# SU-3: the vendored release-gates.sh still matches its sha256 header (canonical copy: HelioFITS).
+# SU-3: the vendored release-gates.sh still matches its sha256 header (canonical copy: HelioFITS-Peek).
 check_release_gates_copy() {
   if ./infra/scripts/release-gates.sh --verify-copy >/dev/null 2>&1; then
     echo "vendored copy matches its sha256 header"
   else
-    echo "infra/scripts/release-gates.sh differs from its vendored header; recopy from HelioFITS"
+    echo "infra/scripts/release-gates.sh differs from its vendored header; recopy from HelioFITS-Peek"
     return 1
   fi
 }
