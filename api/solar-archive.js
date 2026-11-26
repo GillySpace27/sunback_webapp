@@ -3920,7 +3920,11 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           if (wlGrid) {
             var tile = wlGrid.querySelector('.wl-card[data-wl="' + s.wl + '"] .wl-label');
             if (tile) {
-              var first = (tile.textContent || "").split("·")[0].trim();
+              // First text node only: the <br> + wl-sci span would glue
+              // "193 Å" onto the tone ("the classic sun193 å").
+              var fn = tile.firstChild;
+              var raw = fn && fn.nodeType === 3 ? fn.textContent : (tile.textContent || "");
+              var first = raw.split("·")[0].trim().replace(/^the\s+/i, "");
               if (first) tone = first.toLowerCase();
             }
           }
@@ -3932,7 +3936,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           _lastSuggestionKey = key;
           wlSuggestCaption.classList.remove("hidden");
           wlSuggestCaption.innerHTML =
-            "We picked <strong>" + s.wl + " Å</strong>" + toneFrag + " — " +
+            "We picked <strong>" + s.wl + " Å</strong>" + toneFrag + ": " +
             escapeHtml(s.why) + ". Want a different look? Tap any tile.";
         } else {
           // Suggestion conflicts with user's explicit pick — instead
@@ -14425,7 +14429,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       showModal(
         "Set up your " + escapeHtml(product.name),
         "<strong>Nothing is charged yet.</strong> We'll prepare your custom <strong>" + escapeHtml(product.name) + "</strong> and hand you a secure Shopify checkout link with your size and color already locked in; you pay there, not here. " +
-          "The checkout page's web address will show our Shopify store name rather than myheliograph.com; that's expected, it's Shopify's own secure checkout, not a different site.<br><br>" +
+          "The checkout page's web address will show our Shopify store name rather than myheliogram.com; that's expected, it's Shopify's own secure checkout, not a different site.<br><br>" +
           hqNote + mockNote +
           // Delivery window = production 2–7 + US transit 3–6 business
           // days; keep in sync with /shipping and the trust bar.
