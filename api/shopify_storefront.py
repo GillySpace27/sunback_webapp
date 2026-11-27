@@ -20,6 +20,9 @@ Env:
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 from api import settings
 import re
 import time
@@ -130,14 +133,37 @@ def lookup_variant_id_by_sku(handle: str, sku: str) -> Optional[str]:
     return None
 
 
-def cart_permalink(variant_id_numeric: str, quantity: int = 1) -> str:
+# Holiday discount codes (T14). Windows are America/Denver wall-clock,
+# inclusive; outside every window the permalink carries no discount.
+_DENVER = ZoneInfo("America/Denver")
+_DISCOUNT_WINDOWS = (
+    (datetime(2026, 11, 27, 0, 0, 0), datetime(2026, 11, 29, 23, 59, 59), "SOLARFLARE20"),
+    (datetime(2026, 11, 30, 0, 0, 0), datetime(2026, 12, 4, 23, 59, 59), "CYBERSUN20"),
+)
+
+
+def holiday_discount_code(now: Optional[datetime] = None) -> Optional[str]:
+    """The discount code live at `now` (default: the real clock), else None."""
+    t = (now or datetime.now(_DENVER)).astimezone(_DENVER).replace(tzinfo=None)
+    for start, end, code in _DISCOUNT_WINDOWS:
+        if start <= t <= end:
+            return code
+    return None
+
+
+def cart_permalink(variant_id_numeric: str, quantity: int = 1,
+                   now: Optional[datetime] = None) -> str:
     """Build the Shopify cart-permalink URL. Navigating to this URL
     adds the variant to the customer's cart and lands them on the
     cart page (or directly on checkout, depending on the shop's
     "after add to cart" setting).
     """
     qty = max(1, int(quantity))
-    return f"https://{SHOPIFY_STORE_DOMAIN}/cart/{variant_id_numeric}:{qty}"
+    url = f"https://{SHOPIFY_STORE_DOMAIN}/cart/{variant_id_numeric}:{qty}"
+    code = holiday_discount_code(now)
+    if code:
+        url += ("&" if "?" in url else "?") + urlencode({"discount": code})
+    return url
 
 
 def storefront_configured() -> bool:

@@ -8414,6 +8414,25 @@ a.confirm-modal-btn.hidden { display: none; }
 .vibe-thumb.on-product canvas.vibe-product-canvas { display: block; }
 .vibe-thumb.on-product > img { display: none; }
 
+/* Date-gated holiday banner (solar-archive.js, holiday-banner block). In normal
+   flow above the hero, so it pushes content down and never covers a CTA or the
+   NASA/SDO credit. */
+.holiday-banner {
+  margin: 0;
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--accent-sun);
+}
+.holiday-banner[hidden] { display: none; }
+@media (max-width: 600px) {
+  .holiday-banner { padding: 6px 12px; font-size: 0.8rem; }
+}
+
 /* "What you see is not what you picked" notice (_lookNotice). */
 .selected-product-preview .preview-mockup { position: relative; }
 .look-notice {

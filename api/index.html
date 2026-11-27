@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f0eff5" media="(prefers-color-scheme: light)">
   <title>My Heliogram: The Sun on Any Date, as Wall Art</title>
-  <meta name="description" content="Pick any date since May 2010 and get the real image of the Sun that day, printed as a poster, print, or canvas. A meaningful birthday or anniversary gift.">
+  <meta name="description" content="Pick any date since May 2010 and get the real image of the Sun that day, printed as a poster, print, or canvas. A meaningful gift for a birthday, anniversary or any day since 2010.">
   <link rel="canonical" href="https://myheliogram.com/store">
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"Organization","name":"My Heliogram","url":"https://myheliogram.com/","logo":"https://myheliogram.com/favicon.svg"}
@@ -19,14 +19,14 @@
   <!-- Open Graph + Twitter Card for share previews. -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="My Heliogram: Your day, written in sunlight.">
-  <meta property="og:description" content="Real NASA/SDO images of the Sun, as it shone on any date since May 2010 — printed as art for the day that mattered.">
+  <meta property="og:description" content="Real NASA/SDO images of the Sun, as it shone on any date since May 2010, printed as art for the day that mattered.">
   <meta property="og:url" content="https://myheliogram.com/store">
   <meta property="og:image" content="https://myheliogram.com/asset/default/og_card.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="My Heliogram: Your day, written in sunlight.">
-  <meta name="twitter:description" content="Real NASA/SDO images of the Sun, as it shone on any date since May 2010 — printed as art for the day that mattered.">
+  <meta name="twitter:description" content="Real NASA/SDO images of the Sun, as it shone on any date since May 2010, printed as art for the day that mattered.">
   <meta name="twitter:image" content="https://myheliogram.com/asset/default/og_card.jpg">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -94,6 +94,8 @@
      and screen-reader users bypass the hero/banners and jump straight
      to the editor. Sam Rosenberg round-2 WCAG 2.4.1 finding. -->
 <a href="#mainContent" class="skip-link">Skip to main content</a>
+<!-- Date-gated holiday banner: filled and revealed by the holiday-banner block at the end of solar-archive.js, only inside its windows. -->
+<div id="holidayBanner" class="holiday-banner" role="status" hidden></div>
 
 <!-- The continuous field. One unbroken surface behind the whole document,
      replacing the per-section card backgrounds that used to make every
@@ -497,7 +499,7 @@
    <div class="flow-inner">
     <div class="section-header">
       <div class="step-badge">1</div>
-      <h2 class="section-title" id="vibeGridTitle">Pick a date — a famous moment, your birthday, or any day since May 2010</h2>
+      <h2 class="section-title" id="vibeGridTitle">Pick a date: a famous moment, a birthday, an anniversary or any day since 2010</h2>
       <button type="button" class="edit-btn edit-btn-nav share-image-step-btn hidden" id="btnShareSunImageStep" title="Copy a link to this exact Sun">
         <i class="fas fa-share-nodes" aria-hidden="true"></i> Share
       </button>
