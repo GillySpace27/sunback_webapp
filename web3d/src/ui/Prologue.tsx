@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { sunOnScreen } from "../lib/sunOnScreen";
 
@@ -53,15 +53,57 @@ const shortDate = (d: string) =>
   new Date(d + "T12:00:00Z").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
 
 // A figure in silhouette, feet at (x, y), `h` tall. `raised` lifts one arm.
-function Person({ x, y, h, raised = false, dress = false }: { x: number; y: number; h: number; raised?: boolean; dress?: boolean }) {
+// `dress` sets the default expression; the visitor can change it per figure
+// (Gilly, 2026-11-26): masculine, nonbinary or feminine.
+type Expr = "m" | "nb" | "f";
+const EXPRS: [Expr, string, string][] = [["m", "M", "masculine"], ["nb", "nB", "nonbinary"], ["f", "F", "feminine"]];
+const BODY: Record<Expr, string> = {
+  m: "M-13 22Q-14 19-10 19L10 19Q14 19 13 22L16 52Q16 55 13 55L11 55L9 100L2 100L0 62L-2 100L-9 100L-11 55L-13 55Q-16 55-16 52Z",
+  nb: "M-12 22Q-13 19-9 19L9 19Q13 19 12 22L18 72L9 72L8 100L2 100L0 76L-2 100L-8 100L-9 72L-18 72Z",
+  f: "M-12 22Q-13 19-9 19L9 19Q13 19 12 22L14 50L27 100L-27 100L-14 50Z",
+};
+const nextExpr = (e: Expr): Expr => (e === "m" ? "nb" : e === "nb" ? "f" : "m");
+const exprName = (e: Expr) => EXPRS.find(([v]) => v === e)![2];
+
+type FigureCtx = {
+  live: boolean;
+  expr: (k: string, d: Expr) => Expr;
+  set: (k: string, e: Expr) => void;
+  open: (k: string, d: Expr, el: Element) => void;
+  close: () => void;
+};
+const Figures = createContext<FigureCtx | null>(null);
+
+function Person({ k, x, y, h, raised = false, dress = false }: { k: string; x: number; y: number; h: number; raised?: boolean; dress?: boolean }) {
+  const ctx = useContext(Figures);
+  const d: Expr = dress ? "f" : "m";
+  const e = ctx ? ctx.expr(k, d) : d;
   const s = h / 100;
-  const body = dress
-    ? "M-12 22Q-13 19-9 19L9 19Q13 19 12 22L14 50L27 100L-27 100L-14 50Z"
-    : "M-13 22Q-14 19-10 19L10 19Q14 19 13 22L16 52Q16 55 13 55L11 55L9 100L2 100L0 62L-2 100L-9 100L-11 55L-13 55Q-16 55-16 52Z";
+  const live = !!ctx && ctx.live;
+  const open = (ev: { currentTarget: Element }) => ctx?.open(k, d, ev.currentTarget);
   return (
-    <g transform={`translate(${x} ${y - h}) scale(${s})`}>
+    <g
+      transform={`translate(${x} ${y - h}) scale(${s})`}
+      {...(live && ctx
+        ? {
+            className: "pro-fig",
+            tabIndex: 0,
+            role: "button",
+            "aria-label": `Figure, ${exprName(e)}. Press Enter to change.`,
+            onPointerEnter: open,
+            onClick: open,
+            onFocus: open,
+            onPointerLeave: ctx.close,
+            onBlur: ctx.close,
+            onKeyDown: (ev: React.KeyboardEvent) => {
+              if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ctx.set(k, nextExpr(e)); }
+            },
+          }
+        : {})}
+    >
+      {live && <rect x="-30" y="-4" width="60" height="106" fill="transparent" pointerEvents="all" />}
       <circle cx="0" cy="9" r="8.5" />
-      <path d={body} />
+      <path d={BODY[e]} />
       {raised && <path d="M9 21L21-6L26-4L15 27Z" />}
     </g>
   );
@@ -90,14 +132,14 @@ function Scene({ id }: { id: string }) {
               <path d={`M${cx} ${cy + r}Q${cx + 12} ${cy + r + 60} ${cx < 800 ? 700 : 900} 352`} fill="none" stroke="currentColor" strokeWidth="2" />
             </g>
           ))}
-          <Person x={640} y={416} h={120} /><Person x={968} y={414} h={78} raised />
+          <Person k="birthday0" x={640} y={416} h={120} /><Person k="birthday1" x={968} y={414} h={78} raised />
         </g>
       );
     case "anniversary":
       return (
         <g>
           <path d="M0 440Q520 330 800 330T1600 440V500H0Z" />
-          <Person x={778} y={334} h={118} /><Person x={818} y={334} h={108} dress />
+          <Person k="anniversary0" x={778} y={334} h={118} /><Person k="anniversary1" x={818} y={334} h={108} dress />
           <rect x="784" y="282" width="30" height="6" rx="3" />
         </g>
       );
@@ -109,14 +151,14 @@ function Scene({ id }: { id: string }) {
           {[[700, 260], [735, 175], [800, 146], [865, 175], [900, 260]].map(([cx, cy], i) => (
             <circle key={i} cx={cx} cy={cy} r="15" />
           ))}
-          <Person x={775} y={412} h={124} /><Person x={825} y={412} h={114} dress />
+          <Person k="wedding0" x={775} y={412} h={124} /><Person k="wedding1" x={825} y={412} h={114} dress />
         </g>
       );
     case "graduation":
       return (
         <g>
           {ground}
-          <Person x={720} y={412} h={116} /><Person x={800} y={410} h={124} raised /><Person x={880} y={412} h={112} />
+          <Person k="graduation0" x={720} y={412} h={116} /><Person k="graduation1" x={800} y={410} h={124} raised /><Person k="graduation2" x={880} y={412} h={112} />
           {[[700, 150, -20], [790, 110, 15], [900, 170, 35], [640, 210, 5]].map(([cx, cy, a], i) => (
             <g key={i} className="pro-cap" style={{ animationDelay: `${i * 0.4}s` }}>
               <g transform={`translate(${cx} ${cy}) rotate(${a})`}>
@@ -130,7 +172,7 @@ function Scene({ id }: { id: string }) {
       return (
         <g>
           {ground}
-          <Person x={720} y={412} h={122} /><Person x={880} y={412} h={114} dress />
+          <Person k="arrival0" x={720} y={412} h={122} /><Person k="arrival1" x={880} y={412} h={114} dress />
           <path d="M760 360H842Q846 392 818 396H784Q758 392 760 360Z" />
           <path d="M760 360A42 42 0 0 1 804 318V360Z" />
           <path d="M842 360L862 336" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
@@ -153,7 +195,7 @@ function Scene({ id }: { id: string }) {
       return (
         <g>
           <path d="M0 440Q560 340 800 344T1600 440V500H0Z" />
-          <Person x={800} y={348} h={118} raised />
+          <Person k="default0" x={800} y={348} h={118} raised />
         </g>
       );
   }
@@ -195,6 +237,22 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
   const timers = useRef<number[]>([]);
   const stars = useStars(260);
   const sunRef = useRef<HTMLDivElement>(null);
+  // Per-figure gender expression, chosen from a small menu over each figure
+  // while the occasion is being picked.
+  const [exprs, setExprs] = useState<Record<string, Expr>>({});
+  const [menu, setMenu] = useState<{ k: string; d: Expr; x: number; y: number } | null>(null);
+  const closeT = useRef(0);
+  const figures = useMemo<FigureCtx>(() => ({
+    live: phase === "choose",
+    expr: (k, d) => exprs[k] ?? d,
+    set: (k, e) => setExprs((p) => ({ ...p, [k]: e })),
+    open: (k, d, el) => {
+      clearTimeout(closeT.current);
+      const r = el.getBoundingClientRect();
+      setMenu({ k, d, x: r.left + r.width / 2, y: r.top });
+    },
+    close: () => { closeT.current = window.setTimeout(() => setMenu(null), 300); },
+  }), [phase, exprs]);
 
   // In flight, steer for wherever the film's Sun actually is, so the fade at
   // the end lands one disc on the other. Set once per phase, not per frame: a
@@ -255,10 +313,37 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
       aria-label="Introduction"
     >
       <div className="pro-world">
-        <svg className="pro-scene" viewBox="0 0 1600 500" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-          <g key={occasion.id} className="pro-scene-g"><Scene id={occasion.id} /></g>
+        <svg className="pro-scene" viewBox="0 0 1600 500" preserveAspectRatio="xMidYMax slice" aria-hidden={phase !== "choose" || undefined}>
+          <Figures.Provider value={figures}>
+            <g key={occasion.id} className="pro-scene-g"><Scene id={occasion.id} /></g>
+          </Figures.Provider>
         </svg>
       </div>
+      {phase === "choose" && menu && (
+        <div
+          className="pro-fig-menu"
+          role="radiogroup"
+          aria-label="Gender expression of this figure"
+          style={{ left: menu.x, top: menu.y }}
+          onPointerEnter={() => clearTimeout(closeT.current)}
+          onPointerLeave={figures.close}
+        >
+          {EXPRS.map(([v, short, long]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              tabIndex={-1}
+              aria-checked={(exprs[menu.k] ?? menu.d) === v}
+              aria-label={long}
+              title={long}
+              onClick={() => figures.set(menu.k, v)}
+            >
+              {short}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="pro-space" aria-hidden="true"><div className="pro-stars" style={{ boxShadow: stars }} /></div>
       <div className="pro-sun" ref={sunRef} aria-hidden="true">
         <img src={`${import.meta.env.BASE_URL}sun_171.webp`} alt="" />
