@@ -29,7 +29,7 @@
 
 export const PRODUCTS = [
   // ── Wall Art & Home Decor ──
-  { id: "canvas_stretched", category: "wall",     name: "Stretched Canvas",    desc: "Canvas on a wooden frame, image wrapping the edges",       icon: "fa-palette",      price: "From $29.99", checkoutPrice: 2999, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 2400, h: 3000 } },
+  { id: "canvas_stretched", category: "wall",     name: "Stretched Canvas",    desc: "Canvas on a wooden frame, image wrapping the edges",       icon: "fa-palette",      price: "From $34.99", checkoutPrice: 3499, blueprintId: 555,  printProviderId: 69,  variantId: 70880, position: "front", aspectRatio: { w: 2400, h: 3000 } },
   { id: "metal_sign", category: "wall",           name: "Metal Art Sign",      desc: "Vibrant aluminum print, ready to hang",     icon: "fa-shield-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 1206, printProviderId: 228, variantId: 91993, position: "front", aspectRatio: { w: 2250, h: 1650 } },
   { id: "acrylic_print", category: "wall",        name: "Acrylic Wall Art",    desc: "High-gloss acrylic panel with standoffs",   icon: "fa-gem",          price: "From $34.99", checkoutPrice: 3499, blueprintId: 1098, printProviderId: 228, variantId: 82057, position: "front", aspectRatio: { w: 2250, h: 1650 } },
   // Curated from 46 catalog sizes to 8 (Gilly, 2026-08-08): square-biased
@@ -113,7 +113,7 @@ export const PRODUCTS = [
   // Glossy; aspectRatio is that variant's real print-area placeholder (1329×2126).
   { id: "phone_case_pixel", category: "desk",     name: "Phone Case (Pixel)",  desc: "Tough snap case — Google Pixel",            icon: "fa-mobile-alt",   price: "From $24.99", checkoutPrice: 2499, blueprintId: 421,  printProviderId: 23,  variantId: 116386, position: "front", aspectRatio: { w: 1329, h: 2126 },
     variantFilter: { sizes: ["Google Pixel 6 Pro","Google Pixel 6","Google Pixel 7","Google Pixel 8 Pro","Google Pixel 8","Google Pixel 9 Pro XL","Google Pixel 9 Pro","Google Pixel 9"] } },
-  { id: "laptop_sleeve", category: "desk",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $24.99", checkoutPrice: 2499, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
+  { id: "laptop_sleeve", category: "desk",        name: "Laptop Sleeve",       desc: "Padded neoprene sleeve, snug fit",          icon: "fa-laptop",       price: "From $27.99", checkoutPrice: 2799, blueprintId: 429,  printProviderId: 1,   variantId: 62037, position: "front", aspectRatio: { w: 4, h: 3 } },
   // Mouse pad's physical print area is a circle, not a square. Same treatment
   // as wall_clock — round frame border in the editor, circular clip on the
   // canvas, and a circular preview in the mockup pane.
@@ -133,7 +133,7 @@ export const PRODUCTS = [
   //                the design can intentionally bridge front+back
   //                (sun-center on the spine, etc.)
   // dualPanelToggle UI sits in the preview pane.
-  { id: "throw_pillow", category: "home",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $22.99", checkoutPrice: 2299, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 }, dualPanel: true, panelAspectRatio: { w: 4650, h: 2325 } },
+  { id: "throw_pillow", category: "home",         name: "Throw Pillow",        desc: "Spun polyester square pillow with insert",  icon: "fa-couch",        price: "From $24.99", checkoutPrice: 2499, blueprintId: 220,  printProviderId: 10,  variantId: 41521, position: "front", aspectRatio: { w: 1, h: 1 }, dualPanel: true, panelAspectRatio: { w: 4650, h: 2325 } },
   { id: "sherpa_blanket", category: "home",       name: "Sherpa Blanket",      desc: "Ultra-soft fleece with sherpa backing",     icon: "fa-cloud",        price: "From $44.99", checkoutPrice: 4499, blueprintId: 238,  printProviderId: 99,  variantId: 41656, position: "front", aspectRatio: { w: 7875, h: 9375 } },
   { id: "shower_curtain", category: "home",       name: "Shower Curtain",      desc: "Polyester shower curtain, vibrant print",   icon: "fa-shower",       price: "From $66.99", checkoutPrice: 6699, blueprintId: 235,  printProviderId: 10,  variantId: 41653, position: "front", aspectRatio: { w: 7104, h: 7392 } },
   { id: "puzzle_1000", category: "gifts",          name: "Jigsaw Puzzle",       desc: "252-piece puzzle in a tin box",             icon: "fa-puzzle-piece",  price: "From $24.99", checkoutPrice: 2499, blueprintId: 532,  printProviderId: 59,  variantId: 68984, position: "front", aspectRatio: { w: 4200, h: 3300 } },
