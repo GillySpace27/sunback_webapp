@@ -201,6 +201,11 @@
     <div class="handoff-card handoff-card--choice">
       <p class="handoff-eyebrow">Your Sun</p>
       <p id="confirmMeta" class="handoff-meta"></p>
+      <!-- Up here, beside the date and wavelength it changes, so it is never
+           below the fold (Gilly, 2026-11-27: no chance to pick a wavelength). -->
+      <div class="handoff-actions">
+        <button type="button" id="confirmEdit" class="handoff-edit">Change date or wavelength</button>
+      </div>
       <p class="handoff-question" id="confirmQuestion">Which look do you want?</p>
 
       <div id="handoffChoicesGroup">
@@ -355,9 +360,6 @@
              visitor has to guess that the four pictures above are the thing
              blocking it (audit in Chrome, 2026-08-26). -->
         <p id="handoffPickHint" class="handoff-submit-hint">Pick one of the four above to continue.</p>
-      </div>
-      <div class="handoff-actions">
-        <button type="button" id="confirmEdit" class="handoff-edit">Change date or color</button>
       </div>
       <!-- Kept for older deep links and for anything still calling the old
            confirm flow; hidden, since the two images above are the action. -->
@@ -1369,6 +1371,15 @@
             <span class="timestamp-pos-label">Offset</span>
             <input type="range" id="timestampOffsetSlider" min="0" max="100" value="0" aria-label="Caption offset from edge">
             <span class="slider-val" id="timestampOffsetVal">0</span>
+          </div>
+          <div class="timestamp-pos-offset" title="Caption size, as a percent of the default.">
+            <span class="timestamp-pos-label">Size</span>
+            <input type="range" id="timestampSizeSlider" min="50" max="250" step="5" value="100" aria-label="Caption size">
+            <span class="slider-val" id="timestampSizeVal">100%</span>
+          </div>
+          <div class="timestamp-pos-offset" title="Caption color.">
+            <span class="timestamp-pos-label">Color</span>
+            <input type="color" id="timestampColorPicker" value="#ffffff" aria-label="Caption color">
           </div>
         </div>
       </div>

@@ -71,6 +71,10 @@ export const state = {
   // 0..30% of the canvas's shorter dimension. Lets users nudge the
   // caption inward when it gets clipped by a corona / mockup bezel.
   timestampVOffset: 0,
+  // Caption size as a percent of the default (50..250) and its color
+  // (Gilly, 2026-11-27: the timestamp had no size or style control).
+  timestampScale: 100,
+  timestampColor: "#ffffff",
   clockNumbers: null, // wall_clock only: { font, color, strokeColor, strokeWidth, size, radiusPct }
   mockups: {},         // { productId: { images: [{src, position, is_default}], printifyProductId } }
   uploadedPrintifyId: null,  // reusable image ID from Printify upload
