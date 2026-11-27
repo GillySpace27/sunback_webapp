@@ -2453,7 +2453,8 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
         # queue like one. Answering here — ahead of the semaphore — is what
         # keeps a repeated ask cheap instead of parking it behind every real
         # render in the queue.
-        cached = _hq_cached_url(dt, wl, mission, detector, integrate)
+        _print_look = "raw" if format_type == "raw" else "rhef"
+        cached = _hq_cached_url(dt, wl, mission, detector, integrate, _print_look)
         if cached:
             with status_lock:
                 tasks[task_id] = {
@@ -2495,8 +2496,9 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
             with status_lock:
                 tasks[task_id] = {"status": "started", "message": "HQ generation started"}
                 log_to_queue(f"[hq-task][{task_id}] Status: started")
-            # format_type ignored for now; only RHEF is produced
-            png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector, integrate)
+            # format "raw" renders the Original print; anything else RHEF.
+            png_url = await asyncio.to_thread(do_generate_sync, dt, wl, mission, detector, integrate,
+                                              _print_look)
         # Check PNG existence
         png_path = os.path.join(OUTPUT_DIR, os.path.basename(png_url.lstrip("/")))
         if os.path.exists(png_path) and os.path.getsize(png_path) > 1000:
@@ -2525,7 +2527,8 @@ async def run_generation_task(task_id: str, date: str, wavelength: str, mission:
             # otherwise a dimensional task would clear the flat entry (or
             # nothing at all) and the dedupe would leak an in-flight slot that
             # never frees.
-            _v = _dim_variant(look, layers or {}) if format_type == "dimensional" else ""
+            _v = (_dim_variant(look, layers or {}) if format_type == "dimensional"
+                  else ("raw" if format_type == "raw" else ""))
             _k = _hq_key(date, wavelength, mission, detector, integrate, _v)
             if _hq_inflight.get(_k) == task_id:
                 _hq_inflight.pop(_k, None)
@@ -2575,7 +2578,7 @@ def _write_rhef_webp_artifacts(data, cmap, vmin, vmax, out_dir, base_name):
 
 
 def _hq_out_name(date: datetime, wavelength: int, mission: str, detector: str,
-                 integrate: bool = False) -> tuple[str, bool]:
+                 integrate: bool = False, look: str = "rhef") -> tuple[str, bool]:
     """The HQ render's cache filename, and whether it is the fixed default tuple.
 
     Extracted from do_generate_sync so the *cheap* question — "has this
@@ -2583,8 +2586,14 @@ def _hq_out_name(date: datetime, wavelength: int, mission: str, detector: str,
     heavy-render semaphore. See _hq_cached_url and run_generation_task."""
     date_str = date.strftime("%Y%m%d")
     integ_suffix = "_integrated" if integrate else ""
+    # Original (look="raw") prints get their own name so they never collide
+    # with the Enhanced render of the same instant. Enhanced keeps the old
+    # names, so every cached Enhanced file stays valid.
+    if look == "raw":
+        integ_suffix += "_raw"
     is_default = (
-        not integrate
+        look != "raw"
+        and not integrate
         and _is_default_tuple(date, wavelength, mission, detector)
         and getattr(date, "hour", 0) == 12 and getattr(date, "minute", 0) == 0
     )
@@ -2594,7 +2603,7 @@ def _hq_out_name(date: datetime, wavelength: int, mission: str, detector: str,
 
 
 def _hq_cached_url(date: datetime, wavelength: int, mission: str, detector: str,
-                   integrate: bool = False) -> Optional[str]:
+                   integrate: bool = False, look: str = "rhef") -> Optional[str]:
     """/asset/... URL if this HQ render is already on disk, else None.
 
     Two stat() calls. do_generate_sync makes exactly the same check as its
@@ -2604,7 +2613,7 @@ def _hq_cached_url(date: datetime, wavelength: int, mission: str, detector: str,
     requests into "QUEUED · 80 AHEAD": a queue made almost entirely of
     no-ops, each of which had to be admitted one at a time before it could
     discover it had nothing to do (Gilly, 2026-08-25)."""
-    out_name, is_default = _hq_out_name(date, wavelength, mission, detector, integrate)
+    out_name, is_default = _hq_out_name(date, wavelength, mission, detector, integrate, look)
     out_path = os.path.join(OUTPUT_DIR, out_name)
     if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
         return f"/asset/{out_name}"
@@ -2615,7 +2624,8 @@ def _hq_cached_url(date: datetime, wavelength: int, mission: str, detector: str,
     return None
 
 
-def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str, integrate: bool = False):
+def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: str, integrate: bool = False,
+                     look: str = "rhef"):
     """
     Generate a HQ PNG using the full RHEF pipeline, caching result if already exists.
     Returns the /asset/... URL path to the PNG.
@@ -2642,7 +2652,7 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     # exception is the fixed landing default (canonically the NOON frame),
     # which keeps a stable, time-less filename (DEFAULT_HQ_FILENAME) so its
     # pre-warmed persistent /var/data PNG still restores across deploys.
-    out_name, _is_default = _hq_out_name(date, wavelength, mission, detector, integrate)
+    out_name, _is_default = _hq_out_name(date, wavelength, mission, detector, integrate, look)
     out_path = os.path.join(OUTPUT_DIR, out_name)
     url_path = f"/asset/{out_name}"
     # If already exists and is non-empty, return its URL (cached)
@@ -2673,6 +2683,18 @@ def do_generate_sync(date: datetime, wavelength: int, mission: str, detector: st
     data = None
     try:
         smap = fido_fetch_map(date, mission, wavelength, detector, integrate=integrate)
+        if look == "raw":
+            # Original print: no RHEF, the same gamma stretch the Original
+            # vibe renders use (_vibe_render_array_to_png, 1/2.2).
+            from matplotlib import pyplot as _plt_raw
+            try:
+                _cmap_raw = _plt_raw.get_cmap(f"sdoaia{wavelength}")
+            except Exception:
+                _cmap_raw = _plt_raw.get_cmap("gray")
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            _vibe_render_array_to_png(smap.data, out_path, _cmap_raw, gamma=_AIA_DISPLAY_GAMMA)
+            log_to_queue(f"[do_generate_sync] Original HQ PNG written: {out_path}")
+            return url_path
         # Apply RHEF filter at full resolution
         try:
             rhef_map = rhef(smap, progress=True)
@@ -2791,7 +2813,8 @@ def _check_ram_headroom(min_free_mb: int = 400) -> None:
 @app.post("/api/generate")
 async def start_generate(request: Request, background_tasks: BackgroundTasks, payload: dict):
     """Start the HQ generation task asynchronously and return a task_id.
-    Optional 'format': 'jpg' | 'raw' | 'rhef' (default rhef). Currently only rhef is implemented.
+    Optional 'format': 'raw' | 'rhef' | 'dimensional' (default rhef). 'raw' is
+    the Original print (no RHEF); 'jpg' is treated as rhef.
     Optional 'time' (HH:MM UTC) gets folded into `date` so the HQ render
     targets the same instant as the preview pipeline."""
     # B5: HQ renders are the most expensive NASA fetch (multi-frame FITS +
@@ -2822,7 +2845,8 @@ async def start_generate(request: Request, background_tasks: BackgroundTasks, pa
     _sky = payload.get("sky") or {}
     layers = {k: bool(_sky.get(k)) for k in _DIM_LAYER_KEYS if k in _sky} \
         if isinstance(_sky, dict) else {}
-    variant = _dim_variant(look, layers) if format_type == "dimensional" else ""
+    variant = (_dim_variant(look, layers) if format_type == "dimensional"
+               else ("raw" if format_type == "raw" else ""))
     if format_type == "dimensional" and int(wavelength) not in _DIM_CHANNELS:
         api_error(400, E_BAD_REQUEST,
                   f"{wavelength} A is not available as a dimensional print")
