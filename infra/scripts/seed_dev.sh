@@ -50,7 +50,8 @@ if find "$STAGE" \( -iname 'feedback*' -o -iname 'approved_catalog*' -o -iname '
   exit 64
 fi
 [ -f "$STAGE/default_cache/default_mockups.json" ] || { echo "seed_dev: no default_mockups.json to seed" >&2; exit 1; }
-tar czf "$STAGE/seed.tgz" -C "$STAGE" default_cache
+# COPYFILE_DISABLE: macOS bsdtar would add AppleDouble ._ entries.
+COPYFILE_DISABLE=1 tar czf "$STAGE/seed.tgz" -C "$STAGE" default_cache
 files="$(find "$STAGE/default_cache" -type f | wc -l | tr -d ' ')"
 echo "seed_dev: staged $files files for $APP from $MIRROR${FROM:+ and the manifests in $FROM}"
 if [ "${GO:-0}" != "1" ]; then
