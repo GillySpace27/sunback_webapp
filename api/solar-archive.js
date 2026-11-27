@@ -16523,3 +16523,42 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       renderProducts:        renderProducts,
       showToast:             showToast,
     });
+
+// HOLIDAY-BANNER-BEGIN (self-contained; api/scripts/test_holiday_banner.mjs reads this block)
+// Date-gated banner. Windows are America/Denver wall-clock strings, compared as
+// strings. Hidden outside every window. ?bannerNow=YYYY-MM-DDTHH:MM:SS overrides
+// the clock for checking. Text goes in with textContent only.
+(function () {
+  var WINDOWS = [
+    { from: "2026-11-27T00:00:00", to: "2026-12-04T23:59:59",
+      text: "20% off everything through Friday, Dec 4. Order by then for Christmas delivery in the US." },
+    { from: "2026-12-05T00:00:00", to: "2026-12-24T23:59:59",
+      text: "Too late for a print by Christmas? Give a gift card and let them choose their day." },
+  ];
+  function denverNow(date) {
+    var p = {};
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Denver", hourCycle: "h23", year: "numeric", month: "2-digit",
+      day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    }).formatToParts(date).forEach(function (x) { p[x.type] = x.value; });
+    return p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
+  }
+  function bannerTextFor(now) {
+    for (var i = 0; i < WINDOWS.length; i++) {
+      if (now >= WINDOWS[i].from && now <= WINDOWS[i].to) return WINDOWS[i].text;
+    }
+    return null;
+  }
+  function showHolidayBanner() {
+    var el = document.getElementById("holidayBanner");
+    if (!el) return;
+    var now = null;
+    try { now = new URLSearchParams(location.search).get("bannerNow"); } catch (e) {}
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(now || "")) now = denverNow(new Date());
+    var text = bannerTextFor(now);
+    if (text) { el.textContent = text; el.hidden = false; } else { el.hidden = true; }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showHolidayBanner);
+  else showHolidayBanner();
+})();
+// HOLIDAY-BANNER-END
