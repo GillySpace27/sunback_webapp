@@ -184,13 +184,16 @@ body {
      into the empty lower-left so it never lands on any of them */
   .overlay-line--climax {
     justify-self: start;
-    align-self: end;
     text-align: left;
     /* was 10ch (~80px): "Held still. Made to keep." set one word per line,
        stacked down the middle of the print it is describing. See the note on
        .overlay-line above. */
-    max-width: 15rem;
-    margin: 0 0 24vh 5vw;
+    max-width: 20rem;
+    /* Top-anchored, not bottom: the HUD (date row, look toggle, print button)
+       fills the lower ~40% of the frame, and the headline sat on its date row
+       at 1224x853. */
+    align-self: start;
+    margin: 12vh 0 0 5vw;
   }
 }
 /* "Choose your wavelength." sits off to the side, clear of the color wheel,
@@ -936,6 +939,9 @@ body {
   background: rgba(10, 9, 8, 0.64);
   transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base);
 }
+/* The intro has its own Skip; keep this one out until the intro has faded. */
+body:has(.prologue) .skip-store { opacity: 0; pointer-events: none; }
+.skip-store { transition: opacity var(--dur-base), background var(--dur-base), border-color var(--dur-base), color var(--dur-base); }
 .skip-store:hover {
   background: var(--ink);
   color: var(--bg); /* == store text-on-gold ink, unified 2026-08-17 */
@@ -1699,6 +1705,8 @@ body {
 .prologue:is([data-phase="pan"], [data-phase="fly"], [data-phase="arrive"]) .pro-caption { top: 74%; }
 .pro-caption span { animation: pro-in 1s ease both; font-family: var(--serif); font-size: clamp(1.5rem, 3.6vw, 2.6rem); line-height: 1.2; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45); }
 .pro-caption .pro-date { font-family: var(--sans); font-size: var(--fs-label); letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink); opacity: 0.9; animation-delay: 0.6s; }
+.pro-caption .pro-note { display: block; margin-top: 0.6rem; font-family: var(--sans); font-size: var(--fs-label); line-height: 1.4; max-width: 34rem; margin-inline: auto; opacity: 0.9; animation-delay: 1.2s; }
+.pro-note-live { opacity: 1; font-weight: 600; }
 .pro-picker {
   position: absolute; left: 0; right: 0; margin: 0 auto; top: max(4rem, 8%); width: min(40rem, calc(100% - 2rem));
   display: flex; flex-direction: column; align-items: center; gap: 0.9rem; text-align: center; animation: pro-in 0.9s ease both;
