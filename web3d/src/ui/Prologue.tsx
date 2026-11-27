@@ -221,14 +221,17 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
   // The archive's real frontier can land after first paint and pull maxDate
   // in under a default the picker already holds; follow it, as the store does.
   // When the typed day is moved, say so (title card and the later date control).
+  // The note shows only when the visitor's own typed date was moved, not when
+  // the default date follows the frontier before they have touched it.
   const [note, setNote] = useState("");
+  const typed = useRef(false);
   useEffect(() => {
     if (date && date > maxDate) {
       setDate(maxDate);
-      setNote(`The observatory’s archive runs about a week behind; the newest Sun we can print is ${shortDate(maxDate)}.`);
+      if (typed.current) setNote(`The observatory’s archive runs about a week behind; the newest Sun we can print is ${shortDate(maxDate)}.`);
     } else if (date && date < minDate) {
       setDate(minDate);
-      setNote(`Our Sun images begin ${shortDate(minDate)}, so we started there.`);
+      if (typed.current) setNote(`Our Sun images begin ${shortDate(minDate)}, so we started there.`);
     }
   }, [date, minDate, maxDate]);
   const [phase, setPhase] = useState<Phase>("choose");
@@ -375,7 +378,7 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
           <div className="pro-row">
             <label className="pro-when">
               <span>When?</span>
-              <input type="date" value={date} min={minDate} max={maxDate} onChange={(e) => { setNote(""); setDate(e.target.value); }} onKeyDown={stop} />
+              <input type="date" value={date} min={minDate} max={maxDate} onChange={(e) => { typed.current = true; setNote(""); setDate(e.target.value); }} onKeyDown={stop} />
             </label>
             <button type="button" className="pro-begin" disabled={!valid} onClick={begin}>
               Begin

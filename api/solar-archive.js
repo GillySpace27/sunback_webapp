@@ -9225,7 +9225,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           // of the image whether the canvas is 512px preview or 1536px
           // HQ).
           var tsRefH = Math.min(cw, ch);
-          var tsSize = Math.max(11, Math.round(tsRefH * 0.028));
+          var tsScale = Math.max(50, Math.min(250, state.timestampScale || 100)) / 100;
+          var tsSize = Math.max(8, Math.round(Math.max(11, tsRefH * 0.028) * tsScale));
           var tsInset = Math.max(8, Math.round(tsRefH * 0.025));
           ctx.font = "500 " + tsSize + "px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif";
           // Position resolves to one of six anchors (top|bottom × left|center|right).
@@ -9250,7 +9251,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           ctx.shadowBlur = Math.max(2, Math.round(tsSize * 0.2));
           ctx.shadowOffsetX = 0;
           ctx.shadowOffsetY = 1;
-          ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+          ctx.globalAlpha = 0.92;
+          ctx.fillStyle = /^#[0-9a-f]{6}$/i.test(state.timestampColor || "") ? state.timestampColor : "#ffffff";
           ctx.fillText(tsText, tsX, tsY);
           ctx.restore();
         }
@@ -10672,6 +10674,28 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       tsOffsetSlider.addEventListener("input", function() {
         state.timestampVOffset = parseInt(tsOffsetSlider.value, 10) || 0;
         tsOffsetValEl.textContent = state.timestampVOffset;
+        renderCanvas();
+        scheduleMockupRefresh();
+      });
+    }
+    // Caption size (50..250% of the default) and color.
+    var tsSizeSlider = document.getElementById("timestampSizeSlider");
+    var tsSizeValEl = document.getElementById("timestampSizeVal");
+    if (tsSizeSlider && tsSizeValEl) {
+      tsSizeSlider.value = state.timestampScale || 100;
+      tsSizeValEl.textContent = tsSizeSlider.value + "%";
+      tsSizeSlider.addEventListener("input", function() {
+        state.timestampScale = parseInt(tsSizeSlider.value, 10) || 100;
+        tsSizeValEl.textContent = state.timestampScale + "%";
+        renderCanvas();
+        scheduleMockupRefresh();
+      });
+    }
+    var tsColorPicker = document.getElementById("timestampColorPicker");
+    if (tsColorPicker) {
+      tsColorPicker.value = state.timestampColor || "#ffffff";
+      tsColorPicker.addEventListener("input", function() {
+        state.timestampColor = tsColorPicker.value;
         renderCanvas();
         scheduleMockupRefresh();
       });
@@ -13017,6 +13041,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           timestampStamp: state.timestampStamp,
           timestampPos: state.timestampPos,
           timestampVOffset: state.timestampVOffset,
+          timestampScale: state.timestampScale,
+          timestampColor: state.timestampColor,
           _savedAt: Date.now(),
         };
         localStorage.setItem(_STATE_PERSIST_KEY, JSON.stringify(snap));
@@ -13113,7 +13139,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         // user last put it.
         ["cropZoom","brightness","contrast","saturation","hue",
          "vignette","vignetteWidth","rotation","inverted","cropRatio",
-         "vibeMasterTier","timestampPos","timestampVOffset"
+         "vibeMasterTier","timestampPos","timestampVOffset",
+         "timestampScale","timestampColor"
         ].forEach(function (k) {
           if (_snap[k] !== undefined && _snap[k] !== null) state[k] = _snap[k];
         });
@@ -15538,10 +15565,11 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         // stop is the editor, not the image step.
         else if (state.originalImage) continueBtn.textContent = "Open the editor";
         else continueBtn.textContent = "Continue to image";
-        // When buying is on the table it takes the primary style and the
-        // editor steps back to secondary.
-        continueBtn.classList.toggle("confirm-modal-btn-primary", !_canBuyNow);
-        continueBtn.classList.toggle("confirm-modal-btn-secondary", _canBuyNow);
+        // The editor keeps full button styling beside "Add to cart": half of
+        // the store's tools live there, and as a ghost button it read as
+        // disabled (Gilly, 2026-11-27).
+        continueBtn.classList.add("confirm-modal-btn-primary");
+        continueBtn.classList.remove("confirm-modal-btn-secondary");
       }
       // The "what happens next" note below the button must agree with it.
       var nextNoteEl = document.getElementById("confirmSelectNextNote");

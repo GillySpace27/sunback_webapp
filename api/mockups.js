@@ -128,6 +128,8 @@ const ROMAN_NUMERALS = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "I
         state.timestampStamp ? 1 : 0,
         state.timestampPos || "",
         state.timestampVOffset || 0,
+        state.timestampScale || 100,
+        state.timestampColor || "",
         (document.getElementById("solarDate") && document.getElementById("solarDate").value) || "",
         state.wavelength || 0,
         // Every property that changes the drawn text's geometry or style

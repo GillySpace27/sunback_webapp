@@ -8459,3 +8459,22 @@ a.confirm-modal-btn.hidden { display: none; }
   opacity: 0.8;
   text-align: center;
 }
+
+/* "Which look do you want?" must fit the screen (Gilly, 2026-11-27: cut off
+   top and bottom). A centered flex box with no overflow clips both ends when
+   the card is taller than the viewport, which also hid "Change date or
+   wavelength". Scroll instead, center only when it fits, and size the quad by
+   the viewport height so it usually fits outright. */
+.handoff-overlay { overflow-y: auto; align-items: flex-start; padding-top: 3vh; padding-bottom: 3vh; }
+.handoff-overlay > .handoff-card { margin: auto 0; }
+.handoff-quad { width: min(100%, calc(40vh + 100px)); margin-inline: auto; }
+.handoff-card--choice { gap: 0.6rem; }
+.handoff-edit {
+  padding: 0.45rem 0.95rem;
+  border: 1px solid var(--handoff-text-dim);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--handoff-text);
+  cursor: pointer;
+}
+
