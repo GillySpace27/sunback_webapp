@@ -13509,10 +13509,15 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       if (state.rhefImage || state.rawBackendImage) return "mq_ready";
       return "jpg_only";
     }
+    // The look the print is rendered in: Original ("raw") or Enhanced
+    // ("rhef"). The jpg tier is the Original look still loading.
+    function _printLook() {
+      return (state.editorFilter === "raw" || state.editorFilter === "jpg") ? "raw" : "rhef";
+    }
     function _integratedHqCacheKeyForSelection() {
       var dateStr = (typeof dateInput !== "undefined" && dateInput && dateInput.value) ? dateInput.value : "";
       if (!dateStr || !state.wavelength) return null;
-      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength;
+      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength + "_" + _printLook();
     }
     function _integratedHqReadyForCurrentSelection() {
       try {
@@ -14792,7 +14797,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     function _ensureIntegratedHqUrl(dateStr) {
       var wl = state.wavelength;
       var t = _solarTimeValue();
-      var cacheKey = dateStr + "T" + t + "_" + wl;
+      var look = _printLook();
+      var cacheKey = dateStr + "T" + t + "_" + wl + "_" + look;
       var entry = _integratedHqCache[cacheKey];
       if (entry && entry.url) return Promise.resolve(entry.url);
       if (entry && entry.promise) {
@@ -14809,7 +14815,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         wavelength: wl,
         mission: "SDO",
         detector: "AIA",
-        format: "rhef",
+        format: look,
         integrate: true
       }, 180000).then(function (res) {
         if (!res.task_id || !res.status_url) throw new Error("integrated HQ task failed to start");
@@ -14947,7 +14953,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     // {base64} when the browser had to. Always resolves.
     function _resolveCheckoutPrintSource(dateStr) {
       var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
-      var sourcePromise = (isWarmVibe && state.hqReady && state.hqImageUrl)
+      var sourcePromise = (isWarmVibe && state.hqReady && state.hqImageUrl && _printLook() === "rhef")
         ? Promise.resolve(state.hqImageUrl)
         : _ensureIntegratedHqUrl(dateStr);
       return sourcePromise.then(function (srcUrl) {
@@ -14963,7 +14969,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
 
     function _getCheckoutImageBase64(dateStr) {
       var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
-      if (isWarmVibe && state.hqReady && state.hqImageUrl) {
+      var enhanced = _printLook() === "rhef";
+      if (enhanced && isWarmVibe && state.hqReady && state.hqImageUrl) {
         return _loadHqAndExport(state.hqImageUrl);
       }
       return _ensureIntegratedHqUrl(dateStr).then(function (integratedUrl) {
@@ -14975,7 +14982,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         // the best image we already have so checkout still completes, and
         // say so rather than silently shipping a lesser print.
         markCheckoutStep("ckStep1", "active", "Full-quality render unavailable — using the best available image…");
-        if (state.hqReady && state.hqImageUrl) return _loadHqAndExport(state.hqImageUrl);
+        if (enhanced && state.hqReady && state.hqImageUrl) return _loadHqAndExport(state.hqImageUrl);
         return getCanvasBase64();
       });
     }
@@ -15000,17 +15007,25 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         var prevFmt = state.editorFilter;
         var prevHqImg = state.hqFilterImage;
         var prevHqFormat = state.hqFormat;
-        state.hqFilterImage = hqImg;
-        state.hqFormat = "rhef";
-        state.editorFilter = "hq_rhef";
+        var prevRawImg = state.rawBackendImage;
+        if (_printLook() === "raw") {
+          // Original print: draw the HQ Original through the raw tier.
+          state.rawBackendImage = hqImg;
+          state.editorFilter = "raw";
+        } else {
+          state.hqFilterImage = hqImg;
+          state.hqFormat = "rhef";
+          state.editorFilter = "hq_rhef";
+        }
         var b64;
         try {
           b64 = getCanvasBase64();   // sets _fullResRender + renders internally
         } finally {
-          // Restore — user keeps editing the preview canvas at its own tier.
+          // Restore: user keeps editing the preview canvas at its own tier.
           state.editorFilter = prevFmt;
           state.hqFilterImage = prevHqImg;
           state.hqFormat = prevHqFormat;
+          state.rawBackendImage = prevRawImg;
           renderCanvas();
         }
         return b64;
