@@ -8432,3 +8432,30 @@ a.confirm-modal-btn.hidden { display: none; }
 @media (max-width: 600px) {
   .holiday-banner { padding: 6px 12px; font-size: 0.8rem; }
 }
+
+/* "What you see is not what you picked" notice (_lookNotice). */
+.selected-product-preview .preview-mockup { position: relative; }
+.look-notice {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 3;
+  max-width: calc(100% - 16px);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.look-notice--inline {
+  position: static;
+  display: block;
+  max-width: none;
+  margin: 0 auto 10px;
+  background: none;
+  color: inherit;
+  opacity: 0.8;
+  text-align: center;
+}

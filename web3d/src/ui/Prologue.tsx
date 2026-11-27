@@ -178,9 +178,16 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
   const [date, setDate] = useState(() => useStore.getState().date || maxDate);
   // The archive's real frontier can land after first paint and pull maxDate
   // in under a default the picker already holds; follow it, as the store does.
+  // When the typed day is moved, say so (title card and the later date control).
+  const [note, setNote] = useState("");
   useEffect(() => {
-    if (date && date > maxDate) setDate(maxDate);
-    else if (date && date < minDate) setDate(minDate);
+    if (date && date > maxDate) {
+      setDate(maxDate);
+      setNote(`The observatory’s archive runs about a week behind; the newest Sun we can print is ${shortDate(maxDate)}.`);
+    } else if (date && date < minDate) {
+      setDate(minDate);
+      setNote(`Our Sun images begin ${shortDate(minDate)}, so we started there.`);
+    }
   }, [date, minDate, maxDate]);
   const [phase, setPhase] = useState<Phase>("choose");
   const [caption, setCaption] = useState("");
@@ -222,6 +229,7 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
   const begin = () => {
     const st = useStore.getState();
     if (date) st.setDate(date);
+    if (note) useStore.setState({ dateRejectReason: note });
     SCRIPT.forEach(([at, p, text]) => {
       timers.current.push(window.setTimeout(() => {
         setPhase(p);
@@ -259,6 +267,7 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
       <p className="pro-caption" aria-live="polite">
         {caption && <span key={caption}>{caption}</span>}
         {phase === "name" && valid && <span className="pro-date" key={"d" + date}>{longDate(date)}</span>}
+        {phase === "name" && valid && note && <span className="pro-note" key="n">{note}</span>}
       </p>
 
       {phase === "choose" && (
@@ -281,13 +290,14 @@ export default function Prologue({ onDone }: { onDone: () => void }) {
           <div className="pro-row">
             <label className="pro-when">
               <span>When?</span>
-              <input type="date" value={date} min={minDate} max={maxDate} onChange={(e) => setDate(e.target.value)} onKeyDown={stop} />
+              <input type="date" value={date} min={minDate} max={maxDate} onChange={(e) => { setNote(""); setDate(e.target.value); }} onKeyDown={stop} />
             </label>
             <button type="button" className="pro-begin" disabled={!valid} onClick={begin}>
               Begin
             </button>
           </div>
-          <p className="pro-range">Any day since {shortDate(minDate)}, when NASA’s Solar Dynamics Observatory began its watch.</p>
+          {note && <p className="pro-range pro-note-live" role="status">{note}</p>}
+          <p className="pro-range">Any day from {shortDate(minDate)} to {shortDate(maxDate)}. The observatory’s archive runs about a week behind.</p>
         </div>
       )}
 

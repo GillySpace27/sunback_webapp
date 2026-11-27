@@ -2604,10 +2604,49 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     function _noteObsUtc(data) {
       _obsUtc = (data && typeof data.obs_time_utc === "string") ? data.obs_time_utc : null;
     }
+    // A small on-image notice for "what you see is not what you picked":
+    // Enhanced still rendering or unavailable, or an example Sun from another
+    // date. text falsy removes it. inline: a line below the image instead of
+    // a badge over it.
+    function _lookNotice(container, kind, text, inline) {
+      if (!container) return;
+      var el = null;
+      for (var i = 0; i < container.children.length; i++) {
+        if (container.children[i].getAttribute("data-look-notice") === kind) { el = container.children[i]; break; }
+      }
+      if (!text) { if (el) el.remove(); return; }
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "look-notice" + (inline ? " look-notice--inline" : "");
+        el.setAttribute("data-look-notice", kind);
+        el.setAttribute("role", "status");
+        container.appendChild(el);
+      }
+      if (el.textContent !== text) el.textContent = text;
+    }
+    // Editor canvas: Enhanced picked but the Enhanced image is not what is
+    // drawn. Uses the image _renderCanvasInner last drew, so the caption and
+    // badge describe the pixels, not the selection.
+    function _syncEnhancedNotice() {
+      var f = state.editorFilter;
+      var want = (f === "rhef" || f === "hq_rhef");
+      var text = null;
+      if (want && !state._drawnEnhanced) {
+        text = state.rhefFetching
+          ? "Showing Original while Enhanced renders"
+          : "Enhanced isn't ready for this date. Showing Original.";
+      }
+      // imageStage is the canvas; in single-preview mode (the default) the
+      // visible image is the product preview, so badge that too.
+      _lookNotice(document.getElementById("imageStage"), "enhanced", text);
+      _lookNotice(document.querySelector("#selectedProductPreview .preview-mockup"), "enhanced", text);
+    }
     function _syncObservationCard() {
       if (!_obsFacts) return;
+      var _look = state.editorFilter;
+      if ((_look === "rhef" || _look === "hq_rhef") && !state._drawnEnhanced) _look = "raw";
       var f = { wavelength: _obsFacts.wavelength, date: _obsFacts.date,
-                time: _solarTimeValue(), look: state.editorFilter, observed: _obsUtc };
+                time: _solarTimeValue(), look: _look, observed: _obsUtc };
       try {
         renderObservationCard(document.getElementById("observationCard"), f);
         if (solarCanvas) solarCanvas.setAttribute("aria-label", canvasLabel(f));
@@ -2997,7 +3036,29 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       }
     }
 
+    // Wavelength tiles: only archive dates have pre-rendered Enhanced thumbs;
+    // every other date shows Original tiles even with Enhanced selected.
+    function _syncTileNotice() {
+      if (!wlGrid || !wlGrid.parentElement) return;
+      var d = dateInput && dateInput.value;
+      var show = false;
+      if (state.vibeMasterTier === "rhef" && d) {
+        show = !Object.keys(_wlThumbCacheIndex).some(function (k) { return k.indexOf("rhef/" + d + "/") === 0; });
+      }
+      var el = document.getElementById("lookTileNotice");
+      if (!show) { if (el) el.remove(); return; }
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "lookTileNotice";
+        el.className = "look-notice look-notice--inline";
+        el.setAttribute("role", "status");
+        el.textContent = "Tiles show Original. Enhanced appears after you pick a color.";
+        wlGrid.insertAdjacentElement("afterend", el);
+      }
+    }
+
     function loadWavelengthThumbnails() {
+      try { _syncTileNotice(); } catch (_eTn) {}
       updateWavelengthSectionDateState();
       var dateVal = (dateInput && dateInput.value) ? String(dateInput.value).trim() : "";
       // No fallback: tiles only load after the user explicitly picks a date.
@@ -7866,6 +7927,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       return m + "m " + (s < 10 ? "0" : "") + s + "s";
     }
     function updateRhefLoadingUI() {
+      _syncEnhancedNotice();
       var el = document.getElementById("filterLoadingIndicator");
       // HQ ETA: stamp start the first tick we see hqFetching flip on,
       // clear it when we see it flip off.
@@ -8768,6 +8830,10 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         else img = state.rhefImage || state.jpgImage || state.originalImage;
       }
       else img = state.originalImage;
+      var _wasEnh = state._drawnEnhanced;
+      state._drawnEnhanced = !!img && (img === state.rhefImage || img === state.hqFilterImage);
+      _syncEnhancedNotice();
+      if (_wasEnh !== state._drawnEnhanced) _syncObservationCard();
       var ctx = solarCanvas.getContext("2d");
 
       var ref = state.originalImage;
@@ -12734,7 +12800,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           // keys in main.py), so the grid reads as a varied gallery rather
           // than 36 copies of one Sun.
           var realImg = new Image();
-          realImg.alt = p.name + " mockup";
+          realImg.alt = p.name + " with an example Sun";
           realImg.loading = "lazy";
           realImg.style.width = "100%";
           realImg.style.height = "100%";
@@ -12748,6 +12814,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
           realPreviewEl.innerHTML = "";
           realPreviewEl.appendChild(realImg);
           _addIconBadge(realPreviewEl, p.icon);
+          // The photo shows an archive Sun, not the visitor's date. Say so.
+          _lookNotice(realPreviewEl, "example", state.originalImage ? "Example Sun. Yours on the next step." : "Example Sun");
         } else if (state.originalImage && solarCanvas.width > 0) {
           var miniCanvas = document.createElement("canvas");
           miniCanvas.width = 160;
@@ -13441,10 +13509,15 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
       if (state.rhefImage || state.rawBackendImage) return "mq_ready";
       return "jpg_only";
     }
+    // The look the print is rendered in: Original ("raw") or Enhanced
+    // ("rhef"). The jpg tier is the Original look still loading.
+    function _printLook() {
+      return (state.editorFilter === "raw" || state.editorFilter === "jpg") ? "raw" : "rhef";
+    }
     function _integratedHqCacheKeyForSelection() {
       var dateStr = (typeof dateInput !== "undefined" && dateInput && dateInput.value) ? dateInput.value : "";
       if (!dateStr || !state.wavelength) return null;
-      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength;
+      return dateStr + "T" + _solarTimeValue() + "_" + state.wavelength + "_" + _printLook();
     }
     function _integratedHqReadyForCurrentSelection() {
       try {
@@ -14144,6 +14217,14 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         return;
       }
 
+      if (isFiltered && !state.rhefImage && !(state.hqFilterImage && state.hqFormat)) {
+        // Capturing now would upload the Original canvas as the Enhanced
+        // print photo. Wait for the Enhanced image instead.
+        mockupStatus.innerHTML = '<span style="font-size:12px;"><i class="fas fa-hourglass-half"></i> ' +
+          'Enhanced mockups appear once the Enhanced image is ready.</span>';
+        _settle(null);
+        return;
+      }
       // For filtered mockups, temporarily render using the best available filtered image.
       // Switch the canvas to RHEF/HQ if the user is NOT already on it (e.g. still on "jpg" or
       // "raw"), capture the pixels, then restore.  If RHEF isn't available yet, fall through
@@ -14716,7 +14797,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     function _ensureIntegratedHqUrl(dateStr) {
       var wl = state.wavelength;
       var t = _solarTimeValue();
-      var cacheKey = dateStr + "T" + t + "_" + wl;
+      var look = _printLook();
+      var cacheKey = dateStr + "T" + t + "_" + wl + "_" + look;
       var entry = _integratedHqCache[cacheKey];
       if (entry && entry.url) return Promise.resolve(entry.url);
       if (entry && entry.promise) {
@@ -14733,7 +14815,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         wavelength: wl,
         mission: "SDO",
         detector: "AIA",
-        format: "rhef",
+        format: look,
         integrate: true
       }, 180000).then(function (res) {
         if (!res.task_id || !res.status_url) throw new Error("integrated HQ task failed to start");
@@ -14871,7 +14953,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
     // {base64} when the browser had to. Always resolves.
     function _resolveCheckoutPrintSource(dateStr) {
       var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
-      var sourcePromise = (isWarmVibe && state.hqReady && state.hqImageUrl)
+      var sourcePromise = (isWarmVibe && state.hqReady && state.hqImageUrl && _printLook() === "rhef")
         ? Promise.resolve(state.hqImageUrl)
         : _ensureIntegratedHqUrl(dateStr);
       return sourcePromise.then(function (srcUrl) {
@@ -14887,7 +14969,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
 
     function _getCheckoutImageBase64(dateStr) {
       var isWarmVibe = !!(state.activeVibeSlug && state.activeVibeSlug !== "birthday");
-      if (isWarmVibe && state.hqReady && state.hqImageUrl) {
+      var enhanced = _printLook() === "rhef";
+      if (enhanced && isWarmVibe && state.hqReady && state.hqImageUrl) {
         return _loadHqAndExport(state.hqImageUrl);
       }
       return _ensureIntegratedHqUrl(dateStr).then(function (integratedUrl) {
@@ -14899,7 +14982,7 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         // the best image we already have so checkout still completes, and
         // say so rather than silently shipping a lesser print.
         markCheckoutStep("ckStep1", "active", "Full-quality render unavailable — using the best available image…");
-        if (state.hqReady && state.hqImageUrl) return _loadHqAndExport(state.hqImageUrl);
+        if (enhanced && state.hqReady && state.hqImageUrl) return _loadHqAndExport(state.hqImageUrl);
         return getCanvasBase64();
       });
     }
@@ -14924,17 +15007,25 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
         var prevFmt = state.editorFilter;
         var prevHqImg = state.hqFilterImage;
         var prevHqFormat = state.hqFormat;
-        state.hqFilterImage = hqImg;
-        state.hqFormat = "rhef";
-        state.editorFilter = "hq_rhef";
+        var prevRawImg = state.rawBackendImage;
+        if (_printLook() === "raw") {
+          // Original print: draw the HQ Original through the raw tier.
+          state.rawBackendImage = hqImg;
+          state.editorFilter = "raw";
+        } else {
+          state.hqFilterImage = hqImg;
+          state.hqFormat = "rhef";
+          state.editorFilter = "hq_rhef";
+        }
         var b64;
         try {
           b64 = getCanvasBase64();   // sets _fullResRender + renders internally
         } finally {
-          // Restore — user keeps editing the preview canvas at its own tier.
+          // Restore: user keeps editing the preview canvas at its own tier.
           state.editorFilter = prevFmt;
           state.hqFilterImage = prevHqImg;
           state.hqFormat = prevHqFormat;
+          state.rawBackendImage = prevRawImg;
           renderCanvas();
         }
         return b64;
@@ -15650,6 +15741,8 @@ import { canvasLabel, renderObservationCard } from "./observation_card.js";
             : { fallbackSrc: _ensureDefaultRhefImage() };
           drawProductMockup(mctx, product.id, srcW, srcH, variant, _mkOpts);
           mockupEl.appendChild(c);
+          _lookNotice(mockupEl.parentElement, "example-confirm",
+            hasUserImg ? null : "Example Sun from 24 Oct 2014. Pick a date to see yours.", true);
         } catch (e) {
           mockupEl.classList.add("empty");
         }
